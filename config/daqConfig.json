@@ -1,0 +1,28 @@
+{
+  "default": {
+    "index": 0,
+    "name": "Diode",
+    "driver": "keysight53230A",
+    "visa": "USB::0x0957::0x1907::INSTR",
+    "address": "169.254.2.30",
+    "port": 5025,
+    "simulation": true
+  },
+  "adc": {
+    "index": 1,
+    "name": "ADC",
+    "driver": "keysightU2356A",
+    "visa": "USB::0x0957::0x1418::INSTR",
+    "channel": 101,
+    "name": "dummy",
+    "simulation": true
+  },
+  "ccd": {
+    "index": 2,
+    "name": "CCD",
+    "driver": "fccd_control",
+    "address": "131.243.73.179",
+    "port": 49206,
+    "simulation": true
+  }
+}

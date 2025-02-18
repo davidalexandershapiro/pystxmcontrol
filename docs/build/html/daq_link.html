@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daq Device &mdash; pystxmcontrol 0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=2709fde1"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Scans" href="scan_link.html" />
+    <link rel="prev" title="Motor Device" href="motor_link.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pystxmcontrol
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="readme_link.html">README</a></li>
+<li class="toctree-l1"><a class="reference internal" href="controller_link.html">Controller Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="motor_link.html">Motor Device</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Daq Device</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#setting-up-a-daq-device">setting up a daq device</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuring-a-daq-device">configuring a daq device</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-a-daq-device-with-a-hardware-trigger">using a daq device with a hardware trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pystxmcontrol</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Daq Device</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/daq_link.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="daq-device">
+<h1>Daq Device<a class="headerlink" href="#daq-device" title="Link to this heading"></a></h1>
+<section id="setting-up-a-daq-device">
+<h2>setting up a daq device<a class="headerlink" href="#setting-up-a-daq-device" title="Link to this heading"></a></h2>
+<p>In pystxmcontrol, a daq is anything that can be configured to return data either one value at a time or as a sequence of values.
+It’s abstract class thus only requires three methods: config, getPoint (a single value) and getLine (a sequence) as shown here:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">abc</span> <span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+
+<span class="k">class</span> <span class="nc">daq</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">simulation</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+        <span class="nb">super</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">simulation</span> <span class="o">=</span> <span class="n">simulation</span>
+
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">getPoint</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">scan</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">getLine</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dwell</span><span class="p">,</span> <span class="n">points</span><span class="p">,</span> <span class="n">mode</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+</pre></div>
+</div>
+<p>An example from an actual daq class which interfaces with a Keysight 53230A counter is shown here:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>    <span class="k">def</span> <span class="nf">getPoint</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulation</span><span class="p">:</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dwell</span> <span class="o">/</span> <span class="mf">1000.</span><span class="p">)</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">poisson</span><span class="p">(</span><span class="mf">1e7</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">dwell</span> <span class="o">/</span> <span class="mf">1000.</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">counter</span><span class="o">.</span><span class="n">getPoint</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">data</span>
+</pre></div>
+</div>
+<p>This code simply executes the getPoint() method of the daq controller shown here:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>    <span class="k">def</span> <span class="nf">getPoint</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;INIT:IMM&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;*TRG&quot;</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">ask</span><span class="p">(</span><span class="s2">&quot;FETC?&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>In this case, the daq controller is sending SCPI commands to the counter using the usbtmc module.</p>
+</section>
+<section id="configuring-a-daq-device">
+<h2>configuring a daq device<a class="headerlink" href="#configuring-a-daq-device" title="Link to this heading"></a></h2>
+<p>daq devices, like motors, are also configured using a JSON file.  Here is an example that defines
+three daq devices, the default device and two others, an ADC and a CCD.  Each device requires it’s
+own daq driver definitioin.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+  <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">&quot;index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Diode&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="s2">&quot;keysight53230A&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;visa&quot;</span><span class="p">:</span> <span class="s2">&quot;USB::0x0957::0x1907::INSTR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;address&quot;</span><span class="p">:</span> <span class="s2">&quot;169.254.2.30&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="mi">5025</span><span class="p">,</span>
+    <span class="s2">&quot;simulation&quot;</span><span class="p">:</span> <span class="n">true</span>
+  <span class="p">},</span>
+  <span class="s2">&quot;adc&quot;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">&quot;index&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;ADC&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="s2">&quot;keysightU2356A&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;visa&quot;</span><span class="p">:</span> <span class="s2">&quot;USB::0x0957::0x1418::INSTR&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="mi">101</span><span class="p">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;dummy&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;simulation&quot;</span><span class="p">:</span> <span class="n">true</span>
+  <span class="p">},</span>
+  <span class="s2">&quot;ccd&quot;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">&quot;index&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;CCD&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="s2">&quot;fccd_control&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;address&quot;</span><span class="p">:</span> <span class="s2">&quot;131.243.73.179&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;port&quot;</span><span class="p">:</span> <span class="mi">49206</span><span class="p">,</span>
+    <span class="s2">&quot;simulation&quot;</span><span class="p">:</span> <span class="n">true</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The only device which is automatically integrated into pystxmcontrol (at the GUI and scan level) is the default device.  The monitor thread managed by the server will poll the values of the default device periodically.  The update rate of that polling can be set in the main.json config file.  The other devices can be used by custom scan routines or custom gui displays but that is not currently automated.</p>
+</section>
+<section id="using-a-daq-device-with-a-hardware-trigger">
+<h2>using a daq device with a hardware trigger<a class="headerlink" href="#using-a-daq-device-with-a-hardware-trigger" title="Link to this heading"></a></h2>
+<p>It is often necessary to closely synchronize motor motion with data acquisition.  pystxmcontrol achieves this with the combination of three elements:</p>
+<ul class="simple">
+<li><p>a motor driver which can configure an output TTL pulse on position</p></li>
+<li><p>a daq device which can be configured to record a sequence of data using a TTL trigger</p></li>
+<li><p>a combined software and hardware beam gate within which the first two items execute</p></li>
+</ul>
+<p>The basic sequence of events is below.  In this example, the “controller” refers to the software controller which has read in all config files during controller.initialize().  The “scan” refers to the scan definition which has been communicated from the GUI.  This is described separately.  The basic sequence of events is the following:</p>
+<ul class="simple">
+<li><p>configure the motor driver to output pulse on position</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">controller</span><span class="o">.</span><span class="n">motors</span><span class="p">[</span><span class="n">scan</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]][</span><span class="s2">&quot;motor&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">setPositionTriggerOn</span><span class="p">(</span><span class="n">pos</span> <span class="o">=</span> <span class="n">trigger_position</span><span class="p">)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>configure daq to record a data sequence when triggered</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">controller</span><span class="o">.</span><span class="n">daq</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="n">scanInfo</span><span class="p">[</span><span class="s2">&quot;dwell&quot;</span><span class="p">],</span> <span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">samples</span><span class="o">=</span><span class="n">xPoints</span><span class="p">,</span> <span class="n">trigger</span><span class="o">=</span><span class="s2">&quot;EXT&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>utilize a software actuated shutter to ensure the beam is on while data is collected.  Shutter actuation is usually quite slow and thus not tightly synchronized to data acquisition.  It proceeds first with some delay before the hardware trigger is sent.</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">controller</span><span class="o">.</span><span class="n">daq</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">initLine</span><span class="p">()</span>
+<span class="n">controller</span><span class="o">.</span><span class="n">daq</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">autoGateOpen</span><span class="p">()</span>
+<span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span> <span class="c1">#shutter open has a 1.4 ms delay after command and 1ms rise time</span>
+<span class="n">controller</span><span class="o">.</span><span class="n">motors</span><span class="p">[</span><span class="n">scan</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]][</span><span class="s2">&quot;motor&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">moveLine</span><span class="p">(</span><span class="n">direction</span><span class="o">=</span><span class="n">scanInfo</span><span class="p">[</span><span class="s2">&quot;direction&quot;</span><span class="p">])</span>
+<span class="n">controller</span><span class="o">.</span><span class="n">daq</span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">autoGateClosed</span><span class="p">()</span>
+<span class="n">dataHandler</span><span class="o">.</span><span class="n">getLine</span><span class="p">(</span><span class="n">scanInfo</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>This final snippet of code is what performs a linear trajectory scan using a piezo controller.  The daq initLine() method arms the counter while autoGateOpen() is the combined software/hardware shutter which allows beam on the sample.  The motor moveLine() method is separately configured but utilizes the linear trajectory function of the piezo controller.  This has already been configured to provide a pulse at the start of the line.  After the line is complete the shutter is closed with autoGatClose() and finally the data is retrieved with getLine().  The getLine() method is called via the dataHandler, described separately, which manages all data transfer.  The line of data will be added to the local data structure, saved to disk and placed on a socket for access by the GUI.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="motor_link.html" class="btn btn-neutral float-left" title="Motor Device" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="scan_link.html" class="btn btn-neutral float-right" title="Scans" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

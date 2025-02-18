@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>setting up a scan &mdash; pystxmcontrol 0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=2709fde1"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pystxmcontrol
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="readme_link.html">README</a></li>
+<li class="toctree-l1"><a class="reference internal" href="controller_link.html">Controller Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="motor_link.html">Motor Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pystxmcontrol</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">setting up a scan</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/scans.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="setting-up-a-scan">
+<h1>setting up a scan<a class="headerlink" href="#setting-up-a-scan" title="Link to this heading"></a></h1>
+<p>Scans are defined as a python dictionary which have the following structure when saved to a JSON file</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s2">&quot;Image&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;Image&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;proposal&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;experimenters&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;sample&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleX&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleY&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;defocus&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+            <span class="s2">&quot;serpentine&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+            <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;continuousLine&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;scanRegions&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;Region1&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;xStart&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">34.5</span><span class="p">,</span>
+                    <span class="s2">&quot;xStop&quot;</span><span class="p">:</span> <span class="mf">34.5</span><span class="p">,</span>
+                    <span class="s2">&quot;xPoints&quot;</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span>
+                    <span class="s2">&quot;yStart&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">34.5</span><span class="p">,</span>
+                    <span class="s2">&quot;yStop&quot;</span><span class="p">:</span> <span class="mf">34.5</span><span class="p">,</span>
+                    <span class="s2">&quot;yPoints&quot;</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span>
+                    <span class="s2">&quot;xStep&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                    <span class="s2">&quot;yStep&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                    <span class="s2">&quot;xRange&quot;</span><span class="p">:</span> <span class="mf">70.0</span><span class="p">,</span>
+                    <span class="s2">&quot;yRange&quot;</span><span class="p">:</span> <span class="mf">70.0</span><span class="p">,</span>
+                    <span class="s2">&quot;xCenter&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                    <span class="s2">&quot;yCenter&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                    <span class="s2">&quot;zStart&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                    <span class="s2">&quot;zStop&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                    <span class="s2">&quot;zPoints&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                    <span class="s2">&quot;zStep&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                    <span class="s2">&quot;zRange&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                    <span class="s2">&quot;zCenter&quot;</span><span class="p">:</span> <span class="mi">0</span>
+                <span class="p">}</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;energyRegions&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;EnergyRegion1&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;dwell&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                    <span class="s2">&quot;start&quot;</span><span class="p">:</span> <span class="mf">600.0</span><span class="p">,</span>
+                    <span class="s2">&quot;stop&quot;</span><span class="p">:</span> <span class="mf">601.0</span><span class="p">,</span>
+                    <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+                    <span class="s2">&quot;nEnergies&quot;</span><span class="p">:</span> <span class="mi">1</span>
+                <span class="p">}</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;energy&quot;</span><span class="p">:</span> <span class="s2">&quot;Energy&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;doubleExposure&quot;</span><span class="p">:</span> <span class="n">false</span>
+        <span class="p">}</span>
+</pre></div>
+</div>
+<p>The means of scanning is defined largely by a scan “type” and a scan “mode”.  The mode of the scan refers largely to how
+the motors are actuated during the scan.  The possibilities are:</p>
+<ul class="simple">
+<li><p>continuousLine: linear trajectory actuated by the piezo controller.  The scan loop performs each line independently.</p></li>
+<li><p>rasterLine: a start-stop raster scan that is fully controlled by the piezo controller.  The scan loop performs each line independently.</p></li>
+<li><p>ptychographyGrid: a start-stop raster scan for which each point is executed by the scan loop</p></li>
+</ul>
+<p>Meanwhile, the type of scan refers more to the collection of motors which are used.  The available types are:</p>
+<ul class="simple">
+<li><p>Image</p></li>
+<li><p>Ptychography Image</p></li>
+<li><p>Point Spectrum</p></li>
+<li><p>Line Spectrum</p></li>
+<li><p>Focus</p></li>
+</ul>
+<p>Currently, the display in the GUI assumes that the data falls on a rectangular grid.  So, while it is entirely possible (and straight forward) to generate
+scan code that does non-rectangular patterns, the display side needs to be refactor to account for this.  Coming soon…</p>
+</section>
+<section id="executing-a-scan">
+<h1>executing a scan<a class="headerlink" href="#executing-a-scan" title="Link to this heading"></a></h1>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

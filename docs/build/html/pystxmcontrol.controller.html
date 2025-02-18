@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pystxmcontrol.controller package &mdash; pystxmcontrol 0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=2709fde1"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pystxmcontrol
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="readme_link.html">README</a></li>
+<li class="toctree-l1"><a class="reference internal" href="controller_link.html">Controller Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="motor_link.html">Motor Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pystxmcontrol</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">pystxmcontrol.controller package</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/pystxmcontrol.controller.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pystxmcontrol-controller-package">
+<h1>pystxmcontrol.controller package<a class="headerlink" href="#pystxmcontrol-controller-package" title="Link to this heading"></a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading"></a></h2>
+</section>
+<section id="module-pystxmcontrol.controller.client">
+<span id="pystxmcontrol-controller-client-module"></span><h2>pystxmcontrol.controller.client module<a class="headerlink" href="#module-pystxmcontrol.controller.client" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ccd_monitor">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.client.</span></span><span class="sig-name descname"><span class="pre">ccd_monitor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rows</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">520</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">roi</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">480</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cols</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1152</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sub_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'131.243.73.179:49206'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pub_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'131.243.73.225:49207'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.ccd_monitor" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QThread</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ccd_monitor.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.ccd_monitor.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ccd_monitor.framedata">
+<span class="sig-name descname"><span class="pre">framedata</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.ccd_monitor.framedata" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ccd_monitor.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.ccd_monitor.run" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ccd_monitor.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;ccd_monitor&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QThread&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#12</span> <span class="pre">type=Signal,</span> <span class="pre">signature=framedata(PyObject),</span> <span class="pre">parameters=PyObject</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.controller.client.ccd_monitor.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ptycho_monitor">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.client.</span></span><span class="sig-name descname"><span class="pre">ptycho_monitor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sub_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'ptycho2.lbl.gov:37015'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pub_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'131.243.73.225:49207'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cropsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">128</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.ptycho_monitor" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QThread</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ptycho_monitor.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.ptycho_monitor.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ptycho_monitor.ptychoData">
+<span class="sig-name descname"><span class="pre">ptychoData</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.ptycho_monitor.ptychoData" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ptycho_monitor.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.ptycho_monitor.run" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.ptycho_monitor.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;ptycho_monitor&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QThread&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#12</span> <span class="pre">type=Signal,</span> <span class="pre">signature=ptychoData(PyObject),</span> <span class="pre">parameters=PyObject</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.controller.client.ptycho_monitor.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.rpi_monitor">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.client.</span></span><span class="sig-name descname"><span class="pre">rpi_monitor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rows</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">520</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">roi</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">480</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cols</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1152</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sub_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'131.243.73.205:37014'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pub_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'131.243.73.225:49207'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.rpi_monitor" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QThread</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.rpi_monitor.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.rpi_monitor.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.rpi_monitor.rpidata">
+<span class="sig-name descname"><span class="pre">rpidata</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.rpi_monitor.rpidata" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.rpi_monitor.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.rpi_monitor.run" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.rpi_monitor.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;rpi_monitor&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QThread&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#12</span> <span class="pre">type=Signal,</span> <span class="pre">signature=rpidata(PyObject),</span> <span class="pre">parameters=PyObject</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.controller.client.rpi_monitor.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.client.</span></span><span class="sig-name descname"><span class="pre">stxm_client</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QThread</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.closeMonitor">
+<span class="sig-name descname"><span class="pre">closeMonitor</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.closeMonitor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.disconnect">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">connection</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QMetaObject.Connection</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.disconnect" title="Link to this definition"></a></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">receiver</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">member</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">NoneType</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signal</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">functor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signal</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">receiver</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">member</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sender</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signal</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QMetaMethod</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">receiver</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">member</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QMetaMethod</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sender</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signal</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">functor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span></dt>
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">disconnect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sender</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">signal</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">receiver</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">member</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bytes</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bytearray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">memoryview</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.get_config">
+<span class="sig-name descname"><span class="pre">get_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.get_config" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.get_status">
+<span class="sig-name descname"><span class="pre">get_status</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.get_status" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.send_message">
+<span class="sig-name descname"><span class="pre">send_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.send_message" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.serverMessage">
+<span class="sig-name descname"><span class="pre">serverMessage</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.serverMessage" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;stxm_client&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QThread&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#12</span> <span class="pre">type=Signal,</span> <span class="pre">signature=serverMessage(PyObject),</span> <span class="pre">parameters=PyObject</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_client.write_config">
+<span class="sig-name descname"><span class="pre">write_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_client.write_config" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.client.</span></span><span class="sig-name descname"><span class="pre">stxm_monitor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ip</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QThread</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.elapsed_time">
+<span class="sig-name descname"><span class="pre">elapsed_time</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.elapsed_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.get_data">
+<span class="sig-name descname"><span class="pre">get_data</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.get_data" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.run" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.scan_data">
+<span class="sig-name descname"><span class="pre">scan_data</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.scan_data" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.scan_done">
+<span class="sig-name descname"><span class="pre">scan_done</span></span><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.scan_done" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.client.stxm_monitor.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;stxm_monitor&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QThread&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#12</span> <span class="pre">type=Signal,</span> <span class="pre">signature=scan_data(PyObject),</span> <span class="pre">parameters=PyObject</span>&#160;&#160; <span class="pre">#13</span> <span class="pre">type=Signal,</span> <span class="pre">signature=elapsed_time(PyObject),</span> <span class="pre">parameters=PyObject</span>&#160;&#160; <span class="pre">#14</span> <span class="pre">type=Signal,</span> <span class="pre">signature=scan_done()</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.controller.client.stxm_monitor.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller.controller">
+<span id="pystxmcontrol-controller-controller-module"></span><h2>pystxmcontrol.controller.controller module<a class="headerlink" href="#module-pystxmcontrol.controller.controller" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.controller.</span></span><span class="sig-name descname"><span class="pre">controller</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.__init__" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>simulation</strong> (<em>boolean</em>) – simulation mode</p>
+</dd>
+</dl>
+<p>Reads required configuration files, initializes motors, controllers and daqs and manages
+all hardware communication.  Also manages the calibration of the zone plate position for a given
+photon energy.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.addController">
+<span class="sig-name descname"><span class="pre">addController</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.addController" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config</strong> (<em>dict</em>) – motor configuration dictionary</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+<p>Adds to an existing dictionary with a newly defined controller.  For
+| controller = config[“controller”]
+| address = config[‘controllerID’]
+| port = config[‘port’]
+| This executes: controllerType(address = address, port = port) which initializes the controller class
+and communication with the device.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.changeMotorConfig">
+<span class="sig-name descname"><span class="pre">changeMotorConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">c</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.changeMotorConfig" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.end_scan">
+<span class="sig-name descname"><span class="pre">end_scan</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.end_scan" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.getMotorConfig">
+<span class="sig-name descname"><span class="pre">getMotorConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">motor</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.getMotorConfig" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.getMotorPositions">
+<span class="sig-name descname"><span class="pre">getMotorPositions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.getMotorPositions" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.getScanID">
+<span class="sig-name descname"><span class="pre">getScanID</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ptychography</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.getScanID" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.initialize" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.moveMotor">
+<span class="sig-name descname"><span class="pre">moveMotor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pos</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.moveMotor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.readConfig">
+<span class="sig-name descname"><span class="pre">readConfig</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.readConfig" title="Link to this definition"></a></dt>
+<dd><p>Reads the required JSON config files into dictionaries.
+looks in sys.prefix for:
+pystxmcontrol_cfg/motorConfig.json
+pystxmcontrol_cfg/daqConfig.json
+pystxmcontrol_cfg/scans.json
+pystxmcontrol_cfg/main.json</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.read_daq">
+<span class="sig-name descname"><span class="pre">read_daq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">daq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dwell</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shutter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.read_daq" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.scan">
+<span class="sig-name descname"><span class="pre">scan</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scan</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.scan" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.scan_helper">
+<span class="sig-name descname"><span class="pre">scan_helper</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scan</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.scan_helper" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.startMonitor">
+<span class="sig-name descname"><span class="pre">startMonitor</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.startMonitor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.stopMonitor">
+<span class="sig-name descname"><span class="pre">stopMonitor</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.stopMonitor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.updateMotorStatus">
+<span class="sig-name descname"><span class="pre">updateMotorStatus</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.updateMotorStatus" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.controller.controller.writeConfig">
+<span class="sig-name descname"><span class="pre">writeConfig</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.controller.controller.writeConfig" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller.daq">
+<span id="pystxmcontrol-controller-daq-module"></span><h2>pystxmcontrol.controller.daq module<a class="headerlink" href="#module-pystxmcontrol.controller.daq" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.daq.daq">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.daq.</span></span><span class="sig-name descname"><span class="pre">daq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.daq.daq" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.daq.daq.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.daq.daq.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.daq.daq.config">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dwell</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.daq.daq.config" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.daq.daq.getLine">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">getLine</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">step</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.daq.daq.getLine" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.daq.daq.getPoint">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">getPoint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scan</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.daq.daq.getPoint" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller.dataHandler">
+<span id="pystxmcontrol-controller-datahandler-module"></span><h2>pystxmcontrol.controller.dataHandler module<a class="headerlink" href="#module-pystxmcontrol.controller.dataHandler" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.dataHandler.</span></span><span class="sig-name descname"><span class="pre">dataHandler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">controller</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">controller</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.addDataToStack">
+<span class="sig-name descname"><span class="pre">addDataToStack</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scanInfo</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.addDataToStack" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.fill2d">
+<span class="sig-name descname"><span class="pre">fill2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">im</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.fill2d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.getLine">
+<span class="sig-name descname"><span class="pre">getLine</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scanInfo</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.getLine" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.getPoint">
+<span class="sig-name descname"><span class="pre">getPoint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scanInfo</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.getPoint" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.getScanName">
+<span class="sig-name descname"><span class="pre">getScanName</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ptychography</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.getScanName" title="Link to this definition"></a></dt>
+<dd><p>Just looks in the current days directory and finds the latest file
+number.  Returns today’s directory and the next scan name.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.get_prefect_client">
+<span class="sig-name descname"><span class="pre">get_prefect_client</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prefect_api_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefect_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">httpx_settings</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.get_prefect_client" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.interpolate_points">
+<span class="sig-name descname"><span class="pre">interpolate_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scanInfo</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.interpolate_points" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.monitor">
+<span class="sig-name descname"><span class="pre">monitor</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.monitor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.prefect_nersc_transfer">
+<span class="sig-name descname"><span class="pre">prefect_nersc_transfer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.prefect_nersc_transfer" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.prefect_start_nersc_flow">
+<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prefect_start_nersc_flow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prefect_client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deployment_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.prefect_start_nersc_flow" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.prefect_start_stxmdb_flow">
+<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prefect_start_stxmdb_flow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">prefect_client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deployment_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.prefect_start_stxmdb_flow" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.prefect_stxmdb_transfer">
+<span class="sig-name descname"><span class="pre">prefect_stxmdb_transfer</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.prefect_stxmdb_transfer" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.processFrame">
+<span class="sig-name descname"><span class="pre">processFrame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">frame</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.processFrame" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.saveCurrentScan">
+<span class="sig-name descname"><span class="pre">saveCurrentScan</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.saveCurrentScan" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.sendDataChunkToSock">
+<span class="sig-name descname"><span class="pre">sendDataChunkToSock</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">chunk</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.sendDataChunkToSock" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.sendScanData">
+<span class="sig-name descname"><span class="pre">sendScanData</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.sendScanData" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.startScanProcess">
+<span class="sig-name descname"><span class="pre">startScanProcess</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scan</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.startScanProcess" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.stopScanProcess">
+<span class="sig-name descname"><span class="pre">stopScanProcess</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.stopScanProcess" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.tiled_scan">
+<span class="sig-name descname"><span class="pre">tiled_scan</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scan</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.tiled_scan" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.updateDwells">
+<span class="sig-name descname"><span class="pre">updateDwells</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scanInfo</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.updateDwells" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.zmq_send">
+<span class="sig-name descname"><span class="pre">zmq_send</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">info</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.zmq_send" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.zmq_start_event">
+<span class="sig-name descname"><span class="pre">zmq_start_event</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">scan</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.zmq_start_event" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.dataHandler.dataHandler.zmq_stop_event">
+<span class="sig-name descname"><span class="pre">zmq_stop_event</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.dataHandler.dataHandler.zmq_stop_event" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller.gate">
+<span id="pystxmcontrol-controller-gate-module"></span><h2>pystxmcontrol.controller.gate module<a class="headerlink" href="#module-pystxmcontrol.controller.gate" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.gate.gate">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.gate.</span></span><span class="sig-name descname"><span class="pre">gate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.gate.gate" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.gate.gate.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.gate.gate.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.gate.gate.connect">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">connect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.gate.gate.connect" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.gate.gate.getStatus">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">getStatus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.gate.gate.getStatus" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.gate.gate.setStatus">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">setStatus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.gate.gate.setStatus" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller.hardwareController">
+<span id="pystxmcontrol-controller-hardwarecontroller-module"></span><h2>pystxmcontrol.controller.hardwareController module<a class="headerlink" href="#module-pystxmcontrol.controller.hardwareController" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.hardwareController.hardwareController">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.hardwareController.</span></span><span class="sig-name descname"><span class="pre">hardwareController</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.hardwareController.hardwareController" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.hardwareController.hardwareController.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.hardwareController.hardwareController.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.hardwareController.hardwareController.initialize">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.hardwareController.hardwareController.initialize" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller.motor">
+<span id="pystxmcontrol-controller-motor-module"></span><h2>pystxmcontrol.controller.motor module<a class="headerlink" href="#module-pystxmcontrol.controller.motor" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.motor.</span></span><span class="sig-name descname"><span class="pre">motor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">simulation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor.connect">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">connect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor.connect" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor.getPos">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">getPos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor.getPos" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor.getStatus">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">getStatus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor.getStatus" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor.moveBy">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">moveBy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">step</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor.moveBy" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.motor.motor.moveTo">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">moveTo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">position</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.motor.motor.moveTo" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="pystxmcontrol-controller-scan-module">
+<h2>pystxmcontrol.controller.scan module<a class="headerlink" href="#pystxmcontrol-controller-scan-module" title="Link to this heading"></a></h2>
+</section>
+<section id="module-pystxmcontrol.controller.spiral">
+<span id="pystxmcontrol-controller-spiral-module"></span><h2>pystxmcontrol.controller.spiral module<a class="headerlink" href="#module-pystxmcontrol.controller.spiral" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.spiral.parameterize_spiral">
+<span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.spiral.</span></span><span class="sig-name descname"><span class="pre">parameterize_spiral</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spiraltype</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outonly</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GUIchange</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.spiral.parameterize_spiral" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="pystxmcontrol.controller.spiral.spiralcreator">
+<span class="sig-prename descclassname"><span class="pre">pystxmcontrol.controller.spiral.</span></span><span class="sig-name descname"><span class="pre">spiralcreator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samplingfrequency</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scantime</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numloops</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">clockwise</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spiralscantype</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inratio</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scanradius</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxFreqXY</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.controller.spiral.spiralcreator" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.controller">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-pystxmcontrol.controller" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

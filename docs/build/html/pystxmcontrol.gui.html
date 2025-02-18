@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pystxmcontrol.gui package &mdash; pystxmcontrol 0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=2709fde1"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            pystxmcontrol
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="readme_link.html">README</a></li>
+<li class="toctree-l1"><a class="reference internal" href="controller_link.html">Controller Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="motor_link.html">Motor Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pystxmcontrol</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">pystxmcontrol.gui package</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/pystxmcontrol.gui.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pystxmcontrol-gui-package">
+<h1>pystxmcontrol.gui package<a class="headerlink" href="#pystxmcontrol-gui-package" title="Link to this heading"></a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading"></a></h2>
+</section>
+<section id="module-pystxmcontrol.gui.customwidget">
+<span id="pystxmcontrol-gui-customwidget-module"></span><h2>pystxmcontrol.gui.customwidget module<a class="headerlink" href="#module-pystxmcontrol.gui.customwidget" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.customwidget.customWidget">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.gui.customwidget.</span></span><span class="sig-name descname"><span class="pre">customWidget</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.customwidget.customWidget" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QWidget</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.customwidget.customWidget.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtWidgets.QWidget</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">f</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.Qt.WindowType</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Default(Qt.WindowFlags)</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.gui.customwidget.customWidget.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.customwidget.customWidget.addWidget">
+<span class="sig-name descname"><span class="pre">addWidget</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">widget</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.customwidget.customWidget.addWidget" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.customwidget.customWidget.removeWidget">
+<span class="sig-name descname"><span class="pre">removeWidget</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">widget</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.customwidget.customWidget.removeWidget" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.customwidget.customWidget.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;customWidget&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QWidget&quot;:</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.gui.customwidget.customWidget.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.gui.energyDef">
+<span id="pystxmcontrol-gui-energydef-module"></span><h2>pystxmcontrol.gui.energyDef module<a class="headerlink" href="#module-pystxmcontrol.gui.energyDef" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.gui.energyDef.</span></span><span class="sig-name descname"><span class="pre">energyDefWidget</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QWidget</span></code>, <a class="reference internal" href="#pystxmcontrol.gui.energyDef_UI.Ui_energyDef" title="pystxmcontrol.gui.energyDef_UI.Ui_energyDef"><code class="xref py py-class docutils literal notranslate"><span class="pre">Ui_energyDef</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtWidgets.QWidget</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">f</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.Qt.WindowType</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Default(Qt.WindowFlags)</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.energyStepChanged">
+<span class="sig-name descname"><span class="pre">energyStepChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.energyStepChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.nEnergiesChanged">
+<span class="sig-name descname"><span class="pre">nEnergiesChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.nEnergiesChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.regionChanged">
+<span class="sig-name descname"><span class="pre">regionChanged</span></span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.regionChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.sendChangedSignal">
+<span class="sig-name descname"><span class="pre">sendChangedSignal</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.sendChangedSignal" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.setDefaultScanParams">
+<span class="sig-name descname"><span class="pre">setDefaultScanParams</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.setDefaultScanParams" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.setMultiEnergy">
+<span class="sig-name descname"><span class="pre">setMultiEnergy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.setMultiEnergy" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.setSingleEnergy">
+<span class="sig-name descname"><span class="pre">setSingleEnergy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.setSingleEnergy" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;energyDefWidget&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QWidget&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#33</span> <span class="pre">type=Signal,</span> <span class="pre">signature=regionChanged()</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.updateDwell">
+<span class="sig-name descname"><span class="pre">updateDwell</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.updateDwell" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.updateEnergyStart">
+<span class="sig-name descname"><span class="pre">updateEnergyStart</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.updateEnergyStart" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef.energyDefWidget.updateEnergyStop">
+<span class="sig-name descname"><span class="pre">updateEnergyStop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef.energyDefWidget.updateEnergyStop" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.gui.energyDef_UI">
+<span id="pystxmcontrol-gui-energydef-ui-module"></span><h2>pystxmcontrol.gui.energyDef_UI module<a class="headerlink" href="#module-pystxmcontrol.gui.energyDef_UI" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef_UI.Ui_energyDef">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.gui.energyDef_UI.</span></span><span class="sig-name descname"><span class="pre">Ui_energyDef</span></span><a class="headerlink" href="#pystxmcontrol.gui.energyDef_UI.Ui_energyDef" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef_UI.Ui_energyDef.retranslateUi">
+<span class="sig-name descname"><span class="pre">retranslateUi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">energyDef</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef_UI.Ui_energyDef.retranslateUi" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.energyDef_UI.Ui_energyDef.setupUi">
+<span class="sig-name descname"><span class="pre">setupUi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">energyDef</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.energyDef_UI.Ui_energyDef.setupUi" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.gui.regionDef_UI">
+<span id="pystxmcontrol-gui-regiondef-ui-module"></span><h2>pystxmcontrol.gui.regionDef_UI module<a class="headerlink" href="#module-pystxmcontrol.gui.regionDef_UI" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.regionDef_UI.Ui_regionDef">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.gui.regionDef_UI.</span></span><span class="sig-name descname"><span class="pre">Ui_regionDef</span></span><a class="headerlink" href="#pystxmcontrol.gui.regionDef_UI.Ui_regionDef" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.regionDef_UI.Ui_regionDef.retranslateUi">
+<span class="sig-name descname"><span class="pre">retranslateUi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">regionDef</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.regionDef_UI.Ui_regionDef.retranslateUi" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.regionDef_UI.Ui_regionDef.setupUi">
+<span class="sig-name descname"><span class="pre">setupUi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">regionDef</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.regionDef_UI.Ui_regionDef.setupUi" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="pystxmcontrol-gui-samplescan-module">
+<h2>pystxmcontrol.gui.sampleScan module<a class="headerlink" href="#pystxmcontrol-gui-samplescan-module" title="Link to this heading"></a></h2>
+</section>
+<section id="pystxmcontrol-gui-samplescan-ui-module">
+<h2>pystxmcontrol.gui.sampleScan_UI module<a class="headerlink" href="#pystxmcontrol-gui-samplescan-ui-module" title="Link to this heading"></a></h2>
+</section>
+<section id="module-pystxmcontrol.gui.scanDef">
+<span id="pystxmcontrol-gui-scandef-module"></span><h2>pystxmcontrol.gui.scanDef module<a class="headerlink" href="#module-pystxmcontrol.gui.scanDef" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pystxmcontrol.gui.scanDef.</span></span><span class="sig-name descname"><span class="pre">scanRegionDef</span></span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QObject</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">PySide6.QtCore.QObject</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.regionChanged">
+<span class="sig-name descname"><span class="pre">regionChanged</span></span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.regionChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.sendChangedSignal">
+<span class="sig-name descname"><span class="pre">sendChangedSignal</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.sendChangedSignal" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.setDefaultScanParams">
+<span class="sig-name descname"><span class="pre">setDefaultScanParams</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.setDefaultScanParams" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.setEnabled">
+<span class="sig-name descname"><span class="pre">setEnabled</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.setEnabled" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.staticMetaObject">
+<span class="sig-name descname"><span class="pre">staticMetaObject</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">PySide6.QtCore.QMetaObject(&quot;scanRegionDef&quot;</span> <span class="pre">inherits</span> <span class="pre">&quot;QObject&quot;:</span> <span class="pre">Methods:</span>&#160;&#160; <span class="pre">#4</span> <span class="pre">type=Signal,</span> <span class="pre">signature=regionChanged(PyObject),</span> <span class="pre">parameters=PyObject</span>&#160;&#160; <span class="pre">#5</span> <span class="pre">type=Signal,</span> <span class="pre">signature=updateTimeEstimate(PyObject),</span> <span class="pre">parameters=PyObject</span> <span class="pre">)</span></em><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.staticMetaObject" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.updateTimeEstimate">
+<span class="sig-name descname"><span class="pre">updateTimeEstimate</span></span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.updateTimeEstimate" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.xCenterChanged">
+<span class="sig-name descname"><span class="pre">xCenterChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.xCenterChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.xNPointsChanged">
+<span class="sig-name descname"><span class="pre">xNPointsChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.xNPointsChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.xRangeChanged">
+<span class="sig-name descname"><span class="pre">xRangeChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.xRangeChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.xStepChanged">
+<span class="sig-name descname"><span class="pre">xStepChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.xStepChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.yCenterChanged">
+<span class="sig-name descname"><span class="pre">yCenterChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.yCenterChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.yNPointsChanged">
+<span class="sig-name descname"><span class="pre">yNPointsChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.yNPointsChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.yRangeChanged">
+<span class="sig-name descname"><span class="pre">yRangeChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.yRangeChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="pystxmcontrol.gui.scanDef.scanRegionDef.yStepChanged">
+<span class="sig-name descname"><span class="pre">yStepChanged</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pystxmcontrol.gui.scanDef.scanRegionDef.yStepChanged" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-pystxmcontrol.gui">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-pystxmcontrol.gui" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

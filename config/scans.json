@@ -1,0 +1,49 @@
+{
+  "scans": {
+    "Image": {
+      "index": 0,
+      "xMotor": "SampleX",
+      "yMotor": "SampleY",
+      "energyMotor": "Energy",
+      "type": "image",
+      "driver": "line_image",
+      "mode": "continuousLine"
+    },
+    "Spiral Image": {
+      "index": 1,
+      "xMotor": "SampleX",
+      "yMotor": "SampleY",
+      "energyMotor": "Energy",
+      "type": "image",
+      "driver": "spiral_image",
+      "mode": "continuousSpiral"
+    },
+    "Focus": {
+      "index": 2,
+      "xMotor": "SampleX",
+      "yMotor": "SampleY",
+      "zMotor": "ZonePlateZ",
+      "type": "line",
+      "driver": "line_focus",
+      "mode": "continuousLine"
+    },
+    "Line Spectrum": {
+      "index": 3,
+      "xMotor": "SampleX",
+      "yMotor": "SampleY",
+      "energyMotor": "Energy",
+      "type": "line",
+      "driver": "line_spectrum",
+      "mode": "continuousLine"
+    },
+    "Ptychography Image": {
+      "index": 4,
+      "xMotor": "SampleX",
+      "yMotor": "SampleY",
+      "energyMotor": "Energy",
+      "type": "image",
+      "driver": "ptychography_grid",
+      "mode": "ptychographyGrid"
+    }
+  }
+}

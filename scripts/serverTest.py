@@ -1,0 +1,221 @@
+from pystxmcontrol.controller.scripter import *
+import time
+    
+# ##set up and execute basic STXM scan
+# meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":2.1, "Sample": "Dong Hyun: R1"}
+# meta["xcenter"] = 0
+# meta["xrange"] = 5
+# meta["xpoints"] = 50
+# meta["ycenter"] = 0
+# meta["yrange"] = 5
+# meta["ypoints"] = 50
+# meta["energyStart"] = 605
+# meta["energyStop"] = 700
+# meta["energyPoints"] = 20
+# meta["dwell"] = 0.2
+# meta["spiral"] = False
+
+#################################################################################################
+##basic stxm scan################################################################################
+#print(stxmScan(meta))
+
+#################################################################################################
+##Move Motor#####################################################################################
+moveMotor("Energy", 1100.)
+
+#################################################################################################
+##Get Data from DAQ##############################################################################
+#data1 = getData("diode", 1)
+#data2 = getData("ccd", 100)
+
+#################################################################################################
+##spiral stxm scan###############################################################################
+#meta["spiral"] = True
+#print(stxmScan(meta))
+
+#################################################################################################
+##stxm tomography scan###########################################################################
+#coarseR = np.linspace(-40,40,10)
+#for r in coarseR:
+#    moveMotor("CoarseR",r)
+#    stxmScan(meta)
+    
+#################################################################################################
+##XMCD and 2 energies############################################################################
+#meta["energyStart"] = 700
+#meta["energyStop"] = 710
+#meta["energyPoints"] = 2
+#polarizations = [-1,1]
+#for p in polarizations:
+#    print("Moving polarization to %s" %p)
+#    moveMotor("POLARIZATION",p)
+#    print(stxmScan(meta))
+    
+#################################################################################################
+##Ptychography###################################################################################
+##the scan function will automatically calculate the step size so the number of points should be 
+##calculated in advance to give the correct step size
+# meta = {"proposal": "BLS-000625", "experimenters":"Ditter,Shapiro", "nxFileVersion":2.1,"Sample":"Dong Hyun: R1"}
+# meta["xcenter"] = 0
+# meta["xrange"] = 5.5
+# meta["xpoints"] = 55
+# meta["ycenter"] = 0
+# meta["yrange"] = 4.5
+# meta["ypoints"] = 45
+# meta["xstep"] = 0.05
+# meta["ystep"] = 0.05
+# meta["energyStart"] = 851
+# meta["energyStop"] = 852
+# meta["energyPoints"] = 1
+# meta["dwell"] = 10.0
+# meta["spiral"] = False
+# meta["defocus"] = True
+# meta["doubleExposure"] = False
+# meta["refocus"] = False #setting False prevents moving to calibrated focus position at scan start
+# meta["type"] = "Ptychography Image"
+# meta["mode"] = "ptychographyGrid"
+# print(ptychographyScan(meta))
+
+#################################################################################################
+##Point Spectrum#################################################################################
+#en = np.linspace(700,799,100)
+#spec = np.zeros((100))
+#i = 0
+#t0 = time.time()
+#for energy in en:
+#    moveMotor("Energy",energy)
+#    spec[i] = getData("diode",100)
+#    i += 1
+#print("Point spectrum took %.2f ms" %((time.time() - t0)*1000.))
+
+# #################################################################################################
+# ##Particle Finder Scan###########################################################################
+# meta = {"proposal": "BLS-000625", "experimenters":"Alex, David", "nxFileVersion":2.1,"Sample":"Standards"}
+# overview_scan = '/cosmic-dtn/groups/cosmic/Data/2024/05/240508/NS_240508048.stxm'
+# meta["xstep"] = 0.05
+# meta["ystep"] = 0.05
+# meta["energyStart"] = 704
+# meta["energyStop"] = 708
+# meta["energyPoints"] = 2
+# meta["dwell"] = 0.1
+# meta["spiral"] = True
+# meta["refocus"] = True
+#
+# scan_list = decimate(overview_scan)
+# meta["type"] = "Image"
+# meta["mode"] = "continuousLine"
+# print(len(scan_list))
+# multiRegionSTXMScan(meta,scan_list)
+
+#meta["xstep"] = 0.1
+#meta["ystep"] = 0.1
+#meta["spiral"] = False
+#meta["type"] = "Ptychography Image"
+#meta["mode"] = "ptychographyGrid"
+#meta["dwell"]=10.
+#meta["defocus"]=True
+#meta["doubleExposure"]=False
+#multiRegionSTXMScan(meta,scan_list[10:12])
+
+#################################################################################################
+##CoarseY Adjust Tomography Scan#################################################################
+#Focus at zero degrees only!!
+#from scipy.interpolate import interp1d
+#import numpy as np
+#meta = {"proposal": "BLS-000625", "experimenters":"Ditter,Shapiro", "nxFileVersion":2.1,"Sample":"Dong Hyun: R1"}
+#meta["xcenter"] = 0
+#meta["xrange"] = 5
+#meta["xpoints"] = 50
+#meta["ycenter"] = 0
+#meta["yrange"] = 3.5
+#meta["ypoints"] = 35
+#meta["xstep"] = 0.1
+#meta["ystep"] = 0.1
+#meta["energyStart"] = 500
+#meta["energyStop"] = 560
+#meta["energyPoints"] = 20
+#meta["dwell"] = 0.2
+#meta["spiral"] = True
+#meta["defocus"] = True
+#meta["doubleExposure"] = False
+#meta["refocus"] = False #setting False prevents moving to calibrated focus position at scan start
+#meta["type"] = "Image" #"Ptychography Image"
+#meta["mode"] = "continuousLine" #"ptychographyGrid"
+
+#n_angles = 100
+#r_start = -50
+#r_stop = 50
+#z0 = -14516.0 #-11255.0 #zone plate in focus at 0 degrees
+#y0 = 158.6
+
+# theta = np.array((-70,-60,-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70))
+# ymeas = y0 + np.array((26.7,-38.9,-78.4,-103.6,-120.9,-132.3,-139.5,-144.6,-145.5,-144.2,-139.2,-129.8,-113.5,-87.2,-41.6))
+# z = np.array((-72.69,-47.22,-34.9,-28.8,-24.1,-21.1,-18.8,0.,16.6,20.6,18.5,28.1,27.9,39.6,61.9))
+# zmeas = z0 - np.array((-247.6,-174.9,-127.7,-92.8,-64.,-39.9,-18.8,0.,16.6,37.2,55.7,83.8,111.7,151.3,213.2))
+# scanX = np.array((0.8,0.7,0.5,0.3,0.0,-0.2,-0.5,-0.9,-1.3,-1.3,-1.5,-1.8,-2.1,-2.6,-3.0))
+# scanY = -np.array((1.2,1.1,0.6,0.6,0.2,0.3,0.5,-0.3,0.0,0.0,0.1,0.1,0.5,0.3,-0.6))
+
+#theta = np.array((-75,-70,-60,-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,75))
+#ymeas = np.array((198.2,151.7,96.5,64.1,41.7,28.3,19.9,14.8,13.6,15.2,19.9,27.9,42.1,62.3,96.6,154.0,200.1))
+#z = np.array((-50.0,-68.13,-42.6,-32.0,-27.3,-23.7,-21.1,-19.3,0.,21.74,21.03,21.05,26.04,34.88,45.12,66.6,49.0))
+#zmeas = z0 - np.array((-284.1,-234.1,-166.0,-123.4,-91.4,-64.1,-40.4,-19.3,0.,21.74,42.8,63.8,89.9,124.7,169.9,236.5,285.46))
+#scanX = np.array((2.0,2.0,1.7,1.5,1.3,1.0,0.7,0.6,0.2,-0.1,-0.4,-0.7,-1.2,-1.3,-1.8,-2.8,-3.6))
+#scanY = -np.array((1.3,1.0,0.9,1.4,0.2,0.0,0.0,-0.4,-0.2,-0.2,-0.1,-0.3,0.1,-0.4,-0.2,-0.8,-1.3))
+
+#yf = interp1d(theta,ymeas,kind="cubic")
+#zf = interp1d(theta,zmeas,kind="cubic")
+
+#import matplotlib.pyplot as plt
+#plt.plot(theta,ymeas)
+#plt.figure()
+#plt.plot(theta,zmeas)
+#plt.xlabel('Rotation Angle (deg)')
+#plt.show()
+
+#angles = np.linspace(r_start,r_stop,n_angles)
+#for i in range(n_angles):
+#    meta["xcenter"] = interp1d(theta,scanX,kind="cubic")(angles[i])
+#    meta["ycenter"] = interp1d(theta,scanY,kind="cubic")(angles[i])
+#    print(meta['xcenter'],meta['ycenter'])
+#    print("Moving motors: CoarseR,CoarseY,ZonePlateZ: %.4f, %.4f, %.4f" %(angles[i],yf(angles[i]),zf(angles[i])))
+#    if not moveMotor("CoarseR",angles[i]):
+#        print("Failed to move CoarseR.  Continuing...")
+#    if not moveMotor("CoarseY",yf(angles[i])):
+#        print("Failed to move CoarseY.  Continuing...")
+#    if not moveMotor("ZonePlateZ",zf(angles[i])):
+#        print("Failed to move ZonePlateZ.  Continuing...")
+#    time.sleep(5.)
+#    print(stxmScan(meta))
+#    #print(ptychographyScan(meta))
+
+
+
+#################################################################################################
+##Single Motor Scan##############################################################################
+##Beamline slit scan#############################################################################
+#motor = "DISPERSIVE_SLIT"
+#daq = "diode"
+#npoints = 100
+#dwell = 10
+#start = 0
+#stop = 200
+#data,ssize = singleMotorScan(motor,daq,dwell,start,stop,npoints)
+
+#################################################################################################
+##Two Motor Scan - OSA XY########################################################################
+#motors = "OSA_X","OSA_Y"
+#daq = "diode"
+#npoints = 50,50
+#dwell = 10
+#start = 0,-500
+#stop = 1000,500
+#data = twoMotorScan(motors,daq,dwell,start,stop,npoints)
+
+
+
+
+
+
+
+
+

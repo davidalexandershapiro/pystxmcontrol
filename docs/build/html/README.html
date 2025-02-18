@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pystxmcontrol &mdash; pystxmcontrol 0.1 documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/sphinx_highlight.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html" class="icon icon-home"> pystxmcontrol
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">pystxmcontrol</a></li>
+<li><a class="reference internal" href="#main-features">Main features</a></li>
+<li><a class="reference internal" href="#currently-supported-devices">Currently supported devices</a></li>
+<li><a class="reference internal" href="#dependencies">Dependencies</a><ul>
+<li><a class="reference internal" href="#automatically-installed-by-pip">automatically installed by pip</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#environment-setup-and-installation-using-miniconda3-and-pip">Environment setup and installation using miniconda3 and pip</a></li>
+<li><a class="reference internal" href="#running-pystxmcontrol">Running pystxmcontrol</a></li>
+<li><a class="reference internal" href="#contact-us">Contact us</a></li>
+<li><a class="reference internal" href="#notice">Notice</a></li>
+</ul>
+</div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">pystxmcontrol</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">pystxmcontrol</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/README.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pystxmcontrol">
+<h1>pystxmcontrol<a class="headerlink" href="#pystxmcontrol" title="Permalink to this heading"></a></h1>
+<p>pystxmcontrol includes a GUI (with underlying client), server which executes various functions controlling hardware devices and several device drivers common to scanning microscopes at the Advanced Light Source. Devices which do not have currently supported drivers can be accessed via EPICS by implementing a pseudo driver providing the correct MOTOR interface.</p>
+</section>
+<section id="main-features">
+<h1>Main features<a class="headerlink" href="#main-features" title="Permalink to this heading"></a></h1>
+<ul class="simple">
+<li><p>Rich graphical interface for scan definition and data visualization</p></li>
+<li><p>Separation of graphical interface and control layer.  Scans can proceed without the GUI or by script</p></li>
+<li><p>ZMQ interface to imaging detectors or analysis pipelines for live visualization</p></li>
+<li><p>Hardware controlled piezo trajectories for fast scanning</p></li>
+<li><p>Low scan overhead</p></li>
+<li><p>Microsecond shutter timing and synchronization using an Arduino Due microcontroller</p></li>
+<li><p>Full integration of ptychography scanning</p></li>
+</ul>
+</section>
+<section id="currently-supported-devices">
+<h1>Currently supported devices<a class="headerlink" href="#currently-supported-devices" title="Permalink to this heading"></a></h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://npoint.com/">nPoint</a> piezo controller</p></li>
+<li><p><a class="reference external" href="https://www.newport.com/c/xps-universal-multi-axis-motion-controller">Newport XPS</a> motor controller</p></li>
+<li><p>Keysight 53230A timer/counter</p></li>
+<li><p>Keysight A33500B arbitrary waveform generator</p></li>
+<li><p>Keysight U2356A multi-channel ADC</p></li>
+<li><p>SmarAct MCS/MCS2 controlled stages (via EPICS)</p></li>
+<li><p>Xeryon controlled stages</p></li>
+<li><p>Arduino Due</p></li>
+</ul>
+</section>
+<section id="dependencies">
+<h1>Dependencies<a class="headerlink" href="#dependencies" title="Permalink to this heading"></a></h1>
+<section id="automatically-installed-by-pip">
+<h2>automatically installed by pip<a class="headerlink" href="#automatically-installed-by-pip" title="Permalink to this heading"></a></h2>
+<ul class="simple">
+<li><p>Numpy</p></li>
+<li><p>Scipy</p></li>
+<li><p>Scikit-Image</p></li>
+<li><p>python-usbtmc</p></li>
+<li><p>pylibftdi</p></li>
+<li><p>pyvisa-py</p></li>
+<li><p>pyepics</p></li>
+<li><p>pyserial</p></li>
+<li><p>pyzmq</p></li>
+<li><p>matplotlib</p></li>
+<li><p>qdarkstyle</p></li>
+<li><p>pyqt5</p></li>
+<li><p>pyqtgraph</p></li>
+</ul>
+</section>
+</section>
+<section id="environment-setup-and-installation-using-miniconda3-and-pip">
+<h1>Environment setup and installation using miniconda3 and pip<a class="headerlink" href="#environment-setup-and-installation-using-miniconda3-and-pip" title="Permalink to this heading"></a></h1>
+<ul class="simple">
+<li><p>On both Windows, Mac or LInux install <a class="reference external" href="https://docs.conda.io/en/latest/miniconda.html">miniconda3</a> and activate the base environment</p></li>
+<li><p>Create a conda environment with Python version 3.6 or later</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conda</span> <span class="n">create</span> <span class="o">-</span><span class="n">n</span> <span class="n">my_env_name</span> <span class="n">python</span><span class="o">=</span><span class="mf">3.9.12</span>
+<span class="n">conda</span> <span class="n">activate</span> <span class="n">my_env_name</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Clone the repository</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="p">[</span><span class="n">username</span><span class="p">]</span><span class="nd">@bitbucket</span><span class="o">.</span><span class="n">org</span><span class="o">/</span><span class="n">dashapiro</span><span class="o">/</span><span class="n">pystxmcontrol</span><span class="o">.</span><span class="n">git</span>
+<span class="n">cd</span> <span class="n">pystxmcontrol</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>Install the repo in your environment using pip</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">.</span>
+</pre></div>
+</div>
+</section>
+<section id="running-pystxmcontrol">
+<h1>Running pystxmcontrol<a class="headerlink" href="#running-pystxmcontrol" title="Permalink to this heading"></a></h1>
+<ul class="simple">
+<li><p>edit [path_to_conda_env]/pystxmcontrol_cfg/main.json</p></li>
+<li><p>change “server/ip” to localhost for local operation or the IP of the machine on which the server will run</p></li>
+<li><p>change “dataDir” to an appropriate location for saving data on the server.  On Windows double rather than single backslashes must be used in the path</p></li>
+<li><p>edit [path_to_conda_env]/pystxmcontrol_cfg/motorConfig.json</p></li>
+</ul>
+<p>In one terminal (or Anaconda Powershell on Windows):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">pystxmcontrol</span><span class="o">/</span><span class="n">server</span><span class="o">/</span><span class="n">stxmServer</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">simulation</span> <span class="mi">1</span>
+</pre></div>
+</div>
+<p>In another terminal:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">pystxmcontrol</span><span class="o">/</span><span class="n">stxmcontrol</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+</section>
+<section id="contact-us">
+<h1>Contact us<a class="headerlink" href="#contact-us" title="Permalink to this heading"></a></h1>
+<p>For questions, bug reports, feature requests, or if you want to collaborate with us, contact dashapiro&#64;lbl.gov</p>
+</section>
+<section id="notice">
+<h1>Notice<a class="headerlink" href="#notice" title="Permalink to this heading"></a></h1>
+<p>This Software was developed under funding from the U.S. Department
+of Energy and the U.S. Government consequently retains certain rights.  As
+such, the U.S. Government has been granted for itself and others acting on
+its behalf a paid-up, nonexclusive, irrevocable, worldwide license in the
+Software to reproduce, distribute copies to the public, prepare derivative
+works, and perform publicly and display publicly, and to permit other to do
+so.</p>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

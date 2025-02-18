@@ -1,0 +1,154 @@
+{
+    "server": {
+        "host": "127.0.0.1",
+        "command_port": 9999,
+        "stxm_data_port": 9998,
+        "ccd_data_port": 9997,
+        "stxm_file_port": 9996,
+        "data_dir": "/Users/david/global/scratch/pystxmcontrolData",
+        "file_prefix": "NS",
+        "nx_file_version": "2.1",
+        "alshub-apikey": ""
+    },
+    "zonePlate": {
+        "diameter": 360.0,
+        "outerZone": 0.045,
+        "A0": 0.0,
+        "A1": 11.6177,
+        "type": "conventional",
+        "source": "CXRO"
+    },
+    "monitor": {
+        "dwell": 100
+    },
+    "ptychography": {
+        "position_jitter": 0.25
+    },
+    "zmq": {
+        "connect": true,
+        "address": "131.243.73.248",
+        "ccd_data_port": 37012,
+        "stxm_data_port": 37016,
+        "stxm_file_port": 37015
+    },
+    "geometry": {
+        "distance": 321.0, 
+        "psize": 30, 
+        "shape": 256, 
+        "resolution":8e-9,
+        "rebin": 1,
+        "oversampling_factor": 1
+    }, 
+    "lastScan": {
+        "Image": {
+            "type": "Image",
+            "proposal": "",
+            "experimenters": "",
+            "sample": "",
+            "x": "SampleX",
+            "y": "SampleY",
+            "defocus": false,
+            "serpentine": false,
+            "mode": "continuousLine",
+            "scanRegions": {
+                "Region1": {
+                    "xStart": -34.5,
+                    "xStop": 34.5,
+                    "xPoints": 50,
+                    "yStart": -34.5,
+                    "yStop": 34.5,
+                    "yPoints": 50,
+                    "xStep": 1.0,
+                    "yStep": 1.0,
+                    "xRange": 70.0,
+                    "yRange": 70.0,
+                    "xCenter": 0.0,
+                    "yCenter": 0.0,
+                    "zStart": 0.0,
+                    "zStop": 0.0,
+                    "zPoints": 0,
+                    "zStep": 0,
+                    "zRange": 0,
+                    "zCenter": 0
+                }
+            },
+            "energyRegions": {
+                "EnergyRegion1": {
+                    "dwell": 1.0,
+                    "start": 600.0,
+                    "stop": 601.0,
+                    "step": 1.0,
+                    "nEnergies": 1
+                }
+            },
+            "energy": "Energy",
+            "doubleExposure": false
+        },
+        "Ptychography Image": {
+            "type": "Ptychography Image",
+            "proposal": "",
+            "experimenters": "Shapiro",
+            "sample": "",
+            "x": "SampleX",
+            "y": "SampleY",
+            "defocus": false,
+            "serpentine": false,
+            "mode": "ptychographyGrid",
+            "scanRegions": {
+                "Region1": {
+                    "xStart": -4.9,
+                    "xStop": 4.9,
+                    "xPoints": 50,
+                    "yStart": -4.9,
+                    "yStop": 4.9,
+                    "yPoints": 50,
+                    "xStep": 0.2,
+                    "yStep": 0.2,
+                    "xRange": 10.0,
+                    "yRange": 10.0,
+                    "xCenter": 0.0,
+                    "yCenter": 0.0,
+                    "zStart": 0.0,
+                    "zStop": 0.0,
+                    "zPoints": 0,
+                    "zStep": 0,
+                    "zRange": 0,
+                    "zCenter": 0
+                }
+            },
+            "energyRegions": {
+                "EnergyRegion1": {
+                    "dwell": 10.0,
+                    "start": 600.0,
+                    "stop": 601.0,
+                    "step": 1.0,
+                    "nEnergies": 1
+                }
+            },
+            "energy": "Energy",
+            "doubleExposure": false
+        },
+        "Focus": {
+            "x": "SampleX",
+            "y": "SampleY",
+            "type": "continuousLine",
+            "serpentine": false,
+            "scanRegions": {
+                "Region1": {
+                    "xStart": -35.0,
+                    "xStop": 35.0,
+                    "xPoints": 50,
+                    "yStart": -35.0,
+                    "yStop": 35.0,
+                    "yPoints": 50,
+                    "xStep": 1.4,
+                    "yStep": 1.4,
+                    "xRange": 70.0,
+                    "yRange": 70.0,
+                    "xCenter": 0.0,
+                    "yCenter": 0.0
+                }
+            }
+        }
+    }
+}
