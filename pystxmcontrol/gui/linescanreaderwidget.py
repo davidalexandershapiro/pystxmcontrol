@@ -2,9 +2,9 @@ import os.path
 import pyqtgraph as pg
 from PySide6 import QtWidgets, QtCore
 from numpy import array, fliplr, log
-from pystxm_core.image import despike
-from pystxm_core.image import image
-from pystxm_core.misc.general import find_nearest
+from pystxmcontrol.utils.image import despike
+from pystxmcontrol.utils.image import image
+from pystxmcontrol.utils.general import find_nearest
 from .linescanreader_mainwindow import Ui_CustomWidget
 import matplotlib.pyplot as plt
 

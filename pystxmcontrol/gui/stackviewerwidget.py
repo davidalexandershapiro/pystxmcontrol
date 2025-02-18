@@ -6,9 +6,9 @@ from .registerwindowwidget import registerWindowWidget
 from .pca_mainwindow import Ui_pcaViewer
 from .stackImportwindowwidget import stackImportWindow
 from .bkgwindowwidget import bkgWindowWidget
-from pystxm_core.misc.general import find_nearest
-from pystxm_core.stack import stack
-from pystxm_core.image import image
+from pystxmcontrol.utils.general import find_nearest
+from pystxmcontrol.utils.stack import stack
+from pystxmcontrol.utils.image import image
 from skimage.io import imsave
 import os
 import numpy as np

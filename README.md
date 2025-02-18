@@ -44,7 +44,7 @@ sudo apt install  libxcb-cursor0
 - pyzmq
 - matplotlib
 - qdarkstyle
-- pyqt5
+- pyside6
 - pyqtgraph
 - griffe = 0.47
 - prefect = 2.14.3
@@ -53,18 +53,10 @@ sudo apt install  libxcb-cursor0
 
 # Environment setup and installation using miniconda3 and pip
 - On both Windows, Mac or LInux install [miniconda3](https://docs.conda.io/en/latest/miniconda.html) and activate the base environment
-- Create a conda environment with Python version up to 3.10
+- Create a conda environment with Python version <=3.10
 ```
 conda create -n [my_env_name] python=3.10
 conda activate [my_env_name]
-```
-- Clone pystxm_core and install
-```
-git clone https://[username]@bitbucket.org/dashapiro/pystxm_core.git
-cd pystxm_core
-git checkout master
-pip install .
-cd ..
 ```
 - Clone pystxmcontrol and install
 ```

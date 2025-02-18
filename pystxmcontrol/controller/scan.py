@@ -1,4 +1,4 @@
-from pystxm_core.io.writeNX import stxm
+from pystxmcontrol.utils.writeNX import stxm
 from pystxmcontrol.controller.scans.arbitrary_linescan import arbitrary_linescan
 from pystxmcontrol.controller.spiral import spiralcreator
 from threading import Lock

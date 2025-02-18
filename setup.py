@@ -18,5 +18,5 @@ setup(  name = 'pystxmcontrol',
         install_requires = ['numpy==1.26','pyusb','python-usbtmc','pylibftdi','pyvisa-py',\
                             'scipy','scikit-image','qdarkstyle', 'pyepics', 'pyserial',\
                             'pyzmq','PySide6','matplotlib','h5py','pyqtgraph','griffe==0.47',\
-                            'prefect==2.14.3','pydantic==1.10.4','python-dotenv'],
+                            'prefect==2.14.3','pydantic==1.10.4','python-dotenv','opencv-python-headless','scikit-learn'],
         zip_safe = False)

@@ -1,4 +1,4 @@
-from pystxm_core.io.writeNX import stxm
+from pystxmcontrol.utils.writeNX import stxm
 import matplotlib.pyplot as plt
 import time, sys, zmq, os, json, traceback, datetime
 import numpy as np
@@ -312,7 +312,6 @@ def decimate(stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0)
     attempts to locate the particles.  It also defines a bounding box around each particle
     which can be used as a STXM scan region.  The list of scan regions is the output.
     """
-    from pystxm_core.io.writeNX import stxm
     from skimage.morphology import erosion, dilation
     from skimage.measure import label, regionprops
     from skimage.filters import threshold_otsu

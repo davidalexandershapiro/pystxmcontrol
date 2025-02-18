@@ -1,5 +1,5 @@
 from pystxmcontrol.controller.scans.scan_utils import *
-from pystxm_core.io.writeNX import stxm
+from pystxmcontrol.utils.writeNX import stxm
 import numpy as np
 import time, datetime
 
