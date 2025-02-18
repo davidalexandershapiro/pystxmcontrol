@@ -26,7 +26,7 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 # Dependencies 
 pystxmcontrol also depends upon the pystxm data structure and analysis package called pystxm_core.  This must be separately downloaded and installed as described below.
 
-Ubuntun requires this package to be installed in some cases for PySide6 to function properly.
+Ubuntu requires this package to be installed in some cases for PySide6 to function properly.
 ```
 sudo apt install  libxcb-cursor0
 ```

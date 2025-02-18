@@ -202,92 +202,8 @@
         "display": false,
         "simulation": 1
     },
-    "CoarseX": {
-        "index": 9,
-        "type": "primary",
-        "axis": "CompuStageX.XPos",
-        "driver": "xpsMotor",
-        "port": 5001,
-        "controller": "xpsController",
-        "controllerID": "192.168.168.154",
-        "max velocity": 1000.0,
-        "max acceleration": 5000.0,
-        "last value": -12.5,
-        "minValue": -1000.0,
-        "maxValue": 1000.0,
-        "last range": 10.0,
-        "last N points": 100.0,
-        "last step:": 0.1,
-        "offset": 0.0,
-        "units": 1.0,
-        "display": true,
-        "simulation": 1
-    },
-    "CoarseY": {
-        "index": 10,
-        "type": "primary",
-        "axis": "CompuStageY.YPos",
-        "driver": "xpsMotor",
-        "port": 5001,
-        "controller": "xpsController",
-        "controllerID": "192.168.168.154",
-        "max velocity": 1000.0,
-        "max acceleration": 5000.0,
-        "last value": -12.5,
-        "minValue": -600.0,
-        "maxValue": 600.0,
-        "last range": 10.0,
-        "last N points": 100.0,
-        "last step:": 0.1,
-        "offset": 0.0,
-        "units": -1.0,
-        "display": true,
-        "simulation": 1
-    },
-    "CoarseZ": {
-        "index": 11,
-        "type": "primary",
-        "axis": "CompuStageZ.ZPos",
-        "driver": "xpsMotor",
-        "port": 5001,
-        "controller": "xpsController",
-        "controllerID": "192.168.168.154",
-        "max velocity": 1000.0,
-        "max acceleration": 5000.0,
-        "last value": -12.5,
-        "minValue": -300.0,
-        "maxValue": 300.0,
-        "last range": 10.0,
-        "last N points": 100.0,
-        "last step:": 0.1,
-        "offset": 0.0,
-        "units": -1.0,
-        "display": true,
-        "simulation": 1
-    },
-    "CoarseR": {
-        "index": 12,
-        "type": "primary",
-        "axis": "CompuStageAlpha.AlphaPos",
-        "driver": "xpsMotor",
-        "port": 5001,
-        "controller": "xpsController",
-        "controllerID": "192.168.168.154",
-        "max velocity": 1000.0,
-        "max acceleration": 5000.0,
-        "last value": -12.5,
-        "minValue": -50.0,
-        "maxValue": 50.0,
-        "last range": 10.0,
-        "last N points": 100.0,
-        "last step:": 0.1,
-        "offset": 0.0,
-        "units": 1.0,
-        "display": true,
-        "simulation": 1
-    },
     "FBKOFFSET": {
-        "index": 13,
+        "index": 9,
         "type": "primary",
         "axis": "beamFeedBackOffset",
         "driver": "bcsMotor",
@@ -311,7 +227,7 @@
         "simulation": 1
     },
     "HARMONIC": {
-        "index": 14,
+        "index": 10,
         "type": "primary",
         "axis": "EPU Harmonic",
         "driver": "bcsMotor",
@@ -335,7 +251,7 @@
         "simulation": 1
     },
     "EPUOFFSET": {
-        "index": 15,
+        "index": 11,
         "type": "primary",
         "axis": "EPU Gap Offset",
         "driver": "bcsMotor",
@@ -359,7 +275,7 @@
         "simulation": 1
     },
     "Detector Y": {
-        "index": 16,
+        "index": 12,
         "type": "primary",
         "axis": "DetectorY",
         "driver": "bcsMotor",
@@ -381,7 +297,7 @@
         "simulation": 1
     },
     "Dummy Motor": {
-        "index": 17,
+        "index": 13,
         "type": "primary",
         "axis": "z",
         "driver": "xerMotor",
@@ -404,7 +320,7 @@
         "simulation": 1
     },
     "Energy": {
-        "index": 18,
+        "index": 14,
         "type": "derived",
         "axes": {
             "axis1": "Beamline Energy",
@@ -429,7 +345,7 @@
         "simulation": 1
     },
     "OSA_X": {
-        "index": 19,
+        "index": 15,
         "type": "primary",
         "axis": "BL7012:OSA_X",
         "driver": "epicsMotor",
@@ -454,7 +370,7 @@
         "simulation": 1
     },
     "OSA_Y": {
-        "index": 20,
+        "index": 16,
         "type": "primary",
         "axis": "BL7012:OSA_Y",
         "driver": "epicsMotor",
@@ -479,7 +395,7 @@
         "simulation": 1
     },
     "OSA_Z": {
-        "index": 21,
+        "index": 17,
         "type": "primary",
         "axis": "BL7012:OSA_Z",
         "driver": "epicsMotor",
