@@ -13,28 +13,6 @@ import traceback
 
 BASEPATH = sys.prefix
 
-# class controlThread:
-#     controlResponse = QtCore.Signal(object)
-#     def __init__(self, client, messageQueue):
-#     '''
-#     The main App will create a client and queue for passing messages.  Those are handed to this thread and used
-#     for passing messages to the client in a controlled way.  The client socket connection to the server is protected
-#     by a Lock object but it should in principle only receive messages from this thread.
-#     '''
-#     self.messageQueue = messageQueue
-#     self.client = client
-#     self.monitor = True
-#     def run(self):
-#         while self.monitor:
-#             message = self.messageQueue.get(True)
-#             if message != "exit":
-#                 response = self.client.send_message(message)
-#                 if response is None:
-#                     response = {"command": message["command"],"status":"No response from server"}
-#                 self.controlResponse.emit(response)
-#             else:
-#                 return
-
 class controlThread(QtCore.QThread):
     '''
     The main App will create a client and queue for passing messages.  Those are handed to this thread and used

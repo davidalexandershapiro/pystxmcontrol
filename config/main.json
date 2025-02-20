@@ -24,15 +24,8 @@
     "ptychography": {
         "position_jitter": 0.25
     },
-    "zmq": {
-        "connect": true,
-        "address": "131.243.73.248",
-        "ccd_data_port": 37012,
-        "stxm_data_port": 37016,
-        "stxm_file_port": 37015
-    },
     "geometry": {
-        "distance": 321.0, 
+        "distance": 200.0,
         "psize": 30, 
         "shape": 256, 
         "resolution":8e-9,
