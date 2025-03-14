@@ -27,7 +27,7 @@ class stxmServer:
 
     def command_handler(self):
         while True:
-            time.sleep(1)
+            #time.sleep(0.1)
             message = self.command_sock.recv_pyobj()
             #recv_pyobj is blocking so we need to check the scan thread status after getting the message
             scanning = self.controller.scanThread.is_alive()

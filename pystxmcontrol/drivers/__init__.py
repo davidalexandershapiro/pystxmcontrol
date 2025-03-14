@@ -13,6 +13,7 @@ from pystxmcontrol.drivers.shutter import shutter
 from pystxmcontrol.drivers.xerMotor import xerMotor
 from pystxmcontrol.drivers.xerController import xerController
 from pystxmcontrol.drivers.derivedEnergy import derivedEnergy
+from pystxmcontrol.drivers.derivedEnergy_SGM import derivedEnergy_SGM
 from pystxmcontrol.drivers.mclController import mclController
 from pystxmcontrol.drivers.mclMotor import mclMotor
 from pystxmcontrol.drivers.derivedPiezo import derivedPiezo
@@ -24,4 +25,4 @@ __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
     'nptController', 'bcsController', 'mmcController','keysight53230A',\
            'epicsController', 'shutter', 'keysightU2356A', 'fccd_control', 'xerMotor', \
            'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo',\
-           'areaDetector','xpsMotor','xpsController']
+           'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM']

@@ -49,7 +49,6 @@ class counter:
         self.session.ask("CONF?") #this is needed.  Blocks until config is complete I think
 
     def getPoint(self):
-
         self.session.write("INIT:IMM")
         self.session.write("*TRG")
         data = self.session.ask("FETC?")

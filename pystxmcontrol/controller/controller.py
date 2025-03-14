@@ -86,7 +86,7 @@ class controller:
                     print("controller %s already available" %self.motorConfig[key]["controllerID"])
 
                 ##initialize the motor driver and add the controller
-                self.motors[key] = {"motor": eval(self.motorConfig[key]["driver"] + '()')}
+                self.motors[key] = {"motor": eval(self.motorConfig[key]["driver"] + '()')} #{"motor":xpsMotor()}
                 self.motors[key]["motor"].controller = self.controllers[self.motorConfig[key]["controllerID"]]["device"]
 
                 ##add the config to the motor for later use
@@ -96,10 +96,10 @@ class controller:
             if self.motorConfig[key]["type"] == "derived":
                 self.motors[key] = {"motor": eval(self.motorConfig[key]["driver"] + '()')}
                 for axis in self.motorConfig[key]["axes"]:
-                    #self.motors[key]["motor"].axes[self.motorConfig[key]["axes"][axis]] = self.motors[self.motorConfig[key]["axes"][axis]]["motor"]
                     self.motors[key]["motor"].axes[axis] = self.motors[self.motorConfig[key]["axes"][axis]]["motor"]
                 setattr(self.motors[key]["motor"], "config", self.motorConfig[key])
                 self.motors[key]["motor"].connect(axis=key) #derived motor needs a name and "axes" is a list
+        #I think this is redundant.  setattr above should set all config items
         for motor in self.motors.keys():
             self.motors[motor]["motor"].offset = self.motors[motor]["motor"].config["offset"]
             self.motors[motor]["motor"].units = self.motors[motor]["motor"].config["units"]
@@ -190,7 +190,7 @@ class controller:
             self.daq["ccd"].start()
         self.scanDef = scan
         self.dataHandler.startScanProcess(scan)
-        eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)")
+        eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)") #image_scan(scan)
         self.dataHandler.stopScanProcess()
         self.daq["default"].stop()
         if scan["mode"] == "ptychographyGrid":

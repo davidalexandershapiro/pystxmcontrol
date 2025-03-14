@@ -1,19 +1,36 @@
 from pystxmcontrol.controller.scripter import *
 import time
     
-# ##set up and execute basic STXM scan
-# meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":2.1, "Sample": "Dong Hyun: R1"}
-# meta["xcenter"] = 0
-# meta["xrange"] = 5
-# meta["xpoints"] = 50
-# meta["ycenter"] = 0
-# meta["yrange"] = 5
-# meta["ypoints"] = 50
-# meta["energyStart"] = 605
-# meta["energyStop"] = 700
-# meta["energyPoints"] = 20
-# meta["dwell"] = 0.2
-# meta["spiral"] = False
+# ##set up and execute basic metadata required of all scans
+meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":2.1, "Sample": "Dong Hyun: R1"}
+meta["xcenter"] = 0
+meta["xrange"] = 5
+meta["xpoints"] = 100
+meta["ycenter"] = 0
+meta["yrange"] = 5
+meta["ypoints"] = 100
+meta["energyStart"] = 605
+meta["energyStop"] = 700
+meta["energyPoints"] = 1
+meta["dwell"] = 1
+meta["spiral"] = False
+meta["refocus"] = True
+
+#################################################################################################
+##Single Motor Scan##############################################################################
+##This only looks at the X motor points and range
+meta["motor"] = "Dummy Motor" #choose the motor to scan
+meta["daq"] = "default" #choose the detector to measure
+filename = singleMotorScan(meta)
+print(filename)
+
+#################################################################################################
+# ##Two Motor Scan##############################################################################
+# meta["xmotor"] = "Dummy Motor"
+# meta["ymotor"] = "Dummy Motor"
+# meta["daq"] = "default"
+# filename = twoMotorScan(meta)
+# print(filename)
 
 #################################################################################################
 ##basic stxm scan################################################################################
@@ -21,7 +38,7 @@ import time
 
 #################################################################################################
 ##Move Motor#####################################################################################
-moveMotor("Energy", 1100.)
+#moveMotor("Energy", 1100.)
 
 #################################################################################################
 ##Get Data from DAQ##############################################################################
@@ -188,28 +205,6 @@ moveMotor("Energy", 1100.)
 #    print(stxmScan(meta))
 #    #print(ptychographyScan(meta))
 
-
-
-#################################################################################################
-##Single Motor Scan##############################################################################
-##Beamline slit scan#############################################################################
-#motor = "DISPERSIVE_SLIT"
-#daq = "diode"
-#npoints = 100
-#dwell = 10
-#start = 0
-#stop = 200
-#data,ssize = singleMotorScan(motor,daq,dwell,start,stop,npoints)
-
-#################################################################################################
-##Two Motor Scan - OSA XY########################################################################
-#motors = "OSA_X","OSA_Y"
-#daq = "diode"
-#npoints = 50,50
-#dwell = 10
-#start = 0,-500
-#stop = 1000,500
-#data = twoMotorScan(motors,daq,dwell,start,stop,npoints)
 
 
 

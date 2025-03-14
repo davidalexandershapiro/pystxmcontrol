@@ -8,22 +8,22 @@ class xpsController(hardwareController):
         self.simulation = simulation
         self.stopped = False
         self.moving = False
-        xpsController._nSockets = 0
-        xpsController._sockets = []
+        self._nSockets = 0
+        self._sockets = []
 
     def initialize(self, simulation = False):
         self.simulation = simulation
         if not(self.simulation):
-            print("Connecting to XPS socket...", self.address, self.port)
+            print("Connecting to XPS controller...", self.address, self.port)
             self.controlSocket = self.connect(self.address, self.port, 1)
             self.monitorSocket = self.connect(self.address, self.port, 1)
 
     def __sendAndReceive(self, socketId, command):
         try:
-            xpsController._sockets[socketId].send(command.encode())
-            response = xpsController._sockets[socketId].recv(1024).decode()
+            self._sockets[socketId].send(command.encode())
+            response = self._sockets[socketId].recv(1024).decode()
             while (response.find(',EndOfAPI') == -1):
-                response += xpsController._sockets[socketId].recv(1024)
+                response += self._sockets[socketId].recv(1024)
         except socket.timeout:
             return [-2, '']
         except socket.error as errString:
@@ -34,14 +34,15 @@ class xpsController(hardwareController):
                 return [int(response[0:i]), response[i+1:-9]]
 
     def connect(self, IP, port, timeOut):
-        xpsController._nSockets = len(xpsController._sockets)
-        socketId = xpsController._nSockets
+        self._nSockets = len(self._sockets)
+        socketId = self._nSockets
         try:
-            xpsController._sockets.append(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-            xpsController._sockets[socketId].connect((IP, port))
-            xpsController._sockets[socketId].settimeout(timeOut)
-            xpsController._sockets[socketId].setblocking(1)
+            self._sockets.append(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            self._sockets[socketId].connect((IP, port))
+            self._sockets[socketId].settimeout(timeOut)
+            self._sockets[socketId].setblocking(1)
         except socket.error:
+            print("Failed to connect to XPS controller on: %s:%s" %(self.address, self.port))
             return -1
         return socketId
 
@@ -85,7 +86,7 @@ class xpsController(hardwareController):
         command = 'GroupPositionCurrentGet(' + motor + ', double *)'
         [err, retString] = self.__sendAndReceive(socketId, command)
         if (err != 0):
-            return [err, retString]
+            return [err, float(retString)]
         return [err, float(retString)]
 
 

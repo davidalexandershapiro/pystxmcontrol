@@ -9,7 +9,7 @@ class xpsMotor(motor):
         self.axis = None
         self.position = 500.
         self.moving = False
-        self.config = {"units":1, "offset":0,"minValue":-40,"maxValue":40}
+        self.config = {"units":1, "offset":0, "minValue":-40,"maxValue":40}
 
     def getStatus(self, **kwargs):
         return self.moving
@@ -47,6 +47,7 @@ class xpsMotor(motor):
     def getPos(self):
         if not(self.simulation):
             self.err,self.position = self.controller.getPosition(self.controller.monitorSocket, self.group)
+            #print(self.config["units"],self.config["offset"],self.position)
             return self.position * self.config["units"] + self.config["offset"]
         else:
             return self.position
