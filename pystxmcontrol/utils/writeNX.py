@@ -12,6 +12,7 @@ def _string_attr(nxgrp, name, sdata):
     nxgrp.attrs[name] = np.string_(sdata)
 
 
+
 def _list_attr(nxgrp, name, lstdata):
     if (nxgrp is None):
         return
