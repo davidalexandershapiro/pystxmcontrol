@@ -438,9 +438,15 @@ class stxm:
         et = grp['end_time']
         et[...] = np.string_(self.end_time)
         et.flush()
-        
+
+        # Add the Single Motor case here
+        if self.scan_dict["type"] == "Single Motor":
+            nx = len(self.xPos[0])
+            newshape = (nx,)  # Note the comma to make it a tuple
+            motshape = newshape
+            procshape = newshape
         #Kind of a kludge, but this is adjusted for oversampling.
-        if self.scan_dict["type"] == "Line Spectrum":
+        elif self.scan_dict["type"] == "Line Spectrum":
             newshape = (self.energies.size, 1, len(self.xMeasured[i][0]))
             motshape = newshape
             procshape = (self.energies.size, 1, len(self.xPos[i]))
@@ -451,8 +457,8 @@ class stxm:
                 nx = int(len(self.xMeasured[i][0])/nt)
                 newshape = (self.energies.size, nt, nc)
                 motshape = (self.energies.size,nt,nx)
-                
-                
+               
+
                 
             else:
                 newshape = (self.energies.size, len(self.yPos[i]), int(len(self.xMeasured[i][0])/len(self.yPos[i])))
@@ -470,11 +476,27 @@ class stxm:
         rebinData = grp['binned_values/data']
         #rebinData[...] = np.reshape(self.interp_counts[i][0], procshape)
         rebinData[...] = self.interp_counts[i][0]
-        sample_x = grp['counter0/sample_x']
-        sample_x[...] = np.reshape(self.xMeasured[i], motshape)
-        sample_x.flush()
+
+        sample_x = grp['counter0/sample_x']        
         sample_y = grp['counter0/sample_y']
-        sample_y[...] = np.reshape(self.yMeasured[i], motshape)
+
+        # START: Added conditional handling for Single Motor case
+        if self.scan_dict["type"] == "Single Motor":
+            # For Single Motor, handle differently to avoid reshape errors
+            # Option 1: Use the data as is if it's already the right shape
+            sample_x[...] = self.xMeasured[i]
+            sample_y[...] = self.yMeasured[i]
+            
+            # Option 2: If the above doesn't work, try creating an array of the right shape
+            # sample_x[...] = np.full(motshape, self.xMeasured[i][0])
+            # sample_y[...] = np.full(motshape, self.yMeasured[i][0])
+        else:
+            # For other scan types, use reshape as before
+            sample_x[...] = np.reshape(self.xMeasured[i], motshape)
+            sample_y[...] = np.reshape(self.yMeasured[i], motshape)
+        # END: Added conditional handling
+        
+        sample_x.flush()
         sample_y.flush()
         
         motor_grp = self.NXfile['entry' + str(i)+'/motors']
@@ -608,21 +630,37 @@ class stxm:
         Current = np.zeros((ne))
         Stime = StartTime
         Etime = EndTime
-        E3D = [np.full((dataShape[1], dataShape[2]), e[ie]) for ie in range(ne)]
-        E_unroll = np.reshape(E3D, npt)
-        T_unroll = np.reshape([np.full((dataShape[1], dataShape[2]), Dwells[ie]) for ie in range(ne)], npt)
-        if self.scan_dict['spiral'] and 'Image' == self.scan_dict["type"]:
-            mot_Dwells = [self.motdwell for ie in range(ne)]
-            DAQ_Dwells = [self.DAQdwell for ie in range(ne)]
-            mot_T_unroll = np.reshape([np.full((dataShape[1], dataShape[2]), mot_Dwells[ie]) for ie in range(ne)], npt)
-        else:
+
+        if self.scan_dict["type"] == "Single Motor":
+
+            # For 1D scan, create appropriate arrays
+            E3D = [np.full(nx, e[ie]) for ie in range(ne)]
+            E_unroll = np.array([e[ie] for ie in range(ne) for _ in range(nx)])
+            T_unroll = np.array([Dwells[ie] for ie in range(ne) for _ in range(nx)])
             mot_T_unroll = T_unroll
-            DAQ_Dwells = Dwells
-        Cu3D = [np.full((dataShape[1], dataShape[2]), Current[ie]) for ie in range(ne)]
-        Cu_unroll = np.reshape(Cu3D, npt)
-        X_unroll = x.flatten()
-        Y_unroll = y.flatten()
-        C_unroll = Counts.flatten()
+            Cu3D = [np.full(nx, Current[ie]) for ie in range(ne)]
+            Cu_unroll = np.array([Current[ie] for ie in range(ne) for _ in range(nx)])
+            X_unroll = x.flatten()
+            Y_unroll = y.flatten()
+            C_unroll = Counts.flatten()
+
+        else:
+
+            E3D = [np.full((dataShape[1], dataShape[2]), e[ie]) for ie in range(ne)]
+            E_unroll = np.reshape(E3D, npt)
+            T_unroll = np.reshape([np.full((dataShape[1], dataShape[2]), Dwells[ie]) for ie in range(ne)], npt)
+            if self.scan_dict['spiral'] and 'Image' == self.scan_dict["type"]:
+                mot_Dwells = [self.motdwell for ie in range(ne)]
+                DAQ_Dwells = [self.DAQdwell for ie in range(ne)]
+                mot_T_unroll = np.reshape([np.full((dataShape[1], dataShape[2]), mot_Dwells[ie]) for ie in range(ne)], npt)
+            else:
+                mot_T_unroll = T_unroll
+                DAQ_Dwells = Dwells
+            Cu3D = [np.full((dataShape[1], dataShape[2]), Current[ie]) for ie in range(ne)]
+            Cu_unroll = np.reshape(Cu3D, npt)
+            X_unroll = x.flatten()
+            Y_unroll = y.flatten()
+            C_unroll = Counts.flatten()
 
 
 
@@ -670,7 +708,10 @@ class stxm:
 
         #		The datasets under entry1/counter0
         _dset_arb_attr(c0_nxgrp, 'data', Counts, '')
-        _dset_arb_attr(c0_nxgrp, 'count_time', DAQ_Dwells, 's')
+
+        if self.scan_dict['spiral'] and 'Image' == self.scan_dict["type"]:
+            _dset_arb_attr(c0_nxgrp, 'count_time', DAQ_Dwells, 's')
+
         _dset_arb_attr(c0_nxgrp, 'energy', e, 'eV', '/entry1/counter0/energy')
         _dset_arb_attr(c0_nxgrp, 'sample_x', x, 'um', '/entry1/counter0/sample_x')
         _dset_arb_attr(c0_nxgrp, 'sample_y', y, 'um', '/entry1/counter0/sample_y')
@@ -764,4 +805,3 @@ class stxm:
 
     def closeFile(self):
         self.NXfile.close()
-
