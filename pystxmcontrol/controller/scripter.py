@@ -1,5 +1,6 @@
 from pystxmcontrol.utils.writeNX import stxm
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import sys, zmq, os, json, traceback, datetime
 import numpy as np
 from matplotlib.widgets import Button
@@ -359,9 +360,15 @@ def getMotorPosition(motor):
     return response['data'][motor]
 
 def singleMotorScan(meta):
+
     def exit_function(event):
         data.saveRegion(0)
         sys.exit()
+
+    def stop_function(event):
+        while True:
+            figure.canvas.flush_events()
+
     xstart = meta['xcenter'] - meta['xrange'] / 2.
     xstop = meta['xcenter'] + meta['xrange'] / 2.
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
@@ -425,38 +432,34 @@ def singleMotorScan(meta):
 
     line1, = ax.plot(mpts, data.counts[0][0][0], 'ro-', mfc='white')
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-    abort_button = Button(ax_button, "Abort")
-    abort_button.on_clicked(exit_function)
+    stop_button = Button(ax_button, "Stop")
+    stop_button.on_clicked(stop_function)
+    ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
+    close_button = Button(ax_button2, "Close")
+    close_button.on_clicked(exit_function)
     i = 0
     for m in mpts:
         moveMotor(meta["motor"], m)
         data.counts[0][0][0][i] = read_daq(meta["daq"], meta["dwell"])
-        # updating data values
         line1.set_xdata(mpts)
         line1.set_ydata(data.counts[0][0][0])
         ax.relim()
         ax.autoscale_view()
-        # drawing updated values
         figure.canvas.draw()
-        # This will run the GUI event
-        # loop until all UI events
-        # currently waiting have been processed
         figure.canvas.flush_events()
         i += 1
-    #data.saveRegion(0)
-    #This changes the Abort button to a Close button
-    ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-    abort_button = Button(ax_button, "Close")
-    abort_button.on_clicked(exit_function)
-    ##This while loop holds the window open until the user presses the button
-    while True:
-        figure.canvas.flush_events()
+    data.saveRegion(0)
     return data.file_name
 
 def twoMotorScan(meta):
     def exit_function(event):
         data.saveRegion(0)
         sys.exit()
+
+    def stop_function(event):
+        while True:
+            figure.canvas.flush_events()
+
     xstart = meta['xcenter'] - meta['xrange'] / 2.
     xstop = meta['xcenter'] + meta['xrange'] / 2.
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
@@ -522,12 +525,17 @@ def twoMotorScan(meta):
     npoints = meta["xpoints"],meta["ypoints"]
     x = np.linspace(start[0], stop[0], npoints[0])
     y = np.linspace(start[1], stop[1], npoints[1])
-    im = ax.imshow(data.counts[0][0], extent = (start[0],stop[0],start[1],stop[1]), interpolation = None)
+    im = ax.imshow(data.counts[0][0], extent = (start[0],stop[0],start[1],stop[1]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
     moveMotor(meta["ymotor"], y[0])
     moveMotor(meta["xmotor"], x[0])
+    
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-    abort_button = Button(ax_button, "Abort")
-    abort_button.on_clicked(exit_function)
+    stop_button = Button(ax_button, "Stop")
+    stop_button.on_clicked(stop_function)
+    ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
+    close_button = Button(ax_button2, "Close")
+    close_button.on_clicked(exit_function)
+    
     for i in range(npoints[1]):
         moveMotor(meta["ymotor"],y[i])
         for j in range(npoints[0]):
@@ -543,7 +551,8 @@ def twoMotorScan(meta):
             # loop until all UI events
             # currently waiting have been processed
             figure.canvas.flush_events()
-    # data.saveRegion(0)
+    data.saveRegion(0)
+
     # This changes the Abort button to a Close button
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
     abort_button = Button(ax_button, "Close")

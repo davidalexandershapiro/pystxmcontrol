@@ -21,7 +21,7 @@ class derivedEnergy_SGM(motor):
     def stop(self):
         return
         
-    def getZonePlateCalibration(self):
+    def getZonePlateCalibration(self, energy = None):
         ##should this use the position provided by the beamline or the theoretical value?
         ##I don't trust the beamline numbers
         A0 = self.config["A0"]
@@ -29,7 +29,8 @@ class derivedEnergy_SGM(motor):
         # if self.config["A0_min"] <= currentZ <= self.config["A0_max"]:
         #     A0 = currentZ
         A1 = self.config["A1"]
-        energy = self.getPos()
+        if energy == None:
+            energy = self.getPos()
         self.calibratedPosition = A0 - (A1 * energy)
         return self.calibratedPosition
 
@@ -49,31 +50,24 @@ class derivedEnergy_SGM(motor):
         ##this "pos" is energy and needs to be converted to "GratingArm" units which is what the BCS motor will use
         alpha = np.arcsin(0.5 * self.grooveDensity * 0.001239852 / (pos * np.cos(0.5 * self.includedAngle*np.pi/180.)))
         gratingPos = self.monoArm * np.tan(-alpha)
-
         if debug:
             print("[moveTo] gratingPos ", gratingPos)
-
         self.moving = True
         #self.logger.log("Moving beamline energy to %.4f" %pos,level = "info")
-        self.axes["axis1"].moveTo(gratingPos)
+        if not(debug):
+            self.axes["axis1"].moveTo(gratingPos)
         # self.logger.log("Moving zone plate to %.4f" %self.calibratedPosition,level = "info")
         self.calibratedPosition = self.getZonePlateCalibration()
         if debug:
-            print("[moveTo] Calibrated zone plate position: %.4f" %self.calibratedPosition)
+            print("[moveTo] Calibrated zone plate position: %.4f" %self.getZonePlateCalibration(energy = pos))
         # self.logger.log("moving zone plate to %.4f" %self.calibratedPosition, level="info")
-        self.axes["axis2"].moveTo(self.calibratedPosition)
+        if not(debug):
+            self.axes["axis2"].moveTo(self.calibratedPosition)
         self.moving = False
 
     def getPos(self, debug = False):
         #This gets the grating arm motor position from the XPS controller
         gratingPos = self.axes["axis1"].getPos()
-        #gratingPos = -4364.25 #Faking that we have the value for now
-
-        #zonePlateZ_value = self.axes["ZonePlateZ.Pos"].getPos()
-        #gratingPos = -4364.25 #Faking that we have the value for now
-        #print("zonePlateZ.Pos_value ", zonePlateZ_value)
-
-
         #This calculates the angle of the grating assuming the correct value for the monoArm
         alpha = np.arctan(gratingPos/self.monoArm)
         #This converts angle to energy assuming the correct parameters: grooveDensity, includedAngle
@@ -82,6 +76,7 @@ class derivedEnergy_SGM(motor):
         if debug:
             print("[getPos] gratingPos: %.4f" %gratingPos)
             print("[getPos] energy: %.4f" %self.position)
+            print("[getPos] zoneplate_z calibrated position: %.4f" %self.axes["axis2"].getPos())
         return self.position
 
     def connect(self, axis=None, **kwargs):

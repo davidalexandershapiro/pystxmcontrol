@@ -15,14 +15,16 @@ class mmcMotor(motor):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
 
     def getStatus(self, **kwargs):
-        with self.lock:
-            self.controller.serialPort.write((str(self._axis) + "STA?\r").encode())
-            status = self.controller.serialPort.readline().decode().strip()
-            if status[1::] not in self.idleStrings: ##this number seems to have changed!!
-                self.moving = True
-            else:
-                self.moving = False
-            return self.moving
+        if not(self.simulation):
+            with self.lock:
+                self.controller.serialPort.write((str(self._axis) + "STA?\r").encode())
+                status = self.controller.serialPort.readline().decode().strip()
+                if status[1::] not in self.idleStrings: ##this number seems to have changed!!
+                    self.moving = True
+                else:
+                    self.moving = False
+        return self.moving
+
 
     def moveBy(self, step):
         self.position += step
@@ -46,11 +48,12 @@ class mmcMotor(motor):
             self.logger.log("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos),level = "info")
 
     def getPos(self):
-        with self.lock:
-            self.controller.serialPort.write((str(self._axis) + "POS?\r").encode())
-            pos = float(self.controller.serialPort.readline().decode().split(',')[1].rstrip())
-            self.position = pos * self.config["units"] + self.config["offset"]
-            return self.position
+        if not(self.simulation):
+            with self.lock:
+                self.controller.serialPort.write((str(self._axis) + "POS?\r").encode())
+                pos = float(self.controller.serialPort.readline().decode().split(',')[1].rstrip())
+                self.position = pos * self.config["units"] + self.config["offset"]
+        return self.position
 
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():

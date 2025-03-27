@@ -38,7 +38,6 @@ class xpsMotor(motor):
                 self.moving = False
             else:
                 self.controller.moving = True
-                time.sleep(1)
                 self.controller.moving = False
                 self.position = pos
         else:

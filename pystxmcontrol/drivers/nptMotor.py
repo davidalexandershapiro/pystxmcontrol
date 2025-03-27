@@ -127,7 +127,7 @@ class nptMotor(motor):
         if self.checkLimits(pos):
             if not(self.simulation):
                 self.controller.moveTo(axis = self._axis, pos = pos)
-                time.sleep(0.01) #piezo settling time of 10 ms
+                time.sleep(0.02) #piezo settling time of 10 ms
             else:
                 self.position = pos
                 time.sleep(self.waitTime / 1000.)

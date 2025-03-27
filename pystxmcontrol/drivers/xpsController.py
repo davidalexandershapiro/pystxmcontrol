@@ -61,9 +61,9 @@ class xpsController(hardwareController):
         while self.moving:
             err,currentPos = self.getPosition(socketId, motor)
             positionErr = target - currentPos
-            if abs(positionErr) > 0.2: #0.05 * moveDelta:
+            if abs(positionErr) > 2.0: #0.05 * moveDelta:
                 if not(self.stopped):
-                    if (time.time() - t0) > 30.0:
+                    if (time.time() - t0) > 1.0:
                         print("XPS move timeout. Aborting...")
                         self.moving = False
                         return self.abortMove(socketId, motor)
@@ -86,6 +86,7 @@ class xpsController(hardwareController):
         command = 'GroupPositionCurrentGet(' + motor + ', double *)'
         [err, retString] = self.__sendAndReceive(socketId, command)
         if (err != 0):
+            print(err,retString)
             return [err, float(retString)]
         return [err, float(retString)]
 

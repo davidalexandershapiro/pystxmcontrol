@@ -10,7 +10,7 @@ g.connect(axis = "Monochromator.X")
 g.config["offset"] = -420.105
 g.config["minValue"] = -6000
 g.config["maxValue"] = 6000
-
+print(g.getPos())
 c2 = xpsController(address = '192.168.0.251', port = 5001)
 c2.initialize()
 zp_z = xpsMotor(controller = c2)
@@ -27,7 +27,7 @@ sgm.connect(axis = "Energy")
 sgm.config["A0"] = 309.5
 sgm.config["A1"] = 4.8778
 
-theenergy = sgm.getPos()
+print(sgm.getPos())
 #sgm.moveTo(320.)
 
 

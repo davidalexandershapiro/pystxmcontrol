@@ -14,8 +14,8 @@ setup(  name = 'pystxmcontrol',
         data_files = [('pystxmcontrol_cfg',['config/daqConfig.json','config/main.json',\
                                  'config/motorConfig.json','config/scans.json','config/meta.json','config/stxmLog.txt',\
                                  'config/xeryon_default.txt'])],
-        install_requires = ['numpy==1.26','pyusb','python-usbtmc','pylibftdi','pyvisa-py',\
-                            'scipy','scikit-image','qdarkstyle', 'pyepics', 'pyserial',\
-                            'pyzmq','PySide6','matplotlib','h5py','pyqtgraph','griffe==0.47',\
-                            'prefect==2.19.5','pydantic==1.10.4','python-dotenv','opencv-python-headless','scikit-learn'],
+        install_requires = ['numpy<2.0','pyusb','python-usbtmc','pylibftdi','pyvisa-py',\
+                             'scipy','scikit-image','qdarkstyle', 'pyepics', 'pyserial',\
+                             'pyzmq','PySide6','matplotlib','h5py','pyqtgraph','griffe==0.47',\
+                             'prefect==2.19.5','pydantic==1.10.4','python-dotenv','opencv-python-headless','scikit-learn'],
         zip_safe = False)

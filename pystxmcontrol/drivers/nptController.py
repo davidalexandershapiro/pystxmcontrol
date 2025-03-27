@@ -83,7 +83,7 @@ class nptController(hardwareController):
             self.writeToDev4B(writeAddr, pos)
 
     def getPos(self, axis = None):
-        readAddr = self.posAddress(axis)
+        readAddr = self.dsrAddress(axis)
         posInSteps = self.readFromDev4B(readAddr)
         return self.stepsToNM(posInSteps) / 1000.
 
@@ -189,7 +189,7 @@ class nptController(hardwareController):
         readTX = 0x55 * 16**10 + addr * 16**2 + self.readCom
         readTX = bytearray.fromhex(hex(readTX)[2:]) # Get the bytes in decreasing significance (need to be reversed)
         readTX.reverse()
-        dataw = self.dev.write(readTX)
+        dataw = self.dev.write(bytes(readTX))
         if dataw != 6:
             print("dataw =", dataw)
             raise("reading value: writing to \"read address\" on device failed")
@@ -207,7 +207,7 @@ class nptController(hardwareController):
         readTX = 0x55 * 16**18 + numBytes * 16**10 + addr * 16**2 + self.readArrayCom
         readTX = bytearray.fromhex(hex(readTX)[2:]) # Get the bytes in decreasing significance (need to be reversed)
         readTX.reverse()
-        dataw = self.dev.write(readTX)
+        dataw = self.dev.write(bytes(readTX))
         if dataw != 10:
             print("dataw =", dataw)
             raise("reading value: writing to \"read address\" on device failed")
@@ -225,7 +225,7 @@ class nptController(hardwareController):
         writeTX = 0x55 * 16**18 + val * 16**10 + addr * 16**2 + self.writeCom
         writeTX = bytearray.fromhex(hex(writeTX)[2:]) # Get the bytes in decreasing significance (need to be reversed)
         writeTX.reverse()
-        dataw = self.dev.write(writeTX)
+        dataw = self.dev.write(bytes(writeTX))
         if dataw != 10:
             print("dataw =", dataw)
             raise("writing value: writing to \"write address\" on device failed")
@@ -234,7 +234,7 @@ class nptController(hardwareController):
         writeTX = 0x55 * 16**10 + val * 16**2 + self.writeNextCom
         writeTX = bytearray.fromhex(hex(writeTX)[2:])
         writeTX.reverse()
-        dataw = self.dev.write(writeTX)
+        dataw = self.dev.write(bytes(writeTX))
         if dataw != 6:
             print("dataw =", dataw)
             raise("writing value: writing to \"write address\" on device failed")
