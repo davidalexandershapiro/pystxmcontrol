@@ -1,0 +1,32 @@
+Metadata-Version: 2.2
+Name: pystxmcontrol
+Version: 1.0
+Summary: Basic GUI for ALS STXM Control
+Author: David Shapiro
+Author-email: dashapiro@lbl.gov
+License-File: LICENSE.txt
+Requires-Dist: numpy==1.26
+Requires-Dist: pyusb
+Requires-Dist: python-usbtmc
+Requires-Dist: pylibftdi
+Requires-Dist: pyvisa-py
+Requires-Dist: scipy
+Requires-Dist: scikit-image
+Requires-Dist: qdarkstyle
+Requires-Dist: pyepics
+Requires-Dist: pyserial
+Requires-Dist: pyzmq
+Requires-Dist: PySide6
+Requires-Dist: matplotlib
+Requires-Dist: h5py
+Requires-Dist: pyqtgraph
+Requires-Dist: griffe==0.47
+Requires-Dist: prefect==2.19.5
+Requires-Dist: pydantic==1.10.4
+Requires-Dist: python-dotenv
+Requires-Dist: opencv-python-headless
+Requires-Dist: scikit-learn
+Dynamic: author
+Dynamic: author-email
+Dynamic: requires-dist
+Dynamic: summary

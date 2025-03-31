@@ -1,5 +1,6 @@
 from pystxmcontrol.drivers.mclController import *
 import time
+import matplotlib.pyplot as plt
 
 mcl = mclController()
 mcl.initialize()
@@ -18,13 +19,28 @@ start = (0,0)
 stop = (100,100)
 dwell = 0.3
 repeats = 20
-#for i in range(repeats):
-#    mcl.setup_trajectory(1,start,stop,dwell,100)
-#    xpos, ypos = mcl.acquire_xy()
-#    time.sleep(0.2)
-#    mcl.setup_trajectory(1,stop,start,dwell,100)
-#    xpos, ypos = mcl.acquire_xy()
-#    print('iteration {}'.format(i))
+tot_time = 2.0
+#Circular test
+Freq = 50 #Hz
+ang_freq = Freq*(np.pi*2)
+nPoints = 4000
+dwell = tot_time/nPoints*1000
+trajx = 50+40*np.sin(np.linspace(0,tot_time,nPoints)*ang_freq)
+trajy = 50+40*np.cos(np.linspace(0,tot_time,nPoints)*ang_freq)
+#plt.plot(np.linspace(0,tot_time,4000),trajx)
+#plt.show()
+for i in range(repeats):
+    #mcl.setup_trajectory(1,start,stop,dwell,100)
+    #xpos, ypos = mcl.acquire_xy()
+    #time.sleep(0.2)
+    #mcl.setup_trajectory(1,stop,start,dwell,100)
+    #xpos, ypos = mcl.acquire_xy()
+    mcl.setup_xy(trajx, trajy,dwell)
+    mcl.acquire_xy()
+    time.sleep(0.2)
+
+
+    print('iteration {}'.format(i))
 
 #mcl.write(1,11)
 #mcl.write(2,11)

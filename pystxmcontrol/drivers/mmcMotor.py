@@ -10,6 +10,7 @@ class mmcMotor(motor):
         self.calibratedPosition = 0.
         self.moving = False
         self.idleStrings = ['8','136']
+        self.lt = '\r'
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -24,7 +25,6 @@ class mmcMotor(motor):
                 else:
                     self.moving = False
         return self.moving
-
 
     def moveBy(self, step):
         self.position += step
@@ -44,16 +44,28 @@ class mmcMotor(motor):
                     else:
                         #print("OSA move took %.4f ms" %((time.time()-t0)*1000.))
                         return
+            else:
+                self.position = pos
         else:
             self.logger.log("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos),level = "info")
 
     def getPos(self):
-        if not(self.simulation):
+        if not self.simulation:
             with self.lock:
-                self.controller.serialPort.write((str(self._axis) + "POS?\r").encode())
+                self.controller.serialPort.write((str(self._axis) + "POS?" + self.lt).encode())
                 pos = float(self.controller.serialPort.readline().decode().split(',')[1].rstrip())
                 self.position = pos * self.config["units"] + self.config["offset"]
-        return self.position
+                return self.position
+        else:
+            return self.position
+
+    def setServo(self,servo = True):
+        if servo:
+            servoStr = '3'
+        else:
+            servoStr = '0'
+        writeStr = str(self._axis) + "FBK" + servoStr + self.lt
+        self.controller.serialPort.write(writeStr.encode())
 
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():
@@ -65,4 +77,7 @@ class mmcMotor(motor):
             self._axis = 1
         elif axis == 'y':
             self._axis = 2
+        elif axis == 'z':
+            self._axis = 3
+        self.setServo(True)
         return True
