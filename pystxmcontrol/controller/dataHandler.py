@@ -356,6 +356,7 @@ class dataHandler:
         self.data = stxm(scan)
         self.data.start_time = str(datetime.datetime.now())
         self.data.file_name = self.currentScanID
+        self.data.motorPositions = self.controller.allMotorPositions
         self.data.startOutput()
         #launch DAQ process
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())

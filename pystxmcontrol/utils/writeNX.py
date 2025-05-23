@@ -109,22 +109,35 @@ class stxm:
         except:
             print("Failed to open file: %s" %stxm_file)
             return
-        self.meta = {}
-        self.meta["file_name"] = stxm_file
-        self.meta["experimenters"] = f["entry0/experimenters"][()].decode()
-        self.meta["sample_description"] = f["entry0/sample_description"][()].decode()
-        self.meta["proposal"] = f["entry0/proposal"][()].decode()
-        self.meta["start_time"] = f["entry0/start_time"][()].decode()
-        self.meta["end_time"] = f["entry0/end_time"][()].decode()
-        self.meta["scan_type"] = f["entry0/counter0/stxm_scan_type"][()].decode()
         self.nRegions = len(list(f))
         self.data = {}
-        
+        self.meta = {}
+        self.meta["file_name"] = stxm_file
+
         try:
-            self.meta["version"] = f["entry0/definition"].attrs["version"].decode()
+            self.meta["version"] = f["entry0/definition"][()].decode()
         except:
-            #If no version is in the file, assign it to version 2.
-            self.meta["version"] = 0
+            try:
+                self.meta["version"] = f["entry0/definition"].attrs["version"].decode()
+            except:
+                self.meta["version"] = 0
+        print(self.meta["version"])
+        
+        if int(self.meta["version"]) < 3:
+            self.meta["start_time"] = f["entry0/start_time"][()][0].decode()
+            self.meta["end_time"] = f["entry0/end_time"][()][0].decode()
+            self.meta["experimenters"] = f["entry0/experimenters"][()][0].decode()
+            self.meta["sample_description"] = f["entry0/sample_description"][()].decode()
+            self.meta["proposal"] = f["entry0/proposal"][()].decode()
+            self.meta["scan_type"] = f["entry0/counter0/stxm_scan_type"][()].decode()
+        else:
+            self.meta["start_time"] = f["entry0/start_time"][()].decode()
+            self.meta["end_time"] = f["entry0/end_time"][()].decode()
+            self.meta["experimenters"] = f["entry0/experimenters"][()].decode()
+            self.meta["sample_description"] = f["entry0/sample/description"][()].decode()
+            self.meta["proposal"] = f["entry0/title"][()].decode()
+            self.meta["scan_type"] = f["entry0/data/stxm_scan_type"][()].decode()
+        
         if self.meta["version"] == '2':
             #Code for using verion 2:
             for i in range(self.nRegions):
@@ -193,6 +206,23 @@ class stxm:
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
+        elif self.meta["version"] == "3":
+             for i in range(self.nRegions):
+                entryStr = 'entry' + str(i)
+                self.data[entryStr] = {}
+                self.data[entryStr]["motors"] = {}
+                for item in list(f[entryStr + "/instrument/motors"]):
+                    #print(item)
+                    self.data[entryStr]["motors"][item] = f[entryStr + "/instrument/motors/" + item][()]
+                self.data[entryStr]["energy"] = f[entryStr + "/instrument/monochromator/energy"][()].astype("float64")
+                self.data[entryStr]["dwell"] = f[entryStr + "/data/count_time"][()].astype("float64")
+                self.data[entryStr]["counts"] = f[entryStr + "/data/data"][()].astype("float64") #data at user requested positions
+                self.data[entryStr]["xpos"] = np.array(f[entryStr + "/data/sample_x"][()]).astype("float64")
+                self.data[entryStr]["ypos"] = np.array(f[entryStr + "/data/sample_y"][()]).astype("float64")
+                xpos = self.data[entryStr]["xpos"]
+                ypos = self.data[entryStr]["ypos"]
+                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
+                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size           
 
         else:
             #Code for reading files with version <2.
@@ -350,9 +380,10 @@ class stxm:
         measured_y = measured_ygrp.create_dataset("data", data=np.zeros(ny_m))
         measured_z = measured_zgrp.create_dataset("data", data=np.zeros(nz_m))
         motors = nxinstrument.create_group("motors")
-        for motor in self.motorPositions[i].keys():
+        for motor in self.motorPositions.keys():
+            print(motor)
             try:
-                motors.create_dataset(motor,data=self.motorPositions[i][motor])
+                motors.create_dataset(motor,data=self.motorPositions[motor])
             except:
                 #there's a dictionary of status strings in there that causes this to fail
                 pass
@@ -363,6 +394,7 @@ class stxm:
         d.create_dataset("stxm_scan_type",data=self.scan_dict["type"])
         d.create_dataset("data",data=np.zeros_like(self.interp_counts[i]))
         d.create_dataset("energy",data=self.energies)
+        d.create_dataset("count_time",data=self.dwells)
         d.create_dataset("sample_z",data=self.zPos[i])
         d.create_dataset("sample_y",data=self.yPos[i])
         d.create_dataset("sample_x",data=self.xPos[i])
