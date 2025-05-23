@@ -953,7 +953,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 yStep = float(region.ui.yStep.text())
                 zCenter = 0
                 zRange = 0
-                zPoints = 0
+                zPoints = 1
                 zStep = 0
             if ("Focus" in self.scanType):
                 self.scan["z"] = scanMotorList["zMotor"]
@@ -983,7 +983,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 yStep = float(self.ui.lineStepSizeLabel.text())*direction[1]
                 zCenter = 0
                 zRange = 0
-                zPoints = 0
+                zPoints = 1
                 zStep = 0
             self.scan["scanRegions"][regStr]["xStart"] = xCenter - xRange / 2.0 + xStep / 2.
             self.scan["scanRegions"][regStr]["xStop"] = xCenter + xRange / 2.0 - xStep / 2.
@@ -1310,7 +1310,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.currentImageType = message["type"]
             self.currentEnergyIndex = message["energyIndex"]
             self.currentScanRegionIndex = scanRegNumber
-            self.stxm.interp_counts[scanRegNumber][0][message["energyIndex"]] = message["image"]
+            self.image = message["image"]
 
             self.xCenter = self.scan["scanRegions"][message["scanRegion"]]["xCenter"]
             self.yCenter = self.scan["scanRegions"][message["scanRegion"]]["yCenter"]
@@ -1323,17 +1323,18 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.dwell = self.stxm.dwells[self.currentEnergyIndex]
             self.xStep = self.xRange / self.xPts
             if "Image" in self.scan["type"]:
-                self.image = self.stxm.interp_counts[scanRegNumber][0][message["energyIndex"]]
+                self.stxm.interp_counts[scanRegNumber][message["energyIndex"]] = message["image"]
                 xScale = float(self.xRange) / float(self.xPts)
                 yScale = float(self.yRange) / float(self.yPts)
                 pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
             elif "Focus" in self.scan["type"]:
-                self.image = np.reshape(self.stxm.interp_counts[scanRegNumber][0][message["energyIndex"]], (self.zPts, self.xPts))
+                self.stxm.interp_counts[scanRegNumber][message["energyIndex"],:,0,:] = message["image"]
                 xScale = 1 #float(self.xRange) / float(self.xPts)
                 yScale = 1 #float(self.xPts) / float(self.zPts)
                 pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
             elif "Line Spectrum" in self.scan["type"]:
-                self.image = self.stxm.interp_counts[scanRegNumber][0].T #np.reshape(self.stxm.counts[scanRegNumber][0], (self.xPts, nEnergies))
+                self.image = self.image.T
+                self.stxm.interp_counts[scanRegNumber][:,0,0,:] = message["image"]
                 xScale = 1 #float(self.xRange) / float(self.xPts)
                 yScale = 1 #float(self.zRange) / float(self.zPts)
                 pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)

@@ -52,7 +52,11 @@ pystxmcontrol/drivers/bcsServer.py
 pystxmcontrol/drivers/cin.py
 pystxmcontrol/drivers/cin_register_map.py
 pystxmcontrol/drivers/derivedEnergy.py
+pystxmcontrol/drivers/derivedEnergy_SGM.py
 pystxmcontrol/drivers/derivedPiezo.py
+pystxmcontrol/drivers/derivedPiezoWithStepper.py
+pystxmcontrol/drivers/derivedSlitPosition.py
+pystxmcontrol/drivers/derivedSlitWidth.py
 pystxmcontrol/drivers/epicsController.py
 pystxmcontrol/drivers/epicsMotor.py
 pystxmcontrol/drivers/fccd.py

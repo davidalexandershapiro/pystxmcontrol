@@ -137,7 +137,7 @@ class dataHandler:
             
             distMeas = distMeas[:cutoff]
             
-            data = scanInfo["data"][:cutoff]
+            data = scanInfo["rawData"][:cutoff]
             
             if len(data)>len(distMeas):
                 data = data[:len(distMeas)]
@@ -198,9 +198,9 @@ class dataHandler:
             
             
             #Also, the raw data.
-            di = (scanInfo['index'])*scanInfo['data'].size
+            di = (scanInfo['index'])*scanInfo['rawData'].size
             dataOld = self.data.counts[region][0][scanInfo['energyIndex']][:di]
-            data = np.append(dataOld,scanInfo['data'])
+            data = np.append(dataOld,scanInfo['rawData'])
             
             #Determine the actual motor dwell and daq dwell. Determined by testing.
             motDwellOffset = 0.0 #ms
@@ -222,7 +222,7 @@ class dataHandler:
             else:
                 #Find the times that each point was collected. Could need some work maybe.
                 xytraj = np.arange(len(scanInfo['line_positions'][0]))*actMotDwell+Motdelay
-                DAQtraj = np.arange(len(scanInfo['data']))*actDAQDwell+DAQdelay
+                DAQtraj = np.arange(len(scanInfo['rawData']))*actDAQDwell+DAQdelay
             
             endpoint = max(xytraj[-1],DAQtraj[-1])
             xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
@@ -250,43 +250,43 @@ class dataHandler:
         return counts
 
     def addDataToStack(self, scanInfo):
-        i = scanInfo["index"]*scanInfo["rawData"].size#*scanInfo["oversampling_factor"]
+        #the philosophy here is that the scan driver decides what the correct indices are and this function just puts
+        #the data there.  So no need to calculate what "i" is here, for example.
+        i = scanInfo["index"] #index along the long vector
+        y = scanInfo["lineIndex"]
         j = i + scanInfo["rawData"].size
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
-        self.data.counts[k][0][m,i:j] = scanInfo["rawData"] #the 0 index is for channel which isn't implemented yet
+        z = scanInfo["zIndex"]
+
+        self.data.counts[k][m,i:j] = scanInfo["rawData"]
+
         if scanInfo["mode"] == 'continuousLine':
-            #print(len(scanInfo["line_positions"][0]))
-            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0]
+            self.data.interp_counts[k][m,z,y,:] = scanInfo["data"] #this is a matrix
+            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
             self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
+
         #For a spiral scan, the motor positions are decoupled from the daq samples.    
         elif scanInfo['mode'] == 'continuousSpiral':
             mi = scanInfo['index']*scanInfo['line_positions'][0].size
             mj = mi + scanInfo['line_positions'][0].size
-            
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-             
-        #Also need to handle the interpolated data.
-        if scanInfo['mode'] == 'continuousSpiral':
-            #self.data.interp_counts[k][0][m] = scanInfo['data'].flatten()
-            self.data.interp_counts[k][0][m] = scanInfo['data']
+            self.data.interp_counts[k][m] = scanInfo['data']
+
         elif scanInfo['mode'] == 'ptychographyGrid':
             #For ptycho grid scanInfo['data'] is a single value. We have to put it in the right place.
             #Shape of array is given by the array. If we have to transpose, we will.
             index = np.unravel_index(scanInfo['index'],self.data.interp_counts[k][0][m].shape)
-            self.data.interp_counts[k][0][m,index[0],index[1]] = scanInfo['data']
-            #print(scanInfo['index'])
-            #self.data.interp_counts[k][0][j,i] = scanInfo['data']
-        else:
-            pi = scanInfo["index"]*scanInfo["data"].size
-            pj = pi + scanInfo["data"].size
-            j = scanInfo["index"]
-            # self.data.interp_counts[k][0][m,pi:pj] = scanInfo["data"]
-            self.data.interp_counts[k][0][m,j,:] = scanInfo["data"]
+            self.data.interp_counts[k][m,index[0],index[1]] = scanInfo['data']
 
-            #self.data.interp_counts[k][0][m] = scanInfo["data"]
-        return self.data.interp_counts[k][0][m]
+        ne,nz,ny,nx = self.data.interp_counts[k].shape  
+        if ny > nz:
+            return self.data.interp_counts[k][m,z] #this won't work for focus/spectrum scans with more than one Z position
+        elif ne > nz:
+            return self.data.interp_counts[k][:,0,0,:]
+        else:
+            return self.data.interp_counts[k][m,:,0,:]
 
     def tiled_scan(self, scan):
         xStart = scan["scanRegions"]["Region1"]["xStart"]
@@ -357,8 +357,6 @@ class dataHandler:
         self.data.start_time = str(datetime.datetime.now())
         self.data.file_name = self.currentScanID
         self.data.startOutput()
-        #TODO: save all motor positions in data file
-        self.data.motors = self.controller.allMotorPositions
         #launch DAQ process
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())
         self.dataStream.start()
@@ -368,12 +366,6 @@ class dataHandler:
         self.dataStream.join()
         self.data.end_time = str(datetime.datetime.now())
         self.data.closeFile()
-        #print("Stopped data process and saved data.  Transferring file to NERSC...")
-        ###Add code here to do prefect_NERSC transfer
-        # self.prefect_nersc_transfer(os.path.basename(self.data.file_name))
-        # self.prefect_stxmdb_transfer()
-        # if self.data.scan_dict["type"] == "Ptychography Image":
-        #    self.prefect_nersc_transfer(os.path.basename(self.ptychodata.file_name))
 
     def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
         # Same prefect client, but if you know the url and api_key
@@ -448,7 +440,7 @@ class dataHandler:
                 self.sendDataChunkToSock(chunk)
                 chunk = []
             else:
-                print(self.scanQueue.get(True))
+                #print(self.scanQueue.get(True))
                 return
                 
     def processFrame(self, frame):
@@ -509,7 +501,6 @@ class dataHandler:
                         # chunk = []
                     else:
                         self.darkFrame = scanInfo["ccd_frame"]
-                    scanInfo['rawData'] = scanInfo['data']
                     scanInfo['image'] = self.addDataToStack(scanInfo)
                     chunk.append(scanInfo)
                     self.sendDataChunkToSock(chunk)
@@ -517,7 +508,6 @@ class dataHandler:
                 else:
                     #prepare data to send onto socket (for the GUI)
                     with self._lock:
-                        scanInfo['rawData'] = scanInfo["data"].copy()
                         scanInfo["data"] = self.interpolate_points(scanInfo)
                         scanInfo["image"] = self.addDataToStack(scanInfo)
                         chunk.append(scanInfo)
@@ -554,10 +544,11 @@ class dataHandler:
         return True
 
     def getLine(self, scanInfo):
-        scanInfo["data"] = self.daq["default"].getLine()
+        scanInfo["rawData"] = self.daq["default"].getLine()
         #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
         #Until sendscandata is called, the raw data is stored in 'data'
-        if len(scanInfo['data']) != len(scanInfo['line_positions'][0]):
+        if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):
+            print(len(scanInfo['rawData']),len(scanInfo['line_positions'][0]))
             if not scanInfo['scan']['spiral']:
                 print('mismatched arrays!')
                 return False

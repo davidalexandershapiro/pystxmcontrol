@@ -46,24 +46,3 @@ def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
     if not dataHandler.getLine(scanInfo.copy()):
         raise Exception('mismatched array lengths')
     return True
-    # except:
-    #     print("getLine failed.")
-    #     try:
-    #         controller.daq["default"].stop()
-    #         controller.daq["default"].start()
-    #         controller.daq["default"].config(scanInfo["dwell"], count=1, samples=scanInfo["xPoints"],
-    #                                               trigger="EXT")
-    #         controller.moveMotor(scan["x"], scanInfo["start_position_x"])
-    #         sleep(0.1)
-    #         controller.daq["default"].initLine()
-    #         controller.daq["default"].autoGateOpen()
-    #         sleep(0.003)
-    #         controller.motors[scan["x"]]["motor"].moveLine(direction=scanInfo["direction"])
-    #         controller.daq["default"].autoGateClosed()
-    #         if not dataHandler.getLine(scanInfo.copy()):
-    #             raise Exception('mismatched array lengths')
-    #         return True
-    #
-    #     except:
-    #         print("Terminating grid scan")
-    #         return False

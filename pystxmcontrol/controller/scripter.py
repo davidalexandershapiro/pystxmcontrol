@@ -16,7 +16,7 @@ context = zmq.Context()
 sock = context.socket(zmq.REQ)
 sock.connect("tcp://%s:%s" %(config["server"]["host"],config["server"]["command_port"]))
 
-def moveMotor(axis=None, pos=None):
+def move_motor(axis=None, pos=None):
     if axis not in list(MOTORS.keys()):
         print("Bad motor name. Available motors are:")
         for m in list(MOTORS.keys()):
@@ -354,18 +354,20 @@ def decimate(stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0)
             scanList.append([xstart, xstop, ystart, ystop])
     return scanList
 
-def getMotorPosition(motor):
+def get_motor_position(motor):
     sock.send_pyobj({"command": "getMotorPositions"})
     response = sock.recv_pyobj()
     return response['data'][motor]
 
-def singleMotorScan(meta):
-
+def single_motor_scan(meta):
     def exit_function(event):
         data.saveRegion(0)
+        data.closeFile()
         sys.exit()
 
     def stop_function(event):
+        data.interp_counts = data.counts.copy()
+        data.saveRegion(0)
         while True:
             figure.canvas.flush_events()
 
@@ -382,7 +384,7 @@ def singleMotorScan(meta):
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
             "sample": meta["Sample"],
-            "x": meta["motor"],
+            "x": meta["xmotor"],
             "y": None,
             "energy": "Energy",
             "doubleExposure": False,
@@ -400,37 +402,40 @@ def singleMotorScan(meta):
                                         "xCenter": xcenter,
                                         "yStart": ystart,
                                         "yStop": ystop,
-                                        "yPoints": meta['xpoints'],
+                                        "yPoints": 1,
                                         "yStep": ystep,
                                         "yRange": y_range,
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
-                                        "zPoints": meta['xpoints']}},
+                                        "zPoints": 1}},
             "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
                                                 "nEnergies": meta["energyPoints"]}}
             }
+    scan["main_config"] = MAIN_CONFIG
     data = stxm(scan) #create the data structure
     sock.send_pyobj({"command": "getScanID"}) #get the next file name from the server
     data.file_name = sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
+    move_motor("Energy",data.energies[0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motors = sock.recv_pyobj()["data"]
+    data.motorPositions = [sock.recv_pyobj()["data"]]
+
     plt.ion()
     # here we are creating sub plots
     figure, ax = plt.subplots(figsize=(10, 8))
     # setting title
-    plt.title(meta["motor"] + " Scan: %s" %data.file_name, fontsize=10)
+    plt.title(meta["xmotor"] + " Scan: %s" %data.file_name, fontsize=10)
     # setting x-axis label and y-axis label
-    plt.xlabel(meta["motor"] + ' (microns)')
+    plt.xlabel(meta["xmotor"] + ' (microns)')
     plt.ylabel(meta["daq"])
     mpts = np.linspace(xstart, xstop, meta["xpoints"])
 
-    line1, = ax.plot(mpts, data.counts[0][0][0], 'ro-', mfc='white')
+    line1, = ax.plot(mpts, data.counts[0][0,:], 'ro-', mfc='white')
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
     stop_button = Button(ax_button, "Stop")
     stop_button.on_clicked(stop_function)
@@ -439,19 +444,24 @@ def singleMotorScan(meta):
     close_button.on_clicked(exit_function)
     i = 0
     for m in mpts:
-        moveMotor(meta["motor"], m)
-        data.counts[0][0][0][i] = read_daq(meta["daq"], meta["dwell"])
+        move_motor(meta["xmotor"], m)
+        data.counts[0][0,i] = read_daq(meta["daq"], meta["dwell"])
         line1.set_xdata(mpts)
-        line1.set_ydata(data.counts[0][0][0])
+        line1.set_ydata(data.counts[0][0,:])
         ax.relim()
         ax.autoscale_view()
         figure.canvas.draw()
+        data.end_time = str(datetime.datetime.now())
         figure.canvas.flush_events()
         i += 1
+    data.interp_counts = data.counts.copy()
     data.saveRegion(0)
+    data.closeFile()
+    while True:
+        figure.canvas.flush_events()
     return data.file_name
 
-def twoMotorScan(meta):
+def two_motor_scan(meta):
     def exit_function(event):
         data.saveRegion(0)
         sys.exit()
@@ -465,11 +475,13 @@ def twoMotorScan(meta):
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
     x_range = xstop - xstart
     xcenter = x_range / 2. + xstart
+    xpoints = meta['xpoints']
     ystart = meta['ycenter'] - meta['yrange'] / 2.
     ystop = meta['ycenter'] + meta['yrange'] / 2.
     ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
+    ypoints = meta['ypoints']
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
             "sample": meta["Sample"],
@@ -497,20 +509,23 @@ def twoMotorScan(meta):
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
-                                        "zPoints": 0}},
+                                        "zPoints": 1}},
             "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
                                                 "nEnergies": meta["energyPoints"]}}
             }
+    scan["main_config"] = MAIN_CONFIG
     data = stxm(scan) #create the data structure
     sock.send_pyobj({"command": "getScanID"}) #get the next file name from the server
     data.file_name = sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
+    move_motor("Energy", data.energies[0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motors = sock.recv_pyobj()["data"]
+    data.motorPositions = [sock.recv_pyobj()["data"]]
+
     plt.ion()
     # here we are creating sub plots
     figure, ax = plt.subplots(figsize=(8, 8))
@@ -522,13 +537,12 @@ def twoMotorScan(meta):
     plt.ylabel(meta["ymotor"] + ' (microns)')
     start = xstart,ystart
     stop = xstop,ystop
-    npoints = meta["xpoints"],meta["ypoints"]
+    npoints = meta["ypoints"],meta["xpoints"]
     x = np.linspace(start[0], stop[0], npoints[0])
     y = np.linspace(start[1], stop[1], npoints[1])
-    im = ax.imshow(data.counts[0][0], extent = (start[0],stop[0],start[1],stop[1]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
-    moveMotor(meta["ymotor"], y[0])
-    moveMotor(meta["xmotor"], x[0])
-    
+    im = ax.imshow(np.reshape(data.counts[0][0,:],npoints), extent = (start[0],stop[0],start[1],stop[1]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
+    move_motor(meta["ymotor"], y[0])
+    move_motor(meta["xmotor"], x[0])
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
     stop_button = Button(ax_button, "Stop")
     stop_button.on_clicked(stop_function)
@@ -536,28 +550,24 @@ def twoMotorScan(meta):
     close_button = Button(ax_button2, "Close")
     close_button.on_clicked(exit_function)
     
-    for i in range(npoints[1]):
-        moveMotor(meta["ymotor"],y[i])
-        for j in range(npoints[0]):
-            moveMotor(meta["xmotor"],x[j])
-            data.counts[0][0][0][i*npoints[0]+j] = read_daq(meta["daq"],meta["dwell"])
-            im.set_data(np.reshape(data.counts[0][0][0],npoints))
-            im.set_clim(vmin = data.counts[0][0][0][data.counts[0][0][0] > 0.].min(), vmax = data.counts[0][0][0].max())
+    for i in range(npoints[0]):
+        move_motor(meta["ymotor"],y[i])
+        for j in range(npoints[1]):
+            move_motor(meta["xmotor"],x[j])
+            k = j + i * npoints[1]
+            print(i,j,k)
+            data.counts[0][0,k] = read_daq(meta["daq"],meta["dwell"])
+            im.set_data(np.reshape(data.counts[0][0,:],npoints))
+            im.set_clim(vmin = data.counts[0][data.counts[0] > 0.].min(), vmax = data.counts[0].max())
             ax.relim()
             ax.autoscale_view()
             # drawing updated values
             figure.canvas.draw()
-            # This will run the GUI event
-            # loop until all UI events
-            # currently waiting have been processed
+            data.end_time = str(datetime.datetime.now())
             figure.canvas.flush_events()
     data.saveRegion(0)
-
-    # This changes the Abort button to a Close button
-    ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-    abort_button = Button(ax_button, "Close")
-    abort_button.on_clicked(exit_function)
-    ##This while loop holds the window open until the user presses the button
+    data.closeFile()
+    print(data.xPos)
     while True:
         figure.canvas.flush_events()
     return data.file_name
@@ -627,7 +637,7 @@ def andor_ptychography_scan(meta):
     return status
 
 ##This is just a default metadata dictionary created when scripter is imported
-##MOTORS from the last line is used as a check in the moveMotor command.  This isn't needed otherwise
+##MOTORS from the last line is used as a check in the move_motor command.  This isn't needed otherwise
 meta = {"proposal": "BLS-000001", "experimenters":"Shapiro", "nxFileVersion":2.1}
 meta["xcenter"] = 0
 meta["xrange"] = 5
@@ -643,5 +653,5 @@ meta["defocus"] = False
 meta["doubleExposure"] = False
 meta["spiral"] = False
 meta["refocus"] = True
-MOTORS,SCANS,DUMMY,DAQS = get_config()
+MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = get_config()
 

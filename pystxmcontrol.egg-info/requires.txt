@@ -1,4 +1,4 @@
-numpy==1.26
+numpy<2.0
 pyusb
 python-usbtmc
 pylibftdi
@@ -14,7 +14,7 @@ matplotlib
 h5py
 pyqtgraph
 griffe==0.47
-prefect==2.19.5
+prefect==2.14.3
 pydantic==1.10.4
 python-dotenv
 opencv-python-headless

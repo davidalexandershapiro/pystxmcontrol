@@ -47,7 +47,7 @@ class xerMotor(motor):
         return
         
     def moveTo(self, pos):
-        print("Moving motor to %.4f in Xeryon units" %pos)
+
         if self.checkLimits(pos):
             if not(self.simulation):
                 with self.lock:

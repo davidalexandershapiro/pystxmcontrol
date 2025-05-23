@@ -65,7 +65,8 @@ class mmcMotor(motor):
         else:
             servoStr = '0'
         writeStr = str(self._axis) + "FBK" + servoStr + self.lt
-        self.controller.serialPort.write(writeStr.encode())
+        if not self.simulation:
+            self.controller.serialPort.write(writeStr.encode())
 
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():

@@ -61,10 +61,24 @@ def line_focus(scan, dataHandler, controller, queue):
     ##during the scan, the driver takes care of padding for the acceleration distance automagically but for the
     # move to start command it needs to be added manually I guess
     controller.motors[scan["x"]]["motor"].update_trajectory()
-    scanInfo['nPoints'] = controller.motors[scan["x"]]["motor"].npositions
-    dataHandler.data.updateArrays(0, scanInfo['nPoints'])
-    controller.daq["default"].config(scanInfo["dwell"] / scanInfo["oversampling_factor"], count=1, \
-                                          samples=scanInfo['nPoints'], trigger="EXT")
+
+    # scanInfo['nPoints'] = controller.motors[scan["x"]]["motor"].npositions
+    # dataHandler.data.updateArrays(0, scanInfo['nPoints'])
+    # controller.daq["default"].config(scanInfo["dwell"] / scanInfo["oversampling_factor"], count=1, \
+    #                                       samples=scanInfo['nPoints'], trigger="EXT")
+
+    #interp_counts comes in as (ne,nz,ny,nz) where ne=1 and ny=nx but we want it to be (ne,nz,1,nx) so slice and update it here
+    #to keep higher level code general
+    ne,nz,ny,nx = dataHandler.data.interp_counts[0].shape
+    dataHandler.data.interp_counts[0] = np.zeros((ne,nz,1,nx))
+    numLineMotorPoints = controller.motors[scan["x"]]["motor"].npositions #this configures the DAQ for one line
+    numLineDAQPoints = controller.motors[scan["x"]]["motor"].npositions * scan["oversampling_factor"]
+    scanInfo['numMotorPoints'] = numLineMotorPoints * len(zPos) #total number of motor points configures the full data structrure
+    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
+    dataHandler.data.updateArrays(0, scanInfo)
+    controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
+                                            samples=numLineDAQPoints, trigger="EXT")
+
     start_position_x = controller.motors[scan["x"]]["motor"].trajectory_start[0] - \
                        controller.motors[scan["x"]]["motor"].xpad
     start_position_y = controller.motors[scan["x"]]["motor"].trajectory_start[1] - \
@@ -84,7 +98,9 @@ def line_focus(scan, dataHandler, controller, queue):
     for i in range(len(zPos)):
         controller.getMotorPositions()
         scanInfo["motorPositions"] = controller.allMotorPositions
-        scanInfo["index"] = i  # * xPoints
+        scanInfo["index"] = i * numLineDAQPoints
+        scanInfo["zIndex"] = i
+        scanInfo["lineIndex"] = 0
         if queue.empty():
             scanInfo["direction"] = "forward"
             controller.moveMotor(scan["z"], zPos[i])

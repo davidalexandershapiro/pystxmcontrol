@@ -21,6 +21,11 @@
     "monitor": {
         "dwell": 100
     },
+    "source": {
+        "type": "Synchrotron X-ray Source",
+        "name": "ALS Beamline 7.0.1.2",
+        "probe": "x-ray"
+    },
     "ptychography": {
         "position_jitter": 0.25
     },

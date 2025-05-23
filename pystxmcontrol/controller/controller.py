@@ -199,6 +199,7 @@ class controller:
         self.scanning = False
 
     def scan(self, scan):
+        scan["main_config"] = self.main_config
         self.scanThread = threading.Thread(target=self.scan_helper, args=(scan,))
         self.scanThread.start()
 
@@ -210,11 +211,13 @@ class controller:
 
     def read_daq(self, daq, dwell, shutter = True):
         try:
-            self.daq[daq].config(dwell, dwell, False)
-            self.daq["default"].setGateDwell(dwell,0)
-            self.daq["default"].gate.mode = "auto"
-            self.daq["default"].autoGateOpen(shutter = int(shutter))
-            data = self.daq[daq].getPoint()
+            self.stopMonitor()
+            self.daq["default"].start()
+            self.daq["default"].config(dwell)
+            self.daq["default"].autoGateOpen(shutter=0)
+            data = self.daq["default"].getPoint()
+            self.daq["default"].autoGateClosed()
+            self.startMonitor()
         except Exception:
             data = None
             print(traceback.format_exc())

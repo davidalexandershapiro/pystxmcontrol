@@ -34,7 +34,7 @@ class stxmServer:
             if message["command"] == "get_config":
                 message["status"] = True
                 message["data"] = self.controller.motorConfig, self.controller.scanConfig, \
-                    self.controller.allMotorPositions, self.controller.daqConfig
+                    self.controller.allMotorPositions,self.controller.daqConfig, self.controller.main_config
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
