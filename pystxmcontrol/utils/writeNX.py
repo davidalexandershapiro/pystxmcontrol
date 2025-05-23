@@ -381,7 +381,6 @@ class stxm:
         measured_z = measured_zgrp.create_dataset("data", data=np.zeros(nz_m))
         motors = nxinstrument.create_group("motors")
         for motor in self.motorPositions.keys():
-            print(motor)
             try:
                 motors.create_dataset(motor,data=self.motorPositions[motor])
             except:

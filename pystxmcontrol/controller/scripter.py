@@ -423,7 +423,7 @@ def single_motor_scan(meta):
     data.startOutput() #allocate the data in the file
     move_motor("Energy",data.energies[0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motorPositions = [sock.recv_pyobj()["data"]]
+    data.motorPositions = sock.recv_pyobj()["data"]
 
     plt.ion()
     # here we are creating sub plots
@@ -456,7 +456,6 @@ def single_motor_scan(meta):
         i += 1
     data.interp_counts = data.counts.copy()
     data.saveRegion(0)
-    data.closeFile()
     while True:
         figure.canvas.flush_events()
     return data.file_name
@@ -524,7 +523,7 @@ def two_motor_scan(meta):
     data.startOutput() #allocate the data in the file
     move_motor("Energy", data.energies[0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motorPositions = [sock.recv_pyobj()["data"]]
+    data.motorPositions = sock.recv_pyobj()["data"]
 
     plt.ion()
     # here we are creating sub plots
@@ -565,9 +564,8 @@ def two_motor_scan(meta):
             figure.canvas.draw()
             data.end_time = str(datetime.datetime.now())
             figure.canvas.flush_events()
+    data.interp_counts = data.counts.copy()
     data.saveRegion(0)
-    data.closeFile()
-    print(data.xPos)
     while True:
         figure.canvas.flush_events()
     return data.file_name
