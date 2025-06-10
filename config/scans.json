@@ -7,7 +7,8 @@
       "energyMotor": "Energy",
       "type": "image",
       "driver": "line_image",
-      "mode": "continuousLine"
+      "mode": "continuousLine",
+      "display": true
     },
     "Spiral Image": {
       "index": 1,
@@ -16,7 +17,8 @@
       "energyMotor": "Energy",
       "type": "image",
       "driver": "spiral_image",
-      "mode": "continuousSpiral"
+      "mode": "continuousSpiral",
+      "display": true
     },
     "Focus": {
       "index": 2,
@@ -25,7 +27,8 @@
       "zMotor": "ZonePlateZ",
       "type": "line",
       "driver": "line_focus",
-      "mode": "continuousLine"
+      "mode": "continuousLine",
+      "display": true
     },
     "Line Spectrum": {
       "index": 3,
@@ -34,7 +37,8 @@
       "energyMotor": "Energy",
       "type": "line",
       "driver": "line_spectrum",
-      "mode": "continuousLine"
+      "mode": "continuousLine",
+      "display": true
     },
     "Ptychography Image": {
       "index": 4,
@@ -43,7 +47,28 @@
       "energyMotor": "Energy",
       "type": "image",
       "driver": "ptychography_grid",
-      "mode": "ptychographyGrid"
+      "mode": "ptychographyGrid",
+      "display": true
+    },
+    "Single Motor": {
+      "index": 5,
+      "xMotor": "",
+      "yMotor": "",
+      "energyMotor": "Energy",
+      "type": "single motor",
+      "driver": "single_motor_scan",
+      "mode": "point",
+      "display": false
+    },
+    "Double Motor": {
+      "index": 6,
+      "xMotor": "",
+      "yMotor": "",
+      "energyMotor": "Energy",
+      "type": "double motor",
+      "driver": "double_motor_scan",
+      "mode": "point",
+      "display": false
     }
   }
 }

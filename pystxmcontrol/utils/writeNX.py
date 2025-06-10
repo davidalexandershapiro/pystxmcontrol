@@ -397,6 +397,11 @@ class stxm:
         d.create_dataset("sample_z",data=self.zPos[i])
         d.create_dataset("sample_y",data=self.yPos[i])
         d.create_dataset("sample_x",data=self.xPos[i])
+        d.create_dataset("motor_name_x",data=self.scan_dict["x"])
+        try:
+            d.create_dataset("motor_name_y",data=self.scan_dict["y"])
+        except:
+            d.create_dataset("motor_name_y", data="None")
         if self.scan_dict['type'] == "Ptychography Image":
             ccd = nxentry.create_group('ccd0')
             ccd.create_group('dark')

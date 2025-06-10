@@ -101,7 +101,6 @@ class stxmServer:
                 self.command_sock.send_pyobj(message)
             elif message["command"] == "scan":
                 if not(scanning):
-                    print('starting scan')
                     message["status"] = True
                     self.command_sock.send_pyobj(message)
                     if "Ptychography" in message["scan"]["type"]:

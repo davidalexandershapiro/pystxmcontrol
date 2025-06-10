@@ -116,6 +116,7 @@ class controller:
             self.daq[daq].start()
         self.dataHandler = dataHandler(self, self._logger)
         self.getMotorPositions()
+        self.monitorThread = threading.Thread(target=self.dataHandler.monitor, args=())
 
     def updateMotorStatus(self):
         pass
@@ -167,8 +168,10 @@ class controller:
         self.daq["default"].start()
         self.daq["default"].config(self.main_config["monitor"]["dwell"])
         self.dataHandler.monitorDaq = True
-        self.monitorThread = threading.Thread(target = self.dataHandler.monitor, args = ())
-        self.monitorThread.start()
+        if not self.monitorThread.is_alive():
+            self.monitorThread = threading.Thread(target = self.dataHandler.monitor, args = ())
+            self.monitorThread.start()
+            self.scanQueue.queue.clear() #stopMonitor adds to the queue so that needs to be cleared
 
     def stopMonitor(self):
         self.scanQueue.put('end')
@@ -211,13 +214,12 @@ class controller:
 
     def read_daq(self, daq, dwell, shutter = True):
         try:
-            self.stopMonitor()
             self.daq["default"].start()
             self.daq["default"].config(dwell)
             self.daq["default"].autoGateOpen(shutter=0)
             data = self.daq["default"].getPoint()
             self.daq["default"].autoGateClosed()
-            self.startMonitor()
+            self.daq["default"].stop()
         except Exception:
             data = None
             print(traceback.format_exc())

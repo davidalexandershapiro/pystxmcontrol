@@ -363,11 +363,13 @@ def single_motor_scan(meta):
     def exit_function(event):
         data.saveRegion(0)
         data.closeFile()
+        start_monitor()
         sys.exit()
 
     def stop_function(event):
         data.interp_counts = data.counts.copy()
         data.saveRegion(0)
+        start_monitor()
         while True:
             figure.canvas.flush_events()
 
@@ -428,6 +430,7 @@ def single_motor_scan(meta):
     plt.ion()
     # here we are creating sub plots
     figure, ax = plt.subplots(figsize=(10, 8))
+    figure.canvas.mpl_connect('close_event', exit_function)
     # setting title
     plt.title(meta["xmotor"] + " Scan: %s" %data.file_name, fontsize=10)
     # setting x-axis label and y-axis label
@@ -442,6 +445,8 @@ def single_motor_scan(meta):
     ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
     close_button = Button(ax_button2, "Close")
     close_button.on_clicked(exit_function)
+
+    stop_monitor()
     i = 0
     for m in mpts:
         move_motor(meta["xmotor"], m)
@@ -456,6 +461,8 @@ def single_motor_scan(meta):
         i += 1
     data.interp_counts = data.counts.copy()
     data.saveRegion(0)
+    start_monitor()
+
     while True:
         figure.canvas.flush_events()
     return data.file_name
@@ -463,9 +470,14 @@ def single_motor_scan(meta):
 def two_motor_scan(meta):
     def exit_function(event):
         data.saveRegion(0)
+        data.closeFile()
+        start_monitor()
         sys.exit()
 
     def stop_function(event):
+        data.interp_counts = data.counts.copy()
+        data.saveRegion(0)
+        start_monitor()
         while True:
             figure.canvas.flush_events()
 
@@ -528,6 +540,7 @@ def two_motor_scan(meta):
     plt.ion()
     # here we are creating sub plots
     figure, ax = plt.subplots(figsize=(8, 8))
+    figure.canvas.mpl_connect('close_event', exit_function)
     # setting title
     plt.suptitle("Two Motor Scan: %s and %s" %(meta["xmotor"],meta["ymotor"]), fontsize=14)
     plt.title(data.file_name, fontsize=12)
@@ -536,10 +549,10 @@ def two_motor_scan(meta):
     plt.ylabel(meta["ymotor"] + ' (microns)')
     start = xstart,ystart
     stop = xstop,ystop
-    npoints = meta["ypoints"],meta["xpoints"]
+    npoints = meta["xpoints"],meta["ypoints"]
     x = np.linspace(start[0], stop[0], npoints[0])
     y = np.linspace(start[1], stop[1], npoints[1])
-    im = ax.imshow(np.reshape(data.counts[0][0,:],npoints), extent = (start[0],stop[0],start[1],stop[1]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
+    im = ax.imshow(np.reshape(data.counts[0][0,:],npoints), extent = (start[1],stop[1],start[0],stop[0]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
     move_motor(meta["ymotor"], y[0])
     move_motor(meta["xmotor"], x[0])
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
@@ -548,13 +561,13 @@ def two_motor_scan(meta):
     ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
     close_button = Button(ax_button2, "Close")
     close_button.on_clicked(exit_function)
-    
-    for i in range(npoints[0]):
+
+    stop_monitor()
+    for i in range(npoints[1]):
         move_motor(meta["ymotor"],y[i])
-        for j in range(npoints[1]):
+        for j in range(npoints[0]):
             move_motor(meta["xmotor"],x[j])
-            k = j + i * npoints[1]
-            print(i,j,k)
+            k = j + i * npoints[0]
             data.counts[0][0,k] = read_daq(meta["daq"],meta["dwell"])
             im.set_data(np.reshape(data.counts[0][0,:],npoints))
             im.set_clim(vmin = data.counts[0][data.counts[0] > 0.].min(), vmax = data.counts[0].max())
@@ -566,6 +579,8 @@ def two_motor_scan(meta):
             figure.canvas.flush_events()
     data.interp_counts = data.counts.copy()
     data.saveRegion(0)
+    start_monitor()
+
     while True:
         figure.canvas.flush_events()
     return data.file_name

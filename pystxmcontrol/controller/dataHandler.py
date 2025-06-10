@@ -104,6 +104,7 @@ class dataHandler:
         #will have the correct dwell time (where there is constant velocity) but the edge pixels will have non-constant dwell (where 
         #there is acceleration).
         #For spiral trajectories we interpolate the entire image area at once.
+
         if scanInfo["mode"] == "continuousLine":
 
             xReq = scanInfo["xVal"]
@@ -258,7 +259,6 @@ class dataHandler:
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
         z = scanInfo["zIndex"]
-
         self.data.counts[k][m,i:j] = scanInfo["rawData"]
 
         if scanInfo["mode"] == 'continuousLine':
@@ -280,9 +280,16 @@ class dataHandler:
             index = np.unravel_index(scanInfo['index'],self.data.interp_counts[k][0][m].shape)
             self.data.interp_counts[k][m,index[0],index[1]] = scanInfo['data']
 
+        elif scanInfo['mode'] == 'point':
+            if scanInfo['type'] == 'Single Motor':
+                self.data.interp_counts[k][m,i:j] = scanInfo["rawData"]
+            elif scanInfo['type'] == 'Double Motor':
+                c = scanInfo["columnIndex"]
+                self.data.interp_counts[k][0,0,y,c] = scanInfo["rawData"]
+
         ne,nz,ny,nx = self.data.interp_counts[k].shape  
         if ny > nz:
-            return self.data.interp_counts[k][m,z] #this won't work for focus/spectrum scans with more than one Z position
+            return self.data.interp_counts[k][m,z,:,:] #this won't work for focus/spectrum scans with more than one Z position
         elif ne > nz:
             return self.data.interp_counts[k][:,0,0,:]
         else:
@@ -361,12 +368,13 @@ class dataHandler:
         #launch DAQ process
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())
         self.dataStream.start()
-        print("Started data process")
+        print("Started data process.")
 
     def stopScanProcess(self):
         self.dataStream.join()
         self.data.end_time = str(datetime.datetime.now())
         self.data.closeFile()
+        print("Completed scan process.")
 
     def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
         # Same prefect client, but if you know the url and api_key
@@ -427,7 +435,7 @@ class dataHandler:
         scanInfo["elapsedTime"] = time.time()
         chunk = []
         while True:
-            time.sleep(0.1)
+            time.sleep(0.01)
             self.daq["default"].autoGateOpen(shutter=0)
             self.getPoint(scanInfo)
             self.daq["default"].autoGateClosed()
@@ -441,7 +449,6 @@ class dataHandler:
                 self.sendDataChunkToSock(chunk)
                 chunk = []
             else:
-                #print(self.scanQueue.get(True))
                 return
                 
     def processFrame(self, frame):
@@ -474,7 +481,7 @@ class dataHandler:
                     pass
                 return
             elif scanInfo == "endOfRegion":
-                self.data.saveRegion(region,nt = totalSplit)
+                self.data.saveRegion(region)
                 self.regionComplete = True
                 if len(chunk) != 0:
                     self.sendDataChunkToSock(chunk)
@@ -482,7 +489,6 @@ class dataHandler:
             else:
                 self.regionComplete = False
                 region = int(scanInfo['scanRegion'].split('Region')[1]) - 1
-                totalSplit = scanInfo['totalSplit']
                 scanInfo["elapsedTime"] = time.time() - t0
                 if scanInfo["mode"] == "ptychographyGrid":
                     self.ptychodata.addFrame(scanInfo["ccd_frame"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
@@ -494,14 +500,14 @@ class dataHandler:
                         else:
                             pointData = self.processFrame(scanInfo["ccd_frame"])
                         scanInfo["data"] = pointData
-                        #print(scanInfo['data'])
                         scanInfo.pop("ccd_frame",None)
-                        #ccd data needs to be in an image. pointData is the value for the current pixel.
-                        # chunk.append(scanInfo)
-                        # self.sendDataChunkToSock(chunk)
-                        # chunk = []
                     else:
                         self.darkFrame = scanInfo["ccd_frame"]
+                    scanInfo['image'] = self.addDataToStack(scanInfo)
+                    chunk.append(scanInfo)
+                    self.sendDataChunkToSock(chunk)
+                    chunk = []
+                elif scanInfo["mode"] == "point":
                     scanInfo['image'] = self.addDataToStack(scanInfo)
                     chunk.append(scanInfo)
                     self.sendDataChunkToSock(chunk)
@@ -523,7 +529,7 @@ class dataHandler:
     def sendDataChunkToSock(self, chunk):
         ##grab data from all chunks and use the first as a template for the
         ##scanInfo dictionary to send
-        data = np.array([item["data"] for item in chunk])
+        data = np.array([item["rawData"] for item in chunk])
         scan_info = chunk[0]
         scan_info["data"] = data
         scan_info["scanID"] = self.currentScanID
@@ -540,8 +546,12 @@ class dataHandler:
             else:
                 return False
         else:
-            scanInfo["data"] = np.array(self.daq["default"].getPoint())
+            scanInfo["rawData"] = np.array(self.daq["default"].getPoint())
+
         self.dataQueue.put(scanInfo)
+        #Without this sleep time, the first item in a sequence gets unsynchronized somehow.  It appears out of order and
+        #data gets mixed up.  very strange!
+        time.sleep(0.001)
         return True
 
     def getLine(self, scanInfo):
