@@ -141,20 +141,20 @@ class controller:
                     print("getStatus failed on %s" %motor)
         
 
-    def moveMotor(self, axis, pos):
-        #software limits are handled at the driver level
+    def moveMotor(self, axis, pos, **kwargs):
         if self._logger is not None:
             self._logger.log("Controller moved motor %s to position %.2f" %(axis, pos))
         if "varType" in self.motorConfig[axis].keys():
             self.motors[axis]["motor"].setVar(pos, self.motorConfig[axis]["varType"])
         else:
-            self.motors[axis]["motor"].moveTo(pos)
+            self.motors[axis]["motor"].moveTo(pos, **kwargs)
 
     def changeMotorConfig(self, c):
-        if c["config"] == "offset":
+        key = c["config"]
+        if key == "offset":
             self.motors[c["motor"]]["motor"].offset = c["value"]
-            self.motors[c["motor"]]["motor"].config["offset"] = c["value"]
-            self.motorConfig[c["motor"]]["offset"] = round(c["value"],3)
+        self.motorConfig[c["motor"]][key] = round(c["value"],3)
+        self.motors[c["motor"]]["motor"].config[key] = c["value"]
         self.writeConfig()
 
     def writeConfig(self):

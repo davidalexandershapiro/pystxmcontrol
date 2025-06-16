@@ -103,27 +103,26 @@ class stxm:
         return(counts)
 
     def readNexus(self, stxm_file):
-        try:
-            f = h5py.File(stxm_file,'r', swmr = True)
-            self.NXfile = f
-        except:
-            print("Failed to open file: %s" %stxm_file)
-            return
+        # try:
+        f = h5py.File(stxm_file,'r')
+        self.NXfile = f
+        # except:
+        #     print("Failed to open file: %s" %stxm_file)
+        #     return
         self.nRegions = len(list(f))
         self.data = {}
         self.meta = {}
         self.meta["file_name"] = stxm_file
 
         try:
-            self.meta["version"] = f["entry0/definition"][()].decode()
+            self.meta["version"] = float(f["entry0/definition"][()])
         except:
             try:
-                self.meta["version"] = f["entry0/definition"].attrs["version"].decode()
+                self.meta["version"] = float(f["entry0/definition"].attrs["version"].decode())
             except:
                 self.meta["version"] = 0
-        print(self.meta["version"])
-        
-        if int(self.meta["version"]) < 3:
+
+        if self.meta["version"] < 3:
             self.meta["start_time"] = f["entry0/start_time"][()][0].decode()
             self.meta["end_time"] = f["entry0/end_time"][()][0].decode()
             self.meta["experimenters"] = f["entry0/experimenters"][()][0].decode()
@@ -138,7 +137,7 @@ class stxm:
             self.meta["proposal"] = f["entry0/title"][()].decode()
             self.meta["scan_type"] = f["entry0/data/stxm_scan_type"][()].decode()
         
-        if self.meta["version"] == '2':
+        if self.meta["version"] == 2.0:
             #Code for using verion 2:
             for i in range(self.nRegions):
                 entryStr = "entry" + str(i)
@@ -188,7 +187,7 @@ class stxm:
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
 
-        elif self.meta["version"] == '2.1':
+        elif self.meta["version"] == 2.1:
             #code for using version 2.1:
             for i in range(self.nRegions):
                 entryStr = 'entry' + str(i)
@@ -206,7 +205,7 @@ class stxm:
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
-        elif self.meta["version"] == "3":
+        elif self.meta["version"] == 3.0:
              for i in range(self.nRegions):
                 entryStr = 'entry' + str(i)
                 self.data[entryStr] = {}
@@ -362,7 +361,7 @@ class stxm:
         start_time = nxentry.create_dataset("start_time", data=self.start_time)
         end_time = nxentry.create_dataset("end_time", data=self.end_time)
         title = nxentry.create_dataset("title", data=self.scan_dict["proposal"])
-        definition = nxentry.create_dataset("definition", data=self.scan_dict["main_config"]["server"]["nx_file_version"])
+        definition = nxentry.create_dataset("definition", data=float(self.scan_dict["main_config"]["server"]["nx_file_version"]))
         experimenters = nxentry.create_dataset("experimenters", data=self.scan_dict["experimenters"])
         nxinstrument = nxentry.create_group("instrument")
         nxsource = nxinstrument.create_group("source")

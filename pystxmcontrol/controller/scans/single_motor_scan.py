@@ -35,12 +35,12 @@ def single_motor_scan(scan, dataHandler, controller, queue):
                         'motor'].calibratedPosition
                     print('calculated offset: {}'.format(scanInfo['refocus_offset']))
                 controller.moveMotor('ZonePlateZ',
-                                          controller.motors['ZonePlateZ']['motor'].calibratedPosition + scanInfo[
-                                              'refocus_offset'])
+                                          controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
+                                              'refocus_offset']) #this should just move the zone plate to its energy calibrated position
         else:
             if scanInfo['scan']['refocus']:
                 controller.moveMotor("ZonePlateZ",
-                                          controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                                          controller.motors["Energy"]["motor"].calibratedPosition)
         x, y = xPos[regionNum], yPos[regionNum]
         scanInfo["scanRegion"] = "Region" + str(regionNum + 1)
         xStart, xStop = x[0], x[-1]
@@ -59,7 +59,7 @@ def single_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yStart"] = yStart
         scanInfo["yCenter"] = yStart
         scanInfo["yRange"] = 0
-        controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1, trigger="EXT")
+        controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
         for i in range(len(xPos[0])):
             if scanInfo["scanMotor"] == "Energy":
                 scanInfo["scanMotorVal"] = energy

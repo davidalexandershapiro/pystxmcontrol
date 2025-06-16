@@ -105,6 +105,12 @@ class dataHandler:
         #there is acceleration).
         #For spiral trajectories we interpolate the entire image area at once.
 
+        try:
+            if scanInfo["coarse_only"]:
+                return scanInfo["rawData"]
+        except:
+            pass
+
         if scanInfo["mode"] == "continuousLine":
 
             xReq = scanInfo["xVal"]
@@ -551,7 +557,7 @@ class dataHandler:
         self.dataQueue.put(scanInfo)
         #Without this sleep time, the first item in a sequence gets unsynchronized somehow.  It appears out of order and
         #data gets mixed up.  very strange!
-        time.sleep(0.001)
+        time.sleep(0.01)
         return True
 
     def getLine(self, scanInfo):

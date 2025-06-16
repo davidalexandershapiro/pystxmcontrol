@@ -166,6 +166,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -254,6 +255,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -330,6 +332,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -349,6 +352,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -1054,6 +1058,7 @@
          </property>
          <property name="font">
           <font>
+           <weight>75</weight>
            <bold>true</bold>
           </font>
          </property>
@@ -1097,6 +1102,7 @@
          <widget class="QLabel" name="scanVelocity">
           <property name="font">
            <font>
+            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1116,6 +1122,7 @@
          <widget class="QLabel" name="estimatedTime">
           <property name="font">
            <font>
+            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1135,6 +1142,7 @@
          <widget class="QLabel" name="elapsedTime">
           <property name="font">
            <font>
+            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1777,26 +1785,33 @@ font: 75 11pt &quot;Ubuntu&quot;;
        </rect>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="Experiment">
        <attribute name="title">
         <string>Experiment</string>
        </attribute>
-       <widget class="QWidget" name="">
+       <widget class="QWidget" name="layoutWidget">
         <property name="geometry">
          <rect>
           <x>10</x>
           <y>10</y>
           <width>291</width>
-          <height>111</height>
+          <height>101</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_3">
-         <item row="2" column="0">
-          <widget class="QLabel" name="label_33">
+         <item row="1" column="1">
+          <widget class="QLineEdit" name="experimentersLineEdit">
            <property name="text">
-            <string>Sample</string>
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label_32">
+           <property name="text">
+            <string>Experimenters</string>
            </property>
           </widget>
          </item>
@@ -1804,6 +1819,13 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <widget class="QLineEdit" name="sampleLineEdit">
            <property name="text">
             <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label_33">
+           <property name="text">
+            <string>Sample</string>
            </property>
           </widget>
          </item>
@@ -1817,19 +1839,27 @@ font: 75 11pt &quot;Ubuntu&quot;;
            </property>
           </widget>
          </item>
-         <item row="1" column="0">
-          <widget class="QLabel" name="label_32">
+        </layout>
+       </widget>
+       <widget class="QWidget" name="verticalLayoutWidget">
+        <property name="geometry">
+         <rect>
+          <x>9</x>
+          <y>119</y>
+          <width>291</width>
+          <height>141</height>
+         </rect>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_3">
+         <item>
+          <widget class="QLabel" name="label_26">
            <property name="text">
-            <string>Experimenters</string>
+            <string>Comment</string>
            </property>
           </widget>
          </item>
-         <item row="1" column="1">
-          <widget class="QLineEdit" name="experimentersLineEdit">
-           <property name="text">
-            <string/>
-           </property>
-          </widget>
+         <item>
+          <widget class="QTextEdit" name="textEdit"/>
          </item>
         </layout>
        </widget>
@@ -1843,78 +1873,16 @@ font: 75 11pt &quot;Ubuntu&quot;;
          <rect>
           <x>10</x>
           <y>10</y>
-          <width>293</width>
-          <height>101</height>
+          <width>291</width>
+          <height>120</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_8">
-         <item row="1" column="2">
-          <widget class="QLineEdit" name="dsEdit">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>80</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="2">
-          <widget class="QLineEdit" name="energyEdit">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>80</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          </widget>
-         </item>
          <item row="2" column="2">
-          <widget class="QLineEdit" name="ndsEdit">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>80</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          </widget>
+          <widget class="QLineEdit" name="ndsEdit"/>
          </item>
          <item row="1" column="1">
           <widget class="QLabel" name="dsLabel">
-           <property name="text">
-            <string>TextLabel</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignCenter</set>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="label_14">
-           <property name="text">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Non-Dispersive Slit&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="1">
-          <widget class="QLabel" name="ndsLabel">
            <property name="text">
             <string>TextLabel</string>
            </property>
@@ -1930,6 +1898,36 @@ font: 75 11pt &quot;Ubuntu&quot;;
            </property>
           </widget>
          </item>
+         <item row="1" column="2">
+          <widget class="QLineEdit" name="dsEdit"/>
+         </item>
+         <item row="0" column="0">
+          <widget class="QLabel" name="label_4">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Energy&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="2">
+          <widget class="QLineEdit" name="energyEdit"/>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLabel" name="ndsLabel">
+           <property name="text">
+            <string>TextLabel</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label_14">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Non-Dispersive Slit&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+          </widget>
+         </item>
          <item row="0" column="1">
           <widget class="QLabel" name="energyLabel_2">
            <property name="text">
@@ -1940,10 +1938,23 @@ font: 75 11pt &quot;Ubuntu&quot;;
            </property>
           </widget>
          </item>
-         <item row="0" column="0">
-          <widget class="QLabel" name="label_4">
+         <item row="3" column="2">
+          <widget class="QLineEdit" name="A0Edit"/>
+         </item>
+         <item row="3" column="1">
+          <widget class="QLabel" name="A0Label">
            <property name="text">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Energy&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+            <string>TextLabel</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="label_34">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Zone Plate A0&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
           </widget>
          </item>
@@ -1960,7 +1971,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <x>10</x>
           <y>10</y>
           <width>291</width>
-          <height>171</height>
+          <height>151</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_6">
@@ -2236,6 +2247,13 @@ font: 75 11pt &quot;Ubuntu&quot;;
           </widget>
          </item>
          <item>
+          <widget class="QCheckBox" name="tiledCheckbox">
+           <property name="text">
+            <string>Tiled Scan</string>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QPushButton" name="beginScanButton">
            <property name="minimumSize">
             <size>
@@ -2412,7 +2430,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
          <rect>
           <x>10</x>
           <y>10</y>
-          <width>671</width>
+          <width>676</width>
           <height>32</height>
          </rect>
         </property>
@@ -2703,7 +2721,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <x>0</x>
      <y>0</y>
      <width>1550</width>
-     <height>23</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

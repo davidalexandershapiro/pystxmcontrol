@@ -18,10 +18,12 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Keysight 53230A timer/counter
 - Keysight A33500B arbitrary waveform generator
 - Keysight U2356A multi-channel ADC
-- SmarAct MCS/MCS2 controlled stages (via EPICS)
+- SmarAct MCS/MCS2 controlled stages
 - Xeryon controlled stages
 - Arduino Due
 - Micronix MMC controller
+- PI E-712 controller stages
+- Quantum Detectors Xpress 3
 
 # Dependencies 
 pystxmcontrol also depends upon the pystxm data structure and analysis package called pystxm_core.  This must be separately downloaded and installed as described below.

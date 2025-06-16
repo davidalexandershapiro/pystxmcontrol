@@ -90,6 +90,22 @@ class xpsController(hardwareController):
             return [err, float(retString)]
         return [err, float(retString)]
 
+    def setParameters(self, socketId, motor, velocity, acceleration, minimumTjerkTime, maximumTjerkTime):
+        command = 'PositionerSGammaParametersSet(' + motor + ',' + str(velocity) + ',' + str(acceleration) + ',' + str(minimumTjerkTime) + ',' + str(maximumTjerkTime) + ')'
+        [err, retStr] = self.__sendAndReceive(socketId, command)
+        return [err, retStr]
+
+    def getParameters(self, socketId, motor):
+        command = 'PositionerSGammaParametersGet(' + motor + ',double *,double *,double *,double *)'
+        [err, retStr] = self.__sendAndReceive(socketId, command)
+        i, j, retList = 0, 0, [err]
+        for paramNb in range(4):
+            while ((i+j) < len(retStr) and retStr[i+j] != ','):
+                j += 1
+            retList.append(eval(retStr[i:i+j]))
+            i, j = i+j+1, 0
+        return retList
+
 
 
 

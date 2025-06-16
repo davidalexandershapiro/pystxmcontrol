@@ -8,7 +8,11 @@ def line_image(scan, dataHandler, controller, queue):
     :param scan:
     :return:
     """
-    controller.moveMotor("Detector Y", 0)
+    try:
+        #this only works on Nanosurveyor
+        controller.moveMotor("Detector Y", 0)
+    except:
+        pass
     energies = dataHandler.data.energies
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "continuousLine"}
@@ -18,8 +22,6 @@ def line_image(scan, dataHandler, controller, queue):
     scanInfo['totalSplit'] = None
     energyIndex = 0
     nScanRegions = len(xPos)
-    if "outerLoop" in scan.keys():
-        loopMotorPos = getLoopMotorPositions(scan)
     energy = energies[0]
     if not scanInfo['scan']['refocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
@@ -36,15 +38,13 @@ def line_image(scan, dataHandler, controller, queue):
                         'motor'].calibratedPosition
                     print('calculated offset: {}'.format(scanInfo['refocus_offset']))
                 controller.moveMotor('ZonePlateZ',
-                                          controller.motors['ZonePlateZ']['motor'].calibratedPosition + scanInfo[
+                                          controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
                                               'refocus_offset'])
         else:
             if scanInfo['scan']['refocus']:
                 controller.moveMotor("ZonePlateZ",
-                                          controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                                          controller.motors["Energy"]["motor"].calibratedPosition)
         for j in range(nScanRegions):
-            if "outerLoop" in scan.keys():
-                controller.moveMotor(scan["outerLoop"]["motor"], loopMotorPos[j])
             x, y = xPos[j], yPos[j]
             scanInfo["scanRegion"] = "Region" + str(j + 1)
             xStart, xStop = x[0], x[-1]

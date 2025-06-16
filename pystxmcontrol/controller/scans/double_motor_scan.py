@@ -31,12 +31,12 @@ def double_motor_scan(scan, dataHandler, controller, queue):
                         'motor'].calibratedPosition
                     print('calculated offset: {}'.format(scanInfo['refocus_offset']))
                 controller.moveMotor('ZonePlateZ',
-                                          controller.motors['ZonePlateZ']['motor'].calibratedPosition + scanInfo[
+                                          controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
                                               'refocus_offset'])
         else:
             if scanInfo['scan']['refocus']:
                 controller.moveMotor("ZonePlateZ",
-                                          controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                                          controller.motors["Energy"]["motor"].calibratedPosition)
         x, y = xPos[regionNum], yPos[regionNum]
         scanInfo["scanRegion"] = "Region" + str(regionNum + 1)
         xStart, xStop = x[0], x[-1]
@@ -55,8 +55,12 @@ def double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yStart"] = yStart
         scanInfo["yCenter"] = yStart
         scanInfo["yRange"] = 0
-        controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1, trigger="EXT")
+        controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
         for i in range(len(yPos[0])):
+            controller.moveMotor(scan["y"], yPos[0][i])
+            controller.getMotorPositions()
+            dataHandler.data.motorPositions[0] = controller.allMotorPositions
+            scanInfo["motorPositions"] = controller.allMotorPositions
             for j in range(len(xPos[0])):
                 scanInfo["lineIndex"] = i
                 scanInfo["columnIndex"] = j

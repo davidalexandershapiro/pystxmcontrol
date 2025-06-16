@@ -162,13 +162,20 @@ class nptMotor(motor):
         else:
             return self.position
             
-    def setPosToZero(self):
-        self.controller.setZero(self._axis)
+    def setZero(self):
+        if not(self.simulation):
+            self.controller.setZero(self._axis)
+        else:
+            self.position = 0.
         
     def servoState(self, servo = True):
-        self.controller.sWrite(self._axis, int(servo))
+        if not(self.simulation):
+            self.controller.sWrite(self._axis, int(servo))
 
     def get_status(self):
-        return self.controller.get_status(axis=self._axis)
+        if not(self.simulation):
+            return self.controller.get_status(axis=self._axis)
+        else:
+            return False
 
 

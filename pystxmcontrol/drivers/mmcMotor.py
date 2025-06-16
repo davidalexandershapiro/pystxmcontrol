@@ -35,7 +35,7 @@ class mmcMotor(motor):
                 t0 = time.time()
                 with self.lock:
                     self.moving = True
-                    pos = (pos - self.config["offset"]) / self.config["units"]
+                    pos = round((pos - self.config["offset"]) / self.config["units"],3) #MMC needs fewer sig digits
                     self.controller.serialPort.write((str(self._axis) + "MVA" + str(pos) + "\r").encode())
                 while True:
                     self.getStatus()
