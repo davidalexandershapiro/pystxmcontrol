@@ -79,9 +79,6 @@ class dataHandler:
         self.currentScanID = os.path.join(scanDir, fileName)
         return self.currentScanID
 
-    def saveCurrentScan(self):
-        self.data.save()
-
     def fill2d(self,im):
 
         sigma = 5
@@ -123,6 +120,7 @@ class dataHandler:
             direction = np.array([xstop-xstart,ystop-ystart])
             direction = direction/np.linalg.norm(direction)
             #We need to convert the requested and measured positions to distances along this direction.
+
             distReq = np.array([(xReq[i]-xstart)*direction[0]+(yReq[i]-ystart)*direction[1] for i in range(len(xReq))])
             #TODO: FIX THIS
             xMeas = scanInfo["line_positions"][0]
@@ -264,42 +262,36 @@ class dataHandler:
         j = i + scanInfo["rawData"].size
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
-        z = scanInfo["zIndex"]
         self.data.counts[k][m,i:j] = scanInfo["rawData"]
 
-        if scanInfo["mode"] == 'continuousLine':
-            self.data.interp_counts[k][m,z,y,:] = scanInfo["data"] #this is a matrix
+        if scanInfo["type"] == "Image":
+            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
             self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
             self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
-
-        #For a spiral scan, the motor positions are decoupled from the daq samples.    
-        elif scanInfo['mode'] == 'continuousSpiral':
+        elif scanInfo["type"] == "Spiral Image":
             mi = scanInfo['index']*scanInfo['line_positions'][0].size
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            self.data.interp_counts[k][m] = scanInfo['data']
-
-        elif scanInfo['mode'] == 'ptychographyGrid':
-            #For ptycho grid scanInfo['data'] is a single value. We have to put it in the right place.
-            #Shape of array is given by the array. If we have to transpose, we will.
+            self.data.interp_counts[k][m,:,:] = scanInfo['data']
+        elif scanInfo["type"] == "Ptychography Image":
             index = np.unravel_index(scanInfo['index'],self.data.interp_counts[k][0][m].shape)
             self.data.interp_counts[k][m,index[0],index[1]] = scanInfo['data']
-
-        elif scanInfo['mode'] == 'point':
-            if scanInfo['type'] == 'Single Motor':
-                self.data.interp_counts[k][m,i:j] = scanInfo["rawData"]
-            elif scanInfo['type'] == 'Double Motor':
-                c = scanInfo["columnIndex"]
-                self.data.interp_counts[k][0,0,y,c] = scanInfo["rawData"]
-
-        ne,nz,ny,nx = self.data.interp_counts[k].shape  
-        if ny > nz:
-            return self.data.interp_counts[k][m,z,:,:] #this won't work for focus/spectrum scans with more than one Z position
-        elif ne > nz:
-            return self.data.interp_counts[k][:,0,0,:]
-        else:
-            return self.data.interp_counts[k][m,:,0,:]
+        elif scanInfo["type"] == "Focus":
+            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
+            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
+            self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
+        elif scanInfo["type"] == "Line Spectrum":
+            self.data.interp_counts[k][m, 0, :] = scanInfo["data"]  # this is a matrix
+            self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]  # these are long vectors
+            self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
+            return self.data.interp_counts[k][:,0,:]
+        elif scanInfo["type"] == "Single Motor":
+            self.data.interp_counts[k][m,i:j] = scanInfo["rawData"]
+        elif scanInfo["type"] == "Double Motor":
+            c = scanInfo["columnIndex"]
+            self.data.interp_counts[k][0, y, c] = scanInfo["rawData"]
+        return self.data.interp_counts[k][m,:,:]
 
     def tiled_scan(self, scan):
         xStart = scan["scanRegions"]["Region1"]["xStart"]
@@ -378,8 +370,7 @@ class dataHandler:
 
     def stopScanProcess(self):
         self.dataStream.join()
-        self.data.end_time = str(datetime.datetime.now())
-        self.data.closeFile()
+        self.data.close()
         print("Completed scan process.")
 
     def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):

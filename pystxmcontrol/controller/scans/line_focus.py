@@ -62,19 +62,13 @@ def line_focus(scan, dataHandler, controller, queue):
     # move to start command it needs to be added manually I guess
     controller.motors[scan["x"]]["motor"].update_trajectory()
 
-    # scanInfo['nPoints'] = controller.motors[scan["x"]]["motor"].npositions
-    # dataHandler.data.updateArrays(0, scanInfo['nPoints'])
-    # controller.daq["default"].config(scanInfo["dwell"] / scanInfo["oversampling_factor"], count=1, \
-    #                                       samples=scanInfo['nPoints'], trigger="EXT")
-
-    #interp_counts comes in as (ne,nz,ny,nz) where ne=1 and ny=nx but we want it to be (ne,nz,1,nx) so slice and update it here
-    #to keep higher level code general
-    ne,nz,ny,nx = dataHandler.data.interp_counts[0].shape
-    dataHandler.data.interp_counts[0] = np.zeros((ne,nz,1,nx))
+    ne,ny,nx = dataHandler.data.interp_counts[0].shape
+    dataHandler.data.interp_counts[0] = np.zeros((ne,ny,nx))
     numLineMotorPoints = controller.motors[scan["x"]]["motor"].npositions #this configures the DAQ for one line
     numLineDAQPoints = controller.motors[scan["x"]]["motor"].npositions * scan["oversampling_factor"]
     scanInfo['numMotorPoints'] = numLineMotorPoints * len(zPos) #total number of motor points configures the full data structrure
-    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
+    scanInfo['numDAQPoints'] = numLineDAQPoints * len(zPos)
+
     dataHandler.data.updateArrays(0, scanInfo)
     controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
                                             samples=numLineDAQPoints, trigger="EXT")
@@ -99,8 +93,7 @@ def line_focus(scan, dataHandler, controller, queue):
         controller.getMotorPositions()
         scanInfo["motorPositions"] = controller.allMotorPositions
         scanInfo["index"] = i * numLineDAQPoints
-        scanInfo["zIndex"] = i
-        scanInfo["lineIndex"] = 0
+        scanInfo["lineIndex"] = i
         if queue.empty():
             scanInfo["direction"] = "forward"
             controller.moveMotor(scan["z"], zPos[i])

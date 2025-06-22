@@ -114,13 +114,16 @@ class stxm:
         self.meta = {}
         self.meta["file_name"] = stxm_file
 
-        try:
-            self.meta["version"] = float(f["entry0/definition"][()])
-        except:
+        if f["entry0/definition"][()] == b"NXstxm":
+            self.meta["version"] = f["entry0/version"][()]
+        else:
             try:
-                self.meta["version"] = float(f["entry0/definition"].attrs["version"].decode())
+                self.meta["version"] = float(f["entry0/definition"][()])
             except:
-                self.meta["version"] = 0
+                try:
+                    self.meta["version"] = float(f["entry0/definition"].attrs["version"].decode())
+                except:
+                    self.meta["version"] = 0
 
         if self.meta["version"] < 3:
             self.meta["start_time"] = f["entry0/start_time"][()][0].decode()
@@ -135,7 +138,7 @@ class stxm:
             self.meta["experimenters"] = f["entry0/experimenters"][()].decode()
             self.meta["sample_description"] = f["entry0/sample/description"][()].decode()
             self.meta["proposal"] = f["entry0/title"][()].decode()
-            self.meta["scan_type"] = f["entry0/data/stxm_scan_type"][()].decode()
+            self.meta["scan_type"] = f["entry0/data/stxm_scan_type"][0].decode()
         
         if self.meta["version"] == 2.0:
             #Code for using verion 2:
@@ -288,14 +291,14 @@ class stxm:
             nxPixels = nxPos * scan["oversampling_factor"] #we only oversample in one dimension
             nyPixels = nyPos
             nzPixels = nzPos
-            nPixels_m = nxPixels * nyPixels * nzPixels #total number of measured pixels
-            nPixels_r = nxPos * nyPos * nzPos #total number of requested pixels, shown for clarity
+            nPixels_m = nxPixels * nyPixels #total number of measured pixels
+            nPixels_r = nxPos * nyPos #total number of requested pixels, shown for clarity
 
             self.xMeasured.append(np.zeros(nPixels_m))
             self.yMeasured.append(np.zeros(nPixels_m))
             self.zMeasured.append(np.zeros(nPixels_m))
             self.counts.append(np.zeros((self.energies.size,nPixels_m))) #this is a long vector of measured positions
-            self.interp_counts.append(np.zeros((self.energies.size,nzPos,nyPos,nxPos))) #this is a matrix of requested positions
+            self.interp_counts.append(np.zeros((self.energies.size,nyPos,nxPos))) #this is a matrix of requested positions
             
     def updateArrays(self,region,scanInfo):
         #doing things this way requires the scan driver to correctly provide the number of points for each line and image
@@ -319,9 +322,9 @@ class stxm:
         print("Starting output of file %s" %self.file_name)
         self.NXfile = h5py.File(self.file_name,'w',libver='latest')
         n_scan_regions = len(self.xPos)
-        if self.scan_dict["type"] == "Ptychography Image":
-            for i in range(n_scan_regions):
-                self.saveRegion(i)
+        # if self.scan_dict["type"] == "Ptychography Image":
+        for i in range(n_scan_regions):
+            self.saveRegion(i)
         self.NXfile.swmr_mode = True
         
     def addDict(self,d,name):
@@ -333,10 +336,14 @@ class stxm:
         else:
             self.createEntry(i)
             self.updateEntry(i)
+        self.end_time = datetime.datetime.now()
+        self.NXfile['entry%i/end_time' %i][...] = str(self.end_time).encode("UTF_8")
 
     def updateEntry(self,i):
 
-        #The 0 index for counts is for channels which isn't implemented yet
+        #I'm not sure that this works for spiral scans where the data size is actually increased by the
+        #motor driver. The initial array size at creation is just an estimate but gets revised.  May have to delete
+        #and re-create?
         self.NXfile['entry%i/instrument/detector/data' %i][...] = self.counts[i]
         self.NXfile['entry%i/data/data' %i][...] = self.interp_counts[i]
         self.NXfile['entry%i/instrument/detector/data' % i].flush()
@@ -351,51 +358,65 @@ class stxm:
         grp.create_dataset(name = str(framenum), data=frame, maxshape=None)
 
     def createEntry(self,i):
-
+        print("creating entry...")
         ne,nz_m,ny_m,nx_m = len(self.energies),len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
         nz_r,ny_r,nx_r = len(self.zPos[i]), len(self.yPos[i]), len(self.xPos[i])
 
-        #self.NXfile["entry%i" %i] = NXentry()
         nxentry = self.NXfile.create_group("entry%i" %i)
-        nxentry.attrs["NX_class"] = "NXentry"
-        start_time = nxentry.create_dataset("start_time", data=self.start_time)
-        end_time = nxentry.create_dataset("end_time", data=self.end_time)
-        title = nxentry.create_dataset("title", data=self.scan_dict["proposal"])
-        definition = nxentry.create_dataset("definition", data=float(self.scan_dict["main_config"]["server"]["nx_file_version"]))
-        experimenters = nxentry.create_dataset("experimenters", data=self.scan_dict["experimenters"])
+        nxentry.attrs["NX_class"] = np.bytes_("NXentry")
+        start_time = nxentry.create_dataset("start_time", data=str(self.start_time).encode("UTF_8"))
+        end_time = nxentry.create_dataset("end_time", data=str(self.end_time).encode("UTF_8"))
+        title = nxentry.create_dataset("title", data=self.scan_dict["proposal"].encode("UTF_8"))
+        version = nxentry.create_dataset("version", data=float(self.scan_dict["main_config"]["server"]["nx_file_version"]))
+        definition = nxentry.create_dataset("definition", data=["NXstxm".encode("UTF_8")])
+        experimenters = nxentry.create_dataset("experimenters", data=self.scan_dict["experimenters"].encode("UTF_8"))
         nxinstrument = nxentry.create_group("instrument")
+        nxinstrument.attrs["NX_class"] = np.bytes_("NXinstrument")
         nxsource = nxinstrument.create_group("source")
+        nxsource.attrs["NX_class"] = np.bytes_("NXsource")
         t = nxsource.create_dataset("type",data=self.scan_dict['main_config']['source']['type'])
         n = nxsource.create_dataset("name", data=self.scan_dict['main_config']['source']['name'])
         p = nxsource.create_dataset("probe", data=self.scan_dict['main_config']['source']['probe'])
         nxmono = nxinstrument.create_group("monochromator")
+        nxmono.attrs["NX_class"] = np.bytes_("NXmonochromator")
         energy = nxmono.create_dataset("energy",data=self.energies)
         nxdetector = nxinstrument.create_group("detector")
+        nxdetector.attrs["NX_class"] = np.bytes_("NXdetector")
         measured_data = nxdetector.create_dataset("data",data=np.zeros_like(self.counts[i])) #the 0 is for channel, need to fix this
         measured_xgrp = nxinstrument.create_group("sample_x")
         measured_ygrp = nxinstrument.create_group("sample_y")
         measured_zgrp = nxinstrument.create_group("sample_z")
+        measured_xgrp.attrs["NX_class"] = np.bytes_("NXdetector")
+        measured_ygrp.attrs["NX_class"] = np.bytes_("NXdetector")
+        measured_zgrp.attrs["NX_class"] = np.bytes_("NXdetector")
         measured_x = measured_xgrp.create_dataset("data",data=np.zeros(nx_m))
         measured_y = measured_ygrp.create_dataset("data", data=np.zeros(ny_m))
         measured_z = measured_zgrp.create_dataset("data", data=np.zeros(nz_m))
         motors = nxinstrument.create_group("motors")
+        motors.attrs["NX_class"] = np.bytes_("NXdetector")
         for motor in self.motorPositions.keys():
             try:
-                motors.create_dataset(motor,data=self.motorPositions[motor])
+                motors.create_dataset(motor,data=self.motorPositions[motor].replace(" ","_").lower())
             except:
                 #there's a dictionary of status strings in there that causes this to fail
                 pass
         sample = nxentry.create_group("sample")
+        sample.attrs["NX_class"] = np.bytes_("NXsample")
         sample.create_dataset("rotation_angle", data='')
         sample.create_dataset("description", data=self.scan_dict["sample"])
         d = nxentry.create_group("data")
-        d.create_dataset("stxm_scan_type",data=self.scan_dict["type"])
+        d.attrs["NX_class"] = np.bytes_("NXdata")
+        d.attrs["axes"] = [np.bytes_("energy"),np.bytes_("sample_y"),np.bytes_("sample_x")]
+        d.attrs["signal"] = "data"
+        d.create_dataset("stxm_scan_type",data=[self.scan_dict["type"]])
         d.create_dataset("data",data=np.zeros_like(self.interp_counts[i]))
-        d.create_dataset("energy",data=self.energies)
+        energy = d.create_dataset("energy",data=self.energies)
+        energy.attrs["axis"] = 1
         d.create_dataset("count_time",data=self.dwells)
-        d.create_dataset("sample_z",data=self.zPos[i])
-        d.create_dataset("sample_y",data=self.yPos[i])
-        d.create_dataset("sample_x",data=self.xPos[i])
+        sample_y = d.create_dataset("sample_y",data=self.yPos[i])
+        sample_y.attrs["axis"] = 2
+        sample_x = d.create_dataset("sample_x",data=self.xPos[i])
+        sample_x.attrs["axis"] = 3
         d.create_dataset("motor_name_x",data=self.scan_dict["x"])
         try:
             d.create_dataset("motor_name_y",data=self.scan_dict["y"])
@@ -407,12 +428,5 @@ class stxm:
             ccd.create_group('exp')
         self.NXfile.flush()
 
-    def save(self):
-        self.startOutput()
-        n_scan_regions = len(self.xPos)
-        for i in range(n_scan_regions):
-            self.saveRegion(i)
-        self.closeFile()
-
-    def closeFile(self):
+    def close(self):
         self.NXfile.close()

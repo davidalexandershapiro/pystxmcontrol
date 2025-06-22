@@ -12,9 +12,7 @@ def getLoopMotorPositions(scan):
 def terminateFlyscan(controller, dataHandler, scan, axis, message):
     dataHandler.dataQueue.put('endOfScan')
     controller.motors[scan[axis]]["motor"].setPositionTriggerOff()
-    # controller.moveMotor("ZonePlateZ", controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
     controller.scanQueue.queue.clear()
-    print(message)
     return False
 
 

@@ -156,6 +156,7 @@ class controller:
         self.motorConfig[c["motor"]][key] = round(c["value"],3)
         self.motors[c["motor"]]["motor"].config[key] = c["value"]
         self.writeConfig()
+        return c
 
     def writeConfig(self):
         with open(self.motorConfigFile,'w') as fp:

@@ -155,6 +155,6 @@ def derived_line_image(scan, dataHandler, controller, queue):
                     queue.get()
                     dataHandler.data.saveRegion(j)
                     return terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan aborted.")
-            dataHandler.dataQueue.put('endOfRegion')
+            dataHandler.dataQueue.put('endOfRegion') #this forces a saveRegion() in dataHandler
         energyIndex += 1
     terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan completed.")
