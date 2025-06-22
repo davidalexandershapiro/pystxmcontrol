@@ -20,9 +20,14 @@ from pystxmcontrol.drivers.derivedPiezo import derivedPiezo
 from pystxmcontrol.drivers.areaDetector import areaDetector
 from pystxmcontrol.drivers.xpsController import xpsController
 from pystxmcontrol.drivers.xpsMotor import xpsMotor
+from pystxmcontrol.drivers.mcsController import mcsController
+from pystxmcontrol.drivers.mcsMotor import mcsMotor
+from pystxmcontrol.drivers.E712Controller import E712Controller
+from pystxmcontrol.drivers.E712Motor import E712Motor
 
 __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
     'nptController', 'bcsController', 'mmcController','keysight53230A',\
            'epicsController', 'shutter', 'keysightU2356A', 'fccd_control', 'xerMotor', \
            'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo',\
-           'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM']
+           'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM','mcsController',\
+           'mcsMotor','E712Controller','E712Motor']

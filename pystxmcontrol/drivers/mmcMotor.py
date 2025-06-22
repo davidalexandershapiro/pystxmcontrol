@@ -30,6 +30,7 @@ class mmcMotor(motor):
         self.position += step
 
     def moveTo(self, pos):
+        pos = int(pos)
         if self.checkLimits(pos):
             if not(self.simulation):
                 t0 = time.time()
@@ -37,13 +38,13 @@ class mmcMotor(motor):
                     self.moving = True
                     pos = (pos - self.config["offset"]) / self.config["units"]
                     self.controller.serialPort.write((str(self._axis) + "MVA" + str(pos) + "\r").encode())
-                while True:
-                    self.getStatus()
-                    if self.moving:
-                        time.sleep(0.02)
-                    else:
-                        #print("OSA move took %.4f ms" %((time.time()-t0)*1000.))
-                        return
+                    
+                # while True:
+                #     self.getStatus()
+                #     if self.moving:
+                #         time.sleep(0.005)
+                #     else:
+                #         return
             else:
                 self.position = pos
         else:
@@ -64,8 +65,22 @@ class mmcMotor(motor):
             servoStr = '3'
         else:
             servoStr = '0'
-        writeStr = str(self._axis) + "FBK" + servoStr + self.lt
-        self.controller.serialPort.write(writeStr.encode())
+        if not self.simulation:
+            writeStr = str(self._axis) + "FBK" + servoStr + self.lt
+            self.controller.serialPort.write(writeStr.encode())
+
+    def home(self):
+        if not self.simulation:
+            writeStr = str(self._axis) + "HOM" + self.lt
+            self.controller.serialPort.write(writeStr.encode())
+
+    def configure_home(self, direction = 0):
+        """
+        Direction: 0 or 1
+        """
+        if not self.simulation:
+            writeStr = str(self._axis) + "HCG" + str(direction) + self.lt
+            self.controller.serialPort.write(writeStr.encode())
 
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():

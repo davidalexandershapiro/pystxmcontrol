@@ -511,6 +511,7 @@ def twoMotorScan(meta):
     data.startOutput() #allocate the data in the file
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
     data.motors = sock.recv_pyobj()["data"]
+
     plt.ion()
     # here we are creating sub plots
     figure, ax = plt.subplots(figsize=(8, 8))
@@ -526,21 +527,26 @@ def twoMotorScan(meta):
     x = np.linspace(start[0], stop[0], npoints[0])
     y = np.linspace(start[1], stop[1], npoints[1])
     im = ax.imshow(data.counts[0][0], extent = (start[0],stop[0],start[1],stop[1]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
-    moveMotor(meta["ymotor"], y[0])
-    moveMotor(meta["xmotor"], x[0])
-    
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
     stop_button = Button(ax_button, "Stop")
     stop_button.on_clicked(stop_function)
     ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
     close_button = Button(ax_button2, "Close")
     close_button.on_clicked(exit_function)
-    
+
+    moveMotor(meta["ymotor"], y[0])
+    moveMotor(meta["xmotor"], x[0])
+
     for i in range(npoints[1]):
+        t0 = time()
         moveMotor(meta["ymotor"],y[i])
+        t1 = time()
         for j in range(npoints[0]):
+            t2 = time()
             moveMotor(meta["xmotor"],x[j])
+            t3 = time()
             data.counts[0][0][0][i*npoints[0]+j] = read_daq(meta["daq"],meta["dwell"])
+            t4 = time()
             im.set_data(np.reshape(data.counts[0][0][0],npoints))
             im.set_clim(vmin = data.counts[0][0][0][data.counts[0][0][0] > 0.].min(), vmax = data.counts[0][0][0].max())
             ax.relim()
@@ -551,12 +557,10 @@ def twoMotorScan(meta):
             # loop until all UI events
             # currently waiting have been processed
             figure.canvas.flush_events()
+            t5 = time()
+            print(t5-t4,t4-t3,t3-t2,t1-t0)
     data.saveRegion(0)
 
-    # This changes the Abort button to a Close button
-    ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-    abort_button = Button(ax_button, "Close")
-    abort_button.on_clicked(exit_function)
     ##This while loop holds the window open until the user presses the button
     while True:
         figure.canvas.flush_events()

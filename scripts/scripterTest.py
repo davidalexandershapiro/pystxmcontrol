@@ -4,20 +4,20 @@ import time
 import pystxmcontrol
 
 # ##set up and execute basic metadata required of all scans
-meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":2.1, "Sample": "Dong Hyun: R1"}
+meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":2.1, "Sample": "None"}
 meta["xcenter"] = 0
-meta["xrange"] = 5
-meta["xpoints"] = 100
+meta["xrange"] = 500
+meta["xpoints"] = 10
 meta["ycenter"] = 0
-meta["yrange"] = 5
-meta["ypoints"] = 100
+meta["yrange"] = 500
+meta["ypoints"] = 10
 meta["energyStart"] = 605
 meta["energyStop"] = 700
 meta["energyPoints"] = 1
-meta["dwell"] = 1
+meta["dwell"] = 10
 meta["spiral"] = False
 meta["refocus"] = True
-meta["cmap"] = "Greys" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Greys',
+meta["cmap"] = "viridis" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Greys',
 
 #################################################################################################
 ##Single Motor Scan##############################################################################
@@ -29,8 +29,8 @@ meta["cmap"] = "Greys" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Grey
 
 #################################################################################################
 # ##Two Motor Scan##############################################################################
-meta["xmotor"] = "Dummy Motor"
-meta["ymotor"] = "Dummy Motor"
+meta["xmotor"] = "OSA_X"
+meta["ymotor"] = "OSA_Y"
 meta["daq"] = "default"
 filename = twoMotorScan(meta)
 print(filename)
