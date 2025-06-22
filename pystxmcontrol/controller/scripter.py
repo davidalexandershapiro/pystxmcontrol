@@ -552,16 +552,17 @@ def two_motor_scan(meta):
     npoints = meta["xpoints"],meta["ypoints"]
     x = np.linspace(start[0], stop[0], npoints[0])
     y = np.linspace(start[1], stop[1], npoints[1])
+
     im = ax.imshow(np.reshape(data.counts[0][0,:],npoints), extent = (start[1],stop[1],start[0],stop[0]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
     move_motor(meta["ymotor"], y[0])
     move_motor(meta["xmotor"], x[0])
+
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
     stop_button = Button(ax_button, "Stop")
     stop_button.on_clicked(stop_function)
     ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
     close_button = Button(ax_button2, "Close")
     close_button.on_clicked(exit_function)
-
     stop_monitor()
     for i in range(npoints[1]):
         move_motor(meta["ymotor"],y[i])
@@ -580,7 +581,6 @@ def two_motor_scan(meta):
     data.interp_counts = data.counts.copy()
     data.saveRegion(0)
     start_monitor()
-
     while True:
         figure.canvas.flush_events()
     return data.file_name

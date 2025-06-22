@@ -14,10 +14,10 @@ meta["ypoints"] = 15
 meta["energyStart"] = 700
 meta["energyStop"] = 700
 meta["energyPoints"] = 1
-meta["dwell"] = 1
+meta["dwell"] = 10
 meta["spiral"] = False
 meta["refocus"] = True
-meta["cmap"] = "Greys" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Greys',
+meta["cmap"] = "viridis" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Greys',
 
 #################################################################################################
 ##Single Motor Scan##############################################################################
@@ -29,8 +29,8 @@ meta["cmap"] = "Greys" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Grey
 
 #################################################################################################
 # ##Two Motor Scan##############################################################################
-meta["xmotor"] = "Dummy Motor"
-meta["ymotor"] = "Dummy Motor"
+meta["xmotor"] = "OSA_X"
+meta["ymotor"] = "OSA_Y"
 meta["daq"] = "default"
 filename = two_motor_scan(meta)
 print(filename)

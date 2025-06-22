@@ -15,11 +15,11 @@ mcl.initialize()
 #mcl.trigger_line(1)
 
 #Assumes config offset is zero, drives from one end to the other.
-start = (0,0)
-stop = (100,100)
-dwell = 0.3
-repeats = 20
-tot_time = 2.0
+start = (10,10)
+stop = (20,20)
+repeats = 1
+tot_time = 2.0 #keep less than 2.5
+
 #Circular test
 Freq = 50 #Hz
 ang_freq = Freq*(np.pi*2)
@@ -27,8 +27,10 @@ nPoints = 4000
 dwell = tot_time/nPoints*1000
 trajx = 50+40*np.sin(np.linspace(0,tot_time,nPoints)*ang_freq)
 trajy = 50+40*np.cos(np.linspace(0,tot_time,nPoints)*ang_freq)
+
 #plt.plot(np.linspace(0,tot_time,4000),trajx)
 #plt.show()
+
 for i in range(repeats):
     #mcl.setup_trajectory(1,start,stop,dwell,100)
     #xpos, ypos = mcl.acquire_xy()
@@ -38,8 +40,6 @@ for i in range(repeats):
     mcl.setup_xy(trajx, trajy,dwell)
     mcl.acquire_xy()
     time.sleep(0.2)
-
-
     print('iteration {}'.format(i))
 
 #mcl.write(1,11)
