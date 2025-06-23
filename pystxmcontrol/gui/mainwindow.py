@@ -894,7 +894,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.energyRegSpinbox.setEnabled(True)
         self.ui.beginScanButton.setEnabled(True)
         self.ui.scanType.setEnabled(True)
-        if self.scanType == "Image":
+        if self.scanType == "Image" or self.scanType == "Spiral Image":
             self.ui.roiCheckbox.setEnabled(True)
             self.ui.toggleSingleEnergy.setEnabled(True)
             for reg in self.scanRegList:
@@ -1063,7 +1063,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 zStep = 0
             elif (self.scanType == "Double Motor"):
                 xCenter = float(region.ui.xCenter.text())
-                yCenter = -float(region.ui.yCenter.text())
+                yCenter = float(region.ui.yCenter.text())
                 xRange = float(region.ui.xRange.text())
                 yRange = float(region.ui.yRange.text())
                 xPoints = int(region.ui.xNPoints.text())

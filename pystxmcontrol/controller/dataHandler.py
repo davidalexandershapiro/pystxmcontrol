@@ -195,8 +195,8 @@ class dataHandler:
             
             #Next, the measured x and y values. Only take the ones which have been measured so far.
             mi = (scanInfo['index'])*scanInfo['line_positions'][0].size
-            xMeasOld = self.data.xMeasured[region][scanInfo['energyIndex']][:mi]
-            yMeasOld = self.data.yMeasured[region][scanInfo['energyIndex']][:mi]
+            xMeasOld = self.data.xMeasured[region][scanInfo['energyIndex'],:mi]
+            yMeasOld = self.data.yMeasured[region][scanInfo['energyIndex'],:mi]
             
             xMeas = np.append(xMeasOld,scanInfo['line_positions'][0])
             yMeas = np.append(yMeasOld,scanInfo['line_positions'][1])
@@ -204,7 +204,7 @@ class dataHandler:
             
             #Also, the raw data.
             di = (scanInfo['index'])*scanInfo['rawData'].size
-            dataOld = self.data.counts[region][0][scanInfo['energyIndex']][:di]
+            dataOld = self.data.counts[region][scanInfo['energyIndex'],:di]
             data = np.append(dataOld,scanInfo['rawData'])
             
             #Determine the actual motor dwell and daq dwell. Determined by testing.

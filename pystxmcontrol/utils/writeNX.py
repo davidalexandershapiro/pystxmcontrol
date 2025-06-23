@@ -344,8 +344,12 @@ class stxm:
         #I'm not sure that this works for spiral scans where the data size is actually increased by the
         #motor driver. The initial array size at creation is just an estimate but gets revised.  May have to delete
         #and re-create?
-        self.NXfile['entry%i/instrument/detector/data' %i][...] = self.counts[i]
-        self.NXfile['entry%i/data/data' %i][...] = self.interp_counts[i]
+        del self.NXfile['entry%i/instrument/detector/data' %i]
+        self.NXfile['entry%i/instrument/detector' %i].create_dataset("data", data = self.counts[i])
+        #self.NXfile['entry%i/instrument/detector/data' %i][...] = self.counts[i]
+        del self.NXfile['entry%i/data/data' %i]
+        self.NXfile['entry%i/data' %i].create_dataset("data", data = self.interp_counts[i])
+        #self.NXfile['entry%i/data/data' %i][...] = self.interp_counts[i]
         self.NXfile['entry%i/instrument/detector/data' % i].flush()
         self.NXfile['entry%i/data/data' % i].flush()
         
