@@ -15,19 +15,17 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - [Mad City Labs](https://www.madcitylabs.com/nanodrive.html) Nano-Drive controller
 - [nPoint](https://npoint.com/) LC.400 piezo controller
 - [Newport XPS](https://www.newport.com/c/xps-universal-multi-axis-motion-controller) motor controller
-- Keysight 53230A timer/counter
+- Keysight 53230A frequency counter
 - Keysight A33500B arbitrary waveform generator
 - Keysight U2356A multi-channel ADC
 - SmarAct MCS/MCS2 controlled stages
 - Xeryon controlled stages
 - Arduino Due
 - Micronix MMC controller
-- PI E-712 controller stages
+- PI E-712 controller
 - Quantum Detectors Xpress 3
 
 # Dependencies 
-pystxmcontrol also depends upon the pystxm data structure and analysis package called pystxm_core.  This must be separately downloaded and installed as described below.
-
 Ubuntu requires this package to be installed in some cases for PySide6 to function properly.
 ```
 sudo apt install  libxcb-cursor0
@@ -45,13 +43,14 @@ sudo apt install  libxcb-cursor0
 - pyserial
 - pyzmq
 - matplotlib
-- qdarkstyle
-- pyside6
+- pyside6 = 6.8.2
 - pyqtgraph
+- pyqtdarktheme
 - griffe = 0.47
 - prefect = 2.14.3
 - pydantic = 1.10.4
 - python-dotenv
+- PIPython
 
 # Environment setup and installation using miniconda3 and pip
 - On both Windows, Mac or LInux install [miniconda3](https://docs.conda.io/en/latest/miniconda.html) and activate the base environment

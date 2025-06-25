@@ -12,11 +12,11 @@ Requires-Dist: pylibftdi
 Requires-Dist: pyvisa-py
 Requires-Dist: scipy
 Requires-Dist: scikit-image
-Requires-Dist: qdarkstyle
+Requires-Dist: pyqtdarktheme
 Requires-Dist: pyepics
 Requires-Dist: pyserial
 Requires-Dist: pyzmq
-Requires-Dist: PySide6
+Requires-Dist: PySide6==6.8.2.1
 Requires-Dist: matplotlib
 Requires-Dist: h5py
 Requires-Dist: pyqtgraph
@@ -26,6 +26,7 @@ Requires-Dist: pydantic==1.10.4
 Requires-Dist: python-dotenv
 Requires-Dist: opencv-python-headless
 Requires-Dist: scikit-learn
+Requires-Dist: PIPython
 Dynamic: author
 Dynamic: author-email
 Dynamic: license-file

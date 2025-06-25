@@ -2,7 +2,6 @@
 from pylibftdi import Device, Driver
 from pystxmcontrol.controller.hardwareController import hardwareController
 from threading import Lock
-import smaract.ctl as ctl
 from time import sleep, time
 
 class mcsController(hardwareController):
@@ -20,6 +19,7 @@ class mcsController(hardwareController):
     def initialize(self, simulation = False):
         self.simulation = simulation
         if not(self.simulation):
+            import smaract.ctl as ctl
             try:
                 self._address = ctl.FindDevices().split("\n")[0]
                 self._deviceID = ctl.Open(self._address)

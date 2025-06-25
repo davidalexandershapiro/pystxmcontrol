@@ -166,7 +166,6 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
-             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -255,7 +254,6 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
-             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -332,7 +330,6 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
-             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -352,7 +349,6 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
-             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -1058,7 +1054,6 @@
          </property>
          <property name="font">
           <font>
-           <weight>75</weight>
            <bold>true</bold>
           </font>
          </property>
@@ -1102,7 +1097,6 @@
          <widget class="QLabel" name="scanVelocity">
           <property name="font">
            <font>
-            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1122,7 +1116,6 @@
          <widget class="QLabel" name="estimatedTime">
           <property name="font">
            <font>
-            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1142,7 +1135,6 @@
          <widget class="QLabel" name="elapsedTime">
           <property name="font">
            <font>
-            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1785,7 +1777,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
        </rect>
       </property>
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="Experiment">
        <attribute name="title">
@@ -1874,7 +1866,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <x>10</x>
           <y>10</y>
           <width>291</width>
-          <height>120</height>
+          <height>124</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_8">
@@ -1971,7 +1963,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <x>10</x>
           <y>10</y>
           <width>291</width>
-          <height>151</height>
+          <height>154</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_6">
@@ -2721,7 +2713,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <x>0</x>
      <y>0</y>
      <width>1550</width>
-     <height>22</height>
+     <height>23</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -2759,7 +2751,27 @@ font: 75 11pt &quot;Ubuntu&quot;;
     <addaction name="actionPlease_confirm_you_have_a_good_sample"/>
     <addaction name="menuAdditional_Help"/>
    </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>Edit</string>
+    </property>
+    <widget class="QMenu" name="menuSettings_2">
+     <property name="title">
+      <string>Settings</string>
+     </property>
+     <widget class="QMenu" name="menuTheme_2">
+      <property name="title">
+       <string>Theme</string>
+      </property>
+      <addaction name="action_light_theme"/>
+      <addaction name="action_dark_theme"/>
+     </widget>
+     <addaction name="menuTheme_2"/>
+    </widget>
+    <addaction name="menuSettings_2"/>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
    <addaction name="menuHelp"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -2801,6 +2813,26 @@ font: 75 11pt &quot;Ubuntu&quot;;
   <action name="actionGood_Luck_2">
    <property name="text">
     <string>Good Luck!</string>
+   </property>
+  </action>
+  <action name="actionLight">
+   <property name="text">
+    <string>Light</string>
+   </property>
+  </action>
+  <action name="actionDark">
+   <property name="text">
+    <string>Dark</string>
+   </property>
+  </action>
+  <action name="action_light_theme">
+   <property name="text">
+    <string>Light</string>
+   </property>
+  </action>
+  <action name="action_dark_theme">
+   <property name="text">
+    <string>Dark</string>
    </property>
   </action>
  </widget>

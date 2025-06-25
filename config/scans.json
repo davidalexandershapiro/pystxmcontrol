@@ -55,17 +55,27 @@
       "xMotor": "",
       "yMotor": "",
       "energyMotor": "Energy",
-      "type": "single motor",
+      "type": "point",
       "driver": "single_motor_scan",
       "mode": "point",
-      "display": false
+      "display": true
     },
     "Double Motor": {
       "index": 6,
       "xMotor": "",
       "yMotor": "",
       "energyMotor": "Energy",
-      "type": "double motor",
+      "type": "image",
+      "driver": "double_motor_scan",
+      "mode": "point",
+      "display": true
+    },    
+    "OSA": {
+      "index": 7,
+      "xMotor": "OSA_X",
+      "yMotor": "OSA_Y",
+      "energyMotor": "Energy",
+      "type": "image",
       "driver": "double_motor_scan",
       "mode": "point",
       "display": false

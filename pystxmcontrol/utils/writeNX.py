@@ -362,7 +362,6 @@ class stxm:
         grp.create_dataset(name = str(framenum), data=frame, maxshape=None)
 
     def createEntry(self,i):
-        print("creating entry...")
         ne,nz_m,ny_m,nx_m = len(self.energies),len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
         nz_r,ny_r,nx_r = len(self.zPos[i]), len(self.yPos[i]), len(self.xPos[i])
 
@@ -400,9 +399,8 @@ class stxm:
         motors.attrs["NX_class"] = np.bytes_("NXdetector")
         for motor in self.motorPositions.keys():
             try:
-                motors.create_dataset(motor,data=self.motorPositions[motor].replace(" ","_").lower())
+                motors.create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[motor])
             except:
-                #there's a dictionary of status strings in there that causes this to fail
                 pass
         sample = nxentry.create_group("sample")
         sample.attrs["NX_class"] = np.bytes_("NXsample")

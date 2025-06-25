@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from pystxmcontrol.gui.mainwindow import *
-import qdarkstyle
+import qdarktheme
 
 if __name__ == '__main__':
     @atexit.register
@@ -9,7 +9,7 @@ if __name__ == '__main__':
         widget.disconnect()
 
     app = QtWidgets.QApplication([])
-    #app.setStyleSheet(qdarkstyle.load_stylesheet())
+    app.setStyleSheet(qdarktheme.load_stylesheet("light"))
     widget = sampleScanWindow()
     widget.show()
     sys.exit(app.exec())

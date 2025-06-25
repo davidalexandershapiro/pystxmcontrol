@@ -2,14 +2,13 @@ from pystxmcontrol.controller.client import stxm_client
 from pystxmcontrol.gui.mainwindow_UI import Ui_MainWindow
 from pystxmcontrol.gui.energyDef import energyDefWidget
 from pystxmcontrol.gui.scanDef import scanRegionDef
-from pystxmcontrol.gui.stackviewerwidget import stackViewerWidget
 from pystxmcontrol.utils.writeNX import *
 from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import numpy as np
 import time, json, atexit, sys, os
 from queue import Queue
-import traceback
+import qdarktheme
 
 BASEPATH = sys.prefix
 
@@ -70,6 +69,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.channelSelect.currentIndexChanged.connect(self.setChannel)
         self.ui.toggleSingleEnergy.stateChanged.connect(self.setSingleEnergy)
         self.ui.action_Open_Image_Data.triggered.connect(self.getScanFile)
+        self.ui.action_light_theme.triggered.connect(self.setLightTheme)
+        self.ui.action_dark_theme.triggered.connect(self.setDarkTheme)
         self.ui.beginScanButton.clicked.connect(self.beginScan)
         self.ui.cancelButton.clicked.connect(self.cancelScan)
         self.ui.roiCheckbox.stateChanged.connect(self.setROI)
@@ -215,6 +216,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self._motorLock = False
         self.singleMotorScanXData = []
         self.singleMotorScanYData = []
+        self.consoleStr = ''
+
+    def setLightTheme(self):
+        self.setStyleSheet(qdarktheme.load_stylesheet("light"))
+
+    def setDarkTheme(self):
+        self.setStyleSheet(qdarktheme.load_stylesheet())
 
     def motors2Cursor(self):
         if not self.scanning:
@@ -457,11 +465,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         scenePos = self.ui.mainImage.getImageItem().mapFromScene(pos)
 
-        xRange = self.scanXrange
-        yRange = self.scanYrange
-        xCenter,yCenter = 0,0
-        #imageScale = 1,1
-
         if "Image" in self.currentImageType or self.currentImageType == "Double Motor":
             x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
             y = (np.round(scenePos.y(), 3) * self.imageScale[1]) + self.yCenter - self.yRange / 2.
@@ -572,14 +575,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def printToConsole(self, message):
         self.lastMessage = message
-        self.consoleText.insert(0,message)
-        printStr = ''
-        for item in self.consoleText:
-            newStr = '['+str(datetime.datetime.now())+'] - '
-            for key in item.keys():
-                newStr += key + ': ' + str(item[key]) + ', '
-            printStr += newStr + '\n'
-        self.ui.serverOutput.setText(printStr)
+        # self.consoleText.insert(0,message)
+        # printStr = ''
+        # for item in self.consoleText:
+        self.consoleStr += '['+str(message["time"])+']\n' + json.dumps(message) + '\n\n'
+        self.ui.serverOutput.setText(self.consoleStr)
 
     def updateLineStepSize(self):
         length = float(self.ui.lineLengthEdit.text())
@@ -741,8 +741,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             scenePos = self.ui.mainImage.getImageItem().mapFromScene(pos)
 
             if "Image" in self.scan["type"] or self.scan["type"] == "Double Motor":
-                x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
-                y = (np.round(scenePos.y(), 3) * self.imageScale[1]) + self.yCenter - self.yRange / 2.
+                print(pos,scenePos)
+                x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2.
+                y = (np.round(scenePos.y(), 3) * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2.
                 self.cursorX, self.cursorY = x,y
                 self.ui.motors2CursorButton.setEnabled(True)
             elif self.scan["type"] == "Focus":
@@ -1459,6 +1460,15 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.yRange = self.scan["scanRegions"][message["scanRegion"]]["yRange"]
             self.zRange = self.scan["scanRegions"][message["scanRegion"]]["zRange"]
 
+            xMin = min([self.scan["scanRegions"][region]["xStart"] for region in self.scan["scanRegions"].keys()])
+            xMax = max([self.scan["scanRegions"][region]["xStop"] for region in self.scan["scanRegions"].keys()])
+            self.xGlobalCenter = (xMin + xMax) / 2.
+            self.xGlobalRange = xMax - xMin
+            yMin = min([self.scan["scanRegions"][region]["yStart"] for region in self.scan["scanRegions"].keys()])
+            yMax = max([self.scan["scanRegions"][region]["yStop"] for region in self.scan["scanRegions"].keys()])
+            self.yGlobalCenter = (yMin + yMax) / 2.
+            self.yGlobalRange = yMax - yMin
+
             self.energy = self.stxm.energies[self.currentEnergyIndex]
             self.dwell = self.stxm.dwells[self.currentEnergyIndex]
             self.xStep = self.xRange / self.xPts
@@ -2116,6 +2126,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setGUIfromScan(self.last_scan["Image"])
         self.setSingleEnergy()
         self.activateGUI()
+        if not self.client.main_config["geometry"]["enable_coarse_only"]:
+            self.ui.tiledCheckbox.setChecked(True)
+            self.ui.tiledCheckbox.setEnabled(False)
 
         try:
             #This can fail if there's a problem with the alsapi server or the environment variables aren't set
