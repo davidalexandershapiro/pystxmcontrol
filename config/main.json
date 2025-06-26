@@ -27,7 +27,8 @@
         "dwell": 100
     },
     "ptychography": {
-        "position_jitter": 0.25
+        "position_jitter": 0.25,
+        "defocus": 15.0
     },
     "geometry": {
         "distance": 200.0,

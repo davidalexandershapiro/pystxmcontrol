@@ -322,7 +322,6 @@ class stxm:
         print("Starting output of file %s" %self.file_name)
         self.NXfile = h5py.File(self.file_name,'w',libver='latest')
         n_scan_regions = len(self.xPos)
-        # if self.scan_dict["type"] == "Ptychography Image":
         for i in range(n_scan_regions):
             self.saveRegion(i)
         self.NXfile.swmr_mode = True
@@ -352,6 +351,11 @@ class stxm:
         #self.NXfile['entry%i/data/data' %i][...] = self.interp_counts[i]
         self.NXfile['entry%i/instrument/detector/data' % i].flush()
         self.NXfile['entry%i/data/data' % i].flush()
+        for motor in self.motorPositions[i].keys():
+            try:
+                self.NXfile["entry%i/instrument/motors"%i].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
+            except:
+                pass
         
     def addFrame(self,frame,framenum, mode="dark"):
 
@@ -397,11 +401,6 @@ class stxm:
         measured_z = measured_zgrp.create_dataset("data", data=np.zeros(nz_m))
         motors = nxinstrument.create_group("motors")
         motors.attrs["NX_class"] = np.bytes_("NXdetector")
-        for motor in self.motorPositions.keys():
-            try:
-                motors.create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[motor])
-            except:
-                pass
         sample = nxentry.create_group("sample")
         sample.attrs["NX_class"] = np.bytes_("NXsample")
         sample.create_dataset("rotation_angle", data='')

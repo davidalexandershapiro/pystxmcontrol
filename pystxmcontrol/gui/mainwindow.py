@@ -575,10 +575,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def printToConsole(self, message):
         self.lastMessage = message
-        # self.consoleText.insert(0,message)
-        # printStr = ''
-        # for item in self.consoleText:
-        self.consoleStr += '['+str(message["time"])+']\n' + json.dumps(message) + '\n\n'
+        self.consoleStr = '['+str(message["time"])+']\n' + json.dumps(message) + '\n\n' + self.consoleStr
         self.ui.serverOutput.setText(self.consoleStr)
 
     def updateLineStepSize(self):
@@ -895,7 +892,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.energyRegSpinbox.setEnabled(True)
         self.ui.beginScanButton.setEnabled(True)
         self.ui.scanType.setEnabled(True)
-        if self.scanType == "Image" or self.scanType == "Spiral Image":
+        if self.scanType in ("Image", "Spiral Image", "Double Motor"):
+        #if self.scanType == "Image" or self.scanType == "Spiral Image":
             self.ui.roiCheckbox.setEnabled(True)
             self.ui.toggleSingleEnergy.setEnabled(True)
             for reg in self.scanRegList:
@@ -914,7 +912,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if self.ui.showRangeFinder.isChecked():
             if "Image" in self.scanType:
                 self.ui.mainImage.addItem(self.rangeROI)
-
 
     def deactivateGUI(self):
         self.ui.compositeImageCheckbox.setEnabled(False)

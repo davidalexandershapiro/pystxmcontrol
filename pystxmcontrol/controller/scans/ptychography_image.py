@@ -49,7 +49,9 @@ def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, q
         scanInfo["motorPositions"] = controller.allMotorPositions
         controller.moveMotor(scan["y"], yPos[i])
         controller.moveMotor(scan["x"], xPos[i])
-        # time.sleep(0.01) #motor move
+        scanInfo['zIndex'] = 0
+        scanInfo['lineIndex'] = i // scanInfo['nXPoints']
+        scanInfo['columnIndex'] = i % scanInfo['nXPoints']
         scanInfo["index"] = i
         ##need to also be able to request measured positions
         scanInfo["xVal"], scanInfo["yVal"] = xPos[i], yPos[i] * np.ones(len(xPos))
@@ -154,6 +156,8 @@ def ptychography_image(scan, dataHandler, controller, queue):
         scanInfo["energy"] = energy
         scanInfo['energyIndex'] = energyIndex
         for j in range(nScanRegions):
+            scanInfo['nXPoints'] = len(xPos[j])
+            scanInfo['nYPoints'] = len(yPos[j])
             scanRegion = "Region" + str(j + 1)
             if "outerLoop" in scan.keys():
                 print("Moving %s motor to %.4f" % (scan["outerLoop"]["motor"], loopMotorPos[j]))
@@ -165,8 +169,7 @@ def ptychography_image(scan, dataHandler, controller, queue):
                 j) + '.stxm')
             controller.getMotorPositions()
             dataHandler.data.motorPositions[j] = controller.allMotorPositions  # all regions in one file
-            dataHandler.ptychodata.motorPositions[
-                0] = controller.allMotorPositions  # regions in separate files
+            dataHandler.ptychodata.motorPositions[j] = controller.allMotorPositions  # regions in separate files
             scanInfo["motorPositions"] = controller.allMotorPositions
             dataHandler.ptychodata.startOutput()
 
@@ -263,7 +266,7 @@ def ptychography_image(scan, dataHandler, controller, queue):
             print("Scan region complete, saving data...")
             dataHandler.ptychodata.addDict(scanMeta, "metadata")  # stuff needed by the preprocessor
             dataHandler.ptychodata.saveRegion(0)
-            dataHandler.ptychodata.closeFile()
+            dataHandler.ptychodata.close()
             dataHandler.data.end_time = str(datetime.datetime.now())
             # dataHandler.data.saveRegion(j)
             # dataHandler.zmq_stop_event()

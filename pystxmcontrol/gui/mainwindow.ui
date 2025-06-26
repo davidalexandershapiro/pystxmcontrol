@@ -2288,9 +2288,9 @@ font: 75 11pt &quot;Ubuntu&quot;;
        <widget class="QWidget" name="horizontalLayoutWidget_6">
         <property name="geometry">
          <rect>
-          <x>280</x>
+          <x>262</x>
           <y>50</y>
-          <width>403</width>
+          <width>421</width>
           <height>31</height>
          </rect>
         </property>
@@ -2299,7 +2299,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <widget class="QLabel" name="label_8">
            <property name="maximumSize">
             <size>
-             <width>10</width>
+             <width>15</width>
              <height>16777215</height>
             </size>
            </property>
@@ -2318,7 +2318,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <widget class="QLabel" name="label_11">
            <property name="maximumSize">
             <size>
-             <width>10</width>
+             <width>15</width>
              <height>16777215</height>
             </size>
            </property>

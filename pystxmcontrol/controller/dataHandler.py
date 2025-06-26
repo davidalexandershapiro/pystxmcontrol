@@ -255,8 +255,11 @@ class dataHandler:
         return counts
 
     def addDataToStack(self, scanInfo):
-        #the philosophy here is that the scan driver decides what the correct indices are and this function just puts
-        #the data there.  So no need to calculate what "i" is here, for example.
+        """This function puts the raw data into the data structure and returns the data that will be the "image" which the user analyzes.  This is also what is displayed
+        in the GUI.  The philosophy here is that the scan driver decides what the correct indices are and this function just puts
+        the data there.  So no need to calculate what "i" is here, for example.
+        scanInfo["rawData"] is the uninterpolated data where as scanInfo["data"] is interpolated.  Not all scans need
+        do the interpolation, like ptychography and single/double motor scans."""
         i = scanInfo["index"] #index along the long vector
         y = scanInfo["lineIndex"]
         j = i + scanInfo["rawData"].size
@@ -275,8 +278,8 @@ class dataHandler:
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
             self.data.interp_counts[k][m,:,:] = scanInfo['data']
         elif scanInfo["type"] == "Ptychography Image":
-            index = np.unravel_index(scanInfo['index'],self.data.interp_counts[k][0][m].shape)
-            self.data.interp_counts[k][m,index[0],index[1]] = scanInfo['data']
+            c = scanInfo["columnIndex"]
+            self.data.interp_counts[k][m,y,c] = scanInfo['rawData']
         elif scanInfo["type"] == "Focus":
             self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
             self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
@@ -361,7 +364,6 @@ class dataHandler:
         self.data = stxm(scan)
         self.data.start_time = str(datetime.datetime.now())
         self.data.file_name = self.currentScanID
-        self.data.motorPositions = self.controller.allMotorPositions
         self.data.startOutput()
         #launch DAQ process
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())
@@ -496,7 +498,7 @@ class dataHandler:
                                 pointData = self.processFrame(scanInfo["ccd_frame"])
                         else:
                             pointData = self.processFrame(scanInfo["ccd_frame"])
-                        scanInfo["data"] = pointData
+                        scanInfo["rawData"] = pointData
                         scanInfo.pop("ccd_frame",None)
                     else:
                         self.darkFrame = scanInfo["ccd_frame"]
@@ -539,7 +541,7 @@ class dataHandler:
             if data is not None:
                 #frame_num, scanInfo["ccd_frame"] = self.daq["ccd"].getPoint()
                 frame_num, scanInfo["ccd_frame"] = data
-                scanInfo["data"] = np.array(0.)
+                scanInfo["rawData"] = np.array(0.)
             else:
                 return False
         else:
