@@ -361,11 +361,9 @@ class dataHandler:
         #allocate memory for data to be saved
         if scan["tiled"]:
             scan = self.tiled_scan(scan)
+        scan["file_name"] = self.currentScanID
+        scan["start_time"] = str(datetime.datetime.now())
         self.data = stxm(scan)
-        self.data.start_time = str(datetime.datetime.now())
-        self.data.file_name = self.currentScanID
-        self.data.startOutput()
-        #launch DAQ process
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())
         self.dataStream.start()
         print("Started data process.")

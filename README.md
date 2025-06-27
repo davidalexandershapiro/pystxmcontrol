@@ -68,8 +68,8 @@ pip install .
 
 # Running pystxmcontrol
 - edit [path_to_conda_env]/pystxmcontrol_cfg/main.json
-- change "server/ip" to localhost for local operation or the IP of the machine on which the server will run
-- change "dataDir" to an appropriate location for saving data on the server.  On Windows double rather than single backslashes must be used in the path
+  - change "server/host" to localhost for local operation or the IP of the machine on which the server will run
+  - change "server/data_dir" to an existing location for saving data on the server.  On Windows double rather than single backslashes must be used in the path
 - edit [path_to_conda_env]/pystxmcontrol_cfg/motorConfig.json.  This is described further in the documentation.
 - In one terminal (or Anaconda Powershell on Windows):
 ```

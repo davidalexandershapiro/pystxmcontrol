@@ -1,5 +1,6 @@
 import numpy as np
 import h5py, datetime,json
+from pystxmcontrol.utils.general import rebinLine
 
 NXD_DEFAULT = 'default'
 NXD_FILE_NAME = 'file_name'
@@ -16,11 +17,14 @@ class stxm:
         counts = nested list, each element for each scan region has an array for each channel
         :param scan_dict:
         """
-        if stxm_file is None:
+        if scan_dict is not None:
             self.scan_dict = scan_dict
             self.dwells = None
-            self.file_name = None
-            self.start_time = ""
+            self.NXfile = None #this will be the h5py.File object
+            if "start_time" in scan_dict.keys():
+                self.start_time = self.scan_dict["start_time"]
+            else:
+                self.start_time = ""
             self.end_time = ""
             self.angle = 0.
             self.polarization = 0.
@@ -35,85 +39,27 @@ class stxm:
             self.motdwell = None
             for i in range(self.nScanRegions):
                 self.motorPositions.append({})
-        elif scan_dict is None:
+            if "file_name" in self.scan_dict.keys():
+                self.file_name = self.scan_dict["file_name"]
+                self.startOutput()
+        elif stxm_file is not None:
             self.readNexus(stxm_file)
-        else:
-            pass
-
-    def _rebinLine(self, xReq, yReq, xMeas, yMeas, rawCounts):
-    
-        #Returns a rebinning of the rawCounts into bins defined by xReq and yReq
-        #For a single line only. rawCounts, xMeas and yMeas are all the same shape.
-        xstart = xReq[0]
-        xstop = xReq[-1]
-        ystart = yReq[0]
-        ystop = yReq[-1]
-        
-        #Define the oversampling factor for averaging later.
-        oversampling_factor = len(xMeas)/len(xReq)
-        
-        #direction here is a unit vector in the direction of the scan.
-        direction = np.array([xstop-xstart,ystop-ystart])
-        direction = direction/np.linalg.norm(direction)
-        #We need to convert the requested and measured positions to distances along this direction.
-        distReq = np.array([(xReq[i]-xstart)*direction[0]+(yReq[i]-ystart)*direction[1] for i in range(len(xReq))])
-        #TODO: FIX THIS
-        distMeas = np.array([(xMeas[i]-xstart)*direction[0]+(yMeas[i]-ystart)*direction[1] for i in range(len(xMeas))])
-
-        #This doesn't assume even spacing of positions which is probably overkill.
-        #Generate bins for np.histogram function.
-        distBins = (distReq[1:]+distReq[:-1])/2
-        distBins = np.append(distBins,2*distReq[-1]-distBins[-1])
-        distBins = np.insert(distBins,0,2*distReq[0]-distBins[0])
-        
-        
-        try:
-            cutoff = np.where(distMeas>ddistBins[-1])[0][0]
-        except:
-            cutoff = np.where(distMeas == max(distMeas))[0][0]
-            
-        distMeas = distMeas[:cutoff]
-        
-        rawCounts = rawCounts[:cutoff]
-
-        #nEvents is just the number of times we had an x value in each of the bins. May be useful to track.
-        nEvents,edges = np.histogram(distMeas,bins = distBins)
-        #This is the total counts in each bin.
-        binCounts,edges = np.histogram(distMeas,bins = distBins, weights = rawCounts)
-        #Final counts are the counts per bin divided by the events.
-        #The oversampling factor is put in here so that the count rate is independent of the oversampling factor.
-        #For zero events in a bin, we replace the inf values with zero (and ignore error messages).
-        with np.errstate(divide='ignore',invalid='ignore'):
-            counts = binCounts/nEvents*oversampling_factor
-        counts[np.isinf(counts)] = 0
-        counts[np.isnan(counts)] = 0
-        
-        #Interpolate if the pixel is zero. 
-        for i in range(len(counts)):
-            if counts[i] == 0:
-                if i != 0 and i != len(counts)-1:
-                    if counts[i+1] != 0 and counts[i-1] != 0:
-                        counts[i] = (counts[i+1]+counts[i-1])/2
-                elif i == 0:
-                    if counts[1] != 0:
-                        counts[0] = counts[1]
-                else:
-                    if counts[-2] != 0:
-                        counts[-1] = counts[-2]
-        return(counts)
 
     def readNexus(self, stxm_file):
-        # try:
-        f = h5py.File(stxm_file,'r')
-        self.NXfile = f
-        # except:
-        #     print("Failed to open file: %s" %stxm_file)
-        #     return
+        try:
+            f = h5py.File(stxm_file,'r')
+            self.NXfile = f
+        except:
+            print("Failed to open file: %s" %stxm_file)
+            return
         self.nRegions = len(list(f))
         self.data = {}
         self.meta = {}
         self.meta["file_name"] = stxm_file
 
+        #this is looking for the version information in the file but it's location and name has changed.  It used to be
+        #called "definition" but that is not nexus compliant so now it is called "version" whereas "definition" now
+        #refers to the nexus definition NXstxm.  Also, our original files did not have this at all.
         if f["entry0/definition"][()] == b"NXstxm":
             self.meta["version"] = f["entry0/version"][()]
         else:
@@ -125,6 +71,7 @@ class stxm:
                 except:
                     self.meta["version"] = 0
 
+        #Version 3 brought a major revision in the names of the various entries.  Names were mostly consistent before that.
         if self.meta["version"] < 3:
             self.meta["start_time"] = f["entry0/start_time"][()][0].decode()
             self.meta["end_time"] = f["entry0/end_time"][()][0].decode()
@@ -139,7 +86,9 @@ class stxm:
             self.meta["sample_description"] = f["entry0/sample/description"][()].decode()
             self.meta["proposal"] = f["entry0/title"][()].decode()
             self.meta["scan_type"] = f["entry0/data/stxm_scan_type"][0].decode()
-        
+
+        #Version 2 was the first major change in how data was represented in the file.  This brought the separation between
+        #raw data and interpolated data in the file.
         if self.meta["version"] == 2.0:
             #Code for using verion 2:
             for i in range(self.nRegions):
@@ -179,7 +128,7 @@ class stxm:
                             else:
                                 yVals = yReq
                             countsLine = rawCounts[i,j]
-                            newCounts[i,j] = self._rebinLine(xReq,yVals,xLine,yLine,countsLine)
+                            newCounts[i,j] = rebinLine(xReq,yVals,xLine,yLine,countsLine)
                        
                 self.data[entryStr]["counts"] = newCounts
                 self.data[entryStr]["xpos"] = xReq
@@ -190,6 +139,7 @@ class stxm:
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
 
+        #yet another revision in how the raw data and interpolated data are represented
         elif self.meta["version"] == 2.1:
             #code for using version 2.1:
             for i in range(self.nRegions):
@@ -208,6 +158,8 @@ class stxm:
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
+
+        #major revision in the entry names and data structure to make this nexus compliant
         elif self.meta["version"] == 3.0:
              for i in range(self.nRegions):
                 entryStr = 'entry' + str(i)
@@ -224,8 +176,9 @@ class stxm:
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
-                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size           
+                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
 
+        #the original data format
         else:
             #Code for reading files with version <2.
             #Includes files without a version (as version 0).

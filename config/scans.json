@@ -46,7 +46,7 @@
       "yMotor": "SampleY",
       "energyMotor": "Energy",
       "type": "image",
-      "driver": "ptychography_grid",
+      "driver": "ptychography_image",
       "mode": "ptychographyGrid",
       "display": true
     },
