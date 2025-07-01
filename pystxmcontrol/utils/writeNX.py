@@ -21,6 +21,8 @@ class stxm:
             self.scan_dict = scan_dict
             self.dwells = None
             self.NXfile = None #this will be the h5py.File object
+            self._nx_writer = None
+            self._nx_reader = None
             if "start_time" in scan_dict.keys():
                 self.start_time = self.scan_dict["start_time"]
             else:
@@ -47,12 +49,11 @@ class stxm:
 
     def readNexus(self, stxm_file):
         try:
-            f = h5py.File(stxm_file,'r')
-            self.NXfile = f
+            self._nx_reader = h5py.File(stxm_file,'r')
         except:
             print("Failed to open file: %s" %stxm_file)
             return
-        self.nRegions = len(list(f))
+        self.nRegions = len(list(self._nx_reader))
         self.data = {}
         self.meta = {}
         self.meta["file_name"] = stxm_file
@@ -60,32 +61,32 @@ class stxm:
         #this is looking for the version information in the file but it's location and name has changed.  It used to be
         #called "definition" but that is not nexus compliant so now it is called "version" whereas "definition" now
         #refers to the nexus definition NXstxm.  Also, our original files did not have this at all.
-        if f["entry0/definition"][()] == b"NXstxm":
-            self.meta["version"] = f["entry0/version"][()]
+        if self._nx_reader["entry0/definition"][()] == b"NXstxm":
+            self.meta["version"] = self._nx_reader["entry0/version"][()]
         else:
             try:
-                self.meta["version"] = float(f["entry0/definition"][()])
+                self.meta["version"] = float(self._nx_reader["entry0/definition"][()])
             except:
                 try:
-                    self.meta["version"] = float(f["entry0/definition"].attrs["version"].decode())
+                    self.meta["version"] = float(self._nx_reader["entry0/definition"].attrs["version"].decode())
                 except:
                     self.meta["version"] = 0
 
         #Version 3 brought a major revision in the names of the various entries.  Names were mostly consistent before that.
         if self.meta["version"] < 3:
-            self.meta["start_time"] = f["entry0/start_time"][()][0].decode()
-            self.meta["end_time"] = f["entry0/end_time"][()][0].decode()
-            self.meta["experimenters"] = f["entry0/experimenters"][()][0].decode()
-            self.meta["sample_description"] = f["entry0/sample_description"][()].decode()
-            self.meta["proposal"] = f["entry0/proposal"][()].decode()
-            self.meta["scan_type"] = f["entry0/counter0/stxm_scan_type"][()].decode()
+            self.meta["start_time"] = self._nx_reader["entry0/start_time"][()][0].decode()
+            self.meta["end_time"] = self._nx_reader["entry0/end_time"][()][0].decode()
+            self.meta["experimenters"] = self._nx_reader["entry0/experimenters"][()][0].decode()
+            self.meta["sample_description"] = self._nx_reader["entry0/sample_description"][()].decode()
+            self.meta["proposal"] = self._nx_reader["entry0/proposal"][()].decode()
+            self.meta["scan_type"] = self._nx_reader["entry0/counter0/stxm_scan_type"][()].decode()
         else:
-            self.meta["start_time"] = f["entry0/start_time"][()].decode()
-            self.meta["end_time"] = f["entry0/end_time"][()].decode()
-            self.meta["experimenters"] = f["entry0/experimenters"][()].decode()
-            self.meta["sample_description"] = f["entry0/sample/description"][()].decode()
-            self.meta["proposal"] = f["entry0/title"][()].decode()
-            self.meta["scan_type"] = f["entry0/data/stxm_scan_type"][0].decode()
+            self.meta["start_time"] = self._nx_reader["entry0/start_time"][()].decode()
+            self.meta["end_time"] = self._nx_reader["entry0/end_time"][()].decode()
+            self.meta["experimenters"] = self._nx_reader["entry0/experimenters"][()].decode()
+            self.meta["sample_description"] = self._nx_reader["entry0/sample/description"][()].decode()
+            self.meta["proposal"] = self._nx_reader["entry0/title"][()].decode()
+            self.meta["scan_type"] = self._nx_reader["entry0/data/stxm_scan_type"][0].decode()
 
         #Version 2 was the first major change in how data was represented in the file.  This brought the separation between
         #raw data and interpolated data in the file.
@@ -95,23 +96,21 @@ class stxm:
                 entryStr = "entry" + str(i)
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
-                for item in list(f[entryStr + "/motors"]):
-                    self.data[entryStr]["motors"][item] = f[entryStr + "/motors/" + item][()]
-                self.data[entryStr]["energy"] = f[entryStr + "/counter0/energy"][()].astype("float64")
+                for item in list(self._nx_reader[entryStr + "/motors"]):
+                    self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/motors/" + item][()]
+                self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/counter0/energy"][()].astype("float64")
                 #Could switch this to be actual dwell time for each pixel.
-                self.data[entryStr]["dwell"] = f[entryStr + "/counter0/count_time"][()].astype("float64")
-                xMeas = np.array(f[entryStr + "/counter0/sample_x"][()]).astype("float64")
-                yMeas = np.array(f[entryStr + "/counter0/sample_y"][()]).astype("float64")
-                xReq = np.array(f[entryStr+"/requested_values/sample_x"][()]).astype('float64')
-                yReq = np.array(f[entryStr+"/requested_values/sample_y"][()]).astype('float64')
-                rawCounts = f[entryStr + "/counter0/data"][()].astype("float64")
+                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/counter0/count_time"][()].astype("float64")
+                xMeas = np.array(self._nx_reader[entryStr + "/counter0/sample_x"][()]).astype("float64")
+                yMeas = np.array(self._nx_reader[entryStr + "/counter0/sample_y"][()]).astype("float64")
+                xReq = np.array(self._nx_reader[entryStr+"/requested_values/sample_x"][()]).astype('float64')
+                yReq = np.array(self._nx_reader[entryStr+"/requested_values/sample_y"][()]).astype('float64')
+                rawCounts = self._nx_reader[entryStr + "/counter0/data"][()].astype("float64")
                 
                 #Define the new shape of the counts to line up with the requested values.
                 #This is the same as the shape of rawCounts except that the x values are fewer.
                 newShape = (rawCounts.shape[0],rawCounts.shape[1], len(xReq))
-                
                 newCounts = np.zeros(newShape)
-                    
                 
                 if self.meta["scan_type"] == "Ptychography Image":
                     newCounts = rawCounts
@@ -146,14 +145,14 @@ class stxm:
                 entryStr = 'entry' + str(i)
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
-                for item in list(f[entryStr + "/motors"]):
+                for item in list(self._nx_reader[entryStr + "/motors"]):
                     #print(item)
-                    self.data[entryStr]["motors"][item] = f[entryStr + "/motors/" + item][()]
-                self.data[entryStr]["energy"] = f[entryStr + "/counter0/energy"][()].astype("float64")
-                self.data[entryStr]["dwell"] = f[entryStr + "/counter0/count_time"][()].astype("float64")
-                self.data[entryStr]["counts"] = f[entryStr + "/binned_values/data"][()].astype("float64")
-                self.data[entryStr]["xpos"] = np.array(f[entryStr + "/binned_values/sample_x"][()]).astype("float64")
-                self.data[entryStr]["ypos"] = np.array(f[entryStr + "/binned_values/sample_y"][()]).astype("float64")
+                    self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/motors/" + item][()]
+                self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/counter0/energy"][()].astype("float64")
+                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/counter0/count_time"][()].astype("float64")
+                self.data[entryStr]["counts"] = self._nx_reader[entryStr + "/binned_values/data"][()].astype("float64")
+                self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/binned_values/sample_x"][()]).astype("float64")
+                self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/binned_values/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
@@ -165,14 +164,14 @@ class stxm:
                 entryStr = 'entry' + str(i)
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
-                for item in list(f[entryStr + "/instrument/motors"]):
+                for item in list(self._nx_reader[entryStr + "/instrument/motors"]):
                     #print(item)
-                    self.data[entryStr]["motors"][item] = f[entryStr + "/instrument/motors/" + item][()]
-                self.data[entryStr]["energy"] = f[entryStr + "/instrument/monochromator/energy"][()].astype("float64")
-                self.data[entryStr]["dwell"] = f[entryStr + "/data/count_time"][()].astype("float64")
-                self.data[entryStr]["counts"] = f[entryStr + "/data/data"][()].astype("float64") #data at user requested positions
-                self.data[entryStr]["xpos"] = np.array(f[entryStr + "/data/sample_x"][()]).astype("float64")
-                self.data[entryStr]["ypos"] = np.array(f[entryStr + "/data/sample_y"][()]).astype("float64")
+                    self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/instrument/motors/" + item][()]
+                self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/instrument/monochromator/energy"][()].astype("float64")
+                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/data/count_time"][()].astype("float64")
+                self.data[entryStr]["counts"] = self._nx_reader[entryStr + "/data/data"][()].astype("float64") #data at user requested positions
+                self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/data/sample_x"][()]).astype("float64")
+                self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/data/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
@@ -186,14 +185,14 @@ class stxm:
                 entryStr = "entry" + str(i)
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
-                for item in list(f[entryStr + "/motors"]):
+                for item in list(self._nx_reader[entryStr + "/motors"]):
                     #print(item)
-                    self.data[entryStr]["motors"][item] = f[entryStr + "/motors/" + item][()]
-                self.data[entryStr]["energy"] = f[entryStr + "/counter0/energy"][()].astype("float64")
-                self.data[entryStr]["dwell"] = f[entryStr + "/counter0/count_time"][()].astype("float64")
-                self.data[entryStr]["counts"] = f[entryStr + "/counter0/data"][()].astype("float64")
-                self.data[entryStr]["xpos"] = np.array(f[entryStr + "/counter0/sample_x"][()]).astype("float64")
-                self.data[entryStr]["ypos"] = np.array(f[entryStr + "/counter0/sample_y"][()]).astype("float64")
+                    self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/motors/" + item][()]
+                self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/counter0/energy"][()].astype("float64")
+                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/counter0/count_time"][()].astype("float64")
+                self.data[entryStr]["counts"] = self._nx_reader[entryStr + "/counter0/data"][()].astype("float64")
+                self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/counter0/sample_x"][()]).astype("float64")
+                self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/counter0/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
@@ -273,56 +272,56 @@ class stxm:
         tried it with anything but stacks - no linescans or point scans or...
         """
         print("Starting output of file %s" %self.file_name)
-        self.NXfile = h5py.File(self.file_name,'w',libver='latest')
+        self._nx_writer = h5py.File(self.file_name,'w',libver='latest')
         n_scan_regions = len(self.xPos)
         for i in range(n_scan_regions):
             self.saveRegion(i)
-        self.NXfile.swmr_mode = True
+        self._nx_writer.swmr_mode = True
         
     def addDict(self,d,name):
-        self.NXfile.create_dataset(name=name, data=json.dumps(d))
+        self._nx_writer.create_dataset(name=name, data=json.dumps(d))
 
     def saveRegion(self,i, nt = None):
-        if ('entry' + str(i)) in list(self.NXfile):
+        if ('entry' + str(i)) in list(self._nx_writer):
             self.updateEntry(i)
         else:
             self.createEntry(i)
             self.updateEntry(i)
         self.end_time = datetime.datetime.now()
-        self.NXfile['entry%i/end_time' %i][...] = str(self.end_time).encode("UTF_8")
+        self._nx_writer['entry%i/end_time' %i][...] = str(self.end_time).encode("UTF_8")
 
     def updateEntry(self,i):
 
         #I'm not sure that this works for spiral scans where the data size is actually increased by the
         #motor driver. The initial array size at creation is just an estimate but gets revised.  May have to delete
         #and re-create?
-        del self.NXfile['entry%i/instrument/detector/data' %i]
-        self.NXfile['entry%i/instrument/detector' %i].create_dataset("data", data = self.counts[i])
-        #self.NXfile['entry%i/instrument/detector/data' %i][...] = self.counts[i]
-        del self.NXfile['entry%i/data/data' %i]
-        self.NXfile['entry%i/data' %i].create_dataset("data", data = self.interp_counts[i])
-        #self.NXfile['entry%i/data/data' %i][...] = self.interp_counts[i]
-        self.NXfile['entry%i/instrument/detector/data' % i].flush()
-        self.NXfile['entry%i/data/data' % i].flush()
+        del self._nx_writer['entry%i/instrument/detector/data' %i]
+        self._nx_writer['entry%i/instrument/detector' %i].create_dataset("data", data = self.counts[i])
+        #self._nx_writer['entry%i/instrument/detector/data' %i][...] = self.counts[i]
+        del self._nx_writer['entry%i/data/data' %i]
+        self._nx_writer['entry%i/data' %i].create_dataset("data", data = self.interp_counts[i])
+        #self._nx_writer['entry%i/data/data' %i][...] = self.interp_counts[i]
+        self._nx_writer['entry%i/instrument/detector/data' % i].flush()
+        self._nx_writer['entry%i/data/data' % i].flush()
         for motor in self.motorPositions[i].keys():
             try:
-                self.NXfile["entry%i/instrument/motors"%i].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
+                self._nx_writer["entry%i/instrument/motors"%i].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
             except:
                 pass
         
     def addFrame(self,frame,framenum, mode="dark"):
 
         if mode == "dark":
-            grp = self.NXfile['entry0/ccd0/dark']
+            grp = self._nx_writer['entry0/ccd0/dark']
         if mode == "exp":
-            grp = self.NXfile['entry0/ccd0/exp']
+            grp = self._nx_writer['entry0/ccd0/exp']
         grp.create_dataset(name = str(framenum), data=frame, maxshape=None)
 
     def createEntry(self,i):
         ne,nz_m,ny_m,nx_m = len(self.energies),len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
         nz_r,ny_r,nx_r = len(self.zPos[i]), len(self.yPos[i]), len(self.xPos[i])
 
-        nxentry = self.NXfile.create_group("entry%i" %i)
+        nxentry = self._nx_writer.create_group("entry%i" %i)
         nxentry.attrs["NX_class"] = np.bytes_("NXentry")
         start_time = nxentry.create_dataset("start_time", data=str(self.start_time).encode("UTF_8"))
         end_time = nxentry.create_dataset("end_time", data=str(self.end_time).encode("UTF_8"))
@@ -380,7 +379,7 @@ class stxm:
             ccd = nxentry.create_group('ccd0')
             ccd.create_group('dark')
             ccd.create_group('exp')
-        self.NXfile.flush()
+        self._nx_writer.flush()
 
     def close(self):
-        self.NXfile.close()
+        self._nx_writer.close()
