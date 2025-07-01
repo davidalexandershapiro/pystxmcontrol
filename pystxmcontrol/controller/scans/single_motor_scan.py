@@ -60,13 +60,9 @@ def single_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yCenter"] = yStart
         scanInfo["yRange"] = 0
         controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
-        for i in range(len(xPos[0])):
-            if scanInfo["scanMotor"] == "Energy":
-                scanInfo["scanMotorVal"] = energy
-            else:
-                scanInfo["scanMotorVal"] = xPos[0][i]
-            scanInfo["index"] = i
-            controller.moveMotor(scan["x"], xPos[0][i])
+        if scan["x"] == "Energy":
+            scanInfo["scanMotorVal"] = energy
+            scanInfo["index"] = energyIndex
             if queue.empty():
                 controller.daq["default"].autoGateOpen(shutter=True)
                 dataHandler.getPoint(scanInfo)
@@ -76,6 +72,20 @@ def single_motor_scan(scan, dataHandler, controller, queue):
                 dataHandler.data.saveRegion(0)
                 dataHandler.dataQueue.put('endOfScan')
                 return
+        else:
+            for i in range(len(xPos[0])):
+                scanInfo["scanMotorVal"] = xPos[0][i]
+                scanInfo["index"] = i
+                controller.moveMotor(scan["x"], xPos[0][i])
+                if queue.empty():
+                    controller.daq["default"].autoGateOpen(shutter=True)
+                    dataHandler.getPoint(scanInfo)
+                    controller.daq["default"].autoGateClosed()
+                else:
+                    queue.get()
+                    dataHandler.data.saveRegion(0)
+                    dataHandler.dataQueue.put('endOfScan')
+                    return
         energyIndex += 1
     dataHandler.data.saveRegion(0)
     dataHandler.dataQueue.put('endOfScan')

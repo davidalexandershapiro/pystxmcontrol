@@ -533,7 +533,7 @@ def two_motor_scan(meta):
     data.file_name = sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
-    move_motor("Energy", data.energies[0])
+    #move_motor("Energy", data.energies[0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
     data.motorPositions = sock.recv_pyobj()["data"]
 

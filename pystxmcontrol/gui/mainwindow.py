@@ -220,9 +220,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def setLightTheme(self):
         self.setStyleSheet(qdarktheme.load_stylesheet("light"))
+        self._staticStyle = """QLabel {color: black;}"""
 
     def setDarkTheme(self):
         self.setStyleSheet(qdarktheme.load_stylesheet())
+        self._staticStyle = """QLabel {color: white;}"""
 
     def motors2Cursor(self):
         if not self.scanning:
@@ -898,11 +900,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.toggleSingleEnergy.setEnabled(True)
             for reg in self.scanRegList:
                 reg.setEnabled(True)
-        elif self.scanType == "Double Motor":
-            self.ui.roiCheckbox.setEnabled(True)
-            self.ui.toggleSingleEnergy.setEnabled(True)
-            self.ui.xMotorCombo.setEnabled(True)
-            self.ui.yMotorCombo.setEnabled(True)
+            if self.scanType == "Double Motor":
+                self.ui.xMotorCombo.setEnabled(True)
+                self.ui.yMotorCombo.setEnabled(True)
         elif self.ui.scanType.currentText() == "Single Motor":
             self.ui.xMotorCombo.setEnabled(True)
         elif self.ui.scanType.currentText() == "Line Spectrum":
@@ -1051,7 +1051,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 yCenter = 0
                 xRange = float(region.ui.xRange.text())
                 yRange = 0
-                xPoints = int(region.ui.xNPoints.text())
+                if self.scan["x"] == "Energy":
+                    xPoints = 1
+                else:
+                    xPoints = int(region.ui.xNPoints.text())
                 yPoints = 1
                 xStep = float(region.ui.xStep.text())
                 yStep = 0
@@ -1125,14 +1128,14 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.scan["energyRegions"][regStr]["step"] = float(region.energyDef.energyStep.text())
             self.scan["energyRegions"][regStr]["nEnergies"] = int(region.energyDef.nEnergies.text())
 
-        #reset the energy regions if using single or double motor scan
-        if self.scanType == "Single Motor" or self.scanType == "Double Motor":
-            if self.ui.xMotorCombo.currentText() == "Energy":
-                self.scan['x'] = self.client.scanConfig["scans"]["Image"]["xMotor"]
-                self.scan['y'] = self.client.scanConfig["scans"]["Image"]["xMotor"]
-            else:
-                self.scan['x'] = self.ui.xMotorCombo.currentText()
-                self.scan['y'] = self.ui.yMotorCombo.currentText()
+        # #reset the energy regions if using single or double motor scan
+        # if self.scanType == "Single Motor" or self.scanType == "Double Motor":
+        #     if self.ui.xMotorCombo.currentText() == "Energy":
+        #         self.scan['x'] = self.client.scanConfig["scans"]["Image"]["xMotor"]
+        #         self.scan['y'] = self.client.scanConfig["scans"]["Image"]["xMotor"]
+        #     else:
+        #         self.scan['x'] = self.ui.xMotorCombo.currentText()
+        #         self.scan['y'] = self.ui.yMotorCombo.currentText()
 
         self.scanList[self.scanType] = self.scan
 
@@ -1220,10 +1223,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pass
 
     def scanCheck(self):
-        #try:
-        self.compileScan('scanCheck',nowrite=False)
-        #except:
-        #    pass
+        self.compileScan(nowrite=False)
         xMin = self.client.motorInfo[self.scan['x']]["minScanValue"]
         xMax = self.client.motorInfo[self.scan['x']]["maxScanValue"]
         yMin = self.client.motorInfo[self.scan['y']]["minScanValue"]
@@ -1240,7 +1240,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             except:
                 return "Energy List Error"
         for regStr in self.scan["scanRegions"].keys():
-            xRange = self.scan["scanRegions"][regStr]["xStop"] - self.scan["scanRegions"][regStr]["xStart"]
+            if self.scan['x'] == "Energy":
+                xRange = self.scan["energyRegions"]["EnergyRegion1"]["stop"]-self.scan["energyRegions"]["EnergyRegion1"]["start"]
+            else:
+                xRange = self.scan["scanRegions"][regStr]["xStop"] - self.scan["scanRegions"][regStr]["xStart"]
             yRange = self.scan["scanRegions"][regStr]["yStop"] - self.scan["scanRegions"][regStr]["yStart"]
             if self.scan["scanRegions"][regStr]["xStart"] < xMin:
                 return "Scan X is below xMin."
@@ -1273,6 +1276,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def beginScan(self):
         self.tiled_scan = False
         scanCheck = self.scanCheck()
+        print(self.scan)
         if not scanCheck:
             self.scanning = True
             self.deactivateGUI()
@@ -1593,8 +1597,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateMotorPositions(self):
 
         status = self.currentMotorStatus["Energy"]
-        self.setMotorLabel(self.ui.energyLabel,str(np.round(self.currentMotorPositions["Energy"],2)), status)
-        self.setMotorLabel(self.ui.energyLabel_2, str(np.round(self.currentMotorPositions["Energy"], 2)), status)
+        self.setMotorLabel(self.ui.energyLabel,str(np.round(self.currentMotorPositions["Energy"],1)), status)
+        self.setMotorLabel(self.ui.energyLabel_2, str(np.round(self.currentMotorPositions["Energy"], 1)), status)
         Motor1 = str(self.ui.motorMover1.currentText())
         Motor2 = str(self.ui.motorMover2.currentText())
         status = self.currentMotorStatus[Motor1]
@@ -1602,9 +1606,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         status = self.currentMotorStatus[Motor2]
         self.setMotorLabel(self.ui.motorMover2Pos,str(np.round(self.currentMotorPositions[Motor2],3)), status)
         status = self.currentMotorStatus["DISPERSIVE_SLIT"]
-        self.setMotorLabel(self.ui.dsLabel,str(np.round(self.currentMotorPositions["DISPERSIVE_SLIT"], 2)),status)
+        self.setMotorLabel(self.ui.dsLabel,str(np.round(self.currentMotorPositions["DISPERSIVE_SLIT"], 1)),status)
         status = self.currentMotorStatus["NONDISPERSIVE_SLIT"]
-        self.setMotorLabel(self.ui.ndsLabel,str(np.round(self.currentMotorPositions["NONDISPERSIVE_SLIT"], 2)),status)
+        self.setMotorLabel(self.ui.ndsLabel,str(np.round(self.currentMotorPositions["NONDISPERSIVE_SLIT"], 1)),status)
         self.setMotorLabel(self.ui.A0Label,str(int(self.client.motorInfo["Energy"]["A0"])),False)
         try:
             status = self.currentMotorStatus["POLARIZATION"]

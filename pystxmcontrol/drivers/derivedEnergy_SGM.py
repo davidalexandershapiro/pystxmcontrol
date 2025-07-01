@@ -49,7 +49,7 @@ class derivedEnergy_SGM(motor):
         """
         ##this "pos" is energy and needs to be converted to "GratingArm" units which is what the BCS motor will use
         alpha = np.arcsin(0.5 * self.grooveDensity * 0.001239852 / (pos * np.cos(0.5 * self.includedAngle*np.pi/180.)))
-        gratingPos = self.monoArm * np.tan(-alpha)
+        gratingPos = self.monoArm * np.tan(-alpha) / 2.
         if debug:
             print("[moveTo] gratingPos ", gratingPos)
         self.moving = True
@@ -72,7 +72,7 @@ class derivedEnergy_SGM(motor):
         alpha = np.arctan(gratingPos/self.monoArm)
         #This converts angle to energy assuming the correct parameters: grooveDensity, includedAngle
         # Formula looks correct, except for the lack of offset
-        self.position = 0.001239852*self.grooveDensity*0.5/(np.cos(0.5*self.includedAngle*np.pi/180.)*np.sin(-alpha))
+        self.position = 0.001239852*self.grooveDensity*0.5/(np.cos(0.5*self.includedAngle*np.pi/180.)*np.sin(-alpha)) / 2.
         if debug:
             print("[getPos] gratingPos: %.4f" %gratingPos)
             print("[getPos] energy: %.4f" %self.position)
