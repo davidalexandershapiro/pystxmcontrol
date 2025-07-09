@@ -23,6 +23,9 @@ def single_motor_scan(scan, dataHandler, controller, queue):
     if not scanInfo['scan']['refocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
     for energy in energies:
+        controller.getMotorPositions()
+        dataHandler.data.motorPositions[0] = controller.allMotorPositions
+        scanInfo["motorPositions"] = controller.allMotorPositions
         ##scanInfo is what gets passed with each data transmission
         scanInfo["energy"] = energy
         scanInfo["energyIndex"] = energyIndex
@@ -62,7 +65,8 @@ def single_motor_scan(scan, dataHandler, controller, queue):
         controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
         if scan["x"] == "Energy":
             scanInfo["scanMotorVal"] = energy
-            scanInfo["index"] = energyIndex
+            scanInfo["index"] = 0
+            scanInfo["energyIndex"] = energyIndex
             if queue.empty():
                 controller.daq["default"].autoGateOpen(shutter=True)
                 dataHandler.getPoint(scanInfo)
@@ -76,6 +80,7 @@ def single_motor_scan(scan, dataHandler, controller, queue):
             for i in range(len(xPos[0])):
                 scanInfo["scanMotorVal"] = xPos[0][i]
                 scanInfo["index"] = i
+                scanInfo["energyIndex"] = 0
                 controller.moveMotor(scan["x"], xPos[0][i])
                 if queue.empty():
                     controller.daq["default"].autoGateOpen(shutter=True)

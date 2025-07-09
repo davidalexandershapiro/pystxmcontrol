@@ -71,6 +71,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.action_Open_Image_Data.triggered.connect(self.getScanFile)
         self.ui.action_light_theme.triggered.connect(self.setLightTheme)
         self.ui.action_dark_theme.triggered.connect(self.setDarkTheme)
+        self.ui.action_init.triggered.connect(self.re_init)
+        self.ui.action_load_config_from_server.triggered.connect(self.load_config)
         self.ui.beginScanButton.clicked.connect(self.beginScan)
         self.ui.cancelButton.clicked.connect(self.cancelScan)
         self.ui.roiCheckbox.stateChanged.connect(self.setROI)
@@ -217,6 +219,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.singleMotorScanXData = []
         self.singleMotorScanYData = []
         self.consoleStr = ''
+
+    def re_init(self):
+        pass
+
+    def load_config(self):
+        self.client.get_config()
 
     def setLightTheme(self):
         self.setStyleSheet(qdarktheme.load_stylesheet("light"))
@@ -895,7 +903,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.beginScanButton.setEnabled(True)
         self.ui.scanType.setEnabled(True)
         if self.scanType in ("Image", "Spiral Image", "Double Motor"):
-        #if self.scanType == "Image" or self.scanType == "Spiral Image":
             self.ui.roiCheckbox.setEnabled(True)
             self.ui.toggleSingleEnergy.setEnabled(True)
             for reg in self.scanRegList:
@@ -905,6 +912,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.yMotorCombo.setEnabled(True)
         elif self.ui.scanType.currentText() == "Single Motor":
             self.ui.xMotorCombo.setEnabled(True)
+            if self.ui.xMotorCombo.currentText() != "Energy":
+                for reg in self.scanRegList:
+                    reg.setEnabled(True)
         elif self.ui.scanType.currentText() == "Line Spectrum":
             pass
         else:
@@ -1000,7 +1010,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.last_image_type = self.scanType
                 self.scan["energy"] = scanMotorList["energyMotor"]
                 xCenter = float(region.ui.xCenter.text())
-                yCenter = -float(region.ui.yCenter.text())
+                yCenter = float(region.ui.yCenter.text())
                 xRange = float(region.ui.xRange.text())
                 yRange = float(region.ui.yRange.text())
                 xPoints = int(region.ui.xNPoints.text())
@@ -1014,7 +1024,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             elif ("Focus" in self.scanType):
                 self.scan["z"] = scanMotorList["zMotor"]
                 xCenter = float(region.ui.xCenter.text())
-                yCenter = -float(region.ui.yCenter.text())
+                yCenter = float(region.ui.yCenter.text())
                 xRange = self.xLineRange
                 yRange = self.yLineRange
                 zCenter = float(self.ui.focusCenterEdit.text())
@@ -1029,7 +1039,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             elif (self.scanType == "Line Spectrum"):
                 self.scan["energy"] = scanMotorList["energyMotor"]
                 xCenter = float(region.ui.xCenter.text())
-                yCenter = -float(region.ui.yCenter.text())
+                yCenter = float(region.ui.yCenter.text())
                 xRange = self.xLineRange
                 yRange = 0. #self.yLineRange
                 xPoints = int(self.ui.linePointsEdit.text())
@@ -1127,15 +1137,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.scan["energyRegions"][regStr]["stop"] = float(region.energyDef.energyStop.text())
             self.scan["energyRegions"][regStr]["step"] = float(region.energyDef.energyStep.text())
             self.scan["energyRegions"][regStr]["nEnergies"] = int(region.energyDef.nEnergies.text())
-
-        # #reset the energy regions if using single or double motor scan
-        # if self.scanType == "Single Motor" or self.scanType == "Double Motor":
-        #     if self.ui.xMotorCombo.currentText() == "Energy":
-        #         self.scan['x'] = self.client.scanConfig["scans"]["Image"]["xMotor"]
-        #         self.scan['y'] = self.client.scanConfig["scans"]["Image"]["xMotor"]
-        #     else:
-        #         self.scan['x'] = self.ui.xMotorCombo.currentText()
-        #         self.scan['y'] = self.ui.yMotorCombo.currentText()
 
         self.scanList[self.scanType] = self.scan
 
@@ -1242,12 +1243,16 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         for regStr in self.scan["scanRegions"].keys():
             if self.scan['x'] == "Energy":
                 xRange = self.scan["energyRegions"]["EnergyRegion1"]["stop"]-self.scan["energyRegions"]["EnergyRegion1"]["start"]
+                xStart = self.scan["energyRegions"]["EnergyRegion1"]["start"]
+                xStop = self.scan["energyRegions"]["EnergyRegion1"]["stop"]
             else:
-                xRange = self.scan["scanRegions"][regStr]["xStop"] - self.scan["scanRegions"][regStr]["xStart"]
+                xStart = self.scan["scanRegions"][regStr]["xStart"]
+                xStop = self.scan["scanRegions"][regStr]["xStop"]
+                xRange = xStop - xStart
             yRange = self.scan["scanRegions"][regStr]["yStop"] - self.scan["scanRegions"][regStr]["yStart"]
-            if self.scan["scanRegions"][regStr]["xStart"] < xMin:
+            if xStart < xMin:
                 return "Scan X is below xMin."
-            elif self.scan["scanRegions"][regStr]["xStop"] > xMax:
+            elif xStop > xMax:
                 return "Scan X is above xMax"
             elif self.scan["scanRegions"][regStr]["yStart"] < yMin:
                 return "Scan Y is below yMin"
@@ -1271,14 +1276,14 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 else:
                     self.tiled_scan = True
                     self.scan["tiled"] = True
-        return False
+        return
 
     def beginScan(self):
         self.tiled_scan = False
         scanCheck = self.scanCheck()
-        print(self.scan)
-        if not scanCheck:
+        if scanCheck is None:
             self.scanning = True
+            self.changePlot()
             self.deactivateGUI()
             self.client.scan = self.scan
             message = {"command": "scan"}
@@ -1455,7 +1460,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.image = message["image"]
 
             self.xCenter = self.scan["scanRegions"][message["scanRegion"]]["xCenter"]
-            self.yCenter = self.scan["scanRegions"][message["scanRegion"]]["yCenter"]
+            self.yCenter = -self.scan["scanRegions"][message["scanRegion"]]["yCenter"]
             self.zCenter = self.scan["scanRegions"][message["scanRegion"]]["zCenter"]
             self.xRange = self.scan["scanRegions"][message["scanRegion"]]["xRange"]
             self.yRange = self.scan["scanRegions"][message["scanRegion"]]["yRange"]
@@ -1537,7 +1542,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.ui.plotType.setCurrentText("Motor Scan")
                     self.updatePlot(message)
                 elif message["scan"]["driver"] == "double_motor_scan":
-                    self.image = message["image"]
+                    self.image = message["image"][::-1]
                     xScale = float(self.xRange) / float(self.xPts)
                     yScale = float(self.yRange) / float(self.yPts)
                     pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
@@ -1640,16 +1645,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         else:
             if "Image" in self.nx.meta["scan_type"] or self.nx.meta["scan_type"] == "Double Motor":
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
-                self.setScanParams()
                 self.image = self.nx.data["entry0"]["counts"]
                 self.currentImageType = self.nx.meta["scan_type"]
-                ne,z,y,x = self.image.shape
-                self.zPts,self.yPts,self.xPts = z,y,x
-                if z == 1:
-                    self.image = np.reshape(self.image, (y,x))
-                    axes = (1,0)
-                else:
-                    axes = (0,2,1)
+                ne,y,x = self.image.shape
+                self.yPts,self.xPts = y,x
+                self.image = np.reshape(self.image, (y,x))
+                axes = (1,0)
                 xpos = self.nx.data['entry0']['xpos']
                 ypos = self.nx.data['entry0']['ypos']
                 self.xRange = xpos.max()-xpos.min()
@@ -1657,7 +1658,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xCenter = xpos.min() + self.xRange / 2.
                 self.yRange = ypos.max()-ypos.min()
                 self.yPts = ypos.size
-                self.yCenter = ypos.min() + self.yRange / 2.
+                self.yCenter = -(ypos.min() + self.yRange / 2.)
                 xScale = float(self.xRange) / float(self.xPts)
                 yScale = float(self.yRange) / float(self.yPts)
                 pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
@@ -1672,9 +1673,28 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 else:
                     self.ui.scaleBarLength.setText(str(self.scaleBarLength) + " um")
                 self.ui.scanType.setCurrentIndex(0)
-                self.scanFromNX()
-            else:
-                pass
+            elif self.nx.meta["scan_type"]=="Single Motor":
+                self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
+                self.ui.plotType.setCurrentText("Motor Scan")
+                motor = self.nx.meta["x_motor"]
+                ne, ny, nx = self.nx.data["entry0"]["counts"].shape
+                if motor == "Energy":
+                    self.singleMotorScanXData = self.nx.data["entry0"]["energy"]
+                    self.singleMotorScanYData = np.reshape(self.nx.data["entry0"]["counts"], (ne))
+                else:
+                    self.singleMotorScanXData = self.nx.data["entry0"]["xpos"]
+                    self.singleMotorScanYData = np.reshape(self.nx.data["entry0"]["counts"], (nx))
+                if self.yPlot is not None:
+                    self.ui.mainPlot.removeItem(self.yPlot)
+                if self.xPlot is not None:
+                    self.ui.mainPlot.removeItem(self.xPlot)
+                self.currentPlot = self.ui.mainPlot.plot(np.array(self.singleMotorScanXData),
+                                                         np.array(self.singleMotorScanYData), \
+                                                         pen=pg.mkPen('w', width=1, style=QtCore.Qt.DotLine),
+                                                         symbol='o', symbolPen='g', symbolSize=3, \
+                                                         symbolBrush=(255, 255, 255))
+                self.ui.mainPlot.setLabel("bottom", motor)
+            self.scanFromNX()
 
     def scanFromNX(self):
         data = self.nx.data["entry0"]["counts"]
@@ -1687,7 +1707,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.yCenter = self.nx.data["entry0"]["ypos"].min() + self.yRange / 2.
         self.xStep = self.xRange / x
         self.yStep = self.yRange / y
-        if "Image" in self.nx.meta["scan_type"]:
+        if self.nx.meta["scan_type"] in ["Image","Spiral Image","Double Motor","Ptychography Image"]:
             xScale = float(self.xRange) / float(x)
             yScale = float(self.yRange) / float(y)
             pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
@@ -1705,7 +1725,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xStep = self.xRange / x
                 self.yStep = self.yRange / y
                 self.scanRegList[i].ui.xCenter.setText(str(np.round(self.xCenter, 3)))
-                self.scanRegList[i].ui.yCenter.setText(str(np.round(-self.yCenter, 3)))
+                self.scanRegList[i].ui.yCenter.setText(str(np.round(self.yCenter, 3)))
                 self.scanRegList[i].ui.xRange.setText(str(np.round(self.xRange, 3)))
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
                 self.scanRegList[i].ui.xNPoints.setText(str(x))
@@ -1721,7 +1741,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.regDefs[i][6] = self.xStep
                 self.regDefs[i][7] = self.yStep
                 self.updateROIfromRegion(i+1)
-            self.compileScan('scanFromNX')
+            self.compileScan()
             self.last_scan["Image"] = self.scan
             self.stxm.energies = self.nx.data["entry0"]["energy"]
             self.updateImageLabels()
@@ -1760,7 +1780,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xStep = scan["scanRegions"]["Region" + str(i+1)]["xStep"]
                 self.yStep = scan["scanRegions"]["Region" + str(i+1)]["yStep"]
                 self.scanRegList[i].ui.xCenter.setText(str(np.round(self.xCenter, 3)))
-                self.scanRegList[i].ui.yCenter.setText(str(np.round(-self.yCenter, 3)))
+                self.scanRegList[i].ui.yCenter.setText(str(np.round(self.yCenter, 3)))
                 self.scanRegList[i].ui.xRange.setText(str(np.round(self.xRange, 3)))
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
                 self.scanRegList[i].ui.xNPoints.setText(str(scan["scanRegions"]["Region" + str(i+1)]["xPoints"]))
@@ -1881,7 +1901,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateRegionDefList(self):
         for i in range(len(self.scanRegList)):
             self.regDefs[i][0] = float(self.scanRegList[i].ui.xCenter.text())
-            self.regDefs[i][1] = float(self.scanRegList[i].ui.yCenter.text())
+            self.regDefs[i][1] = -float(self.scanRegList[i].ui.yCenter.text())
             self.regDefs[i][2] = float(self.scanRegList[i].ui.xRange.text())
             self.regDefs[i][3] = float(self.scanRegList[i].ui.yRange.text())
             self.regDefs[i][4] = int(self.scanRegList[i].ui.xNPoints.text())
@@ -1959,7 +1979,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def addScanReg(self, regNum = 0):
         a = scanRegionDef()
         a.ui.xCenter.setText(str(self.regDefs[regNum][0]))
-        a.ui.yCenter.setText(str(-self.regDefs[regNum][1]))
+        a.ui.yCenter.setText(str(self.regDefs[regNum][1]))
         a.ui.xRange.setText(str(self.regDefs[regNum][2]))
         a.ui.yRange.setText(str(self.regDefs[regNum][3]))
         a.ui.xNPoints.setText(str(self.regDefs[regNum][4]))
@@ -2071,6 +2091,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.serverStatus = self.client.get_status()
 
     def initGUI(self):
+        self.load_config()
         self.currentMotorPositions = self.client.currentMotorPositions
         for scanType in self.client.scanConfig["scans"].keys():
             if self.client.scanConfig["scans"][scanType]["display"]:
@@ -2128,9 +2149,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setSingleEnergy()
         self.activateGUI()
         if not self.client.main_config["geometry"]["enable_coarse_only"]:
-            self.ui.tiledCheckbox.setChecked(True)
+            self.ui.tiledCheckbox.setChecked(self.client.main_config["geometry"]["enable_tiled_scan"])
             self.ui.tiledCheckbox.setEnabled(False)
-
+        elif not self.client.main_config["geometry"]["enable_tiled_scan"]:
+            self.ui.tiledCheckbox.setChecked(False)
+            self.ui.tiledCheckbox.setEnabled(False)
         try:
             #This can fail if there's a problem with the alsapi server or the environment variables aren't set
             from pystxmcontrol.utils.alsapi import getCurrentEsafList

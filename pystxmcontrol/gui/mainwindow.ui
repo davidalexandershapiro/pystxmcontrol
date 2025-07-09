@@ -166,6 +166,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -254,6 +255,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -330,6 +332,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -349,6 +352,7 @@
            <property name="font">
             <font>
              <pointsize>14</pointsize>
+             <weight>75</weight>
              <bold>true</bold>
             </font>
            </property>
@@ -1054,6 +1058,7 @@
          </property>
          <property name="font">
           <font>
+           <weight>75</weight>
            <bold>true</bold>
           </font>
          </property>
@@ -1097,6 +1102,7 @@
          <widget class="QLabel" name="scanVelocity">
           <property name="font">
            <font>
+            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1116,6 +1122,7 @@
          <widget class="QLabel" name="estimatedTime">
           <property name="font">
            <font>
+            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -1135,6 +1142,7 @@
          <widget class="QLabel" name="elapsedTime">
           <property name="font">
            <font>
+            <weight>75</weight>
             <bold>true</bold>
            </font>
           </property>
@@ -2713,7 +2721,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <x>0</x>
      <y>0</y>
      <width>1550</width>
-     <height>23</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -2768,7 +2776,15 @@ font: 75 11pt &quot;Ubuntu&quot;;
      </widget>
      <addaction name="menuTheme_2"/>
     </widget>
+    <widget class="QMenu" name="menuMain_Window">
+     <property name="title">
+      <string>Main Window</string>
+     </property>
+     <addaction name="action_load_config_from_server"/>
+     <addaction name="action_init"/>
+    </widget>
     <addaction name="menuSettings_2"/>
+    <addaction name="menuMain_Window"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -2777,7 +2793,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
   <widget class="QStatusBar" name="statusbar"/>
   <action name="action_Open_Image_Data">
    <property name="text">
-    <string>Image Data</string>
+    <string>Scan Data</string>
    </property>
   </action>
   <action name="action_Save_Image_Data">
@@ -2833,6 +2849,16 @@ font: 75 11pt &quot;Ubuntu&quot;;
   <action name="action_dark_theme">
    <property name="text">
     <string>Dark</string>
+   </property>
+  </action>
+  <action name="action_load_config_from_server">
+   <property name="text">
+    <string>Reload Config From Server</string>
+   </property>
+  </action>
+  <action name="action_init">
+   <property name="text">
+    <string>Initialize</string>
    </property>
   </action>
  </widget>
