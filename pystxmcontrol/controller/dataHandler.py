@@ -64,17 +64,18 @@ class dataHandler:
         if len(scanList) == 0:
             fileName = filePrefix + "_" + dayStr + "000.stxm"
         else:
+            scanNumList = [int(os.path.splitext(x)[0].split(filePrefix + "_")[1].split(dayStr)[1].split("_")[0]) for x in scanList]
+            maxScan = max(scanNumList)
             #lastScan = int(scanList[-1].split(filePrefix + '_')[1][6:9])
-            lastScan = int(os.path.splitext(scanList[-1])[0].split(filePrefix + "_")[1].split(dayStr)[1].split("_")[0])
-            if (lastScan + 1) < 10:
-                nextScan = "00" + str(lastScan + 1)
-            elif (lastScan + 1) < 100:
-                nextScan = "0" + str(lastScan + 1)
-            #elif (lastScan + 1) < 1000:
+            #lastScan = int(os.path.splitext(scanList[-1])[0].split(filePrefix + "_")[1].split(dayStr)[1].split("_")[0])
+            if (maxScan + 1) < 10:
+                nextScan = "00" + str(maxScan + 1)
+            elif (maxScan + 1) < 100:
+                nextScan = "0" + str(maxScan + 1)
             else:
-                nextScan = str(lastScan + 1)
-
+                nextScan = str(maxScan + 1)
             fileName = filePrefix + "_" + dayStr + nextScan + '.stxm'
+
         self.ptychoDir = os.path.join(scanDir,fileName.split('.')[0])
         self.currentScanID = os.path.join(scanDir, fileName)
         return self.currentScanID
@@ -368,12 +369,7 @@ class dataHandler:
         self.dataStream.join()
         self.data.end_time = str(datetime.datetime.now())
         self.data.closeFile()
-        #print("Stopped data process and saved data.  Transferring file to NERSC...")
-        ###Add code here to do prefect_NERSC transfer
-        # self.prefect_nersc_transfer(os.path.basename(self.data.file_name))
-        # self.prefect_stxmdb_transfer()
-        # if self.data.scan_dict["type"] == "Ptychography Image":
-        #    self.prefect_nersc_transfer(os.path.basename(self.ptychodata.file_name))
+        self.zmq_send({'event': 'stxm', 'data': {"identifier":os.path.basename(self.data.file_name)}})
 
     def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
         # Same prefect client, but if you know the url and api_key

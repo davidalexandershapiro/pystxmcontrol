@@ -373,6 +373,7 @@ class Axis:
 
             # Wait until EPOS is within PTO2 AND positionReached status is received.
             while not (self.__isWithinTol(DPOS) and self.isPositionReached()):
+                #print('moving zone plate motor. Current position ' + getDposEposString(value, self.getEPOS(), unit))
                 # Check if stage is at left end or right end. ==> out of range movement.
                 if self.isAtLeftEnd() or self.isAtRightEnd():
                     outputConsole("DPOS is out or range. (1) " + getDposEposString(value, self.getEPOS(), unit), True)
@@ -678,7 +679,7 @@ class Axis:
         """
         :return: True if the position reached flag is set to true.
         """
-        return True #self.__getStatBitAtIndex(10) == "1"
+        return self.__getStatBitAtIndex(10) == "1"
 
     def isEncoderError(self):
         """
@@ -817,10 +818,10 @@ class Axis:
             PTO2 = 10 #TODO
         PTO2 = 20
         EPOS = abs(int(self.getData("EPOS")))
-        print('DPOS :{}'.format(DPOS))
-        print('EPOS :{}'.format(EPOS))
         if DPOS - PTO2 <= EPOS <= DPOS + PTO2:
             return True
+        else:
+            return False
 
     def __timeOutReached(self, start_time, distance):
         """

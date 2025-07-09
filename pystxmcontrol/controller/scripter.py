@@ -60,8 +60,8 @@ def ptychography_scan(meta):
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
     x_range = xstop - xstart
     xcenter = x_range / 2. + xstart
-    ystart = meta['ycenter'] - meta['yrange'] / 2.
-    ystop = meta['ycenter'] + meta['yrange'] / 2.
+    ystart = -meta['ycenter'] - meta['yrange'] / 2.
+    ystop = -meta['ycenter'] + meta['yrange'] / 2.
     ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
@@ -80,7 +80,7 @@ def ptychography_scan(meta):
             "spiral": False,
             "retract": meta["retract"],
             "tiled": False,
-            "driver": scans[scan_type]["driver"], #"ptychography_image",
+            "driver": "ptychography_image", #scans[scan_type]["driver"], #"ptychography_image",
             "scanRegions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
@@ -125,8 +125,8 @@ def stxm_scan(meta):
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
     x_range = xstop - xstart
     xcenter = x_range / 2. + xstart
-    ystart = meta['ycenter'] - meta['yrange'] / 2.
-    ystop = meta['ycenter'] + meta['yrange'] / 2.
+    ystart = -meta['ycenter'] - meta['yrange'] / 2.
+    ystop = -meta['ycenter'] + meta['yrange'] / 2.
     ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
@@ -176,6 +176,7 @@ def stxm_scan(meta):
     message = {"command": "scan", "scan": scan}
     sock.send_pyobj(message)
     response = sock.recv_pyobj()
+    stxm_file = response["data"]
     if not response["status"]:
         return False
     status = False
@@ -184,7 +185,7 @@ def stxm_scan(meta):
         sock.send_pyobj({"command":"getStatus"})
         response = sock.recv_pyobj()
         status = response["status"]
-    return status
+    return stxm_file
 
 def multi_region_ptychography_scan(meta, scanRegList):
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
@@ -233,7 +234,7 @@ def multi_region_ptychography_scan(meta, scanRegList):
                                     "zStop": 0,
                                     "zPoints": 0}
         i += 1
-    message = {"command": "doScan", "scan": scan}
+    message = {"command": "scan", "scan": scan}
     sock.send_pyobj(message)
     response = sock.recv_pyobj()
     if not response["status"]:
@@ -261,6 +262,7 @@ def multi_region_stxm_scan(meta, scanRegList):
             "oversampling_factor": 1,
             "mode": meta["mode"],
             "spiral": meta["spiral"],
+            "tiled":False,
             "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -293,7 +295,16 @@ def multi_region_stxm_scan(meta, scanRegList):
                                     "zStop": 0,
                                     "zPoints": 0}
         i += 1
-    message = {"command": "doScan", "scan": scan}
+    if "energyList" in meta.keys():
+        scan["energy_list"] = meta["energyList"]
+        scan["dwell"] = meta["dwell"]
+    if meta["spiral"]:
+        scan["driver"] = scans["Spiral Image"]["driver"] #"spiral_image"
+        scan["type"] = 'Spiral Image'
+    else:
+        scan["driver"] = scans["Image"]["driver"] #"line_image"
+
+    message = {"command": "scan", "scan": scan}
     sock.send_pyobj(message)
     response = sock.recv_pyobj()
     if not response["status"]:
@@ -444,10 +455,10 @@ def singleMotorScan(meta):
     print("Single motor scan took %.2f seconds" % ((time.time() - t0)))
     return data.file_name
 
-def getMotorPosition(motor):
+def get_all_motor_positions():
     sock.send_pyobj({"command": "getMotorPositions"})
     response = sock.recv_pyobj()
-    return response['data'][motor]
+    return response['data']
 
 def twoMotorScan(motors,daq,dwell,start,stop,npoints):
     plt.ion()

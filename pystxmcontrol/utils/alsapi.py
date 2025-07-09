@@ -43,6 +43,7 @@ load_dotenv("./.env")  # import environment variables from .env
 try:
     API_KEY = os.environ['ALSHUB_API_KEY']
     ALSHUB_API_HEADERS = {'api-key': API_KEY}
+    print(ALSHUB_API_HEADERS)
 except KeyError:
     error_message = "Create a file named '.env' in the same directory as this notebook."
     error_message += " In that file, paste this text...\n"

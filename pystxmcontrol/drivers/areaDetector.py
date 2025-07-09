@@ -22,10 +22,13 @@ class areaDetector(daq):
             try:
                 #put something here about setting the acquisition mode
                 self.temperature = caget(self.address + self.camera_prefix + ":TemperatureActual.VAL")
+                self.dim = caget(self.address + self.camera_prefix + ":ArraySizeX_RBV")
             except Exception:
                 print("Failed to connect to Andor camera with error: \n\s" %traceback.format_exc())
             else:
-                print("Connected to Andor server.  Current temperature: %.2f degrees" %self.temperature)
+                print("Connected to Andor server. \n"
+                      "     Current temperature: %.2f degrees. \n"
+                      "     Array Size: %i" %(self.temperature,self.dim))
 
     def stop(self):
         if not (self.simulation):

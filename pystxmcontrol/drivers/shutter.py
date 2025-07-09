@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-from pystxmcontrol.controller.gate import gate
 import serial
 import time
+
+from pystxmcontrol.controller.gate import gate
+
 
 class shutter(gate):
 

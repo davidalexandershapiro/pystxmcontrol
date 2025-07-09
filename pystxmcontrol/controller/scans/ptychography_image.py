@@ -6,11 +6,11 @@ import time, datetime
 
 def insertSTXMDetector(controller):
     controller.moveMotor("Detector Y", 0)
-    time.sleep(10)
+    time.sleep(30)
 
 def retractSTXMDetector(controller):
     controller.moveMotor("Detector Y", -6500)
-    time.sleep(10)
+    time.sleep(30)
 
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
@@ -22,6 +22,7 @@ def getLoopMotorPositions(scan):
     return np.linspace(start,stop,points)
 
 def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, queue, shutter=True):
+
 
     xPos, yPos, zPos = positionList
     if shutter == True:
@@ -40,6 +41,16 @@ def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, q
     else:
         controller.daq["default"].gate.mode = "close"
 
+    # ##put angle correction setup code here.  Calculate zPos
+    # #########################################################
+    sample_tilt = np.deg2rad(45.06) # Convert degree to radian
+    y_initial = np.mean(yPos)
+    z_initial = controller.motors['ZonePlateZ']['motor'].getPos()
+    zPos = (z_initial - (np.array(yPos) - y_initial) / np.tan(sample_tilt)).tolist()
+    # indices of the start of each line. Will only work for first region.
+    line_indices = range(0,len(xPos),scanInfo['scan']['scanRegions']['Region1']['xPoints'])
+    # ##########################################################
+
     frame_num = 0
     scanInfo["ccd_frame_num"] = frame_num
     for i in range(len(yPos)):
@@ -49,7 +60,13 @@ def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, q
         scanInfo["motorPositions"] = controller.allMotorPositions
         controller.moveMotor(scan["y"], yPos[i])
         controller.moveMotor(scan["x"], xPos[i])
-        # time.sleep(0.01) #motor move
+
+        # # Comment this out when you're not using SRXM
+        # ###########################################
+        #if i in line_indices:
+        #    controller.moveMotor("ZonePlateZ", zPos[i])
+        # ###########################################
+
         scanInfo["index"] = i
         ##need to also be able to request measured positions
         scanInfo["xVal"], scanInfo["yVal"] = xPos[i], yPos[i] * np.ones(len(xPos))
@@ -144,8 +161,8 @@ def ptychography_image(scan, dataHandler, controller, queue):
     if "outerLoop" in scan.keys():
         loopMotorPos = getLoopMotorPositions(scan)
 
-    if scanInfo['scan']['refocus']:
-        print('refocusing')
+    if not scanInfo['scan']['refocus']:
+        print('not refocusing')
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
         time.sleep(1)
 

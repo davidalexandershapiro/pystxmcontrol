@@ -103,12 +103,12 @@ class stxmServer:
                 if not(scanning):
                     print('starting scan')
                     message["status"] = True
-                    self.command_sock.send_pyobj(message)
                     if "Ptychography" in message["scan"]["type"]:
                         ptychography = True
                     else:
                         ptychography = False
                     message["data"] = self.controller.getScanID(ptychography=ptychography)
+                    self.command_sock.send_pyobj(message)
                     message["mode"] = "scanning"
                     message["time"] = str(datetime.datetime.now())
                     self.controller.scan(message["scan"])

@@ -114,6 +114,7 @@ class controller:
             simulation = daqList[daq]["simulation"]
             self.daq[daq] = eval(daqList[daq]["driver"] + '(simulation = %s)' %simulation)
             self.daq[daq].start()
+
         self.dataHandler = dataHandler(self, self._logger)
         self.getMotorPositions()
 
@@ -210,11 +211,15 @@ class controller:
 
     def read_daq(self, daq, dwell, shutter = True):
         try:
-            self.daq[daq].config(dwell, dwell, False)
+            self.stopMonitor()
+            #this sleep seems to be needed for the Andor, also the added 10ms for daq dwell, need to generalize this somehow
+            time.sleep(0.2)
+            self.daq[daq].config(dwell+10., dwell+10, False)
             self.daq["default"].setGateDwell(dwell,0)
             self.daq["default"].gate.mode = "auto"
             self.daq["default"].autoGateOpen(shutter = int(shutter))
             data = self.daq[daq].getPoint()
+            self.startMonitor()
         except Exception:
             data = None
             print(traceback.format_exc())

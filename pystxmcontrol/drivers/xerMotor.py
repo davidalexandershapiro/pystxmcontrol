@@ -47,25 +47,48 @@ class xerMotor(motor):
         return
         
     def moveTo(self, pos):
-        print("Moving motor to %.4f in Xeryon units" %pos)
+        #print("Moving motor to %.4f in Xeryon units" %pos)
         if self.checkLimits(pos):
             if not(self.simulation):
                 with self.lock:
+                    #self._axis.setDPOS((pos - 50 - self.config["offset"]) / self.config["units"])
                     self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
                     self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
-                    self._axis.sendCommand('STOP=0')
-                    count = 1
+                    self.last_position = self.position
+                    #self._axis.sendCommand('STOP=0')
+                    count = 0
+                    #give it a chance to get there first for large moves (> .1 mm).
+                    if abs(self.position-pos)>100.:
+                        time.sleep(5)
+                        self.position = self._axis.getEPOS()*self.config["units"]+self.config["offset"]
+                        while abs(self.position - self.last_position)>10:
+                            time.sleep(0.25)
+                            self.last_position = self.position
+                            self.position = self._axis.getEPOS()*self.config["units"]+self.config["offset"]
+                            #print('moving. Current position: {}'.format(self.position))
                     #print('position requested: {}, position reached: {}'.format(pos,self.position))
-                    while abs(pos - self.position) > 0.05 and count < 30:
+                    while abs(pos - self.position) > 0.05 and count < 3:
                         #print('position requested: {}, position reached: {}'.format(pos,self.position))
                         #print("Tolerance not reached. Position error: %.4f" %abs(pos - self.position))
                         self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
                         self._axis.sendCommand('STOP=0')
+                        time.sleep(0.05)
                         self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
-                        time.sleep(0.01)
+
+                        #if abs(self.last_position-self.position) < 10:
                         count += 1
-                    if count == 6:
+                        self.last_position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
+                    while abs(pos - self.position) > 0.05 and count < 6:
+                        self._axis.setDPOS((pos - 5 - self.config["offset"]) / self.config["units"])
+                        time.sleep(0.05)
+                        self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
+                        self._axis.sendCommand('STOP=0')
+                        time.sleep(0.05)
+                        self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
+                        count += 1
+                    if count == 11:
                         print("ZonePlateZ motor giving up.  Just couldn't get there. Sorry y'all.")
+                    self._axis.sendCommand('STOP=0')
             else:
                 self.position = pos
         else:

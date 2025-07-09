@@ -21,6 +21,6 @@ steps = 20
 for i in range(steps):
     #time.sleep(1)
     moveMotor("ZonePlateZ", -5000.)
-    time.sleep(20)
+    time.sleep(5)
     moveMotor("ZonePlateZ", -25000.)
-    time.sleep(20)
+    time.sleep(5)

@@ -1264,7 +1264,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateImageFromRPI(self, rpiData):
         self.currentRPIData, self.ptychoXpixm, self.ptychoYpixm = rpiData
         if self.ui.channelSelect.currentText() == "RPI":
-            self.ui.mainImage.setImage(self.currentRPIData, autoRange=False, autoLevels=False, \
+            self.ui.mainImage.setImage(self.currentRPIData, autoRange=True, autoLevels=False, \
                         autoHistogramRange=False)
           
     def updateImageFromMessage(self, message):
