@@ -79,9 +79,6 @@ class dataHandler:
         self.currentScanID = os.path.join(scanDir, fileName)
         return self.currentScanID
 
-    def saveCurrentScan(self):
-        self.data.save()
-
     def fill2d(self,im):
 
         sigma = 5
@@ -104,6 +101,13 @@ class dataHandler:
         #will have the correct dwell time (where there is constant velocity) but the edge pixels will have non-constant dwell (where 
         #there is acceleration).
         #For spiral trajectories we interpolate the entire image area at once.
+
+        try:
+            if scanInfo["coarse_only"]:
+                return scanInfo["rawData"]
+        except:
+            pass
+
         if scanInfo["mode"] == "continuousLine":
 
             xReq = scanInfo["xVal"]
@@ -116,6 +120,7 @@ class dataHandler:
             direction = np.array([xstop-xstart,ystop-ystart])
             direction = direction/np.linalg.norm(direction)
             #We need to convert the requested and measured positions to distances along this direction.
+
             distReq = np.array([(xReq[i]-xstart)*direction[0]+(yReq[i]-ystart)*direction[1] for i in range(len(xReq))])
             #TODO: FIX THIS
             xMeas = scanInfo["line_positions"][0]
@@ -137,7 +142,7 @@ class dataHandler:
             
             distMeas = distMeas[:cutoff]
             
-            data = scanInfo["data"][:cutoff]
+            data = scanInfo["rawData"][:cutoff]
             
             if len(data)>len(distMeas):
                 data = data[:len(distMeas)]
@@ -190,17 +195,17 @@ class dataHandler:
             
             #Next, the measured x and y values. Only take the ones which have been measured so far.
             mi = (scanInfo['index'])*scanInfo['line_positions'][0].size
-            xMeasOld = self.data.xMeasured[region][scanInfo['energyIndex']][:mi]
-            yMeasOld = self.data.yMeasured[region][scanInfo['energyIndex']][:mi]
+            xMeasOld = self.data.xMeasured[region][scanInfo['energyIndex'],:mi]
+            yMeasOld = self.data.yMeasured[region][scanInfo['energyIndex'],:mi]
             
             xMeas = np.append(xMeasOld,scanInfo['line_positions'][0])
             yMeas = np.append(yMeasOld,scanInfo['line_positions'][1])
             
             
             #Also, the raw data.
-            di = (scanInfo['index'])*scanInfo['data'].size
-            dataOld = self.data.counts[region][0][scanInfo['energyIndex']][:di]
-            data = np.append(dataOld,scanInfo['data'])
+            di = (scanInfo['index'])*scanInfo['rawData'].size
+            dataOld = self.data.counts[region][scanInfo['energyIndex'],:di]
+            data = np.append(dataOld,scanInfo['rawData'])
             
             #Determine the actual motor dwell and daq dwell. Determined by testing.
             motDwellOffset = 0.0 #ms
@@ -222,7 +227,7 @@ class dataHandler:
             else:
                 #Find the times that each point was collected. Could need some work maybe.
                 xytraj = np.arange(len(scanInfo['line_positions'][0]))*actMotDwell+Motdelay
-                DAQtraj = np.arange(len(scanInfo['data']))*actDAQDwell+DAQdelay
+                DAQtraj = np.arange(len(scanInfo['rawData']))*actDAQDwell+DAQdelay
             
             endpoint = max(xytraj[-1],DAQtraj[-1])
             xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
@@ -250,43 +255,46 @@ class dataHandler:
         return counts
 
     def addDataToStack(self, scanInfo):
-        i = scanInfo["index"]*scanInfo["rawData"].size#*scanInfo["oversampling_factor"]
+        """This function puts the raw data into the data structure and returns the data that will be the "image" which the user analyzes.  This is also what is displayed
+        in the GUI.  The philosophy here is that the scan driver decides what the correct indices are and this function just puts
+        the data there.  So no need to calculate what "i" is here, for example.
+        scanInfo["rawData"] is the uninterpolated data where as scanInfo["data"] is interpolated.  Not all scans need
+        do the interpolation, like ptychography and single/double motor scans."""
+        i = scanInfo["index"] #index along the long vector
+        y = scanInfo["lineIndex"]
         j = i + scanInfo["rawData"].size
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
-        self.data.counts[k][0][m,i:j] = scanInfo["rawData"] #the 0 index is for channel which isn't implemented yet
-        if scanInfo["mode"] == 'continuousLine':
-            #print(len(scanInfo["line_positions"][0]))
-            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0]
+        self.data.counts[k][m,i:j] = scanInfo["rawData"]
+
+        if scanInfo["type"] == "Image":
+            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
+            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
             self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
-        #For a spiral scan, the motor positions are decoupled from the daq samples.    
-        elif scanInfo['mode'] == 'continuousSpiral':
+        elif scanInfo["type"] == "Spiral Image":
             mi = scanInfo['index']*scanInfo['line_positions'][0].size
             mj = mi + scanInfo['line_positions'][0].size
-            
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-             
-        #Also need to handle the interpolated data.
-        if scanInfo['mode'] == 'continuousSpiral':
-            #self.data.interp_counts[k][0][m] = scanInfo['data'].flatten()
-            self.data.interp_counts[k][0][m] = scanInfo['data']
-        elif scanInfo['mode'] == 'ptychographyGrid':
-            #For ptycho grid scanInfo['data'] is a single value. We have to put it in the right place.
-            #Shape of array is given by the array. If we have to transpose, we will.
-            index = np.unravel_index(scanInfo['index'],self.data.interp_counts[k][0][m].shape)
-            self.data.interp_counts[k][0][m,index[0],index[1]] = scanInfo['data']
-            #print(scanInfo['index'])
-            #self.data.interp_counts[k][0][j,i] = scanInfo['data']
-        else:
-            pi = scanInfo["index"]*scanInfo["data"].size
-            pj = pi + scanInfo["data"].size
-            j = scanInfo["index"]
-            # self.data.interp_counts[k][0][m,pi:pj] = scanInfo["data"]
-            self.data.interp_counts[k][0][m,j,:] = scanInfo["data"]
-
-            #self.data.interp_counts[k][0][m] = scanInfo["data"]
-        return self.data.interp_counts[k][0][m]
+            self.data.interp_counts[k][m,:,:] = scanInfo['data']
+        elif scanInfo["type"] == "Ptychography Image":
+            c = scanInfo["columnIndex"]
+            self.data.interp_counts[k][m,y,c] = scanInfo['rawData']
+        elif scanInfo["type"] == "Focus":
+            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
+            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
+            self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
+        elif scanInfo["type"] == "Line Spectrum":
+            self.data.interp_counts[k][m, 0, :] = scanInfo["data"]  # this is a matrix
+            self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]  # these are long vectors
+            self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
+            return self.data.interp_counts[k][:,0,:]
+        elif scanInfo["type"] == "Single Motor":
+            self.data.interp_counts[k][m,0,i] = scanInfo["rawData"]
+        elif scanInfo["type"] == "Double Motor":
+            c = scanInfo["columnIndex"]
+            self.data.interp_counts[k][0, y, c] = scanInfo["rawData"]
+        return self.data.interp_counts[k][m,:,:]
 
     def tiled_scan(self, scan):
         xStart = scan["scanRegions"]["Region1"]["xStart"]
@@ -353,27 +361,17 @@ class dataHandler:
         #allocate memory for data to be saved
         if scan["tiled"]:
             scan = self.tiled_scan(scan)
+        scan["file_name"] = self.currentScanID
+        scan["start_time"] = datetime.datetime.now().isoformat()
         self.data = stxm(scan)
-        self.data.start_time = str(datetime.datetime.now())
-        self.data.file_name = self.currentScanID
-        self.data.startOutput()
-        #TODO: save all motor positions in data file
-        self.data.motors = self.controller.allMotorPositions
-        #launch DAQ process
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())
         self.dataStream.start()
-        print("Started data process")
+        print("Started data process.")
 
     def stopScanProcess(self):
         self.dataStream.join()
-        self.data.end_time = str(datetime.datetime.now())
-        self.data.closeFile()
-        #print("Stopped data process and saved data.  Transferring file to NERSC...")
-        ###Add code here to do prefect_NERSC transfer
-        # self.prefect_nersc_transfer(os.path.basename(self.data.file_name))
-        # self.prefect_stxmdb_transfer()
-        # if self.data.scan_dict["type"] == "Ptychography Image":
-        #    self.prefect_nersc_transfer(os.path.basename(self.ptychodata.file_name))
+        self.data.close()
+        print("Completed scan process.")
 
     def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
         # Same prefect client, but if you know the url and api_key
@@ -434,7 +432,7 @@ class dataHandler:
         scanInfo["elapsedTime"] = time.time()
         chunk = []
         while True:
-            time.sleep(0.1)
+            time.sleep(0.01)
             self.daq["default"].autoGateOpen(shutter=0)
             self.getPoint(scanInfo)
             self.daq["default"].autoGateClosed()
@@ -448,7 +446,6 @@ class dataHandler:
                 self.sendDataChunkToSock(chunk)
                 chunk = []
             else:
-                print(self.scanQueue.get(True))
                 return
                 
     def processFrame(self, frame):
@@ -481,7 +478,7 @@ class dataHandler:
                     pass
                 return
             elif scanInfo == "endOfRegion":
-                self.data.saveRegion(region,nt = totalSplit)
+                self.data.saveRegion(region)
                 self.regionComplete = True
                 if len(chunk) != 0:
                     self.sendDataChunkToSock(chunk)
@@ -489,7 +486,6 @@ class dataHandler:
             else:
                 self.regionComplete = False
                 region = int(scanInfo['scanRegion'].split('Region')[1]) - 1
-                totalSplit = scanInfo['totalSplit']
                 scanInfo["elapsedTime"] = time.time() - t0
                 if scanInfo["mode"] == "ptychographyGrid":
                     self.ptychodata.addFrame(scanInfo["ccd_frame"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
@@ -500,16 +496,15 @@ class dataHandler:
                                 pointData = self.processFrame(scanInfo["ccd_frame"])
                         else:
                             pointData = self.processFrame(scanInfo["ccd_frame"])
-                        scanInfo["data"] = pointData
-                        #print(scanInfo['data'])
+                        scanInfo["rawData"] = pointData
                         scanInfo.pop("ccd_frame",None)
-                        #ccd data needs to be in an image. pointData is the value for the current pixel.
-                        # chunk.append(scanInfo)
-                        # self.sendDataChunkToSock(chunk)
-                        # chunk = []
                     else:
                         self.darkFrame = scanInfo["ccd_frame"]
-                    scanInfo['rawData'] = scanInfo['data']
+                    scanInfo['image'] = self.addDataToStack(scanInfo)
+                    chunk.append(scanInfo)
+                    self.sendDataChunkToSock(chunk)
+                    chunk = []
+                elif scanInfo["mode"] == "point":
                     scanInfo['image'] = self.addDataToStack(scanInfo)
                     chunk.append(scanInfo)
                     self.sendDataChunkToSock(chunk)
@@ -517,7 +512,6 @@ class dataHandler:
                 else:
                     #prepare data to send onto socket (for the GUI)
                     with self._lock:
-                        scanInfo['rawData'] = scanInfo["data"].copy()
                         scanInfo["data"] = self.interpolate_points(scanInfo)
                         scanInfo["image"] = self.addDataToStack(scanInfo)
                         chunk.append(scanInfo)
@@ -532,7 +526,7 @@ class dataHandler:
     def sendDataChunkToSock(self, chunk):
         ##grab data from all chunks and use the first as a template for the
         ##scanInfo dictionary to send
-        data = np.array([item["data"] for item in chunk])
+        data = np.array([item["rawData"] for item in chunk])
         scan_info = chunk[0]
         scan_info["data"] = data
         scan_info["scanID"] = self.currentScanID
@@ -545,19 +539,24 @@ class dataHandler:
             if data is not None:
                 #frame_num, scanInfo["ccd_frame"] = self.daq["ccd"].getPoint()
                 frame_num, scanInfo["ccd_frame"] = data
-                scanInfo["data"] = np.array(0.)
+                scanInfo["rawData"] = np.array(0.)
             else:
                 return False
         else:
-            scanInfo["data"] = np.array(self.daq["default"].getPoint())
+            scanInfo["rawData"] = np.array(self.daq["default"].getPoint())
+
         self.dataQueue.put(scanInfo)
+        #Without this sleep time, the first item in a sequence gets unsynchronized somehow.  It appears out of order and
+        #data gets mixed up.  very strange!
+        time.sleep(0.01)
         return True
 
     def getLine(self, scanInfo):
-        scanInfo["data"] = self.daq["default"].getLine()
+        scanInfo["rawData"] = self.daq["default"].getLine()
         #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
         #Until sendscandata is called, the raw data is stored in 'data'
-        if len(scanInfo['data']) != len(scanInfo['line_positions'][0]):
+        if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):
+            print(len(scanInfo['rawData']),len(scanInfo['line_positions'][0]))
             if not scanInfo['scan']['spiral']:
                 print('mismatched arrays!')
                 return False

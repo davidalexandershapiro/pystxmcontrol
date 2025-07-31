@@ -231,11 +231,15 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
 
             # Fix raw data sizes in writeNX (only first energy)
             if energy == energies[0]:
-                params = {}
-                params['numTrajMotorPoints'] = numTrajMotorPoints
-                params['numTraj'] = totalSplit
-                params['numTrajDAQPoints'] = numTrajDAQPoints
-                dataHandler.data.updateArrays(j, params)
+                scanInfo["lineIndex"] = 0
+                scanInfo['numMotorPoints'] = numTrajMotorPoints * totalSplit
+                scanInfo['numDAQPoints'] = numTrajDAQPoints * totalSplit
+                dataHandler.data.updateArrays(j, scanInfo)
+                # params = {}
+                # params['numTrajMotorPoints'] = numTrajMotorPoints
+                # params['numTraj'] = totalSplit
+                # params['numTrajDAQPoints'] = numTrajDAQPoints
+                # dataHandler.data.updateArrays(j, params)
 
             # MCL "position" trigger does not need a position. I am unsure whether this is the pixel triggering mode.
             controller.motors[scan["x"]]["motor"].axes["axis1"].controller.setPositionTrigger(pos = 0, axis = 1, mode = 'on')

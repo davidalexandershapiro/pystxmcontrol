@@ -1,13 +1,18 @@
 from pystxmcontrol.controller.scans.scan_utils import *
 from numpy import ones
 from time import time
+
 def line_image(scan, dataHandler, controller, queue):
     """
     Image scan in continuous flyscan mode.  Uses linear trajectory function on the controller
     :param scan:
     :return:
     """
-    controller.moveMotor("Detector Y", 0)
+    try:
+        #this only works on Nanosurveyor
+        controller.moveMotor("Detector Y", 0)
+    except:
+        pass
     energies = dataHandler.data.energies
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "continuousLine"}
@@ -17,8 +22,6 @@ def line_image(scan, dataHandler, controller, queue):
     scanInfo['totalSplit'] = None
     energyIndex = 0
     nScanRegions = len(xPos)
-    if "outerLoop" in scan.keys():
-        loopMotorPos = getLoopMotorPositions(scan)
     energy = energies[0]
     if not scanInfo['scan']['refocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
@@ -35,15 +38,13 @@ def line_image(scan, dataHandler, controller, queue):
                         'motor'].calibratedPosition
                     print('calculated offset: {}'.format(scanInfo['refocus_offset']))
                 controller.moveMotor('ZonePlateZ',
-                                          controller.motors['ZonePlateZ']['motor'].calibratedPosition + scanInfo[
+                                          controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
                                               'refocus_offset'])
         else:
             if scanInfo['scan']['refocus']:
                 controller.moveMotor("ZonePlateZ",
-                                          controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                                          controller.motors["Energy"]["motor"].calibratedPosition)
         for j in range(nScanRegions):
-            if "outerLoop" in scan.keys():
-                controller.moveMotor(scan["outerLoop"]["motor"], loopMotorPos[j])
             x, y = xPos[j], yPos[j]
             scanInfo["scanRegion"] = "Region" + str(j + 1)
             xStart, xStop = x[0], x[-1]
@@ -71,11 +72,18 @@ def line_image(scan, dataHandler, controller, queue):
             controller.motors[scan["x"]]["motor"].trajectory_start = (xStart, yStart)
             controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop, yStart)
             controller.motors[scan["x"]]["motor"].update_trajectory()
-            scanInfo['nPoints'] = controller.motors[scan["x"]]["motor"].npositions
+
+            #numMotorPoints should be the total number of motor position measurements expected
+            #numDAQPoints should be equal to xPoints * oversampling
+            numLineMotorPoints = controller.motors[scan["x"]]["motor"].npositions #this configures the DAQ for one line
+            numLineDAQPoints = controller.motors[scan["x"]]["motor"].npositions * scan["oversampling_factor"]
+            scanInfo['numMotorPoints'] = numLineMotorPoints * yPoints #total number of motor points configures the full data structrure
+            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
             if energy == energies[0]:
-                dataHandler.data.updateArrays(j, scanInfo['nPoints'])
+                dataHandler.data.updateArrays(j, scanInfo)
             controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
-                                                  samples=scanInfo['nPoints'], trigger="EXT")
+                                                  samples=numLineDAQPoints, trigger="EXT")
+            
             start_position_x = controller.motors[scan["x"]]["motor"].trajectory_start[0] - \
                                controller.motors[scan["x"]]["motor"].xpad
             start_position_y = controller.motors[scan["x"]]["motor"].trajectory_start[1] - \
@@ -97,7 +105,9 @@ def line_image(scan, dataHandler, controller, queue):
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions
-                scanInfo["index"] = i  # *scanInfo['nPoints']
+                scanInfo["index"] = i * numLineDAQPoints
+                scanInfo["lineIndex"] = i
+                scanInfo["zIndex"] = 0 #need to pass a zIndex to the dataHandler
                 ##need to also be able to request measured positions
                 scanInfo["xVal"], scanInfo["yVal"] = x, y[i] * ones(len(x))
                 if queue.empty():
@@ -107,6 +117,6 @@ def line_image(scan, dataHandler, controller, queue):
                     queue.get()
                     dataHandler.data.saveRegion(j)
                     return terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan aborted.")
-            dataHandler.dataQueue.put('endOfRegion')
+            dataHandler.dataQueue.put('endOfRegion') #this forces a saveRegion() in dataHandler
         energyIndex += 1
     terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan completed.")

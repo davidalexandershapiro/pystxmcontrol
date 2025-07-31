@@ -34,7 +34,7 @@ class stxmServer:
             if message["command"] == "get_config":
                 message["status"] = True
                 message["data"] = self.controller.motorConfig, self.controller.scanConfig, \
-                    self.controller.allMotorPositions, self.controller.daqConfig
+                    self.controller.allMotorPositions,self.controller.daqConfig, self.controller.main_config
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
@@ -101,9 +101,7 @@ class stxmServer:
                 self.command_sock.send_pyobj(message)
             elif message["command"] == "scan":
                 if not(scanning):
-                    print('starting scan')
                     message["status"] = True
-                    self.command_sock.send_pyobj(message)
                     if "Ptychography" in message["scan"]["type"]:
                         ptychography = True
                     else:
@@ -117,7 +115,7 @@ class stxmServer:
                     message["data"] = None
                     message["mode"] = "scanning"
                     message["time"] = str(datetime.datetime.now())
-                    self.command_sock.send_pyobj(message)
+                self.command_sock.send_pyobj(message)
             elif message["command"] == "getZonePlateCalibration":
                 message["status"] = True
                 message["data"] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()

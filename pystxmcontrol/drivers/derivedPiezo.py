@@ -148,8 +148,6 @@ class derivedPiezo(motor):
             self.npositions = self.axes["axis1"].controller.npositions
         else:
             self.npositions = self.trajectory_pixel_count
-        #print(self.axes["axis1"].controller.xpositions)
-        #print(self.axes["axis1"].controller.ypositions)
 
     def moveLine(self, **kwargs):
         #convert milliseconds to seconds for the controller call
@@ -178,10 +176,18 @@ class derivedPiezo(motor):
                     ypositions = np.linspace(self.trajectory_start[1], self.trajectory_stop[1],
                                              self.trajectory_pixel_count)
                     self.positions = xpositions + offset[0], ypositions + offset[1]
-            elif not(self.simulation):
+            #commenting this so I can test the coarse stage scan without the piezo talking
+            #elif not(self.simulation):
+            else:
                 #this hack just applies to the XPS which stupidly uses microns/second for velocity.  Need to generalize units in config
                 #self.velocity is calculated above with reasonable units of microns/millisecond
-                velocity = self.velocity * 1000.
+                xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],
+                                         self.trajectory_pixel_count)
+                ypositions = np.linspace(self.trajectory_start[1], self.trajectory_stop[1],
+                                         self.trajectory_pixel_count)
+                self.positions = xpositions + offset[0], ypositions + offset[1]
+                x_range = abs(self.trajectory_start[0] - self.trajectory_stop[0])
+                velocity = x_range / (self.trajectory_pixel_dwell * self.trajectory_pixel_count) * 1000
                 if velocity > self.axes["axis2"].config["max velocity"]:
                     self.logger.log("Using maximum velocity of %.4f rather than requested velocity of %.4f" \
                                     %(self.axes["axis2"].config["max velocity"],velocity),level="debug")
@@ -266,7 +272,7 @@ class derivedPiezo(motor):
         """
         ##calculate the number of blocks in each dimension
         prange = round(pmax - pmin,2)
-        piezo_range = self.config["maxRange"]
+        piezo_range = self.axes["axis1"].config["maxScanRange"] #axis1 is the piezo
         nblocks = int(1 + (prange // piezo_range) * (prange > piezo_range))
 
         ###start with the simple case of a single block, the fine range is less than or equal to its maximum allowed

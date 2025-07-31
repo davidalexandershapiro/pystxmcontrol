@@ -230,9 +230,10 @@ class stxm_client(QtCore.QThread):
             return response
 
     def get_config(self):
+        self.main_config = json.loads(open(MAINCONFIGFILE).read())
         message = {"command": "get_config"}
         response = self.send_message(message)
-        self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig = response['data']
+        self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, server_main_config = response['data']
 
     def write_config(self):
         with open(MAINCONFIGFILE, 'w') as fp:

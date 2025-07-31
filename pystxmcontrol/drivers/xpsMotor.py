@@ -17,6 +17,14 @@ class xpsMotor(motor):
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
 
+    def getAxisParams(self):
+        dummy,self.velocity, self.acceleration, self.minimumJerkTime, self.maximumJerkTime = \
+            self.controller.getParameters(self.controller.controlSocket, self.axis)
+
+    def setAxisParams(self, velocity):
+        self.controller.setParameters(self.controller.controlSocket, self.axis, velocity, \
+                                    self.acceleration, self.minimumJerkTime, self.maximumJerkTime)
+
     def moveBy(self, step):
         pos = self.getPos()
         if self.checkLimits(pos + step):
@@ -61,4 +69,5 @@ class xpsMotor(motor):
         self.simulation = self.controller.simulation
         if not(self.simulation):
             self.position = self.getPos()
+            self.getAxisParams()
 

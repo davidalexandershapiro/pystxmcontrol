@@ -11,6 +11,8 @@ def line_spectrum(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies
     controller.moveMotor("Energy", energies[0])
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
+    x = xPos[0]
+    y = yPos[0] * ones(len(x))
     scanInfo = {"mode": "continuousLine"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["type"]
@@ -18,6 +20,7 @@ def line_spectrum(scan, dataHandler, controller, queue):
     scanRegion = "Region1"  # only single region scans for line spectrum
     energyIndex = 0
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
+    scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
 
     xStart, xStop = scan["scanRegions"][scanRegion]["xStart"], scan["scanRegions"][scanRegion]["xStop"]
     yStart, yStop = scan["scanRegions"][scanRegion]["yStart"], scan["scanRegions"][scanRegion]["yStop"]
@@ -49,23 +52,28 @@ def line_spectrum(scan, dataHandler, controller, queue):
     ##during the scan, the driver takes care of padding for the acceleration distance automagically but for the
     # move to start command it needs to be added manually I guess
     controller.motors[scan["x"]]["motor"].update_trajectory()
-    scanInfo['nPoints'] = controller.motors[scan["x"]]["motor"].npositions
-    print('nPoints: {}'.format(scanInfo['nPoints']))
-    dataHandler.data.updateArrays(0, scanInfo['nPoints'])
+
+    #interp_counts comes in as (ne,nz,ny,nz) where ne=1 and ny=nx but we want it to be (ne,nz,1,nx) so slice and update it here
+    #to keep higher level code general
+    ne,ny,nx = dataHandler.data.interp_counts[0].shape
+    numLineMotorPoints = controller.motors[scan["x"]]["motor"].npositions #this configures the DAQ for one line
+    numLineDAQPoints = controller.motors[scan["x"]]["motor"].npositions * scan["oversampling_factor"]
+    scanInfo['numMotorPoints'] = numLineMotorPoints  #total number of motor points configures the full data structrure
+    scanInfo['numDAQPoints'] = numLineDAQPoints
+    dataHandler.data.updateArrays(0, scanInfo)
+    controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
+                                            samples=numLineDAQPoints, trigger="EXT")
+
     start_position_x = controller.motors[scan["x"]]["motor"].trajectory_start[0] - \
                        controller.motors[scan["x"]]["motor"].xpad
     start_position_y = controller.motors[scan["x"]]["motor"].trajectory_start[1] - \
                        controller.motors[scan["x"]]["motor"].ypad
-
-    scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
     scanInfo["start_position_x"] = start_position_x
     scanInfo["start_position_y"] = start_position_y
     # move to start positions
     controller.moveMotor(scan["x"], scanInfo["start_position_x"])
     controller.moveMotor(scan["y"], scanInfo["start_position_y"])
     controller.moveMotor(scan["energy"], energies[0])
-    controller.daq["default"].config(scanInfo["dwell"] / scanInfo["oversampling_factor"], count=1, \
-                                          samples=scanInfo['nPoints'], trigger="EXT")
 
     # turn on position trigger
     trigger_axis = controller.motors[scan["x"]]["motor"].trigger_axis
@@ -83,9 +91,10 @@ def line_spectrum(scan, dataHandler, controller, queue):
         scanInfo["motorPositions"] = controller.allMotorPositions
         scanInfo["scanRegion"] = scanRegion
         scanInfo["index"] = 0
-        scanInfo["xVal"] = xPos[0]
-        scanInfo["yVal"] = yPos[0]
-
+        scanInfo["zIndex"] = 0
+        scanInfo["lineIndex"] = 0
+        scanInfo["xVal"] = x
+        scanInfo["yVal"] = y
         if queue.empty():
             while controller.pause:
                 if not (queue.empty()):
