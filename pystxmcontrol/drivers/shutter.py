@@ -6,7 +6,7 @@ import time
 class shutter(gate):
 
     def __init__(self, controller = None):
-        self._port = '/dev/ttyACM0'
+        self._port = '/dev/arduino'
         self.controller = controller
         self.status = False
         self.mode = "auto"

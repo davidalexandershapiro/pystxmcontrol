@@ -22,11 +22,16 @@ def derived_line_image(scan, dataHandler, controller, queue):
     scanInfo["type"] = scan["type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo['totalSplit'] = None
+    scanInfo["include_return"] = controller.scanConfig["scans"][scan["type"]]["include_return"]
     energyIndex = 0
     nScanRegions = len(xPos)
     scanInfo["coarse_only"] = scan["coarse_only"]
     coarse_only = scan["coarse_only"] #this needs to be set properly if a coarse scan is possible
-    coarseOffset = 20
+    coarse_offset = 20
+    if scan["oversampling_factor"] > 1:
+        scanInfo["interpolate"] = True
+    else:
+        scanInfo["interpolate"] = False
 
     for energy in energies:
         ##scanInfo is what gets passed with each data transmission
@@ -61,6 +66,7 @@ def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo["yCenter"] = yStart + yRange / 2.
             scanInfo["yRange"] = yRange
             waitTime = 0.005 + xPoints * 0.0001  # 0.005 + xRange * 0.02
+
             nxblocks, xcoarse, xStart_fine, xStop_fine = \
                 controller.motors[scan["x"]]["motor"].decompose_range(xStart, xStop)
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
@@ -79,7 +85,6 @@ def derived_line_image(scan, dataHandler, controller, queue):
             #this function only moves the coarse motors if needed
             controller.motors[scan["x"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
-
             controller.motors[scan["x"]]["motor"].trajectory_pixel_count = xPoints * scan["oversampling_factor"]
             controller.motors[scan["x"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
                                                                                     energyIndex] / scan[
@@ -91,17 +96,17 @@ def derived_line_image(scan, dataHandler, controller, queue):
                 #this should be changed to global units and then have the driver convert
                 controller.motors[scan["x"]]["motor"].trajectory_start = (xStart_fine, yStart_fine)
                 controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop_fine, yStart_fine)
-                controller.motors[scan["x"]]["motor"].update_trajectory()
+                controller.motors[scan["x"]]["motor"].update_trajectory(include_return = scanInfo["include_return"])
             else:
-                start_position_x = xStart - coarseOffset
+                start_position_x = xStart - coarse_offset
                 start_position_y = yStart
                 # a "coarse_oNly" move will leave the servo off when done, otherwise will turn it back on
-                controller.moveMotor(scan["x"], start_position_x, coarseOnly=True)
+                controller.moveMotor(scan["x"], start_position_x, coarse_only=True)
                 controller.moveMotor(scan["y"], start_position_y)
                 controller.motors[scan["x"]]["motor"].trajectory_start = (xStart, y[0])
                 controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop, y[0])
-                controller.motors[scan["x"]]["motor"].update_trajectory()
-                controller.motors[scan["x"]]["motor"].trajectory_trigger = coarseOffset, coarseOffset
+                controller.motors[scan["x"]]["motor"].update_trajectory(include_return = False)
+                controller.motors[scan["x"]]["motor"].trajectory_trigger = coarse_offset, coarse_offset
 
             #numMotorPoints should be the total number of motor position measurements expected
             #numDAQPoints should be equal to xPoints * oversampling
@@ -123,13 +128,17 @@ def derived_line_image(scan, dataHandler, controller, queue):
             controller.moveMotor(scan["y"], ycoarse + start_position_y)
             sleep(0.1)
 
-            # turn on position trigger
+            # turn on position 
             trigger_axis = controller.motors[scan["x"]]["motor"].trigger_axis
+            trigger_position = controller.motors[scan["x"]]["motor"].trajectory_trigger[trigger_axis - 1]
+            controller.motors[scan["x"]]["motor"].setPositionTriggerOn(pos=trigger_position)
             scanInfo["trigger_axis"] = trigger_axis
+
             scanInfo["xpad"] = controller.motors[scan["x"]]["motor"].xpad
             scanInfo["ypad"] = controller.motors[scan["x"]]["motor"].ypad
 
             for i in range(len(y)):
+                controller.moveMotor(scan["x"], xcoarse + start_position_x)
                 controller.moveMotor(scan["y"],y[i])
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
@@ -140,17 +149,8 @@ def derived_line_image(scan, dataHandler, controller, queue):
                 ##need to also be able to request measured positions
                 scanInfo["xVal"], scanInfo["yVal"] = x, y[i] * ones(len(x))
                 if queue.empty():
-                    controller.daq["default"].initLine()
-                    controller.daq["default"].autoGateOpen()
-                    # Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
-                    sleep(0.02)
-                    if "offset" not in scanInfo.keys():
-                        scanInfo["offset"] = 0, 0
-                    controller.motors[scan["x"]]["motor"].moveLine(coarseOnly = coarse_only)
-                    scanInfo["line_positions"] = controller.motors[scan["x"]]["motor"].positions
-                    controller.daq["default"].autoGateClosed()
-                    dataHandler.getLine(scanInfo.copy())
-                    controller.moveMotor(scan["x"], xcoarse + start_position_x)
+                    if not doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+                        return terminateFlyscan(controller, dataHandler, scan, "x", "Data acquisition failed for flyscan line!")
                 else:
                     queue.get()
                     dataHandler.data.saveRegion(j)

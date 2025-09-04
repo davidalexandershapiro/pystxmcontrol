@@ -140,7 +140,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.scan_angle.valueChanged.connect(self.updateDial)
 
         self.tiled_scan = False
-        self.coarse_only_scan = False
         self.maxVelocity = 0.2
         self.velocity = 0.0
         self.imageScanTypes = ["ptychographyGrid", "rasterLine", "continuousLine",'continuousSpiral','point']
@@ -978,7 +977,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan["spiral"] = False
         self.scan["type"] = self.scanType
         self.scan["tiled"] = self.ui.tiledCheckbox.isChecked() #self.tiled_scan
-        self.scan["coarse_only"] = self.coarse_only_scan
         self.scan["proposal"] = self.ui.proposalComboBox.currentText()
         self.scan["experimenters"] = self.ui.experimentersLineEdit.text()
         self.scan["sample"] = self.ui.sampleLineEdit.text()
@@ -988,6 +986,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan["defocus"] = self.ui.defocusCheckbox.isChecked()
         self.scan["oversampling_factor"] = self.client.main_config["geometry"]["oversampling_factor"]
         self.scan['refocus'] = self.ui.autofocusCheckbox.isChecked()
+        self.scan["coarse_only"] = False #this is set True later in scanCheck() for coarse only scans
         if self.scan["mode"] == "continuousSpiral":
             self.scan["spiral"] = True
         self.scan['retract'] = True
@@ -1031,7 +1030,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 xCenter = float(region.ui.xCenter.text())
                 yCenter = -float(region.ui.yCenter.text())
                 xRange = self.xLineRange
-                yRange = 0. #self.yLineRange
+                yRange = self.yLineRange
                 xPoints = int(self.ui.linePointsEdit.text())
                 yPoints = 1 #int(self.ui.linePointsEdit.text())
                 direction = np.array([xRange,yRange])/(xRange**2+yRange**2)**0.5
@@ -1259,7 +1258,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 #this should force a single region scan since it will be decomposed into several regions
                 else:
                     if not self.ui.tiledCheckbox.isChecked():
-                        self.coarse_only_scan = True
                         self.scan["coarse_only"] = True
                     else:
                         self.tiled_scan = True
@@ -1276,7 +1274,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def beginScan(self):
         self.tiled_scan = False
         scanCheck = self.scanCheck()
-        print(self.scan)
         if not scanCheck:
             self.scanning = True
             self.deactivateGUI()

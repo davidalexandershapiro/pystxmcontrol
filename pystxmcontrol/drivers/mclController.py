@@ -466,7 +466,7 @@ class mclController():
         return error_code
 	    
 	    
-    def acquire_xy(self):
+    def acquire_xy(self,**kwargs):
         """
         Triggers and reads the positions for an xy waveform.
         Will throw an error if setup_xy has not been run first.

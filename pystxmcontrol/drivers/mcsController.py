@@ -3,15 +3,20 @@ from pylibftdi import Device, Driver
 from pystxmcontrol.controller.hardwareController import hardwareController
 from threading import Lock
 from time import sleep, time
+import smaract.ctl as ctl
 
 class mcsController(hardwareController):
 
-    def __init__(self, address = '192.168.1.200', port = 5000, simulation = False):
+    def __init__(self, address = '192.168.1.200', port = 18307, simulation = False):
 
-        # refer to page 29 of NPoint manual for device write/read formatting info
+        # the smarAct ctl library does not take the IP address and just looks for all
+        # devices on the network.  The port number here is the serial number of the desired
+        # device.  CTL returns the full list and then we just search for the serial number.
+        
         self.devID = address
         self.isInitialized = False
         self.address = address
+        self.port = port
         self.simulation = simulation
         self._timeout = 5
         self.lock = Lock()
@@ -19,11 +24,14 @@ class mcsController(hardwareController):
     def initialize(self, simulation = False):
         self.simulation = simulation
         if not(self.simulation):
-            import smaract.ctl as ctl
             try:
-                self._address = ctl.FindDevices().split("\n")[0]
+                #these aren't blocking, some time is needed after these calls or this sequence fails
+                self._address = [x for x in ctl.FindDevices().split("\n") if str(self.port) in x][0]
+                print(f"[MCS2] address: {self._address}")
                 self._deviceID = ctl.Open(self._address)
+                print(f"[MCS2] deviceID: {self._deviceID}")
                 self._move_mode = ctl.MoveMode.CL_ABSOLUTE
+                print(f"[MCS2] move_mode: {self._move_mode}")
             except:
                 print("[MCS] No controllers available.")
 

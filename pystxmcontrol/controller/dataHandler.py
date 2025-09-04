@@ -108,6 +108,9 @@ class dataHandler:
         except:
             pass
 
+        if not scanInfo["interpolate"]:
+            return scanInfo["rawData"]
+
         if scanInfo["mode"] == "continuousLine":
 
             xReq = scanInfo["xVal"]

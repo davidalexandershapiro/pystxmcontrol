@@ -25,13 +25,18 @@ def derived_line_spectrum(scan, dataHandler, controller, queue):
     scanInfo['totalSplit'] = None
     scanInfo["include_return"] = True
     controller.motors[scan["x"]]["motor"].include_return = scanInfo["include_return"]
-    coarseOnly = False  # this needs to be set properly if a coarse scan is possible
+    coarse_only = False  # this needs to be set properly if a coarse scan is possible
+    coarse_offset = 30
+    if scan["oversampling_factor"] > 1:
+        scanInfo["interpolate"] = True
+    else:
+        scanInfo["interpolate"] = False
 
     controller.getMotorPositions()
     dataHandler.data.motorPositions[0] = controller.allMotorPositions
 
     # Move to start position
-    controller.moveMotor(scan["z"], zStart)
+    controller.moveMotor(scan["energy"], energies[0])
 
     waitTime = 0.005 + xPoints * 0.0001  # 0.005 + xRange * 0.02
     nxblocks, xcoarse, xStart_fine, xStop_fine = \
@@ -52,27 +57,33 @@ def derived_line_spectrum(scan, dataHandler, controller, queue):
     controller.motors[scan["x"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[0] / scanInfo[
         "oversampling_factor"]
     controller.motors[scan["x"]]["motor"].lineMode = "continuous"
-    if not (coarseOnly):
+    if not (coarse_only):
         # needs to be in piezo units
         # this should be changed to global units and then have the driver convert
         controller.motors[scan["x"]]["motor"].trajectory_start = (xStart_fine, yStart_fine)
-        controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop_fine, yStart_fine)
+        controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop_fine, yStop_fine)
         controller.motors[scan["x"]]["motor"].update_trajectory()
     else:
-        start_position_x = xStart - coarseOffset
+        start_position_x = xStart - coarse_offset
         start_position_y = yStart
-        # a "coarseONly" move will leave the servo off when done, otherwise will turn it back on
-        controller.moveMotor(scan["x"], xcoarse + start_position_x, coarseOnly=True)
+        # a "coarse_only" move will leave the servo off when done, otherwise will turn it back on
+        controller.moveMotor(scan["x"], xcoarse + start_position_x, coarse_only=True)
         controller.moveMotor(scan["y"], xcoarse + start_position_y)
         controller.motors[scan["x"]]["motor"].trajectory_start = (xStart, yPos_fine)
         controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop, yPos_fine)
         controller.motors[scan["x"]]["motor"].update_trajectory()
-        controller.motors[scan["x"]]["motor"].trajectory_trigger = coarseOffset, coarseOffset
+        controller.motors[scan["x"]]["motor"].trajectory_trigger = coarse_offset, coarse_offset
 
-    scanInfo['nPoints'] = controller.motors[scan["x"]]["motor"].npositions
-    dataHandler.data.updateArrays(0, scanInfo['nPoints'])
-    controller.daq["default"].config(scanInfo["dwell"] / scanInfo["oversampling_factor"], count=1, \
-                                          samples=scanInfo['nPoints'], trigger="EXT")
+    #numMotorPoints should be the total number of motor position measurements expected
+    #numDAQPoints should be equal to xPoints * oversampling
+    numLineMotorPoints = controller.motors[scan["x"]]["motor"].npositions #this configures the DAQ for one line
+    numLineDAQPoints = controller.motors[scan["x"]]["motor"].npositions * scan["oversampling_factor"]
+    scanInfo['numMotorPoints'] = numLineMotorPoints #total number of motor points configures the full data structrure
+    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
+    dataHandler.data.updateArrays(0, scanInfo)
+    controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
+                                            samples=numLineDAQPoints, trigger="EXT")
+
     start_position_x = controller.motors[scan["x"]]["motor"].trajectory_start[0] - \
                        controller.motors[scan["x"]]["motor"].xpad
     start_position_y = controller.motors[scan["x"]]["motor"].trajectory_start[1] - \
@@ -81,25 +92,36 @@ def derived_line_spectrum(scan, dataHandler, controller, queue):
     scanInfo["start_position_y"] = start_position_y
     controller.moveMotor(scan["x"], xcoarse + start_position_x)
     controller.moveMotor(scan["y"], ycoarse + start_position_y)
-    controller.moveMotor(scan["z"], zPos[0])
     sleep(1)
 
     # turn on position trigger
     trigger_axis = controller.motors[scan["x"]]["motor"].trigger_axis
+    trigger_position = controller.motors[scan["x"]]["motor"].trajectory_trigger[trigger_axis - 1]
+    if trigger_axis == 1:
+        axis = 'x'
+    elif trigger_axis == 2:
+        axis = 'y'
+    controller.motors[scan[axis]]["motor"].setPositionTriggerOn(pos=trigger_position)
     scanInfo["trigger_axis"] = trigger_axis
     scanInfo["xpad"] = controller.motors[scan["x"]]["motor"].xpad
     scanInfo["ypad"] = controller.motors[scan["x"]]["motor"].ypad
 
+    energyIndex = 0
     for energy in energies:
         scanInfo["energy"] = energy
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
+        controller.moveMotor(scan["x"], xcoarse + start_position_x)
+        controller.moveMotor(scan["y"], ycoarse + start_position_y)
         controller.moveMotor("Energy", energy)
         controller.getMotorPositions()
         dataHandler.data.motorPositions[0] = controller.allMotorPositions
         scanInfo["motorPositions"] = controller.allMotorPositions
+        scanInfo["direction"] = "forward"
         scanInfo["scanRegion"] = scanRegion
         scanInfo["index"] = 0
+        scanInfo["zIndex"] = 0
+        scanInfo["lineIndex"] = 0
         scanInfo["xVal"] = xPos[0]
         scanInfo["yVal"] = yPos[0]
         if queue.empty():
@@ -109,15 +131,12 @@ def derived_line_spectrum(scan, dataHandler, controller, queue):
                     dataHandler.dataQueue.put('endOfScan')
                     print("Terminating grid scan")
                     return False
-                time.sleep(0.1)
-            scanInfo["direction"] = "forward"
-            if not doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+            if not doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime,axes=[1,2]):
                 return terminateFlyscan(controller, dataHandler, scan, "x", "Data acquisition failed for flyscan line!")
         else:
             queue.get()
             dataHandler.data.saveRegion(0)
             return terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan aborted.")
-        # dataHandler.data.saveRegion(0)
         dataHandler.dataQueue.put('endOfRegion')
         energyIndex += 1
     terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan completed.")
