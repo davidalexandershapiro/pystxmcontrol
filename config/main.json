@@ -37,7 +37,8 @@
         "resolution": 8e-09,
         "rebin": 1,
         "oversampling_factor": 1,
-        "enable_coarse_only": true
+        "enable_coarse_only": false,
+        "enable_tiled_scan": false
     },
     "lastScan": {
         "Image": {

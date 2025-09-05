@@ -58,6 +58,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
         controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
         for i in range(len(yPos[0])):
             controller.moveMotor(scan["y"], yPos[0][i])
+            #time.sleep(0.02)
             controller.getMotorPositions()
             dataHandler.data.motorPositions[0] = controller.allMotorPositions
             scanInfo["motorPositions"] = controller.allMotorPositions
@@ -66,6 +67,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
                 scanInfo["columnIndex"] = j
                 scanInfo["index"] = i * len(yPos[0]) + j
                 controller.moveMotor(scan["x"], xPos[0][j])
+                #time.sleep(0.02)
                 if queue.empty():
                     controller.daq["default"].autoGateOpen(shutter=True)
                     dataHandler.getPoint(scanInfo)

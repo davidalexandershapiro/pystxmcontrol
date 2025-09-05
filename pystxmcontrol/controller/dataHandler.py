@@ -293,7 +293,7 @@ class dataHandler:
             self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
             return self.data.interp_counts[k][:,0,:]
         elif scanInfo["type"] == "Single Motor":
-            self.data.interp_counts[k][m,i:j] = scanInfo["rawData"]
+            self.data.interp_counts[k][m,0,i] = scanInfo["rawData"]
         elif scanInfo["type"] == "Double Motor":
             c = scanInfo["columnIndex"]
             self.data.interp_counts[k][0, y, c] = scanInfo["rawData"]
@@ -365,7 +365,7 @@ class dataHandler:
         if scan["tiled"]:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
-        scan["start_time"] = str(datetime.datetime.now())
+        scan["start_time"] = datetime.datetime.now().isoformat()
         self.data = stxm(scan)
         self.dataStream = threading.Thread(target = self.sendScanData, args = ())
         self.dataStream.start()

@@ -45,6 +45,8 @@ class stxm:
                 self.file_name = self.scan_dict["file_name"]
                 self.startOutput()
         elif stxm_file is not None:
+            self.data = {}
+            self.meta = {}
             self.readNexus(stxm_file)
 
     def readNexus(self, stxm_file):
@@ -54,8 +56,6 @@ class stxm:
             print("Failed to open file: %s" %stxm_file)
             return
         self.nRegions = len(list(self._nx_reader))
-        self.data = {}
-        self.meta = {}
         self.meta["file_name"] = stxm_file
 
         #this is looking for the version information in the file but it's location and name has changed.  It used to be
@@ -176,6 +176,11 @@ class stxm:
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
+                try:
+                    self.meta["x_motor"] = self._nx_reader[entryStr + "/data/motor_name_x"][()].decode()
+                    self.meta["y_motor"] = self._nx_reader[entryStr + "/data/motor_name_y"][()].decode()
+                except:
+                    pass
 
         #the original data format
         else:
@@ -287,25 +292,23 @@ class stxm:
         else:
             self.createEntry(i)
             self.updateEntry(i)
-        self.end_time = datetime.datetime.now()
-        self._nx_writer['entry%i/end_time' %i][...] = str(self.end_time).encode("UTF_8")
+        self.end_time = datetime.datetime.now().isoformat()
+        self._nx_writer[f'entry{i}/end_time'][...] = str(self.end_time).encode("UTF_8")
 
     def updateEntry(self,i):
 
         #I'm not sure that this works for spiral scans where the data size is actually increased by the
         #motor driver. The initial array size at creation is just an estimate but gets revised.  May have to delete
         #and re-create?
-        del self._nx_writer['entry%i/instrument/detector/data' %i]
-        self._nx_writer['entry%i/instrument/detector' %i].create_dataset("data", data = self.counts[i])
-        #self._nx_writer['entry%i/instrument/detector/data' %i][...] = self.counts[i]
-        del self._nx_writer['entry%i/data/data' %i]
-        self._nx_writer['entry%i/data' %i].create_dataset("data", data = self.interp_counts[i])
-        #self._nx_writer['entry%i/data/data' %i][...] = self.interp_counts[i]
-        self._nx_writer['entry%i/instrument/detector/data' % i].flush()
-        self._nx_writer['entry%i/data/data' % i].flush()
+        del self._nx_writer[f'entry{i}/instrument/detector/data']
+        self._nx_writer[f'entry{i}/instrument/detector'].create_dataset("data", data = self.counts[i])
+        del self._nx_writer[f'entry{i}/data/data']
+        self._nx_writer[f'entry{i}/data'].create_dataset("data", data = self.interp_counts[i])
+        self._nx_writer[f'entry{i}/instrument/detector/data'].flush()
+        self._nx_writer[f'entry{i}/data/data'].flush()
         for motor in self.motorPositions[i].keys():
             try:
-                self._nx_writer["entry%i/instrument/motors"%i].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
+                self._nx_writer[f'entry{i}/instrument/motors'].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
             except:
                 pass
         
@@ -319,38 +322,37 @@ class stxm:
 
     def createEntry(self,i):
         ne,nz_m,ny_m,nx_m = len(self.energies),len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
-        nz_r,ny_r,nx_r = len(self.zPos[i]), len(self.yPos[i]), len(self.xPos[i])
 
-        nxentry = self._nx_writer.create_group("entry%i" %i)
+        nxentry = self._nx_writer.create_group(f'entry{i}')
         nxentry.attrs["NX_class"] = np.bytes_("NXentry")
-        start_time = nxentry.create_dataset("start_time", data=str(self.start_time).encode("UTF_8"))
-        end_time = nxentry.create_dataset("end_time", data=str(self.end_time).encode("UTF_8"))
-        title = nxentry.create_dataset("title", data=self.scan_dict["proposal"].encode("UTF_8"))
-        version = nxentry.create_dataset("version", data=float(self.scan_dict["main_config"]["server"]["nx_file_version"]))
-        definition = nxentry.create_dataset("definition", data=["NXstxm".encode("UTF_8")])
-        experimenters = nxentry.create_dataset("experimenters", data=self.scan_dict["experimenters"].encode("UTF_8"))
+        nxentry.create_dataset("start_time", data=str(self.start_time).encode("UTF_8"))
+        nxentry.create_dataset("end_time", data=str(self.end_time).encode("UTF_8"))
+        nxentry.create_dataset("title", data=self.scan_dict["proposal"].encode("UTF_8"))
+        nxentry.create_dataset("version", data=float(self.scan_dict["main_config"]["server"]["nx_file_version"]))
+        nxentry.create_dataset("definition", data=["NXstxm".encode("UTF_8")])
+        nxentry.create_dataset("experimenters", data=self.scan_dict["experimenters"].encode("UTF_8"))
         nxinstrument = nxentry.create_group("instrument")
         nxinstrument.attrs["NX_class"] = np.bytes_("NXinstrument")
         nxsource = nxinstrument.create_group("source")
         nxsource.attrs["NX_class"] = np.bytes_("NXsource")
-        t = nxsource.create_dataset("type",data=self.scan_dict['main_config']['source']['type'])
-        n = nxsource.create_dataset("name", data=self.scan_dict['main_config']['source']['name'])
-        p = nxsource.create_dataset("probe", data=self.scan_dict['main_config']['source']['probe'])
+        nxsource.create_dataset("type",data=self.scan_dict['main_config']['source']['type'])
+        nxsource.create_dataset("name", data=self.scan_dict['main_config']['source']['name'])
+        nxsource.create_dataset("probe", data=self.scan_dict['main_config']['source']['probe'])
         nxmono = nxinstrument.create_group("monochromator")
         nxmono.attrs["NX_class"] = np.bytes_("NXmonochromator")
-        energy = nxmono.create_dataset("energy",data=self.energies)
+        nxmono.create_dataset("energy",data=self.energies)
         nxdetector = nxinstrument.create_group("detector")
         nxdetector.attrs["NX_class"] = np.bytes_("NXdetector")
-        measured_data = nxdetector.create_dataset("data",data=np.zeros_like(self.counts[i])) #the 0 is for channel, need to fix this
+        nxdetector.create_dataset("data",data=np.zeros_like(self.counts[i]))
         measured_xgrp = nxinstrument.create_group("sample_x")
         measured_ygrp = nxinstrument.create_group("sample_y")
         measured_zgrp = nxinstrument.create_group("sample_z")
         measured_xgrp.attrs["NX_class"] = np.bytes_("NXdetector")
         measured_ygrp.attrs["NX_class"] = np.bytes_("NXdetector")
         measured_zgrp.attrs["NX_class"] = np.bytes_("NXdetector")
-        measured_x = measured_xgrp.create_dataset("data",data=np.zeros(nx_m))
-        measured_y = measured_ygrp.create_dataset("data", data=np.zeros(ny_m))
-        measured_z = measured_zgrp.create_dataset("data", data=np.zeros(nz_m))
+        measured_xgrp.create_dataset("data",data=np.zeros(nx_m))
+        measured_ygrp.create_dataset("data", data=np.zeros(ny_m))
+        measured_zgrp.create_dataset("data", data=np.zeros(nz_m))
         motors = nxinstrument.create_group("motors")
         motors.attrs["NX_class"] = np.bytes_("NXdetector")
         sample = nxentry.create_group("sample")

@@ -103,8 +103,8 @@ def derived_line_image(scan, dataHandler, controller, queue):
                 # a "coarse_oNly" move will leave the servo off when done, otherwise will turn it back on
                 controller.moveMotor(scan["x"], start_position_x, coarse_only=True)
                 controller.moveMotor(scan["y"], start_position_y)
-                controller.motors[scan["x"]]["motor"].trajectory_start = (xStart, y[0])
-                controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop, y[0])
+                controller.motors[scan["x"]]["motor"].trajectory_start = (xStart - coarse_offset, y[0])
+                controller.motors[scan["x"]]["motor"].trajectory_stop = (xStop + coarse_offset, y[0])
                 controller.motors[scan["x"]]["motor"].update_trajectory(include_return = False)
                 controller.motors[scan["x"]]["motor"].trajectory_trigger = coarse_offset, coarse_offset
 
