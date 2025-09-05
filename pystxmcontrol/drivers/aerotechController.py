@@ -391,7 +391,7 @@ class aerotechController(hardwareController):
         """
         return self._checkConnection()
 
-    def moveBy(self, motor, displacement, speed=0.1):
+    def moveBy(self, motor, displacement, speed=None):
         """
         Move motor by relative distance.
         
@@ -403,7 +403,7 @@ class aerotechController(hardwareController):
         Args:
             motor: Axis identifier to move
             displacement: Relative distance to move (in controller units)
-            speed: Movement speed (default: 0.1 mm/s or appropriate unit)
+            speed: Movement speed (optional, uses DefaultAxisSpeed if not provided)
             
         Returns:
             list: [error_code, message] where error_code is 0 for success, -1 for failure
@@ -416,10 +416,23 @@ class aerotechController(hardwareController):
             return [-1, 'Not connected']
         
         try:
+            # Set axis speed if provided
+            if speed is not None:
+                speed_result = self.setAxisSpeed(motor, speed)
+                if speed_result[0] != 0:
+                    return speed_result
+            
+            # Get current speed for the move
+            speed_info = self.getAxisSpeed(motor)
+            if speed_info['error_code'] == 0:
+                current_speed = speed_info['default_speed']
+            else:
+                current_speed = 0.1  # fallback speed
+            
             # Create displacement and speeds as lists as required by Automation1 SDK
             # For single axis move, we need single-element lists
             displacements = [displacement]
-            speeds = [speed]
+            speeds = [current_speed]  # Use the set speed or current default speed
             
             # Use the move_incremental() method in the MotionCommands API
             self.controller.runtime.commands.motion.move_incremental([motor], displacements, speeds)
@@ -431,7 +444,94 @@ class aerotechController(hardwareController):
             print(f"Error in moveBy for {motor}: {e}")
             return [-1, str(e)]
 
-    def moveTo(self, motor, target, speed=0.1):
+    def setAxisSpeed(self, motor, speed):
+        """
+        Set the default axis speed for motion operations.
+        
+        This method sets the DefaultAxisSpeed parameter which controls the speed
+        for move_absolute() and move_incremental() operations when no speed is specified.
+        
+        Args:
+            motor: Axis identifier to configure
+            speed: Speed in velocity units (mm/s or appropriate unit)
+            
+        Returns:
+            list: [error_code, message] where error_code is 0 for success, -1 for failure
+        """
+        
+        if self.simulation:
+            return [0, f'Axis speed set to {speed} (simulation)']
+        
+        if not self._checkConnection():
+            return [-1, 'Not connected']
+        
+        try:
+            # Access the motion parameter group for the axis
+            axis_params = self.controller.runtime.parameters.axes[motor].motion
+            
+            # Set DefaultAxisSpeed parameter
+            axis_params.default_axis_speed.value = float(speed)
+            #print(f"DefaultAxisSpeed set to {speed} for axis {motor}")
+            
+            return [0, 'Axis speed updated successfully']
+            
+        except a1.ControllerException as e:
+            print(f"Error setting axis speed for {motor}: {e.message}")
+            return [-1, str(e.message)]
+        except Exception as e:
+            print(f"Error setting axis speed for {motor}: {e}")
+            return [-1, str(e)]
+
+    def getAxisSpeed(self, motor):
+        """
+        Get the current default axis speed.
+        
+        Args:
+            motor: Axis identifier to query
+            
+        Returns:
+            dict: Dictionary containing speed settings:
+                - error_code: 0 for success, -1 for failure
+                - default_speed: Current DefaultAxisSpeed value
+                - max_jog_speed: Current MaxJogSpeed value
+                - max_speed_clamp: Current MaxSpeedClamp value
+        """
+        
+        if self.simulation:
+            return {
+                'error_code': 0,
+                'default_speed': 0.1,
+                'max_jog_speed': 1.0,
+                'max_speed_clamp': 0.0
+            }
+        
+        if not self._checkConnection():
+            return {'error_code': -1}
+        
+        try:
+            # Access the motion parameter group for the axis
+            axis_params = self.controller.runtime.parameters.axes[motor].motion
+            
+            # Get current parameter values
+            default_speed = float(axis_params.default_axis_speed.value)
+            max_jog_speed = float(axis_params.max_jog_speed.value)
+            max_speed_clamp = float(axis_params.max_speed_clamp.value)
+            
+            return {
+                'error_code': 0,
+                'default_speed': default_speed,
+                'max_jog_speed': max_jog_speed,
+                'max_speed_clamp': max_speed_clamp
+            }
+            
+        except a1.ControllerException as e:
+            print(f"Error getting axis speed for {motor}: {e.message}")
+            return {'error_code': -1}
+        except Exception as e:
+            print(f"Error getting axis speed for {motor}: {e}")
+            return {'error_code': -1}
+
+    def moveTo(self, motor, target, speed=None):
         """
         Move motor to absolute position with blocking behavior.
         
@@ -448,7 +548,7 @@ class aerotechController(hardwareController):
         Args:
             motor: Axis identifier to move
             target: Target position (in controller units)
-            speed: Movement speed (default: 0.1 mm/s or appropriate unit)
+            speed: Movement speed (optional, uses DefaultAxisSpeed if not provided)
             
         Returns:
             list: [error_code, message] where error_code is 0 for success, -1 for failure
@@ -464,14 +564,27 @@ class aerotechController(hardwareController):
             return [-1, 'Not connected']
         
         try:
+            # Set axis speed if provided
+            if speed is not None:
+                speed_result = self.setAxisSpeed(motor, speed)
+                if speed_result[0] != 0:
+                    return speed_result
+            
             # Get current position for timeout calculation
             current_pos = self.getPosition(motor)[1]
             move_delta = abs(target - current_pos)
             
+            # Get current speed for timeout calculation
+            speed_info = self.getAxisSpeed(motor)
+            if speed_info['error_code'] == 0:
+                current_speed = speed_info['default_speed']
+            else:
+                current_speed = 0.1  # fallback speed
+            
             # Create target and speeds as lists as required by Automation1 SDK
             # For single axis move, we need single-element lists
             targets = [target]
-            speeds = [speed]
+            speeds = [current_speed]  # Use the set speed or current default speed
             
             # Start the absolute move using move_absolute() method
             self.controller.runtime.commands.motion.move_absolute([motor], targets, speeds)
@@ -480,9 +593,9 @@ class aerotechController(hardwareController):
             # Wait for move to complete with dynamic timeout
             t0 = time.time()
             # Calculate timeout based on actual move time: distance/speed + safety margin
-            expected_time = move_delta / speed
+            expected_time = move_delta / current_speed
             timeout = max(10.0, expected_time * 3.0)  # 3x safety margin, minimum 10 seconds
-            print(f"Move distance: {move_delta:.6f}, Speed: {speed:.6f}, Expected time: {expected_time:.1f}s, Timeout: {timeout:.1f}s")
+            #print(f"Move distance: {move_delta:.6f}, Speed: {current_speed:.6f}, Expected time: {expected_time:.1f}s, Timeout: {timeout:.1f}s")
             
             while self.moving:
                 if self.stopped:

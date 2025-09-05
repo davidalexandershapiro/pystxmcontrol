@@ -188,7 +188,7 @@ class aerotechMotor(motor):
                         print(f"Warning: Could not enable axis {self.axis}: {e.message}")
                         # Continue anyway - some axes might not need explicit enabling
                 if self.config["max velocity"] > 0:
-                    self.velocity = self.config["max velocity"] / abs(self.config["units"])
+                    self.velocity = self.config["max velocity"]
                 else:
                     self.velocity = 0.1
                 # Get initial position
@@ -211,12 +211,11 @@ class aerotechMotor(motor):
                     print(f"Could not get position for axis {self.axis}")
         return True
 
-    def setAxisParams(self, velocity = None):
+    def setAxisParams(self, velocity = 0.1):
         """
         Set the axis parameters.
         """
-        if velocity is not None:
-            self.velocity = velocity
+        self.velocity = velocity
 
     def disable(self):
         """
@@ -583,11 +582,11 @@ class aerotechMotor(motor):
                     self.moving = True
                     
                     if "speed" in kwargs.keys():
-                        speed = kwargs["speed"] / abs(self.config["units"])
+                        speed = kwargs["speed"]
                     else:
                         speed = self.velocity 
                     
-                    self.err, retStr = self.controller.moveTo(self.axis, pos, speed)    
+                    self.err, retStr = self.controller.moveTo(self.axis, pos, speed)
                     self.moving = False
                     if self.err != 0:
                         print(f"Error in moveTo for {self.axis}: {retStr}")

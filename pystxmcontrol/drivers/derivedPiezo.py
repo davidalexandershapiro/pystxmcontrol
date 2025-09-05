@@ -191,12 +191,11 @@ class derivedPiezo(motor):
                                          self.trajectory_pixel_count)
                 self.positions = xpositions + offset[0], ypositions + offset[1]
                 x_range = abs(self.trajectory_start[0] - self.trajectory_stop[0])
-                velocity = x_range / (self.trajectory_pixel_dwell * self.trajectory_pixel_count) * 1000
+                velocity = x_range / (self.trajectory_pixel_dwell * self.trajectory_pixel_count)
                 if velocity > self.axes["axis2"].config["max velocity"]:
-                    #self.logger.log("Using maximum velocity of %.4f rather than requested velocity of %.4f" \
-                    #                %(self.axes["axis2"].config["max velocity"],velocity),level="debug")
                     velocity = self.axes["axis2"].config["max velocity"]
                 self.axes["axis2"].setAxisParams(velocity = velocity)
+                t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
