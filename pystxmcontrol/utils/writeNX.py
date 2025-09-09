@@ -30,8 +30,8 @@ class stxm:
             self.end_time = ""
             self.angle = 0.
             self.polarization = 0.
-            self.nScanRegions = len(self.scan_dict["scanRegions"].keys())
-            self._scanRegions = self.scan_dict["scanRegions"].keys()
+            self.nScanRegions = len(self.scan_dict["scan_regions"].keys())
+            self._scanRegions = self.scan_dict["scan_regions"].keys()
             self.channels = ["diode"]  #this should come through from the DAQ config somehow
             self.nChannels = len(self.channels)
             self._extractEnergies(self.scan_dict)
@@ -207,19 +207,18 @@ class stxm:
         ##get energies
         self.energies = np.array(())
         self.dwells = np.array(())
-        if "energy_list" in scan.keys():
+        if scan.get("energy_list") is None:
+            for energy_region in scan["energy_regions"].keys():
+                start = scan["energy_regions"][energy_region]["start"]
+                stop = scan["energy_regions"][energy_region]["stop"]
+                n_energies = scan["energy_regions"][energy_region]["n_energies"]
+                self.energies = np.concatenate((self.energies,np.round(np.linspace(start, stop, n_energies), 2)))
+                self.dwells = np.concatenate((self.dwells,np.ones(n_energies) * scan["energy_regions"][energy_region]["dwell"]))
+        else:
             self.energies = np.array(scan["energy_list"])
             self.dwells = np.ones(self.energies.size) * scan["dwell"]
-        else:
-            for energyRegion in scan["energyRegions"].keys():
-                start = scan["energyRegions"][energyRegion]["start"]
-                stop = scan["energyRegions"][energyRegion]["stop"]
-                nEnergies = scan["energyRegions"][energyRegion]["nEnergies"]
-                self.energies = np.concatenate((self.energies,np.round(np.linspace(start, stop, nEnergies), 2)))
-                self.dwells = np.concatenate((self.dwells,np.ones(nEnergies) * scan["energyRegions"][energyRegion]["dwell"]))
 
     def _extractPositions(self, scan):
-
         self.xPos, self.yPos, self.zPos = [], [], []
         self.xMeasured, self.yMeasured, self.zMeasured = [], [], []
         self.xstepsize = []
@@ -227,18 +226,18 @@ class stxm:
         self.counts = []
         self.interp_counts = []
 
-        for region in scan["scanRegions"].keys():
-            self.xPos.append(np.linspace(scan["scanRegions"][region]["xStart"], \
-                               scan["scanRegions"][region]["xStop"], \
-                               scan["scanRegions"][region]["xPoints"]))
-            self.yPos.append(np.linspace(scan["scanRegions"][region]["yStart"], \
-                               scan["scanRegions"][region]["yStop"], \
-                               scan["scanRegions"][region]["yPoints"]))
-            self.zPos.append(np.linspace(scan["scanRegions"][region]["zStart"], \
-                               scan["scanRegions"][region]["zStop"], \
-                               scan["scanRegions"][region]["zPoints"]))
-            self.xstepsize.append(scan["scanRegions"][region]["xStep"])
-            self.ystepsize.append(scan["scanRegions"][region]["yStep"])
+        for region in scan["scan_regions"].keys():
+            self.xPos.append(np.linspace(scan["scan_regions"][region]["xStart"], \
+                               scan["scan_regions"][region]["xStop"], \
+                               scan["scan_regions"][region]["xPoints"]))
+            self.yPos.append(np.linspace(scan["scan_regions"][region]["yStart"], \
+                               scan["scan_regions"][region]["yStop"], \
+                               scan["scan_regions"][region]["yPoints"]))
+            self.zPos.append(np.linspace(scan["scan_regions"][region]["zStart"], \
+                               scan["scan_regions"][region]["zStop"], \
+                               scan["scan_regions"][region]["zPoints"]))
+            self.xstepsize.append(scan["scan_regions"][region]["xStep"])
+            self.ystepsize.append(scan["scan_regions"][region]["yStep"])
 
             #nPos are the number of positions commanded by the user
             #nPixels are the number of measurements made by the control system
@@ -363,7 +362,7 @@ class stxm:
         d.attrs["NX_class"] = np.bytes_("NXdata")
         d.attrs["axes"] = [np.bytes_("energy"),np.bytes_("sample_y"),np.bytes_("sample_x")]
         d.attrs["signal"] = "data"
-        d.create_dataset("stxm_scan_type",data=[self.scan_dict["type"]])
+        d.create_dataset("stxm_scan_type",data=[self.scan_dict["scan_type"]])
         d.create_dataset("data",data=np.zeros_like(self.interp_counts[i]))
         energy = d.create_dataset("energy",data=self.energies)
         energy.attrs["axis"] = 1
@@ -372,12 +371,12 @@ class stxm:
         sample_y.attrs["axis"] = 2
         sample_x = d.create_dataset("sample_x",data=self.xPos[i])
         sample_x.attrs["axis"] = 3
-        d.create_dataset("motor_name_x",data=self.scan_dict["x"])
+        d.create_dataset("motor_name_x",data=self.scan_dict["x_motor"])
         try:
-            d.create_dataset("motor_name_y",data=self.scan_dict["y"])
+            d.create_dataset("motor_name_y",data=self.scan_dict["y_motor"])
         except:
             d.create_dataset("motor_name_y", data="None")
-        if self.scan_dict['type'] == "Ptychography Image":
+        if self.scan_dict['scan_type'] == "Ptychography Image":
             ccd = nxentry.create_group('ccd0')
             ccd.create_group('dark')
             ccd.create_group('exp')

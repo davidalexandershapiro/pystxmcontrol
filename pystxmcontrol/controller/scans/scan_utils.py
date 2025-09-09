@@ -38,8 +38,8 @@ def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
     sleep(0.02)
     if "offset" not in scanInfo.keys():
         scanInfo["offset"] = 0,0
-    controller.motors[scan["x"]]["motor"].moveLine(coarse_offset = scanInfo["offset"])
-    scanInfo["line_positions"] = controller.motors[scan["x"]]["motor"].positions
+    controller.motors[scan["x_motor"]]["motor"].moveLine(coarse_offset = scanInfo["offset"])
+    scanInfo["line_positions"] = controller.motors[scan["x_motor"]]["motor"].positions
     controller.daq["default"].autoGateClosed()
     if not dataHandler.getLine(scanInfo.copy()):
         raise Exception('mismatched array lengths')

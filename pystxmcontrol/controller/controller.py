@@ -2,7 +2,6 @@ import json, time, traceback
 import threading
 from queue import Queue
 from pystxmcontrol.drivers import *
-import asyncio, prefect
 import os, sys
 from pystxmcontrol.controller.zmqFrameMonitor import zmqFrameMonitor
 from pystxmcontrol.drivers.derivedEnergy import derivedEnergy
@@ -194,7 +193,7 @@ class controller:
             self.daq["ccd"].start()
         self.scanDef = scan
         self.dataHandler.startScanProcess(scan)
-        eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)") #image_scan(scan)
+        eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)")
         self.dataHandler.stopScanProcess()
         self.daq["default"].stop()
         if scan["mode"] == "ptychographyGrid":

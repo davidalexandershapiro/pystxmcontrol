@@ -39,6 +39,7 @@ pystxmcontrol/controller/scans/double_motor_scan.py
 pystxmcontrol/controller/scans/line_focus.py
 pystxmcontrol/controller/scans/line_image.py
 pystxmcontrol/controller/scans/line_spectrum.py
+pystxmcontrol/controller/scans/osa_focus_scan.py
 pystxmcontrol/controller/scans/ptychography_image.py
 pystxmcontrol/controller/scans/scan_utils.py
 pystxmcontrol/controller/scans/single_motor_scan.py

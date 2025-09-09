@@ -23,7 +23,7 @@ class derivedEnergy(motor):
         A0 = self.config["A0"]
         A1 = self.config["A1"]
         energy = self.getPos()
-        self.calibratedPosition = -(A0 + A1 * energy)
+        self.calibratedPosition = A0 - A1 * energy
         return self.calibratedPosition
 
     def moveBy(self, energy_step):

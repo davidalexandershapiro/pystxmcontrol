@@ -140,8 +140,6 @@ class ptycho_monitor(QtCore.QThread):
 class stxm_monitor(QtCore.QThread):
 
     scan_data  = QtCore.Signal(object) #emit message dict with data and descriptors
-    elapsed_time = QtCore.Signal(np.float16)
-    scan_done = QtCore.Signal()
 
     def __init__(self, ip, port):
         QtCore.QThread.__init__(self)

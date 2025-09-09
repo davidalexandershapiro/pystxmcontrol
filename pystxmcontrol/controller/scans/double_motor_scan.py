@@ -2,7 +2,7 @@ import time
 
 def double_motor_scan(scan, dataHandler, controller, queue):
     """
-    Single motor point scan
+    Double motor point scan
     :param scan:
     :return:
     """

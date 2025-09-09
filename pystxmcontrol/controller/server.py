@@ -102,7 +102,7 @@ class stxmServer:
             elif message["command"] == "scan":
                 if not(scanning):
                     message["status"] = True
-                    if "Ptychography" in message["scan"]["type"]:
+                    if "Ptychography" in message["scan"]["scan_type"]:
                         ptychography = True
                     else:
                         ptychography = False
@@ -197,8 +197,7 @@ class stxmServer:
             message["time"] = str(datetime.datetime.now())
             self.command_sock.send_pyobj(message)
 
-a = stxmServer(simulation = options['simulation'])
-command_thread = threading.Thread(target=a.command_handler, args=())
-command_thread.start()
-
-
+if __name__=="__main__":
+    a = stxmServer(simulation = options['simulation'])
+    command_thread = threading.Thread(target=a.command_handler, args=())
+    command_thread.start()

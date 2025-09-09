@@ -1,6 +1,7 @@
 from pystxmcontrol.utils.writeNX import stxm
 from queue import Queue
-import asyncio, prefect
+import asyncio
+import prefect
 import time, os, datetime, threading, zmq
 import numpy as np
 from threading import Lock
@@ -280,10 +281,14 @@ class dataHandler:
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
             self.data.interp_counts[k][m,y,c] = scanInfo['rawData']
-        elif scanInfo["type"] == "Focus":
-            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
-            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
-            self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
+        elif "Focus" in scanInfo["type"]:
+            if scanInfo["mode"]=="continuousLine":
+                self.data.interp_counts[k][0, y, :] = scanInfo["data"]  # this is a matrix
+                self.data.xMeasured[k][0,i:j] = scanInfo["line_positions"][0] #these are long vectors
+                self.data.yMeasured[k][0,i:j] = scanInfo["line_positions"][1]
+            else:
+                c = scanInfo["columnIndex"]
+                self.data.interp_counts[k][0, y, c] = scanInfo["data"]  # this is a matrix
         elif scanInfo["type"] == "Line Spectrum":
             self.data.interp_counts[k][m, 0, :] = scanInfo["data"]  # this is a matrix
             self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]  # these are long vectors
@@ -505,6 +510,7 @@ class dataHandler:
                     self.sendDataChunkToSock(chunk)
                     chunk = []
                 elif scanInfo["mode"] == "point":
+                    scanInfo["data"] = scanInfo["rawData"]
                     scanInfo['image'] = self.addDataToStack(scanInfo)
                     chunk.append(scanInfo)
                     self.sendDataChunkToSock(chunk)
