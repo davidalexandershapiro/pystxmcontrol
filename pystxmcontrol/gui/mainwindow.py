@@ -2155,7 +2155,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             #This can fail if there's a problem with the alsapi server or the environment variables aren't set
             from pystxmcontrol.utils.alsapi import getCurrentEsafList
-            self.esaf_list, self.participants_list = getCurrentEsafList()
+            self.esaf_list, self.participants_list = getCurrentEsafList(beamline = self.client.main_config["source"]["beamline"])
         except:
             #print(traceback.format_exc())
             self.esaf_list = []
