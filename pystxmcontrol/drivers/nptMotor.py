@@ -76,8 +76,8 @@ class nptMotor(motor):
         
     def setPositionTriggerOn(self, pos):
         if not(self.simulation):
-            print("Setting position trigger on axis %i and position = %.4f" %(self.trigger_axis,pos))
-            self.controller.setPositionTrigger(pos = pos, axis = self.trigger_axis, mode = 'on')
+            print(f"Turning position trigger on for axis {self._axis} at position {pos}")
+            self.controller.setPositionTrigger(pos = pos, axis = self._axis, mode = 'on')
         
     def setPositionTriggerOff(self):
         if not(self.simulation):
@@ -127,7 +127,7 @@ class nptMotor(motor):
         if self.checkLimits(pos):
             if not(self.simulation):
                 self.controller.moveTo(axis = self._axis, pos = pos)
-                time.sleep(0.02) #piezo settling time of 10 ms
+                time.sleep(0.01) #piezo settling time of 10 ms
             else:
                 self.position = pos
                 time.sleep(self.waitTime / 1000.)
@@ -149,7 +149,6 @@ class nptMotor(motor):
                 pass
         elif self.lineMode == 'continuous':
             self.update_trajectory(direction = direction)
-            #print(self.trigger_axis, self.start, self.stop,self.trajectory_trigger[self.trigger_axis-1])
             if not (self.simulation):
                 self.controller.linear_trajectory(self.start, self.stop, trigger_axis = self.trigger_axis, \
                                     trigger_position = self.trajectory_trigger[self.trigger_axis-1], \

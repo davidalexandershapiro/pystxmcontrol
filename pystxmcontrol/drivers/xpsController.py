@@ -8,6 +8,7 @@ class xpsController(hardwareController):
         self.simulation = simulation
         self.stopped = False
         self.moving = False
+        self.position = 0. #used for simulation mode
         self._nSockets = 0
         self._sockets = []
 

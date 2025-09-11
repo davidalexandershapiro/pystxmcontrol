@@ -68,6 +68,7 @@ class xerController:
         self.COM_port = address
         self.baud = baudrate
         self.lock = Lock()
+        self.position = 0. #this is just used for simulation mode
         
     def initialize(self, simulation = False):
         self.simulation = simulation

@@ -23,6 +23,10 @@ def line_image(scan, dataHandler, controller, queue):
     energyIndex = 0
     nScanRegions = len(xPos)
     energy = energies[0]
+    if scan["oversampling_factor"] > 1:
+        scanInfo["interpolate"] = True
+    else:
+        scanInfo["interpolate"] = False
     if not scanInfo['scan']['autofocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
     for energy in energies:

@@ -21,6 +21,10 @@ def line_spectrum(scan, dataHandler, controller, queue):
     scanRegion = "Region1"  # only single region scans for line spectrum
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["dwell"] = dataHandler.data.dwells[0]
+    if scan["oversampling_factor"] > 1:
+        scanInfo["interpolate"] = True
+    else:
+        scanInfo["interpolate"] = False
 
     xStart, xStop = scan["scan_regions"][scanRegion]["xStart"], scan["scan_regions"][scanRegion]["xStop"]
     yStart, yStop = scan["scan_regions"][scanRegion]["yStart"], scan["scan_regions"][scanRegion]["yStop"]

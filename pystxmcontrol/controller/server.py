@@ -32,9 +32,18 @@ class stxmServer:
             #recv_pyobj is blocking so we need to check the scan thread status after getting the message
             scanning = self.controller.scanThread.is_alive()
             if message["command"] == "get_config":
+                self.controller.readConfig()
+                self.controller.updateMotorConfig()
                 message["status"] = True
                 message["data"] = self.controller.motorConfig, self.controller.scanConfig, \
                     self.controller.allMotorPositions,self.controller.daqConfig, self.controller.main_config
+                message["mode"] = "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+            elif message["command"] == "move_to_focus":
+                self.controller.move_to_focus()
+                message["status"] = True
+                message["data"] = None
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)

@@ -7,6 +7,7 @@ class epicsController(hardwareController):
         self.address = address
         self.port = port
         self.simulation = simulation
+        self.position = 0. #used for simulation mode
 
     def initialize(self, simulation = False):
         self.simulation = simulation

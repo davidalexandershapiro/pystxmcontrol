@@ -15,6 +15,7 @@ class xerMotor(motor):
         self.config['maxValue'] = 15000.0
         self.config["offset"] = -10000
         self.config["units"] = 1000.
+        self._controller_position = 0. #used for simulation mode
     
     def connect(self, axis = 'X'):
         self.simulation = self.controller.simulation
@@ -67,7 +68,8 @@ class xerMotor(motor):
                     if count == 6:
                         print("ZonePlateZ motor giving up.  Just couldn't get there. Sorry y'all.")
             else:
-                self.position = pos
+                self._controller_position = (pos - self.config["offset"]) / self.config["units"]
+                self.position = self.getPos()
         else:
             print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
         
@@ -77,7 +79,7 @@ class xerMotor(motor):
                 self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
             return self.position
         else:
-            return self.position
+            return self._controller_position * self.config["units"] + self.config["offset"]
         
     def home(self):
         if not(self.simulation):

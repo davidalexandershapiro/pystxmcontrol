@@ -109,6 +109,9 @@ class dataHandler:
         except:
             pass
 
+        if not scanInfo["interpolate"]:
+            return scanInfo["rawData"]
+
         if scanInfo["mode"] == "continuousLine":
 
             xReq = scanInfo["xVal"]
@@ -302,12 +305,12 @@ class dataHandler:
         return self.data.interp_counts[k][m,:,:]
 
     def tiled_scan(self, scan):
-        xStart = scan["scanRegions"]["Region1"]["xStart"]
-        xStop = scan["scanRegions"]["Region1"]["xStop"]
-        yStart = scan["scanRegions"]["Region1"]["yStart"]
-        yStop = scan["scanRegions"]["Region1"]["yStop"]
-        xStep = scan["scanRegions"]["Region1"]["xStep"]
-        yStep = scan["scanRegions"]["Region1"]["yStep"]
+        xStart = scan["scan_regions"]["Region1"]["xStart"]
+        xStop = scan["scan_regions"]["Region1"]["xStop"]
+        yStart = scan["scan_regions"]["Region1"]["yStart"]
+        yStop = scan["scan_regions"]["Region1"]["yStop"]
+        xStep = scan["scan_regions"]["Region1"]["xStep"]
+        yStep = scan["scan_regions"]["Region1"]["yStep"]
         nxblocks, xcoarse, x_fine_start, x_fine_stop = \
             self.controller.motors[scan["x"]]["motor"].decompose_range(xStart,xStop)
         nyblocks, ycoarse, y_fine_start, y_fine_stop = \
@@ -331,9 +334,9 @@ class dataHandler:
 
         #convert from one large scan region to several small scan regions
         #extract some data (like step size) from existing scan region before overwriting
-        xstep = scan["scanRegions"]["Region1"]["xStep"]
-        ystep = scan["scanRegions"]["Region1"]["yStep"]
-        scan["scanRegions"] = {}
+        xstep = scan["scan_regions"]["Region1"]["xStep"]
+        ystep = scan["scan_regions"]["Region1"]["yStep"]
+        scan["scan_regions"] = {}
         for i in range(nblocks):
             xstart = xcoarse[i] + x_fine_start[i] ##fine_start is always negative because the fine range is centered on 0
             xstop = xcoarse[i] + x_fine_stop[i]  ##fine_stop is always positive for the same reason
@@ -345,7 +348,7 @@ class dataHandler:
             yrange = ystop - ystart
             ycenter = ystart + yrange / 2.
             ypoints = int(yrange / ystep)
-            scan["scanRegions"]["Region" + str(i+1)] = {"xStart": xstart,
+            scan["scan_regions"]["Region" + str(i+1)] = {"xStart": xstart,
                                                       "xStop": xstop,
                                                       "xPoints": xpoints,
                                                       "xStep": xstep,
@@ -434,9 +437,9 @@ class dataHandler:
         scanInfo["energyRegion"] = "EnergyRegion1"
         scanInfo["scanRegion"] = "Region1"
         scanInfo["dwell"] = self.controller.main_config["monitor"]["dwell"]
-        scanInfo["elapsedTime"] = time.time()
         chunk = []
         while True:
+            scanInfo["elapsedTime"] = time.time()
             time.sleep(0.01)
             self.daq["default"].autoGateOpen(shutter=0)
             self.getPoint(scanInfo)

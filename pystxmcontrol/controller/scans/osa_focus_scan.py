@@ -11,7 +11,7 @@ def osa_focus_scan(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies
     scanInfo = {"mode": "point"}
     scanInfo["scan"] = scan
-    scanInfo["type"] = scan["type"]
+    scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
@@ -51,8 +51,8 @@ def osa_focus_scan(scan, dataHandler, controller, queue):
     for i in range(len(z)):
         controller.moveMotor("ZonePlateZ", z[i]-A0)
         for j in range(len(x)):
-            controller.moveMotor(scan["y"], yPos[0][j])
-            controller.moveMotor(scan["x"], xPos[0][j])
+            controller.moveMotor(scan["y_motor"], yPos[0][j])
+            controller.moveMotor(scan["x_motor"], xPos[0][j])
             controller.getMotorPositions()
             dataHandler.data.motorPositions[0] = controller.allMotorPositions
             scanInfo["motorPositions"] = controller.allMotorPositions

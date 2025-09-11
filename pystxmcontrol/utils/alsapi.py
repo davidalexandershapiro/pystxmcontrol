@@ -173,7 +173,7 @@ def getCurrentProposalList():
     active_experiments = response.json()
     return [b["ProposalFriendlyId"] for b in active_experiments]
 
-def getCurrentEsafList():
+def getCurrentEsafList(beamline = beamline):
     setupQuery()
     query = f"/{beamline}?start={start_time}&stop={stop_time}"
     response = api_response(query, base_url=EXPERIMENT_API_BASE_URL)

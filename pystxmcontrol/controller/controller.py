@@ -55,6 +55,10 @@ class controller:
         self.main_config = json.loads(open(self.mainConfigFile).read())
         self.daqConfig = json.loads(open(self.daqConfigFile).read())
 
+    def updateMotorConfig(self):
+        for key in self.motorConfig.keys():
+            setattr(self.motors[key]["motor"], "config", self.motorConfig[key])
+
     def addController(self, config):
         """
         :param config: motor configuration dictionary
@@ -225,6 +229,12 @@ class controller:
             print(traceback.format_exc())
         return data
     
+    def move_to_focus(self):
+        #move the SampleZ to A0
+        self.moveMotor("SampleZ",pos = self.motors["Energy"]["motor"].config["A0"])
+        self.motors["Energy"]["motor"].getZonePlateCalibration()
+        #move the zone plate to the calibrated position
+        self.moveMotor("ZonePlateZ",pos = self.motors["Energy"]["motor"].calibratedPosition)
     
     
     

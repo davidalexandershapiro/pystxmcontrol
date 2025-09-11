@@ -68,7 +68,15 @@ class nptController(hardwareController):
         else:
             return None
 
-    def getAxis(self, axis = None):
+    def getAxisAddress(self, axis = None):
+        if axis == 1:
+            return self.axis1address
+        elif axis == 2:
+            return self.axis2address
+        else:
+            return None
+    
+    def getAxis(self,axis=None):
         if axis in self.axesList:
             return self.axesList.index(axis) + 1
         else:
@@ -79,7 +87,6 @@ class nptController(hardwareController):
             writeAddr = self.posAddress(axis)
             pos = int(round(float(self.nmToSteps(pos * 1000.))))
             pos = int(self.signedIntToHex(pos),16)
-            #print(pos)
             self.writeToDev4B(writeAddr, pos)
 
     def getPos(self, axis = None):
@@ -503,6 +510,129 @@ class nptController(hardwareController):
             self.writeToDev4B(self.getAddress(axis = axis)+0xC64, trigger_position) #write position offset
             self.writeToDev4B(self.getAddress(axis = axis)+0xC6C, 0) #write 0 after changing parameters
             
+    def setup_trajectory(self,trigger_axis, start_position, stop_position, \
+        trajectory_pixel_dwell, trajectory_pixel_count, mode=None, pad=None, **kwargs):
+        """
+        This function is required by derivedPiezo.py in order to execute a linear trajectory (flyscan line).  It
+        sets up the trajectory parameters which are later written to the device by acquire_xy.
+        :param trigger_axis: axis to trigger on
+        :type trigger_axis: int
+        :param start: start position (x,y)
+        :type start: tuple
+        :param stop: stop position (x,y)
+        :type stop: tuple
+        :param trajectory_pixel_dwell: dwell time per pixel
+        :type trajectory_pixel_dwell: float
+        :param trajectory_pixel_count: number of pixels in the trajectory
+        :type trajectory_pixel_count: int
+        :param mode: mode to run the trajectory in
+        :type mode: str
+        :return: None
+        """
+        #calculate requested positions so they can be returned by acquire_xy.  Must remove the acceleration distance.
+        x0,y0 = start_position
+        x1,y1 = stop_position
+        start_x = x0 + pad[0]
+        stop_x = x1 - pad[0]
+        start_y = y0 + pad[1]
+        stop_y = y1 - pad[1]
+        self.positions = np.linspace(start_x, stop_x, trajectory_pixel_count), np.linspace(start_y, stop_y, trajectory_pixel_count)
+        xvelocity = (stop_x - start_x) / (trajectory_pixel_count * trajectory_pixel_dwell)
+        yvelocity = (stop_y - start_y) / (trajectory_pixel_count * trajectory_pixel_dwell)
+        velocitySum = np.sqrt(xvelocity**2 + yvelocity**2)
+
+        distance = np.sqrt((x1-x0)**2 + (y1-y0)**2)
+        start_x = self.nmToSteps(1000.*start_position[0])
+        start_x = int(self.signedIntToHex(start_x),16)
+        start_y = self.nmToSteps(1000.*start_position[1])
+        start_y = int(self.signedIntToHex(start_y),16)
+        stop_x = self.nmToSteps(1000.*stop_position[0])
+        stop_x = int(self.signedIntToHex(stop_x),16)
+        stop_y = self.nmToSteps(1000.*stop_position[1])
+        stop_y = int(self.signedIntToHex(stop_y),16)
+        delay = distance / velocitySum / 1000.+0.005
+        self.trajectory = {}
+        self.trajectory["trigger_axis"] = trigger_axis
+        self.trajectory["start"] = start_position
+        self.trajectory["stop"] = stop_position
+        self.trajectory["trajectory_pixel_dwell"] = trajectory_pixel_dwell
+        self.trajectory["trajectory_pixel_count"] = trajectory_pixel_count
+        self.trajectory["mode"] = mode
+        self.trajectory["delay"] = delay
+        self.trajectory["start_x"] = start_x
+        self.trajectory["start_y"] = start_y
+        self.trajectory["stop_x"] = stop_x
+        self.trajectory["stop_y"] = stop_y
+        self.trajectory["velocitySum"] = velocitySum
+        self.trajectory["distance"] = distance
+        self.npositions = trajectory_pixel_count
+
+    def acquire_xy(self,axes=[1,],**kwargs):
+        #this trajectory will be along the X axis at a given y_center position
+        #center/range are in microns, velocity is microns/millisecond and dwell is millisecond
+        for axis in axes:
+            self.writeToDev4B(self.getAxisAddress(axis)+0xB10, 1)  # enable trajectory generation on axis 1
+        self.writeToDev4B(0x1182A000, 2) #Number of coordinates in trajectory, just doing a line here
+        self.writeToDev4B(0x1182A004, 1) #Number of trajectory iterations
+
+        ##write the positions, velocity, acceleration, jerk and dwell for the two coordinates
+        self.writeToDev4B(0x1182A6A0, self.trajectory["start_x"])
+        self.writeNext(self.trajectory["start_y"]) #not strictly needed for 1D scan line
+
+        #the next 4 values are blank
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+
+        #now for the velocity limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+
+        #Acceleration limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+
+        #Jerk limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+
+        #Dwell at start
+        self.writeNext(self.timeToCounts(0.0))
+
+        ##Repeat for second coordinate
+        self.writeNext(self.trajectory["stop_x"])
+        self.writeNext(self.trajectory["stop_y"])
+
+        #the next 4 values are blank
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+
+        #now for the velocity limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+
+        #Acceleration limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+
+        #Jerk limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+
+        #Dwell at start
+        self.writeNext(self.timeToCounts(0.0))
+
+        #Start the trajectory
+        self.writeToDev4B(0x11829048,1)
+
+        #just wait the expected time (plus 10 ms) and then exit.  Assumes accurate velocity
+        time.sleep(1. * self.trajectory["distance"] / self.trajectory["velocitySum"] / 1000.+0.01)
+
+        #Stop the trajectory, just to be certain?
+        self.writeToDev4B(0x1182904C,1)
+
+        #disable trajectories on both axes
+        self.writeToDev4B(self.axis1address+0xB10, 0)  # disable trajectory generation on axis 1
+        self.writeToDev4B(self.axis2address+0xB10, 0)  # disable trajectory generation on axis 2
+        return self.positions
+
     def linear_trajectory(self, start_position, stop_position, trigger_axis = 1, trigger_position = None, \
                             velocity = (0.2,0.2), dwell = 10.):
 

@@ -1,5 +1,6 @@
 from time import time,sleep
 import numpy as np
+import traceback
 
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
@@ -30,17 +31,24 @@ def executeReturnTrajectory(self, motor, xStart, xStop, yStart, yStop):
     motor.moveLine()
 
 
-def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
     # try:
     controller.daq["default"].initLine()
     controller.daq["default"].autoGateOpen()
     #Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
-    sleep(0.02)
+    if scan["spiral"]:
+        sleep(0.02)
     if "offset" not in scanInfo.keys():
         scanInfo["offset"] = 0,0
-    controller.motors[scan["x_motor"]]["motor"].moveLine(coarse_offset = scanInfo["offset"])
+    controller.motors[scan["x_motor"]]["motor"].moveLine(coarse_offset = \
+        scanInfo["offset"], coarse_only = scan["coarse_only"],axes=axes)
     scanInfo["line_positions"] = controller.motors[scan["x_motor"]]["motor"].positions
     controller.daq["default"].autoGateClosed()
-    if not dataHandler.getLine(scanInfo.copy()):
-        raise Exception('mismatched array lengths')
+    try: 
+        #this will timeout if there is a missed trigger.  That can happen at the start of
+        #big scans or some reason.
+        dataHandler.getLine(scanInfo.copy())
+    except Exception as e:
+        traceback.print_exc()
+        return False
     return True

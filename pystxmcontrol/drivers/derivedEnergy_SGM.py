@@ -25,9 +25,6 @@ class derivedEnergy_SGM(motor):
         ##should this use the position provided by the beamline or the theoretical value?
         ##I don't trust the beamline numbers
         A0 = self.config["A0"]
-        # currentZ = self.axes["axis3"].getPos()
-        # if self.config["A0_min"] <= currentZ <= self.config["A0_max"]:
-        #     A0 = currentZ
         A1 = self.config["A1"]
         if energy == None:
             energy = self.getPos()
@@ -47,22 +44,23 @@ class derivedEnergy_SGM(motor):
         """
         pos = Energy (eV)
         """
+
         ##this "pos" is energy and needs to be converted to "GratingArm" units which is what the BCS motor will use
         alpha = np.arcsin(0.5 * self.grooveDensity * 0.001239852 / (pos * np.cos(0.5 * self.includedAngle*np.pi/180.)))
         gratingPos = self.monoArm * np.tan(-alpha)
-        if debug:
-            print("[moveTo] gratingPos ", gratingPos)
         self.moving = True
         #self.logger.log("Moving beamline energy to %.4f" %pos,level = "info")
         if not(debug):
             self.axes["axis1"].moveTo(gratingPos)
+        else:
+            print("[moveTo] gratingPos: ", gratingPos)
         # self.logger.log("Moving zone plate to %.4f" %self.calibratedPosition,level = "info")
         self.calibratedPosition = self.getZonePlateCalibration()
-        if debug:
-            print("[moveTo] Calibrated zone plate position: %.4f" %self.getZonePlateCalibration(energy = pos))
         # self.logger.log("moving zone plate to %.4f" %self.calibratedPosition, level="info")
         if not(debug):
             self.axes["axis2"].moveTo(self.calibratedPosition)
+        else:
+            print("[moveTo] Calibrated zone plate position: %.4f" %self.getZonePlateCalibration(energy = pos))
         self.moving = False
 
     def getPos(self, debug = False):

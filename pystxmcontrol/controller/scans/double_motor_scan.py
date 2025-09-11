@@ -11,12 +11,12 @@ def double_motor_scan(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies
     scanInfo = {"mode": "point"}
     scanInfo["scan"] = scan
-    scanInfo["type"] = scan["type"]
+    scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
 
-    if not scanInfo['scan']['refocus']:
+    if not scanInfo['scan']['autofocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
     for energy in energies:
         ##scanInfo is what gets passed with each data transmission
@@ -25,7 +25,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
         if len(energies) > 1:
             controller.moveMotor(scan["energy"], energy)
-            if not scanInfo['scan']['refocus']:
+            if not scanInfo['scan']['autofocus']:
                 if energy == energies[0]:
                     scanInfo['refocus_offset'] = currentZonePlateZ - controller.motors['ZonePlateZ'][
                         'motor'].calibratedPosition
@@ -34,7 +34,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
                                           controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
                                               'refocus_offset'])
         else:
-            if scanInfo['scan']['refocus']:
+            if scanInfo['scan']['autofocus']:
                 controller.moveMotor("ZonePlateZ",
                                           controller.motors["Energy"]["motor"].calibratedPosition)
         x, y = xPos[regionNum], yPos[regionNum]
@@ -57,7 +57,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yRange"] = 0
         controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
         for i in range(len(yPos[0])):
-            controller.moveMotor(scan["y"], yPos[0][i])
+            controller.moveMotor(scan["y_motor"], yPos[0][i])
             #time.sleep(0.02)
             controller.getMotorPositions()
             dataHandler.data.motorPositions[0] = controller.allMotorPositions
@@ -66,7 +66,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
                 scanInfo["lineIndex"] = i
                 scanInfo["columnIndex"] = j
                 scanInfo["index"] = i * len(yPos[0]) + j
-                controller.moveMotor(scan["x"], xPos[0][j])
+                controller.moveMotor(scan["x_motor"], xPos[0][j])
                 #time.sleep(0.02)
                 if queue.empty():
                     controller.daq["default"].autoGateOpen(shutter=True)

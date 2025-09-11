@@ -116,7 +116,7 @@ def ptychography_image(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "ptychographyGrid"}
-    scanInfo["type"] = scan["type"]
+    scanInfo["type"] = scan["scan_type"]
     scanInfo["scan"] = scan
     energyIndex = 0
     nScanRegions = len(xPos)

@@ -26,6 +26,10 @@ def line_focus(scan, dataHandler, controller, queue):
     scanInfo["xVal"] = xPos
     scanInfo["yVal"] = yPos
     scanInfo['totalSplit'] = None
+    if scan["oversampling_factor"] > 1:
+        scanInfo["interpolate"] = True
+    else:
+        scanInfo["interpolate"] = False
 
     scanInfo["include_return"] = True
     controller.motors[scan["x_motor"]]["motor"].include_return = scanInfo["include_return"]

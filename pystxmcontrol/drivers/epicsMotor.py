@@ -10,6 +10,8 @@ class epicsMotor(motor):
         self.offset = 0.
         self.units = 1.
         self.calibratedPosition = 0.
+        self.moving = False
+        self._controller_position = 0. #used for simulation mode
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -17,9 +19,7 @@ class epicsMotor(motor):
     def getStatus(self, **kwargs):
         if not (self.simulation):
             self.moving = caget(self.axis + ".MOVN")
-            return self.moving
-        else:
-            return True
+        return self.moving
 
     def stop(self):
         return
@@ -45,7 +45,8 @@ class epicsMotor(motor):
                 while self.getStatus():
                     time.sleep(0.1)
             else:
-                self.position = pos
+                self._controller_position = (pos - self.config["offset"]) / self.config["units"]
+                self.position = self.getPos()
         else:
             print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
 
@@ -54,7 +55,7 @@ class epicsMotor(motor):
             self.position = caget(self.axis + ".VAL") * self.config["units"] + self.config["offset"]
             return self.position
         else:
-            return self.position
+            return self._controller_position * self.config["units"] + self.config["offset"]
 
     def connect(self, axis = None):
         self.simulation = self.controller.simulation
