@@ -651,24 +651,25 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.energyRegList[-1].energyDef.energyStart.setText(str(newValue))
 
     def updateA0(self, A0 = None):
-        try:
-            if A0 == None:
-                newValue = float(self.ui.A0Edit.text())
+        if self.client.main_config["geometry"]["A0_calibrated"]:
+            try:
+                if A0 == None:
+                    newValue = float(self.ui.A0Edit.text())
+                else:
+                    newValue = A0
+            except:
+                self.errorPopup("Please enter a valid number")
+                return
+            if (newValue < self.client.motorInfo["Energy"]["A0_min"]) or (newValue > self.client.motorInfo["Energy"]["A0_max"]):
+                self.errorPopup("Requested A0 exceeds allowed limits")
             else:
-                newValue = A0
-        except:
-            self.errorPopup("Please enter a valid number")
-            return
-        if (newValue < self.client.motorInfo["Energy"]["A0_min"]) or (newValue > self.client.motorInfo["Energy"]["A0_max"]):
-            self.errorPopup("Requested A0 exceeds allowed limits")
-        else:
-            message = {"command": "changeMotorConfig"}
-            message["data"] = {"motor":"Energy","config":"A0","value":newValue}
-            self.messageQueue.put(message)
-            self.client.get_config()
+                message = {"command": "changeMotorConfig"}
+                message["data"] = {"motor":"Energy","config":"A0","value":newValue}
+                self.messageQueue.put(message)
+                self.client.get_config()
 
-            message = {"command": "move_to_focus"}
-            self.messageQueue.put(message)
+                message = {"command": "move_to_focus"}
+                self.messageQueue.put(message)
 
     def updateDS(self):
         try:
@@ -805,7 +806,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             #We need another mode which doesn't move the SampleZ stage so that this will do just the old style focus scan.
             #zonePlateCalibration position is the expected focus on the sample.  Measure difference between that and focus in the scan.
             #apply that difference to A0.  This is a calibration of A0.
-            if not self.client.motorInfo["Energy"]["A0_fixed"]:
+            if self.client.main_config["geometry"]["A0_calibrated"]:
                 newA0 = A0 - (self.zonePlateCalibration - self.cursorFocusZ)
                 print(f"Setting A0 to {newA0}")
                 self.updateA0(A0=newA0)
