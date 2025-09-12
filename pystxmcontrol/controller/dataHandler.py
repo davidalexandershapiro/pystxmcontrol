@@ -1,7 +1,7 @@
 from pystxmcontrol.utils.writeNX import stxm
 from queue import Queue
-import asyncio
-import prefect
+# import asyncio
+# import prefect
 import time, os, datetime, threading, zmq
 import numpy as np
 from threading import Lock
@@ -381,54 +381,54 @@ class dataHandler:
         self.data.close()
         print("Completed scan process.")
 
-    def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
-        # Same prefect client, but if you know the url and api_key
-        # httpx_settings allows you to affect the http client that the prefect client uses
-        return prefect.PrefectClient(
-            prefect_api_url,
-            api_key=prefect_api_key,
-            httpx_settings=httpx_settings)
+    # def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
+    #     # Same prefect client, but if you know the url and api_key
+    #     # httpx_settings allows you to affect the http client that the prefect client uses
+    #     return prefect.PrefectClient(
+    #         prefect_api_url,
+    #         api_key=prefect_api_key,
+    #         httpx_settings=httpx_settings)
 
-    async def prefect_start_nersc_flow(self, prefect_client, deployment_name, file_path):
-        deployment = await prefect_client.read_deployment_by_name(deployment_name)
-        flow_run = await prefect_client.create_flow_run_from_deployment(
-            deployment.id,
-            name=os.path.basename(file_path),
-            parameters={"file_path": file_path},
-        )
-        return flow_run
+    # async def prefect_start_nersc_flow(self, prefect_client, deployment_name, file_path):
+    #     deployment = await prefect_client.read_deployment_by_name(deployment_name)
+    #     flow_run = await prefect_client.create_flow_run_from_deployment(
+    #         deployment.id,
+    #         name=os.path.basename(file_path),
+    #         parameters={"file_path": file_path},
+    #     )
+    #     return flow_run
 
-    async def prefect_start_stxmdb_flow(self, prefect_client, deployment_name, file_path):
-        deployment = await prefect_client.read_deployment_by_name(deployment_name)
-        flow_run = await prefect_client.create_flow_run_from_deployment(
-            deployment.id,
-            name=os.path.basename(file_path),
-            parameters={"file_path": file_path},
-        )
-        return flow_run
+    # async def prefect_start_stxmdb_flow(self, prefect_client, deployment_name, file_path):
+    #     deployment = await prefect_client.read_deployment_by_name(deployment_name)
+    #     flow_run = await prefect_client.create_flow_run_from_deployment(
+    #         deployment.id,
+    #         name=os.path.basename(file_path),
+    #         parameters={"file_path": file_path},
+    #     )
+    #     return flow_run
 
-    def prefect_nersc_transfer(self, file_name):
-        print("[prefect]: Initializing data transfer to NERSC for file %s" %file_name)
-        year_2digits = file_name[3:5]
-        year_4digits = '20' + year_2digits
-        month = file_name[5:7]
-        day = file_name[7:9]
-        file_path = f"{year_4digits}/{month}/{year_2digits}{month}{day}/{file_name}"
-        print("[prefect]: Saving data in path %s" %file_path)
+    # def prefect_nersc_transfer(self, file_name):
+    #     print("[prefect]: Initializing data transfer to NERSC for file %s" %file_name)
+    #     year_2digits = file_name[3:5]
+    #     year_4digits = '20' + year_2digits
+    #     month = file_name[5:7]
+    #     day = file_name[7:9]
+    #     file_path = f"{year_4digits}/{month}/{year_2digits}{month}{day}/{file_name}"
+    #     print("[prefect]: Saving data in path %s" %file_path)
 
-        prefect_api_url = os.getenv('PREFECT_API_URL')
-        prefect_api_key = os.getenv('PREFECT_API_KEY')
-        prefect_deployment = "process_newfile_7012_ptycho4/process_newdata7012_ptycho4"
-        client = self.get_prefect_client(prefect_api_url, prefect_api_key)
-        asyncio.run(self.prefect_start_nersc_flow(client, prefect_deployment, file_path))
+    #     prefect_api_url = os.getenv('PREFECT_API_URL')
+    #     prefect_api_key = os.getenv('PREFECT_API_KEY')
+    #     prefect_deployment = "process_newfile_7012_ptycho4/process_newdata7012_ptycho4"
+    #     client = self.get_prefect_client(prefect_api_url, prefect_api_key)
+    #     asyncio.run(self.prefect_start_nersc_flow(client, prefect_deployment, file_path))
 
-    def prefect_stxmdb_transfer(self):
-        print("[prefect]: Initializing entry to stxmdb %s" %self.data.file_name)
-        prefect_api_url = os.getenv('PREFECT_API_URL')
-        prefect_api_key = os.getenv('PREFECT_API_KEY')
-        prefect_deployment = "stxmdb_add_entry/stxmdb_add_entry"
-        client = self.get_prefect_client(prefect_api_url, prefect_api_key)
-        asyncio.run(self.prefect_start_stxmdb_flow(client, prefect_deployment, self.data.file_name))
+    # def prefect_stxmdb_transfer(self):
+    #     print("[prefect]: Initializing entry to stxmdb %s" %self.data.file_name)
+    #     prefect_api_url = os.getenv('PREFECT_API_URL')
+    #     prefect_api_key = os.getenv('PREFECT_API_KEY')
+    #     prefect_deployment = "stxmdb_add_entry/stxmdb_add_entry"
+    #     client = self.get_prefect_client(prefect_api_url, prefect_api_key)
+    #     asyncio.run(self.prefect_start_stxmdb_flow(client, prefect_deployment, self.data.file_name))
 
     def monitor(self):
         scanInfo = {"type": "monitor"}
@@ -546,7 +546,6 @@ class dataHandler:
         if scanInfo["mode"] == "ptychographyGrid":
             data = self.daq["ccd"].getPoint()
             if data is not None:
-                #frame_num, scanInfo["ccd_frame"] = self.daq["ccd"].getPoint()
                 frame_num, scanInfo["ccd_frame"] = data
                 scanInfo["rawData"] = np.array(0.)
             else:

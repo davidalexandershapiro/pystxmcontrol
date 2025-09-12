@@ -1039,7 +1039,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 zPoints = 1
                 zStep = 0
             elif ("Focus" in self.scanType):
-                self.scan["z_motor"] = scanMotorList["zMotor"]
+                self.scan["z_motor"] = scanMotorList["z_motor"]
                 xCenter = float(region.ui.xCenter.text())
                 yCenter = float(region.ui.yCenter.text())
                 xRange = self.xLineRange
@@ -1920,6 +1920,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             xCenter = np.min((x0,x1)) + self.xLineRange / 2.
             yCenter = np.min((y0,y1)) + self.yLineRange / 2.
             length = np.sqrt((x1-x0)**2+(y1-y0)**2)
+            if length > 70:
+                self.ui.lineLengthEdit.setText(str(70))
+                self.ui.lineLengthEdit.returnPressed.emit()
+                return
             try:
                 if y0 > y1:
                     sign = -1
@@ -1928,7 +1932,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.lineAngle = sign * np.round(90.-np.abs(180.*np.arctan((x1-x0)/(y1-y0))/np.pi),1)
             except:
                 pass
-                #angle = 0
             self.ui.lineAngleEdit.setText(str(self.lineAngle))
             self.ui.lineLengthEdit.setText(str(np.round(length,3)))
 

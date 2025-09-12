@@ -197,6 +197,7 @@ class derivedPiezo(motor):
                 self.axes["axis2"].setAxisParams(velocity = velocity)
                 t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
+                self.axes["axis2"].setAxisParams(velocity = 2.0)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
                 self.positions = self.axes["axis1"].controller.acquire_xy()
