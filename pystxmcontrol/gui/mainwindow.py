@@ -88,6 +88,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.motorMover2Minus.clicked.connect(self.moveMotor2Minus)
         self.ui.energyEdit.returnPressed.connect(self.updateEnergy)
         self.ui.A0Edit.returnPressed.connect(self.updateA0)
+        self.ui.A1Edit.returnPressed.connect(self.updateA1)
         self.ui.dsEdit.returnPressed.connect(self.updateDS)
         self.ui.ndsEdit.returnPressed.connect(self.updateNDS)
         self.ui.m101Edit.returnPressed.connect(self.updateM101)
@@ -139,6 +140,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.motors2CursorButton.setEnabled(False)
         self.ui.motors2CursorButton.clicked.connect(self.motors2Cursor)
         self.ui.xMotorCombo.currentIndexChanged.connect(self.setEnergyScan)
+        self.ui.A1Edit.setEnabled(False)
         #self.ui.scan_angle.valueChanged.connect(self.updateDial)
 
         self.tiled_scan = False
@@ -345,6 +347,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateExperimenters(self):
         if self.ui.proposalComboBox.currentText() == "Staff Access":
             self.activateGUI()
+            self.activateStaff()
             self.setWarningBanner("Users cannot access this data!")
         elif self.ui.proposalComboBox.currentIndex() > 0:
             plist = self.participants_list[self.ui.proposalComboBox.currentIndex()-1]
@@ -357,6 +360,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.experimentersLineEdit.setText('')
             self.setWarningBanner("Select a proposal to activate the GUI")
             self.deactivateGUI()
+            self.deactivateStaff()
+
+    def activateStaff(self):
+        self.ui.A1Edit.setEnabled(True)
+
+    def deactivateStaff(self):
+        self.ui.A1Edit.setEnabled(False)
 
     def updateCompositeImage(self):
         if self.ui.compositeImageCheckbox.isChecked():
@@ -670,6 +680,20 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
                 message = {"command": "move_to_focus"}
                 self.messageQueue.put(message)
+        
+    def updateA1(self, A1 = None):
+        try:
+            if A1 == None:
+                newValue = float(self.ui.A1Edit.text())
+            else:
+                newValue = A1
+        except:
+            self.errorPopup("Please enter a valid number")
+            return
+        message = {"command": "changeMotorConfig"}
+        message["data"] = {"motor":"Energy","config":"A1","value":newValue}
+        self.messageQueue.put(message)
+        self.client.get_config() 
 
     def updateDS(self):
         try:
@@ -759,8 +783,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
             if "Image" in self.scan["scan_type"] or self.scan["scan_type"] == "Double Motor":
 
-                x = (scenePos.x() * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2.
-                y = (scenePos.y() * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2.
+                x = (scenePos.x() * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2. - self.xPixelSize / 2.
+                y = (scenePos.y() * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2. - self.yPixelSize / 2.
+                print(scenePos.x(),scenePos.y(),self.imageScale)
                 self.cursorX, self.cursorY = x,y
                 self.ui.motors2CursorButton.setEnabled(True)
                 if self.scan["scan_type"] == "Double Motor":
@@ -1103,6 +1128,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 zPoints = 1
                 zStep = 0
                 zStep = 0
+            
+            #these are used to properly set the crosshairs when clicking in the image
+            self.xPixelSize = xStep
+            self.yPixelSize = yStep
+
             self.scan["scan_regions"][regStr]["xStart"] = xCenter - xRange / 2.0 + xStep / 2.
             self.scan["scan_regions"][regStr]["xStop"] = xCenter + xRange / 2.0 - xStep / 2.
             self.scan["scan_regions"][regStr]["xPoints"] = xPoints
@@ -1374,7 +1404,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if nEnergies > 1:
                 motor = "Energy"
             else:
-                motor = self.last_scan["Single Motor"]["x"]
+                motor = self.last_scan["Single Motor"]["x_motor"]
             if self.yPlot is not None:
                 self.ui.mainPlot.removeItem(self.yPlot)
             if self.xPlot is not None:
@@ -1674,6 +1704,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         status = self.currentMotorStatus["NONDISPERSIVE_SLIT"]
         self.setMotorLabel(self.ui.ndsLabel,str(np.round(self.currentMotorPositions["NONDISPERSIVE_SLIT"], 1)),status)
         self.setMotorLabel(self.ui.A0Label,str(int(self.client.motorInfo["Energy"]["A0"])),False)
+        self.setMotorLabel(self.ui.A1Label,str(round(self.client.motorInfo["Energy"]["A1"],4)),False)
         try:
             status = self.currentMotorStatus["POLARIZATION"]
             self.setMotorLabel(self.ui.polLabel,str(np.round(self.currentMotorPositions["POLARIZATION"], 2)),status)

@@ -53,8 +53,9 @@ class derivedPiezo(motor):
         if not (self.simulation):
             self.axes["axis1"].controller.pidWrite(pid, axis=self._piezoAxis)
 
-    def setPositionTriggerOn(self, pos):
-        print(f"Setting position trigger for piezo axis {self._piezoAxis} at position {pos}")
+    def setPositionTriggerOn(self, pos, debug = False):
+        if debug:
+            print(f"[derivedPiezo] Setting position trigger for piezo axis {self.axis} (controller axes {self._piezoAxis}) at position {pos}")
         self.axes["axis1"].setPositionTriggerOn(pos = pos)
 
     def setPositionTriggerOff(self):
@@ -115,13 +116,10 @@ class derivedPiezo(motor):
         # 2D trajectories could trigger off of either axis
         if x_range < y_range:
             self.trigger_axis = 2
-            # self.xpad = 0
         else:
             self.trigger_axis = 1
-            # self.ypad = 0
 
         if direction == "forward":
-            # self.start = x0 - self.xpad, y0 - self.ypad
             self.start = x0 - self.xpad, y0 - self.ypad
             self.stop = x1 + self.xpad, y1 + self.ypad
             self.trajectory_trigger = x0, y0
@@ -237,6 +235,9 @@ class derivedPiezo(motor):
                 self.axes["axis1"].setZero()
                 if not(coarse_only):
                     self.axes["axis1"].servoState(True)
+            #use the piezo to clean up slop in the coarse motion
+            deltaPos = pos - self.getPos()
+            self.axes["axis1"].moveTo(deltaPos)
 
         self.moving = False
 

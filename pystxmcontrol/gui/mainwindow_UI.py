@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'mainwindow.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.7.3
+## Created by: Qt User Interface Compiler version 6.8.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -33,13 +33,13 @@ class Ui_MainWindow(object):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.setEnabled(True)
-        MainWindow.resize(1550, 1050)
+        MainWindow.resize(1550, 1080)
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(MainWindow.sizePolicy().hasHeightForWidth())
         MainWindow.setSizePolicy(sizePolicy)
-        MainWindow.setMaximumSize(QSize(1550, 1050))
+        MainWindow.setMaximumSize(QSize(1550, 1080))
         self.action_Open_Image_Data = QAction(MainWindow)
         self.action_Open_Image_Data.setObjectName(u"action_Open_Image_Data")
         self.action_Save_Image_Data = QAction(MainWindow)
@@ -74,9 +74,9 @@ class Ui_MainWindow(object):
         self.centralwidget.setObjectName(u"centralwidget")
         self.tabWidget_3 = QTabWidget(self.centralwidget)
         self.tabWidget_3.setObjectName(u"tabWidget_3")
-        self.tabWidget_3.setGeometry(QRect(0, 0, 1521, 1001))
-        self.tabWidget_3.setTabPosition(QTabWidget.TabPosition.West)
-        self.tabWidget_3.setTabShape(QTabWidget.TabShape.Rounded)
+        self.tabWidget_3.setGeometry(QRect(0, 0, 1521, 1031))
+        self.tabWidget_3.setTabPosition(QTabWidget.North)
+        self.tabWidget_3.setTabShape(QTabWidget.Rounded)
         self.tabWidget_3.setDocumentMode(False)
         self.tab_9 = QWidget()
         self.tab_9.setObjectName(u"tab_9")
@@ -164,7 +164,6 @@ class Ui_MainWindow(object):
         self.motorMover1Pos.setSizePolicy(sizePolicy2)
         self.motorMover1Pos.setMinimumSize(QSize(80, 0))
         self.motorMover1Pos.setStyleSheet(u"color: rgb(0, 0, 0);")
-        self.motorMover1Pos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout.addWidget(self.motorMover1Pos, 0, 1, 1, 1)
 
@@ -179,7 +178,6 @@ class Ui_MainWindow(object):
         self.motorMover2Pos.setSizePolicy(sizePolicy2)
         self.motorMover2Pos.setMinimumSize(QSize(80, 0))
         self.motorMover2Pos.setStyleSheet(u"color: rgb(0, 0, 0);")
-        self.motorMover2Pos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout.addWidget(self.motorMover2Pos, 1, 1, 1, 1)
 
@@ -255,49 +253,41 @@ class Ui_MainWindow(object):
         self.gridLayout_2.setContentsMargins(0, 0, 0, 0)
         self.label_27 = QLabel(self.gridLayoutWidget)
         self.label_27.setObjectName(u"label_27")
-        self.label_27.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.label_27, 0, 0, 1, 1)
 
         self.label_29 = QLabel(self.gridLayoutWidget)
         self.label_29.setObjectName(u"label_29")
-        self.label_29.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.label_29, 0, 2, 1, 1)
 
         self.focusRangeEdit = QLineEdit(self.gridLayoutWidget)
         self.focusRangeEdit.setObjectName(u"focusRangeEdit")
-        self.focusRangeEdit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.focusRangeEdit, 1, 1, 1, 1)
 
         self.label_30 = QLabel(self.gridLayoutWidget)
         self.label_30.setObjectName(u"label_30")
-        self.label_30.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.label_30, 0, 3, 1, 1)
 
         self.label_28 = QLabel(self.gridLayoutWidget)
         self.label_28.setObjectName(u"label_28")
-        self.label_28.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.label_28, 0, 1, 1, 1)
 
         self.focusStepsEdit = QLineEdit(self.gridLayoutWidget)
         self.focusStepsEdit.setObjectName(u"focusStepsEdit")
-        self.focusStepsEdit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.focusStepsEdit, 1, 2, 1, 1)
 
         self.focusStepSizeLabel = QLabel(self.gridLayoutWidget)
         self.focusStepSizeLabel.setObjectName(u"focusStepSizeLabel")
-        self.focusStepSizeLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.focusStepSizeLabel, 1, 3, 1, 1)
 
         self.focusCenterEdit = QLineEdit(self.gridLayoutWidget)
         self.focusCenterEdit.setObjectName(u"focusCenterEdit")
-        self.focusCenterEdit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_2.addWidget(self.focusCenterEdit, 1, 0, 1, 1)
 
@@ -312,49 +302,41 @@ class Ui_MainWindow(object):
         self.gridLayout_4.setContentsMargins(0, 0, 0, 0)
         self.lineStepSizeLabel = QLabel(self.gridLayoutWidget_3)
         self.lineStepSizeLabel.setObjectName(u"lineStepSizeLabel")
-        self.lineStepSizeLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.lineStepSizeLabel, 1, 3, 1, 1)
 
         self.lineAngleEdit = QLineEdit(self.gridLayoutWidget_3)
         self.lineAngleEdit.setObjectName(u"lineAngleEdit")
-        self.lineAngleEdit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.lineAngleEdit, 1, 1, 1, 1)
 
         self.label_37 = QLabel(self.gridLayoutWidget_3)
         self.label_37.setObjectName(u"label_37")
-        self.label_37.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.label_37, 0, 2, 1, 1)
 
         self.label_36 = QLabel(self.gridLayoutWidget_3)
         self.label_36.setObjectName(u"label_36")
-        self.label_36.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.label_36, 0, 1, 1, 1)
 
         self.label_39 = QLabel(self.gridLayoutWidget_3)
         self.label_39.setObjectName(u"label_39")
-        self.label_39.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.label_39, 0, 0, 1, 1)
 
         self.label_40 = QLabel(self.gridLayoutWidget_3)
         self.label_40.setObjectName(u"label_40")
-        self.label_40.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.label_40, 0, 3, 1, 1)
 
         self.linePointsEdit = QLineEdit(self.gridLayoutWidget_3)
         self.linePointsEdit.setObjectName(u"linePointsEdit")
-        self.linePointsEdit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.linePointsEdit, 1, 2, 1, 1)
 
         self.lineLengthEdit = QLineEdit(self.gridLayoutWidget_3)
         self.lineLengthEdit.setObjectName(u"lineLengthEdit")
-        self.lineLengthEdit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_4.addWidget(self.lineLengthEdit, 1, 0, 1, 1)
 
@@ -511,7 +493,6 @@ class Ui_MainWindow(object):
         self.warningLabel.setStyleSheet(u"color: rgb(224, 27, 36);\n"
 "font: 75 11pt \"Ubuntu\";\n"
 "")
-        self.warningLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_6 = QLabel(self.tab_9)
         self.label_6.setObjectName(u"label_6")
         self.label_6.setGeometry(QRect(10, 10, 171, 34))
@@ -520,7 +501,7 @@ class Ui_MainWindow(object):
         self.scanType.setGeometry(QRect(10, 40, 171, 42))
         self.gridLayoutWidget_6 = QWidget(self.tab_9)
         self.gridLayoutWidget_6.setObjectName(u"gridLayoutWidget_6")
-        self.gridLayoutWidget_6.setGeometry(QRect(350, 851, 351, 122))
+        self.gridLayoutWidget_6.setGeometry(QRect(330, 830, 361, 122))
         self.gridLayout_9 = QGridLayout(self.gridLayoutWidget_6)
         self.gridLayout_9.setObjectName(u"gridLayout_9")
         self.gridLayout_9.setContentsMargins(0, 0, 0, 0)
@@ -529,71 +510,64 @@ class Ui_MainWindow(object):
         sizePolicy2.setHeightForWidth(self.imageCountText.sizePolicy().hasHeightForWidth())
         self.imageCountText.setSizePolicy(sizePolicy2)
         self.imageCountText.setMinimumSize(QSize(80, 0))
-        self.imageCountText.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.imageCountText, 1, 1, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.imageCountText, 1, 1, 1, 1)
 
         self.scanFileName = QLabel(self.gridLayoutWidget_6)
         self.scanFileName.setObjectName(u"scanFileName")
         sizePolicy1.setHeightForWidth(self.scanFileName.sizePolicy().hasHeightForWidth())
         self.scanFileName.setSizePolicy(sizePolicy1)
 
-        self.gridLayout_9.addWidget(self.scanFileName, 0, 1, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.scanFileName, 0, 1, 1, 1)
 
         self.label_25 = QLabel(self.gridLayoutWidget_6)
         self.label_25.setObjectName(u"label_25")
-        self.label_25.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.label_25, 0, 0, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.label_25, 0, 0, 1, 1)
 
         self.label_5 = QLabel(self.gridLayoutWidget_6)
         self.label_5.setObjectName(u"label_5")
         sizePolicy2.setHeightForWidth(self.label_5.sizePolicy().hasHeightForWidth())
         self.label_5.setSizePolicy(sizePolicy2)
         self.label_5.setMinimumSize(QSize(120, 0))
-        self.label_5.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.label_5, 1, 0, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.label_5, 1, 0, 1, 1)
 
         self.xCursorPos = QLabel(self.gridLayoutWidget_6)
         self.xCursorPos.setObjectName(u"xCursorPos")
         sizePolicy3.setHeightForWidth(self.xCursorPos.sizePolicy().hasHeightForWidth())
         self.xCursorPos.setSizePolicy(sizePolicy3)
 
-        self.gridLayout_9.addWidget(self.xCursorPos, 2, 1, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.xCursorPos, 2, 1, 1, 1)
 
         self.label_23 = QLabel(self.gridLayoutWidget_6)
         self.label_23.setObjectName(u"label_23")
-        self.label_23.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.label_23, 3, 0, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.label_23, 3, 0, 1, 1)
 
         self.yCursorPos = QLabel(self.gridLayoutWidget_6)
         self.yCursorPos.setObjectName(u"yCursorPos")
         sizePolicy3.setHeightForWidth(self.yCursorPos.sizePolicy().hasHeightForWidth())
         self.yCursorPos.setSizePolicy(sizePolicy3)
 
-        self.gridLayout_9.addWidget(self.yCursorPos, 3, 1, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.yCursorPos, 3, 1, 1, 1)
 
         self.label_20 = QLabel(self.gridLayoutWidget_6)
         self.label_20.setObjectName(u"label_20")
-        self.label_20.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.label_20, 2, 0, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.label_20, 2, 0, 1, 1)
 
         self.label_24 = QLabel(self.gridLayoutWidget_6)
         self.label_24.setObjectName(u"label_24")
-        self.label_24.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.label_24, 4, 0, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.label_24, 4, 0, 1, 1)
 
         self.cursorIntensity = QLabel(self.gridLayoutWidget_6)
         self.cursorIntensity.setObjectName(u"cursorIntensity")
         sizePolicy1.setHeightForWidth(self.cursorIntensity.sizePolicy().hasHeightForWidth())
         self.cursorIntensity.setSizePolicy(sizePolicy1)
-        self.cursorIntensity.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.gridLayout_9.addWidget(self.cursorIntensity, 4, 1, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.gridLayout_9.addWidget(self.cursorIntensity, 4, 1, 1, 1)
 
         self.line = QFrame(self.tab_9)
         self.line.setObjectName(u"line")
@@ -605,9 +579,9 @@ class Ui_MainWindow(object):
         self.line.setBaseSize(QSize(0, 10))
         self.line.setAutoFillBackground(False)
         self.line.setStyleSheet(u"background-color: rgb(246, 211, 45);")
-        self.line.setFrameShadow(QFrame.Shadow.Plain)
         self.line.setLineWidth(10)
-        self.line.setFrameShape(QFrame.Shape.HLine)
+        self.line.setFrameShape(QFrame.Shape.VLine)
+        self.line.setFrameShadow(QFrame.Shadow.Sunken)
         self.mainPlot = PlotWidget(self.tab_9)
         self.mainPlot.setObjectName(u"mainPlot")
         self.mainPlot.setGeometry(QRect(710, 60, 771, 281))
@@ -622,7 +596,7 @@ class Ui_MainWindow(object):
         font2 = QFont()
         font2.setPointSize(22)
         self.daqCurrentValue.setFont(font2)
-        self.daqCurrentValue.setTextFormat(Qt.TextFormat.RichText)
+        self.daqCurrentValue.setTextFormat(Qt.PlainText)
         self.layoutWidget3 = QWidget(self.tab_9)
         self.layoutWidget3.setObjectName(u"layoutWidget3")
         self.layoutWidget3.setGeometry(QRect(1100, 16, 377, 41))
@@ -631,7 +605,6 @@ class Ui_MainWindow(object):
         self.horizontalLayout_6.setContentsMargins(0, 0, 0, 0)
         self.label_3 = QLabel(self.layoutWidget3)
         self.label_3.setObjectName(u"label_3")
-        self.label_3.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.horizontalLayout_6.addWidget(self.label_3)
 
@@ -652,7 +625,6 @@ class Ui_MainWindow(object):
 
         self.label_22 = QLabel(self.layoutWidget3)
         self.label_22.setObjectName(u"label_22")
-        self.label_22.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.horizontalLayout_6.addWidget(self.label_22)
 
@@ -692,9 +664,8 @@ class Ui_MainWindow(object):
         font3 = QFont()
         font3.setPointSize(10)
         self.scaleBarLength.setFont(font3)
-        self.scaleBarLength.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.scaleBarLength, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.scaleBarLength)
 
         self.label_44 = QLabel(self.horizontalLayoutWidget)
         self.label_44.setObjectName(u"label_44")
@@ -703,9 +674,8 @@ class Ui_MainWindow(object):
         font4 = QFont()
         font4.setPointSize(7)
         self.label_44.setFont(font4)
-        self.label_44.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.label_44, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.label_44)
 
         self.pixelSizeLabel = QLabel(self.horizontalLayoutWidget)
         self.pixelSizeLabel.setObjectName(u"pixelSizeLabel")
@@ -714,9 +684,8 @@ class Ui_MainWindow(object):
         self.pixelSizeLabel.setMinimumSize(QSize(60, 0))
         self.pixelSizeLabel.setMaximumSize(QSize(60, 16777215))
         self.pixelSizeLabel.setFont(font3)
-        self.pixelSizeLabel.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.pixelSizeLabel, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.pixelSizeLabel)
 
         self.label_38 = QLabel(self.horizontalLayoutWidget)
         self.label_38.setObjectName(u"label_38")
@@ -727,9 +696,8 @@ class Ui_MainWindow(object):
         font5 = QFont()
         font5.setPointSize(12)
         self.label_38.setFont(font5)
-        self.label_38.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.label_38, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.label_38)
 
         self.dwellTimeLabel = QLabel(self.horizontalLayoutWidget)
         self.dwellTimeLabel.setObjectName(u"dwellTimeLabel")
@@ -738,18 +706,16 @@ class Ui_MainWindow(object):
         self.dwellTimeLabel.setMinimumSize(QSize(60, 0))
         self.dwellTimeLabel.setMaximumSize(QSize(60, 16777215))
         self.dwellTimeLabel.setFont(font3)
-        self.dwellTimeLabel.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.dwellTimeLabel, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.dwellTimeLabel)
 
         self.label_9 = QLabel(self.horizontalLayoutWidget)
         self.label_9.setObjectName(u"label_9")
         sizePolicy2.setHeightForWidth(self.label_9.sizePolicy().hasHeightForWidth())
         self.label_9.setSizePolicy(sizePolicy2)
         self.label_9.setFont(font3)
-        self.label_9.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.label_9, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.label_9)
 
         self.imageEnergyLabel = QLabel(self.horizontalLayoutWidget)
         self.imageEnergyLabel.setObjectName(u"imageEnergyLabel")
@@ -758,9 +724,8 @@ class Ui_MainWindow(object):
         self.imageEnergyLabel.setMinimumSize(QSize(80, 0))
         self.imageEnergyLabel.setMaximumSize(QSize(80, 16777215))
         self.imageEnergyLabel.setFont(font3)
-        self.imageEnergyLabel.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.imageEnergyLabel, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.horizontalLayout_8.addWidget(self.imageEnergyLabel)
 
         self.tabWidget_5 = QTabWidget(self.tab_9)
         self.tabWidget_5.setObjectName(u"tabWidget_5")
@@ -824,30 +789,34 @@ class Ui_MainWindow(object):
         self.beamlineTab.setObjectName(u"beamlineTab")
         self.gridLayoutWidget_7 = QWidget(self.beamlineTab)
         self.gridLayoutWidget_7.setObjectName(u"gridLayoutWidget_7")
-        self.gridLayoutWidget_7.setGeometry(QRect(10, 10, 291, 131))
+        self.gridLayoutWidget_7.setGeometry(QRect(10, 10, 291, 161))
         self.gridLayout_8 = QGridLayout(self.gridLayoutWidget_7)
         self.gridLayout_8.setObjectName(u"gridLayout_8")
         self.gridLayout_8.setContentsMargins(0, 0, 0, 0)
-        self.ndsEdit = QLineEdit(self.gridLayoutWidget_7)
-        self.ndsEdit.setObjectName(u"ndsEdit")
-
-        self.gridLayout_8.addWidget(self.ndsEdit, 2, 2, 1, 1)
-
         self.dsLabel = QLabel(self.gridLayoutWidget_7)
         self.dsLabel.setObjectName(u"dsLabel")
-        self.dsLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_8.addWidget(self.dsLabel, 1, 1, 1, 1)
 
-        self.label_13 = QLabel(self.gridLayoutWidget_7)
-        self.label_13.setObjectName(u"label_13")
+        self.ndsLabel = QLabel(self.gridLayoutWidget_7)
+        self.ndsLabel.setObjectName(u"ndsLabel")
 
-        self.gridLayout_8.addWidget(self.label_13, 1, 0, 1, 1)
+        self.gridLayout_8.addWidget(self.ndsLabel, 2, 1, 1, 1)
+
+        self.label_14 = QLabel(self.gridLayoutWidget_7)
+        self.label_14.setObjectName(u"label_14")
+
+        self.gridLayout_8.addWidget(self.label_14, 2, 0, 1, 1)
 
         self.dsEdit = QLineEdit(self.gridLayoutWidget_7)
         self.dsEdit.setObjectName(u"dsEdit")
 
         self.gridLayout_8.addWidget(self.dsEdit, 1, 2, 1, 1)
+
+        self.A0Edit = QLineEdit(self.gridLayoutWidget_7)
+        self.A0Edit.setObjectName(u"A0Edit")
+
+        self.gridLayout_8.addWidget(self.A0Edit, 3, 2, 1, 1)
 
         self.label_4 = QLabel(self.gridLayoutWidget_7)
         self.label_4.setObjectName(u"label_4")
@@ -859,31 +828,8 @@ class Ui_MainWindow(object):
 
         self.gridLayout_8.addWidget(self.energyEdit, 0, 2, 1, 1)
 
-        self.ndsLabel = QLabel(self.gridLayoutWidget_7)
-        self.ndsLabel.setObjectName(u"ndsLabel")
-        self.ndsLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.gridLayout_8.addWidget(self.ndsLabel, 2, 1, 1, 1)
-
-        self.label_14 = QLabel(self.gridLayoutWidget_7)
-        self.label_14.setObjectName(u"label_14")
-
-        self.gridLayout_8.addWidget(self.label_14, 2, 0, 1, 1)
-
-        self.energyLabel_2 = QLabel(self.gridLayoutWidget_7)
-        self.energyLabel_2.setObjectName(u"energyLabel_2")
-        self.energyLabel_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.gridLayout_8.addWidget(self.energyLabel_2, 0, 1, 1, 1)
-
-        self.A0Edit = QLineEdit(self.gridLayoutWidget_7)
-        self.A0Edit.setObjectName(u"A0Edit")
-
-        self.gridLayout_8.addWidget(self.A0Edit, 3, 2, 1, 1)
-
         self.A0Label = QLabel(self.gridLayoutWidget_7)
         self.A0Label.setObjectName(u"A0Label")
-        self.A0Label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_8.addWidget(self.A0Label, 3, 1, 1, 1)
 
@@ -891,6 +837,36 @@ class Ui_MainWindow(object):
         self.label_34.setObjectName(u"label_34")
 
         self.gridLayout_8.addWidget(self.label_34, 3, 0, 1, 1)
+
+        self.energyLabel_2 = QLabel(self.gridLayoutWidget_7)
+        self.energyLabel_2.setObjectName(u"energyLabel_2")
+
+        self.gridLayout_8.addWidget(self.energyLabel_2, 0, 1, 1, 1)
+
+        self.ndsEdit = QLineEdit(self.gridLayoutWidget_7)
+        self.ndsEdit.setObjectName(u"ndsEdit")
+
+        self.gridLayout_8.addWidget(self.ndsEdit, 2, 2, 1, 1)
+
+        self.label_13 = QLabel(self.gridLayoutWidget_7)
+        self.label_13.setObjectName(u"label_13")
+
+        self.gridLayout_8.addWidget(self.label_13, 1, 0, 1, 1)
+
+        self.label_35 = QLabel(self.gridLayoutWidget_7)
+        self.label_35.setObjectName(u"label_35")
+
+        self.gridLayout_8.addWidget(self.label_35, 4, 0, 1, 1)
+
+        self.A1Label = QLabel(self.gridLayoutWidget_7)
+        self.A1Label.setObjectName(u"A1Label")
+
+        self.gridLayout_8.addWidget(self.A1Label, 4, 1, 1, 1)
+
+        self.A1Edit = QLineEdit(self.gridLayoutWidget_7)
+        self.A1Edit.setObjectName(u"A1Edit")
+
+        self.gridLayout_8.addWidget(self.A1Edit, 4, 2, 1, 1)
 
         self.tabWidget_5.addTab(self.beamlineTab, "")
         self.epuTab = QWidget()
@@ -973,25 +949,21 @@ class Ui_MainWindow(object):
 
         self.epuLabel = QLabel(self.gridLayoutWidget_5)
         self.epuLabel.setObjectName(u"epuLabel")
-        self.epuLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_6.addWidget(self.epuLabel, 4, 3, 1, 1)
 
         self.fbkLabel = QLabel(self.gridLayoutWidget_5)
         self.fbkLabel.setObjectName(u"fbkLabel")
-        self.fbkLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_6.addWidget(self.fbkLabel, 3, 3, 1, 1)
 
         self.m101Label = QLabel(self.gridLayoutWidget_5)
         self.m101Label.setObjectName(u"m101Label")
-        self.m101Label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_6.addWidget(self.m101Label, 1, 3, 1, 1)
 
         self.polLabel = QLabel(self.gridLayoutWidget_5)
         self.polLabel.setObjectName(u"polLabel")
-        self.polLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.gridLayout_6.addWidget(self.polLabel, 0, 3, 1, 1)
 
@@ -1016,7 +988,6 @@ class Ui_MainWindow(object):
         self.scanRegSpinbox.setSizePolicy(sizePolicy)
         self.scanRegSpinbox.setMinimumSize(QSize(80, 0))
         self.scanRegSpinbox.setMaximumSize(QSize(80, 16777215))
-        self.scanRegSpinbox.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter)
         self.scanRegSpinbox.setMinimum(1)
         self.scanRegSpinbox.setMaximum(100)
 
@@ -1066,7 +1037,6 @@ class Ui_MainWindow(object):
         self.label_8 = QLabel(self.horizontalLayoutWidget_6)
         self.label_8.setObjectName(u"label_8")
         self.label_8.setMaximumSize(QSize(15, 16777215))
-        self.label_8.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.horizontalLayout_13.addWidget(self.label_8)
 
@@ -1078,7 +1048,6 @@ class Ui_MainWindow(object):
         self.label_11 = QLabel(self.horizontalLayoutWidget_6)
         self.label_11.setObjectName(u"label_11")
         self.label_11.setMaximumSize(QSize(15, 16777215))
-        self.label_11.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.horizontalLayout_13.addWidget(self.label_11)
 
@@ -1112,7 +1081,6 @@ class Ui_MainWindow(object):
         self.energyListLayout.setContentsMargins(0, 0, 0, 0)
         self.label_10 = QLabel(self.horizontalLayoutWidget_4)
         self.label_10.setObjectName(u"label_10")
-        self.label_10.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.energyListLayout.addWidget(self.label_10)
 
@@ -1168,7 +1136,13 @@ class Ui_MainWindow(object):
 
         self.firstEnergyButton = QPushButton(self.horizontalLayoutWidget_2)
         self.firstEnergyButton.setObjectName(u"firstEnergyButton")
-        self.firstEnergyButton.setMinimumSize(QSize(0, 30))
+        sizePolicy6 = QSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        sizePolicy6.setHorizontalStretch(0)
+        sizePolicy6.setVerticalStretch(0)
+        sizePolicy6.setHeightForWidth(self.firstEnergyButton.sizePolicy().hasHeightForWidth())
+        self.firstEnergyButton.setSizePolicy(sizePolicy6)
+        self.firstEnergyButton.setMinimumSize(QSize(100, 30))
+        self.firstEnergyButton.setMaximumSize(QSize(160, 16777215))
 
         self.horizontalLayout_9.addWidget(self.firstEnergyButton)
 
@@ -1285,7 +1259,7 @@ class Ui_MainWindow(object):
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 1550, 42))
+        self.menubar.setGeometry(QRect(0, 0, 1550, 23))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuOpen = QMenu(self.menuFile)
@@ -1440,13 +1414,15 @@ class Ui_MainWindow(object):
         self.label_26.setText(QCoreApplication.translate("MainWindow", u"Comment", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.Experiment), QCoreApplication.translate("MainWindow", u"Experiment", None))
         self.dsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.label_13.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Dispersive Slit</span></p></body></html>", None))
-        self.label_4.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Energy</span></p></body></html>", None))
         self.ndsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.label_14.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Non-Dispersive Slit</span></p></body></html>", None))
-        self.energyLabel_2.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.label_14.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Non-Dispersive Slit</span></p></body></html>", None))
+        self.label_4.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Energy</span></p></body></html>", None))
         self.A0Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.label_34.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Zone Plate A0</span></p></body></html>", None))
+        self.label_34.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A0</span></p></body></html>", None))
+        self.energyLabel_2.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.label_13.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Dispersive Slit</span></p></body></html>", None))
+        self.label_35.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A1</span></p></body></html>", None))
+        self.A1Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.beamlineTab), QCoreApplication.translate("MainWindow", u"Beamline", None))
         self.label_12.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">M101 Pitch</span></p></body></html>", None))
         self.label_17.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Harmonic</span></p></body></html>", None))
@@ -1476,7 +1452,7 @@ class Ui_MainWindow(object):
         self.energyListCheckbox.setText(QCoreApplication.translate("MainWindow", u"Energy List", None))
         self.doubleExposureCheckbox.setText(QCoreApplication.translate("MainWindow", u"Double Exp.", None))
         self.multiFrameCheckbox.setText(QCoreApplication.translate("MainWindow", u"Multi-Frame", None))
-        self.firstEnergyButton.setText(QCoreApplication.translate("MainWindow", u"Go To First Energy", None))
+        self.firstEnergyButton.setText(QCoreApplication.translate("MainWindow", u"To First Energy", None))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab_6), QCoreApplication.translate("MainWindow", u"Energy Regions", None))
         self.showBeamPosition.setText(QCoreApplication.translate("MainWindow", u"Show beam position", None))
         self.autorangeCheckbox.setText(QCoreApplication.translate("MainWindow", u"Autorange Image", None))

@@ -10,17 +10,17 @@ def single_motor_scan(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies
     scanInfo = {"mode": "point"}
     scanInfo["scan"] = scan
-    scanInfo["type"] = scan["type"]
+    scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["lineIndex"] = 0
     scanInfo["zIndex"] = 0
     if len(energies) > 1:
         scanInfo["scanMotor"] = "Energy"
     else:
-        scanInfo["scanMotor"] = scan["x"]
+        scanInfo["scanMotor"] = scan["x_motor"]
     energyIndex = 0
 
-    if not scanInfo['scan']['refocus']:
+    if not scanInfo['scan']['autofocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
     for energy in energies:
         controller.getMotorPositions()
@@ -32,7 +32,7 @@ def single_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
         if len(energies) > 1:
             controller.moveMotor(scan["energy"], energy)
-            if not scanInfo['scan']['refocus']:
+            if not scanInfo['scan']['autofocus']:
                 if energy == energies[0]:
                     scanInfo['refocus_offset'] = currentZonePlateZ - controller.motors['ZonePlateZ'][
                         'motor'].calibratedPosition
@@ -41,7 +41,7 @@ def single_motor_scan(scan, dataHandler, controller, queue):
                                           controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
                                               'refocus_offset']) #this should just move the zone plate to its energy calibrated position
         else:
-            if scanInfo['scan']['refocus']:
+            if scanInfo['scan']['autofocus']:
                 controller.moveMotor("ZonePlateZ",
                                           controller.motors["Energy"]["motor"].calibratedPosition)
         x, y = xPos[regionNum], yPos[regionNum]
@@ -63,7 +63,7 @@ def single_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yCenter"] = yStart
         scanInfo["yRange"] = 0
         controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
-        if scan["x"] == "Energy":
+        if scan["x_motor"] == "Energy":
             scanInfo["scanMotorVal"] = energy
             scanInfo["index"] = 0
             scanInfo["energyIndex"] = energyIndex
@@ -81,7 +81,7 @@ def single_motor_scan(scan, dataHandler, controller, queue):
                 scanInfo["scanMotorVal"] = xPos[0][i]
                 scanInfo["index"] = i
                 scanInfo["energyIndex"] = 0
-                controller.moveMotor(scan["x"], xPos[0][i])
+                controller.moveMotor(scan["x_motor"], xPos[0][i])
                 if queue.empty():
                     controller.daq["default"].autoGateOpen(shutter=True)
                     dataHandler.getPoint(scanInfo)

@@ -11,6 +11,8 @@ class xpsController(hardwareController):
         self.position = 0. #used for simulation mode
         self._nSockets = 0
         self._sockets = []
+        self._timeout = 30
+        self._position_tolerance = 5.0
 
     def initialize(self, simulation = False):
         self.simulation = simulation
@@ -62,9 +64,9 @@ class xpsController(hardwareController):
         while self.moving:
             err,currentPos = self.getPosition(socketId, motor)
             positionErr = target - currentPos
-            if abs(positionErr) > 2.0: #0.05 * moveDelta:
+            if abs(positionErr) > self._position_tolerance:
                 if not(self.stopped):
-                    if (time.time() - t0) > 1.0:
+                    if (time.time() - t0) > self._timeout:
                         print("XPS move timeout. Aborting...")
                         self.moving = False
                         return self.abortMove(socketId, motor)
@@ -78,10 +80,29 @@ class xpsController(hardwareController):
                 self.moving = False
                 return [err, retString]
 
-    def moveBy(self, socketId, motor, displacement):
+    def moveBy(self, socketId, motor, displacement, target):
         command = 'GroupMoveRelative(' + motor + ',' + str(displacement)+')'
+        self.moving = True
         [err, retString] = self.__sendAndReceive(socketId, command)
-        return [err, retString]
+        t0 = time.time()
+        while self.moving:
+            err,currentPos = self.getPosition(socketId, motor)
+            positionErr = target - currentPos
+            if abs(positionErr) > self._position_tolerance:
+                if not(self.stopped):
+                    if (time.time() - t0) > self._timeout:
+                        print("XPS move timeout. Aborting...")
+                        self.moving = False
+                        return self.abortMove(socketId, motor)
+                    else:
+                        time.sleep(0.1)
+                else:
+                    self.moving = False
+                    self.stopped = False
+                    return [err, retString]
+            else:
+                self.moving = False
+                return [err, retString]
 
     def getPosition(self, socketId, motor):
         command = 'GroupPositionCurrentGet(' + motor + ', double *)'

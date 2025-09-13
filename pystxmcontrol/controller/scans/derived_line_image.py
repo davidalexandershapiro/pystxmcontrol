@@ -39,9 +39,8 @@ def derived_line_image(scan, dataHandler, controller, queue):
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
         if len(energies) > 1:
-            controller.moveMotor(scan["energy"], energy)
+            controller.moveMotor(scan["energy_motor"], energy)
         else:
-            pass
             if scanInfo['scan']['autofocus']:
                 controller.moveMotor("ZonePlateZ",
                                           controller.motors["Energy"]["motor"].calibratedPosition)
@@ -67,14 +66,6 @@ def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo["yRange"] = yRange
             waitTime = 0.005 + xPoints * 0.0001  # 0.005 + xRange * 0.02
 
-            nxblocks, xcoarse, xStart_fine, xStop_fine = \
-                controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
-            nyblocks, ycoarse, yStart_fine, yStop_fine = \
-                controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
-            if coarse_only:
-                xcoarse,ycoarse = 0.,0.
-            scanInfo["offset"] = xcoarse,ycoarse
-
             #at this level nxblocks is always 1 because the decision to tile is higher up.  Need to put an option
             #there to untile and use the coarse motor
 
@@ -90,6 +81,14 @@ def derived_line_image(scan, dataHandler, controller, queue):
                                                                                     energyIndex] / scan[
                                                                                     "oversampling_factor"]
             controller.motors[scan["x_motor"]]["motor"].lineMode = "continuous"
+
+            nxblocks, xcoarse, xStart_fine, xStop_fine = \
+                controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
+            nyblocks, ycoarse, yStart_fine, yStop_fine = \
+                controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
+            if coarse_only:
+                xcoarse,ycoarse = 0.,0.
+            scanInfo["offset"] = xcoarse,ycoarse
 
             if not (coarse_only):
                 #needs to be in piezo units

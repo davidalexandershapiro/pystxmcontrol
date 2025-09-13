@@ -50,12 +50,15 @@ def osa_focus_scan(scan, dataHandler, controller, queue):
     #Since this is a line scan, we don't want to loop over all X-Y positions, but rather just one move each.
     for i in range(len(z)):
         controller.moveMotor("ZonePlateZ", z[i]-A0)
+        controller.getMotorPositions()
+        dataHandler.data.motorPositions[0] = controller.allMotorPositions
+        scanInfo["motorPositions"] = controller.allMotorPositions
         for j in range(len(x)):
             controller.moveMotor(scan["y_motor"], yPos[0][j])
             controller.moveMotor(scan["x_motor"], xPos[0][j])
-            controller.getMotorPositions()
-            dataHandler.data.motorPositions[0] = controller.allMotorPositions
-            scanInfo["motorPositions"] = controller.allMotorPositions
+            # controller.getMotorPositions()
+            # dataHandler.data.motorPositions[0] = controller.allMotorPositions
+            # scanInfo["motorPositions"] = controller.allMotorPositions
             scanInfo["lineIndex"] = i
             scanInfo["columnIndex"] = j
             scanInfo["index"] = i * len(z) + j
