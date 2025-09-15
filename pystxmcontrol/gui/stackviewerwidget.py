@@ -262,6 +262,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         # set up the form class as a `ui` attribute
         self.ui = Ui_stackViewer()
         self.ui.setupUi(self)
+        self.stack_file = None
         self.scaleBar = None
         self.viewFrames = None
         self.haveStack = False
@@ -293,8 +294,6 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.ui.registerButton.clicked.connect(self.registerWindow)
         self.ui.filterButton.clicked.connect(self.filterWindow)
         self.ui.specPlot.scene().sigMouseMoved.connect(self.mouseEnergySelectFromPlot)
-        #self.filterWindow = filterWindowWidget()
-        #self.registerWindow = registerWindowWidget()
         self.ui.mapButton.clicked.connect(self.mapROIspectra)
         self.ui.saveButton.clicked.connect(self.saveAllData)
         self.ui.stackLoadButton.clicked.connect(self.getFileName)
@@ -306,7 +305,6 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.ui.toggleOD.stateChanged.connect(self.toggleOD)
         self.ui.preEdgeBox.stateChanged.connect(self.togglePreEdge)
         self.ui.pcaButton.clicked.connect(self.pcaWindow)
-        #self.pcaWindow = pcaWidget()
         self.stackImportWindow = stackImportWindow()
         self.ui.bkgRemovalButton.clicked.connect(self.bkgWindow)
         self.bkgWindow = bkgWindowWidget()
@@ -344,7 +342,7 @@ class stackViewerWidget(QtWidgets.QWidget):
     def changeRegion(self):
         self.reset()
         print(self.ui.regionSelect.currentIndex())
-        self.stack = stack(fileName = self.currentLoadFile, iRegion = self.ui.regionSelect.currentIndex())
+        self.stack = stack(fileName = self.stack_file, iRegion = self.ui.regionSelect.currentIndex())
         self.iRegion = self.ui.regionSelect.currentIndex()
         self.haveStack = True
         self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
@@ -413,10 +411,10 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.clickPoint = False
 
     def getFileName(self):
-        self.currentLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        self.stack_file = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
             'Open File', '/')[0])
-        if self.currentLoadFile != '':
-            try: self.receiveStack(self.currentLoadFile)
+        if self.stack_file != '':
+            try: self.receiveStack(self.stack_file)
             except IOError:print("No Such File or Directory.")
 
     def mapROIspectra(self):
@@ -452,7 +450,7 @@ class stackViewerWidget(QtWidgets.QWidget):
     def saveAllData(self):
         if self.haveStack:
             print("saving all data!")
-            dataDir, dataFile = ntpath.split(self.currentLoadFile)
+            dataDir, dataFile = ntpath.split(self.stack_file)
             filePrefix = dataFile.split('.')[0]
             saveDir = os.path.join(dataDir, filePrefix + '_pystxmOutput_' + str(calendar.timegm(time.gmtime())))
             os.mkdir(saveDir)
@@ -468,7 +466,7 @@ class stackViewerWidget(QtWidgets.QWidget):
                 self.ui.mainImage.getImageItem().save(os.path.join(saveDir, 'displayImage.png'))
             if len(self.stack.spectra) != 0:
                 spectrumCSVFile = os.path.join(saveDir,'roiSpectra.csv')
-                fileHeader = {  'STXM HDR File: ': self.currentLoadFile, \
+                fileHeader = {  'STXM HDR File: ': self.stack_file, \
                                 'Data Offset: ': self.offset, \
                                 'Data type: ': 'Optical density'\
                                 'Energy, I0, ROI Spectra'}
@@ -491,13 +489,13 @@ class stackViewerWidget(QtWidgets.QWidget):
                     plt.plot(self.stack.energies, spectrum)
                 plt.xlabel('Energy (eV)')
                 plt.ylabel('Optical Density')
-                plt.title(self.currentLoadFile)
+                plt.title(self.stack_file)
                 plt.savefig(os.path.join(saveDir,'spectra.png'), dpi = 100)
                 plt.clf()
                 plt.plot(self.stack.energies, self.stack.I0[:,0,0])
                 plt.xlabel('Energy (eV)')
                 plt.ylabel('I0')
-                plt.title(self.currentLoadFile)
+                plt.title(self.stack_file)
                 plt.savefig(os.path.join(saveDir,'I0.png'), dpi = 100)
                 plt.clf()
 
@@ -532,7 +530,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         if self.haveStack :
             self.bkgWindow.stack = self.stack   
             self.bkgWindow.viewFrames = self.stack.rawFrames.copy()
-            self.bkgWindow.currentLoadFile = self.currentLoadFile
+            self.bkgWindow.stack_file = self.stack_file
             self.bkgWindow.updateGUI()
         self.bkgWindow.exec_()
         
@@ -544,7 +542,9 @@ class stackViewerWidget(QtWidgets.QWidget):
                 del(self.stack.I0rois[-1])
                 self.stack.updateI0()
         else:
+            print("Clearing ROI...")
             if (len(self.stack.rois) > 0):
+                print("clearing ROI")
                 self.ui.mainImage.removeItem(self.stack.rois[-1]['region'])
                 del(self.stack.rois[-1])
                 self.ui.specPlot.removeItem(self.roiSpecPlotList[-1])
@@ -565,11 +565,14 @@ class stackViewerWidget(QtWidgets.QWidget):
                 roi = pg.EllipseROI([0,0], [10, 10], snapSize = 5.0, pen = roiPen)
                 roi.sigRegionChanged.connect(self.updateROISpecs)
                 self.ui.mainImage.addItem(roi)
+                print(len(self.stack.rois))
                 self.stack.rois.append({'type': 'ellipse','region':roi, 'imagePen':roiPen, \
                     'plotPen': roiPlotPen, 'image': self.ui.mainImage.getImageItem()})
+                print(len(self.stack.rois))
                 self.roiSpecPlotList.append(None)
                 self.updateROISpecs()
                 self.updatePlot()
+                print(len(self.stack.rois),nROI)
             elif str(self.ui.spectraComboBox.currentText()) == "Point":
                 self.clickPoint = True
             elif str(self.ui.spectraComboBox.currentText()) == 'I0':
@@ -659,12 +662,12 @@ class stackViewerWidget(QtWidgets.QWidget):
 
     def receiveStack(self, fileName):
         self.initializeGUI()
-        self.currentLoadFile = fileName
-        self.stack = stack(fileName = self.currentLoadFile)
+        self.stack_file = fileName
+        self.stack = stack(fileName = self.stack_file)
         self.haveStack = True
         self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
         self.ui.frameEnergy.setText("Energy = %s eV" %str(self.stack.energies[self.ui.verticalSlider.value()]))
-        self.ui.fileName.setText(self.currentLoadFile)
+        self.ui.fileName.setText(self.stack_file)
         if ".hdr" in fileName:
             self.nRegion = self.stack.hdr['nRegions']
         elif ".stxm" in fileName:
@@ -672,14 +675,14 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.updateMainImage()
         self.updateRegionCombo()
 
-    def stack_from_nx(self,nx):
+    def stack_from_nx(self,nxdata):
         self.stack = stack()
-        self.stack.nx = nx
+        self.stack.nx = nxdata
         self.stack.energies = self.stack.nx.energies
         self.stack.rawFrames = []
-        ne,ny,nx = self.stack.nx.interp_counts[self.iRegion][0].shape
+        ne,ny,nx = self.stack.nx.interp_counts[self.iRegion].shape
         for i in range(ne):
-            im = image(data = self.stack.nx.interp_counts[self.iRegion][0][i])
+            im = image(data = self.stack.nx.interp_counts[self.iRegion][i])
             im.energy = self.stack.energies[i]
             im.xpixelsize = self.stack.nx.xstepsize[self.iRegion]
             im.ypixelsize = self.stack.nx.ystepsize[self.iRegion]
@@ -689,15 +692,32 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.stack.ypixelsize = im.ypixelsize
         self.stack.reset()
         self.stack.shape = self.stack.processedFrames.shape
-    def recv_live_data(self, nx, scanInfo):
+    
+    def _update_stack(self,nxdata):
+        self.stack.nx = nxdata
+        self.stack.rawFrames = []
+        ne,ny,nx = self.stack.nx.interp_counts[self.iRegion].shape
+        for i in range(ne):
+            im = image(data = self.stack.nx.interp_counts[self.iRegion][i])
+            im.energy = self.stack.energies[i]
+            im.xpixelsize = self.stack.nx.xstepsize[self.iRegion]
+            im.ypixelsize = self.stack.nx.ystepsize[self.iRegion]
+            im.nypixels, im.nxpixels = im.data.shape
+            self.stack.rawFrames.append(im)
+        self.stack.processedFrames = np.array(nxdata.interp_counts[0])
+
+    def recv_live_data(self, nxdata, scanInfo):
         if self.ui.live_display.isChecked():
-            self.stack_from_nx(nx)
-            self.currentLoadFile = scanInfo["scanID"]
-            self.haveStack = True
+            if nxdata.NXfile == self.stack_file:
+                self._update_stack(nxdata)
+            else:
+                self.stack_from_nx(nxdata)
+                self.stack_file = scanInfo["scanID"]
+                self.haveStack = True
             self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
             self.ui.frameEnergy.setText("Energy = %s eV" %str(self.stack.energies[scanInfo["energyIndex"]]))
             self.ui.verticalSlider.setValue(scanInfo["energyIndex"])
-            self.ui.fileName.setText(self.currentLoadFile)
+            self.ui.fileName.setText(self.stack_file)
             self.nRegion = len(self.stack.nx.interp_counts)
             self.updateMainImage()
             self.updateRegionCombo()

@@ -4,9 +4,7 @@ from epics import caget, caput, cainfo
 from numpy.random import poisson
 import time
 
-
-
-class xrfDetector(daq):
+class xspress3(daq):
 
     def __init__(self, address = 'XSP3_4Chan',simulation = False):
 
@@ -21,6 +19,9 @@ class xrfDetector(daq):
         self.samples = 1
         #Default is 4096 bins, 10 eV per bin.
         self.nbins = 4096
+
+    def start(self):
+        pass
 
     def config(self, dwell = 50, count  = 1, samples = 1,trigger = 'BUS', output = 'OFF'):
         # Trying to make this the same inputs as the keysight counter so that we can feed it the same thing.
@@ -64,8 +65,6 @@ class xrfDetector(daq):
             #set back to old trigger mode
             caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
             return(data)
-
-
 
     def getLine(self):
         if self.simulation:

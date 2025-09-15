@@ -1454,7 +1454,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.mainImage.removeItem(self.horizontalLine)
             if self.verticalLine is not None:
                 self.ui.mainImage.removeItem(self.verticalLine)
-        elif self.ui.channelSelect.currentText() == "Diode":
+        elif self.ui.channelSelect.currentText() == self.client.daqConfig["default"]["name"]: #"Diode":
             xScale,yScale = self.imageScale
             if self.image is None:
                 self.image = np.zeros((100,100))
@@ -1501,6 +1501,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.scanning = False
         elif message["mode"] in self.imageScanTypes:
             self.currentDataDir,self.currentFile = os.path.split(message["scanID"])
+            self.stxm.NXfile = message["scanID"]
             elapsedTime = message["elapsedTime"]
             ##if a scan is launched by a script, it needs to be compiled here to generate the correct dataset for viz.
             if message["scanID"].split("/")[-1] not in str(self.ui.scanFileName.text()):
@@ -1549,12 +1550,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.energy = self.stxm.energies[self.currentEnergyIndex]
             self.dwell = self.stxm.dwells[self.currentEnergyIndex]
             self.xStep = self.xRange / self.xPts
-            if "Image" in self.scan["scan_type"]:
-                self.stxm.interp_counts[scanRegNumber][message["energyIndex"]] = message["image"]
-                xScale = float(self.xRange) / float(self.xPts)
-                yScale = float(self.yRange) / float(self.yPts)
-                pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
-            elif "Focus" in self.scan["scan_type"]:
+            # if "Image" in self.scan["scan_type"]:
+            #     self.stxm.interp_counts[scanRegNumber][message["energyIndex"]] = message["image"]
+            #     xScale = float(self.xRange) / float(self.xPts)
+            #     yScale = float(self.yRange) / float(self.yPts)
+            #     pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
+            if "Focus" in self.scan["scan_type"]:
                 self.stxm.interp_counts[scanRegNumber][message["energyIndex"],:,:] = message["image"]
                 xScale = 1 #float(self.xRange) / float(self.xPts)
                 yScale = 1 #float(self.xPts) / float(self.zPts)
@@ -1565,7 +1566,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 xScale = 1 #float(self.xRange) / float(self.xPts)
                 yScale = 1 #float(self.zRange) / float(self.zPts)
                 pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
-            if self.ui.channelSelect.currentText() == "Diode" and message["mode"] != "point":
+            #if self.ui.channelSelect.currentText() == "Diode" and message["mode"] != "point":
+            elif "Image" in self.scan["scan_type"]:
+                self.stxm.interp_counts[scanRegNumber][message["energyIndex"]] = message["image"]
+                xScale = float(self.xRange) / float(self.xPts)
+                yScale = float(self.yRange) / float(self.yPts)
+                pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
                 self.currentImageType = self.scan["scan_type"]
                 self.imageCenter = pos
                 self.imageScale = xScale,yScale
@@ -1594,6 +1600,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
             #call the recv data function in the analysis widgets
             #this really should be a signal.emit call but this hasn't worked yet
+            if "Image" in self.scanType:
+                self.ui.stack_viewer.recv_live_data(self.stxm, message)
             try:
                 if "Image" in self.scanType:
                     self.ui.stack_viewer.recv_live_data(self.stxm, message)
@@ -2184,6 +2192,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def initGUI(self):
         self.load_config()
+
+        ##set the channels
+        self.ui.channelSelect.clear()
+        for key in self.client.daqConfig.keys():
+            daq_name = self.client.daqConfig[key]["name"]
+            self.ui.channelSelect.addItem(daq_name)
         self.currentMotorPositions = self.client.currentMotorPositions
         for scanType in self.client.scanConfig["scans"].keys():
             if self.client.scanConfig["scans"][scanType]["display"]:

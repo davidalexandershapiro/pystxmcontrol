@@ -22,13 +22,15 @@ from pystxmcontrol.drivers.xpsController import xpsController
 from pystxmcontrol.drivers.xpsMotor import xpsMotor
 from pystxmcontrol.drivers.E712Controller import E712Controller
 from pystxmcontrol.drivers.E712Motor import E712Motor
+from pystxmcontrol.drivers.xspress3 import xspress3
 
 
 __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
     'nptController', 'bcsController', 'mmcController','keysight53230A',\
            'epicsController', 'shutter', 'keysightU2356A', 'fccd_control', 'xerMotor', \
            'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo',\
-           'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM','E712Controller','E712Motor']
+           'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM','E712Controller','E712Motor',\
+            'xspress3']
 
 try:
     from pystxmcontrol.drivers.mcsController import mcsController
