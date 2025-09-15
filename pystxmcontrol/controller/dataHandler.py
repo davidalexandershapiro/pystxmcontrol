@@ -17,25 +17,27 @@ class dataHandler:
         self.lineScanModes = ["rasterLine", "continuousLine","continuousSpiral"]
         self.currentScanID = None
         self.monitorDaq = True
-        self.controller.daq["ccd"].config(10, 0, 0)
         self.ccd_data_port = self.main_config["server"]["ccd_data_port"]
         self.stxm_data_port = self.main_config["server"]["stxm_data_port"]
         self.stxm_file_port = self.main_config["server"]["stxm_file_port"]
         self.pause = False
         self._logger = logger
         self._lock = Lock()
-
-        #publish to other listeners like RPI reconstruction for instance
-        self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
-        self.stxm_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"], self.stxm_data_port)
-        print("Publishing ccd frames on: %s" %self.ccd_pub_address)
-        print("Publishing stxm data on: %s" % self.stxm_pub_address)
         context = zmq.Context()
-        #publish ccd data to the preprocessor
-        self.ccd_pub_socket = context.socket(zmq.PUB)
-        self.ccd_pub_socket.set_hwm(2000)
-        self.ccd_pub_socket.bind(self.ccd_pub_address)
+
+        if "ccd" in self.controller.daq.keys():
+            #publish ccd data to the preprocessor
+            self.controller.daq["ccd"].config(10, 0, 0)
+            self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
+            print("Publishing ccd frames on: %s" %self.ccd_pub_address)
+            self.ccd_pub_socket = context.socket(zmq.PUB)
+            self.ccd_pub_socket.set_hwm(2000)
+            self.ccd_pub_socket.bind(self.ccd_pub_address)
+
         #publish stxm data to the gui
+        #publish to other listeners like RPI reconstruction for instance
+        self.stxm_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"], self.stxm_data_port)
+        print("Publishing stxm data on: %s" % self.stxm_pub_address)
         self.stxm_pub_socket = context.socket(zmq.PUB)
         self.stxm_pub_socket.bind(self.stxm_pub_address)
 

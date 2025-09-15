@@ -76,7 +76,7 @@ class nptMotor(motor):
         
     def setPositionTriggerOn(self, pos, debug = False):
         if not(self.simulation):
-            if degug:
+            if debug:
                 print(f"[nptMotor] Turning position trigger on for axis {self._axis} at position {pos}")
             self.controller.setPositionTrigger(pos = pos, axis = self._axis, mode = 'on')
         
