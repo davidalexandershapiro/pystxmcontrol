@@ -1,7 +1,6 @@
 from pystxmcontrol.utils.writeNX import stxm
 from queue import Queue
-# import asyncio
-# import prefect
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time, os, datetime, threading, zmq
 import numpy as np
 from threading import Lock
@@ -105,6 +104,10 @@ class dataHandler:
         #there is acceleration).
         #For spiral trajectories we interpolate the entire image area at once.
 
+        #It will take a while to figure out the interpolation of the XRF spectra so the easiest thing to do here is run the interpolation
+        #on the default DAQ is usual and also just the sum of the XRF spectra, so we at least get some image from the data
+        #The full spectra will still be saved in the file under nx.counts["XRF"]
+
         try:
             if scanInfo["coarse_only"]:
                 return scanInfo["rawData"]
@@ -148,7 +151,7 @@ class dataHandler:
             
             distMeas = distMeas[:cutoff]
             
-            data = scanInfo["rawData"][:cutoff]
+            data = scanInfo["rawData"]["default"]["data"][:cutoff]
             
             if len(data)>len(distMeas):
                 data = data[:len(distMeas)]
@@ -209,9 +212,9 @@ class dataHandler:
             
             
             #Also, the raw data.
-            di = (scanInfo['index'])*scanInfo['rawData'].size
-            dataOld = self.data.counts[region][scanInfo['energyIndex'],:di]
-            data = np.append(dataOld,scanInfo['rawData'])
+            di = (scanInfo['index'])*scanInfo["rawData"]["default"]["data"].size
+            dataOld = self.data.counts["default"][region][scanInfo['energyIndex'],:di]
+            data = np.append(dataOld,scanInfo["rawData"]["default"]["data"])
             
             #Determine the actual motor dwell and daq dwell. Determined by testing.
             motDwellOffset = 0.0 #ms
@@ -233,7 +236,7 @@ class dataHandler:
             else:
                 #Find the times that each point was collected. Could need some work maybe.
                 xytraj = np.arange(len(scanInfo['line_positions'][0]))*actMotDwell+Motdelay
-                DAQtraj = np.arange(len(scanInfo['rawData']))*actDAQDwell+DAQdelay
+                DAQtraj = np.arange(len(scanInfo["rawData"]["default"]["data"]))*actDAQDwell+DAQdelay
             
             endpoint = max(xytraj[-1],DAQtraj[-1])
             xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
@@ -271,8 +274,11 @@ class dataHandler:
         j = i + scanInfo["rawData"].size
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
-        self.data.counts[k][m,i:j] = scanInfo["rawData"]
-
+        for daq in scanInfo["rawData"].keys():
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.counts[daq][k][m,i:j] = scanInfo["rawData"][daq]["data"]
+            if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.counts[daq][k][:,i:j] = scanInfo["rawData"][daq]["data"]
         if scanInfo["type"] == "Image":
             self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
             self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
@@ -383,68 +389,24 @@ class dataHandler:
         self.data.close()
         print("Completed scan process.")
 
-    # def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
-    #     # Same prefect client, but if you know the url and api_key
-    #     # httpx_settings allows you to affect the http client that the prefect client uses
-    #     return prefect.PrefectClient(
-    #         prefect_api_url,
-    #         api_key=prefect_api_key,
-    #         httpx_settings=httpx_settings)
-
-    # async def prefect_start_nersc_flow(self, prefect_client, deployment_name, file_path):
-    #     deployment = await prefect_client.read_deployment_by_name(deployment_name)
-    #     flow_run = await prefect_client.create_flow_run_from_deployment(
-    #         deployment.id,
-    #         name=os.path.basename(file_path),
-    #         parameters={"file_path": file_path},
-    #     )
-    #     return flow_run
-
-    # async def prefect_start_stxmdb_flow(self, prefect_client, deployment_name, file_path):
-    #     deployment = await prefect_client.read_deployment_by_name(deployment_name)
-    #     flow_run = await prefect_client.create_flow_run_from_deployment(
-    #         deployment.id,
-    #         name=os.path.basename(file_path),
-    #         parameters={"file_path": file_path},
-    #     )
-    #     return flow_run
-
-    # def prefect_nersc_transfer(self, file_name):
-    #     print("[prefect]: Initializing data transfer to NERSC for file %s" %file_name)
-    #     year_2digits = file_name[3:5]
-    #     year_4digits = '20' + year_2digits
-    #     month = file_name[5:7]
-    #     day = file_name[7:9]
-    #     file_path = f"{year_4digits}/{month}/{year_2digits}{month}{day}/{file_name}"
-    #     print("[prefect]: Saving data in path %s" %file_path)
-
-    #     prefect_api_url = os.getenv('PREFECT_API_URL')
-    #     prefect_api_key = os.getenv('PREFECT_API_KEY')
-    #     prefect_deployment = "process_newfile_7012_ptycho4/process_newdata7012_ptycho4"
-    #     client = self.get_prefect_client(prefect_api_url, prefect_api_key)
-    #     asyncio.run(self.prefect_start_nersc_flow(client, prefect_deployment, file_path))
-
-    # def prefect_stxmdb_transfer(self):
-    #     print("[prefect]: Initializing entry to stxmdb %s" %self.data.file_name)
-    #     prefect_api_url = os.getenv('PREFECT_API_URL')
-    #     prefect_api_key = os.getenv('PREFECT_API_KEY')
-    #     prefect_deployment = "stxmdb_add_entry/stxmdb_add_entry"
-    #     client = self.get_prefect_client(prefect_api_url, prefect_api_key)
-    #     asyncio.run(self.prefect_start_stxmdb_flow(client, prefect_deployment, self.data.file_name))
-
     def monitor(self):
+        #the daqs are configured for the monitor by the monitorStart/Stop methods in the controller
         scanInfo = {"type": "monitor"}
         scanInfo["mode"] = "monitor"
         scanInfo["energy"] = 500
         scanInfo["energyRegion"] = "EnergyRegion1"
         scanInfo["scanRegion"] = "Region1"
         scanInfo["dwell"] = self.controller.main_config["monitor"]["dwell"]
+        scanInfo["rawData"] = {}
+        for daq in self.daq.keys():
+            scanInfo["rawData"][daq]={"meta":self.daq[daq].meta,"data": None}
         chunk = []
         while True:
             scanInfo["elapsedTime"] = time.time()
-            time.sleep(0.01)
             self.daq["default"].autoGateOpen(shutter=0)
+            t0 = time.time()
             self.getPoint(scanInfo)
+            print(f"[dataHandler] getPoint time {time.time()-t0}")
             self.daq["default"].autoGateClosed()
             self.controller.getMotorPositions()
             scanInfo = self.dataQueue.get(True)
@@ -452,9 +414,7 @@ class dataHandler:
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
             scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].offset
             if self.scanQueue.empty():
-                chunk.append(scanInfo)
-                self.sendDataChunkToSock(chunk)
-                chunk = []
+                self.sendDataToSock(scanInfo)
             else:
                 return
                 
@@ -480,8 +440,6 @@ class dataHandler:
             scanInfo = self.dataQueue.get(True)
             if scanInfo == 'endOfScan':
                 self.regionComplete = True
-                if len(chunk) != 0:
-                    self.sendDataChunkToSock(chunk)
                 try:
                     self.stxm_pub_socket.send_pyobj('scan_complete')
                 except:
@@ -490,9 +448,6 @@ class dataHandler:
             elif scanInfo == "endOfRegion":
                 self.data.saveRegion(region)
                 self.regionComplete = True
-                if len(chunk) != 0:
-                    self.sendDataChunkToSock(chunk)
-                chunk = []
             else:
                 self.regionComplete = False
                 region = int(scanInfo['scanRegion'].split('Region')[1]) - 1
@@ -511,37 +466,19 @@ class dataHandler:
                     else:
                         self.darkFrame = scanInfo["ccd_frame"]
                     scanInfo['image'] = self.addDataToStack(scanInfo)
-                    chunk.append(scanInfo)
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []
                 elif scanInfo["mode"] == "point":
                     scanInfo["data"] = scanInfo["rawData"]
                     scanInfo['image'] = self.addDataToStack(scanInfo)
-                    chunk.append(scanInfo)
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []
                 else:
                     #prepare data to send onto socket (for the GUI)
-                    with self._lock:
-                        scanInfo["data"] = self.interpolate_points(scanInfo)
-                        scanInfo["image"] = self.addDataToStack(scanInfo)
-                        chunk.append(scanInfo)
+                    #interpolate_points takes scanInfo["rawData"] and converts to image coordinates 
+                    scanInfo["data"] = self.interpolate_points(scanInfo)
+                    #addDataToStack puts the image in the data structure and returns the thing to display in the GUI
+                    scanInfo["image"] = self.addDataToStack(scanInfo)
+                self.sendDataToSock(scanInfo)
 
-                if scanInfo["mode"] in self.lineScanModes:
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []            
-                elif len(chunk) == 50:
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []
-
-    def sendDataChunkToSock(self, chunk):
-        ##grab data from all chunks and use the first as a template for the
-        ##scanInfo dictionary to send
-        data = np.array([item["rawData"] for item in chunk])
-        scan_info = chunk[0]
-        scan_info["data"] = data
+    def sendDataToSock(self, scan_info):
         scan_info["scanID"] = self.currentScanID
-        scan_info["elapsedTime"] = chunk[-1]["elapsedTime"]
         self.stxm_pub_socket.send_pyobj(scan_info)
 
     def getPoint(self, scanInfo):
@@ -549,11 +486,22 @@ class dataHandler:
             data = self.daq["ccd"].getPoint()
             if data is not None:
                 frame_num, scanInfo["ccd_frame"] = data
-                scanInfo["rawData"] = np.array(0.)
+                scanInfo["rawData"]["ccd"]["data"] = np.array(0.)
             else:
                 return False
         else:
-            scanInfo["rawData"] = np.array(self.daq["default"].getPoint())
+            for daq in self.daq.keys():
+                if self.controller.daqConfig[daq]["record"]:
+                    if self.controller.daqConfig[daq]["type"] != "image":
+                        scanInfo["rawData"][daq]["data"] = np.array(self.daq[daq].getPoint())
+            # with ThreadPoolExecutor(max_workers=5) as executor:
+            #     futures = []
+            #     for daq in self.daq.keys():
+            #         future = executor.submit(self.read_daq, daq)
+            #         futures.append(future)
+            # for future in as_completed(futures):
+            #     scanInfo["rawData"][daq]["data"] = future.result() # Blocks until the task is complete
+            #     print(scanInfo["rawData"][daq]["data"])
 
         self.dataQueue.put(scanInfo)
         #Without this sleep time, the first item in a sequence gets unsynchronized somehow.  It appears out of order and
@@ -561,15 +509,20 @@ class dataHandler:
         time.sleep(0.01)
         return True
 
+    def read_daq(self,daq):
+        return np.array(self.daq[daq].getPoint())
+
     def getLine(self, scanInfo):
-        scanInfo["rawData"] = self.daq["default"].getLine()
+        for daq in self.daq.keys():
+            if self.controller.daqConfig[daq]["record"]:
+                scanInfo["rawData"][daq]["data"] = np.array(self.daq[daq].getLine())
         #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
         #Until sendscandata is called, the raw data is stored in 'data'
-        if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):
-            print(len(scanInfo['rawData']),len(scanInfo['line_positions'][0]))
-            if not scanInfo['scan']['spiral']:
-                print('mismatched arrays!')
-                return False
+        # if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):
+        #     print(len(scanInfo['rawData']),len(scanInfo['line_positions'][0]))
+        #     if not scanInfo['scan']['spiral']:
+        #         print('mismatched arrays!')
+        #         return False
         self.dataQueue.put(scanInfo)
         return True
         

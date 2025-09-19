@@ -19,11 +19,19 @@ class xspress3(daq):
         self.samples = 1
         #Default is 4096 bins, 10 eV per bin.
         self.nbins = 4096
+        self._bin_ev_delta = 10.0
+        self._bottom_bin = 250.0 #this is just a place holder
+        self.energies = np.linspace(self._bottom_bin, self._bottom_bin + self.nbins * self._bin_ev_delta, self.nbins)
+        self.meta = {"ndim": 1, "x": self.energies, "y": np.zeros_like(self.energies), "type": "spectrum", "name": "XSPRESS3", "x label": "Energy"}
+
 
     def start(self):
         pass
 
-    def config(self, dwell = 50, count  = 1, samples = 1,trigger = 'BUS', output = 'OFF'):
+    def stop(self):
+        pass
+
+    def config(self, dwell = 1, count  = 1, samples = 1,trigger = 'BUS', output = 'OFF'):
         # Trying to make this the same inputs as the keysight counter so that we can feed it the same thing.
 
         self.dwell = dwell
@@ -49,7 +57,11 @@ class xspress3(daq):
             #1e7 total counts/second across nbins
             time.sleep(self.dwell/1000)
             data = poisson(1e7/self.nbins*self.dwell/1000,(self.nbins,))
-            return(data)
+
+            #but this is a spectrum so we need to return some energy information.  I assume that is done below
+            #but I don't yet know the format of the data.  For now I"ll return it as two lists
+            self.energies = np.linspace(500,1000,self.nbins)
+            return (self.energies,data)
         else:
             #Get old configuration
             oldTrigger = caget(self.address+self.det_prefix+'TriggerMode_RBV')

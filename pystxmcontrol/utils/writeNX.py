@@ -223,8 +223,9 @@ class stxm:
         self.xMeasured, self.yMeasured, self.zMeasured = [], [], []
         self.xstepsize = []
         self.ystepsize = []
-        self.counts = []
-        self.interp_counts = []
+        self.daq_list = scan["daq list"]
+        self.counts = dict.fromkeys(self.daq_list,[]) 
+        self.interp_counts = dict.fromkeys(self.daq_list,[]) 
 
         for region in scan["scan_regions"].keys():
             self.xPos.append(np.linspace(scan["scan_regions"][region]["xStart"], \
@@ -253,8 +254,9 @@ class stxm:
             self.xMeasured.append(np.zeros(nPixels_m))
             self.yMeasured.append(np.zeros(nPixels_m))
             self.zMeasured.append(np.zeros(nPixels_m))
-            self.counts.append(np.zeros((self.energies.size,nPixels_m))) #this is a long vector of measured positions
-            self.interp_counts.append(np.zeros((self.energies.size,nyPos,nxPos))) #this is a matrix of requested positions
+            for daq in scan["daq list"]:
+                self.counts[daq].append(np.zeros((self.energies.size,nPixels_m))) #this is a long vector of measured positions
+                self.interp_counts[daq].append(np.zeros((self.energies.size,nyPos,nxPos))) #this is a matrix of requested positions
             
     def updateArrays(self,region,scanInfo):
         #doing things this way requires the scan driver to correctly provide the number of points for each line and image
@@ -263,7 +265,9 @@ class stxm:
         #self.interp_counts does not need to be updated here because its shape doesn't depend on the calculated trajectories
         motorLength = scanInfo['numMotorPoints']
         DAQLength = scanInfo['numDAQPoints']
-        self.counts[region] = np.zeros((self.energies.size,DAQLength))
+        n_energies = scanInfo["n_energies"]
+        for daq in self.daq_list:
+            self.counts[daq][region] = np.zeros((n_energies,DAQLength))
         self.xMeasured[region] = np.zeros((self.energies.size,motorLength))
         self.yMeasured[region] = np.zeros((self.energies.size,motorLength))
         self.zMeasured[region] = np.zeros((self.energies.size,motorLength))
@@ -299,12 +303,13 @@ class stxm:
         #I'm not sure that this works for spiral scans where the data size is actually increased by the
         #motor driver. The initial array size at creation is just an estimate but gets revised.  May have to delete
         #and re-create?
-        del self._nx_writer[f'entry{i}/instrument/detector/data']
-        self._nx_writer[f'entry{i}/instrument/detector'].create_dataset("data", data = self.counts[i])
-        del self._nx_writer[f'entry{i}/data/data']
-        self._nx_writer[f'entry{i}/data'].create_dataset("data", data = self.interp_counts[i])
-        self._nx_writer[f'entry{i}/instrument/detector/data'].flush()
-        self._nx_writer[f'entry{i}/data/data'].flush()
+        for daq in self.daq_list:
+            del self._nx_writer[f'entry{i}/instrument/{daq}/data']
+            self._nx_writer[f'entry{i}/instrument/{daq}'].create_dataset("data", data = self.counts[daq][i])
+            del self._nx_writer[f'entry{i}/data/{daq}']
+            self._nx_writer[f'entry{i}/data'].create_dataset(daq, data = self.interp_counts[daq][i])
+            self._nx_writer[f'entry{i}/instrument/{daq}/data'].flush()
+            self._nx_writer[f'entry{i}/data/{daq}'].flush()
         for motor in self.motorPositions[i].keys():
             try:
                 self._nx_writer[f'entry{i}/instrument/motors'].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
@@ -340,9 +345,10 @@ class stxm:
         nxmono = nxinstrument.create_group("monochromator")
         nxmono.attrs["NX_class"] = np.bytes_("NXmonochromator")
         nxmono.create_dataset("energy",data=self.energies)
-        nxdetector = nxinstrument.create_group("detector")
-        nxdetector.attrs["NX_class"] = np.bytes_("NXdetector")
-        nxdetector.create_dataset("data",data=np.zeros_like(self.counts[i]))
+        for daq in self.daq_list:
+            nxdetector = nxinstrument.create_group(daq)
+            nxdetector.attrs["NX_class"] = np.bytes_("NXdetector")
+            nxdetector.create_dataset("data",data=np.zeros_like(self.counts[daq][i]))
         measured_xgrp = nxinstrument.create_group("sample_x")
         measured_ygrp = nxinstrument.create_group("sample_y")
         measured_zgrp = nxinstrument.create_group("sample_z")
@@ -363,7 +369,8 @@ class stxm:
         d.attrs["axes"] = [np.bytes_("energy"),np.bytes_("sample_y"),np.bytes_("sample_x")]
         d.attrs["signal"] = "data"
         d.create_dataset("stxm_scan_type",data=[self.scan_dict["scan_type"]])
-        d.create_dataset("data",data=np.zeros_like(self.interp_counts[i]))
+        for daq in self.daq_list:
+            d.create_dataset(daq,data=np.zeros_like(self.interp_counts[daq][i]))
         energy = d.create_dataset("energy",data=self.energies)
         energy.attrs["axis"] = 1
         d.create_dataset("count_time",data=self.dwells)

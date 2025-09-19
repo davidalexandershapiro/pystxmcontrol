@@ -15,6 +15,7 @@ class keysight53230A(daq):
             self.counter = counter()
             self.idle_ms = 1
             self.ctrNum = 0
+        self.meta = {"ndim": 0, "x": [], "type": "point", "name": "Keysight 53230A"}
 
     def start(self):
         if not (self.simulation):

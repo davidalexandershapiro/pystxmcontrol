@@ -22,6 +22,7 @@ def derived_line_image(scan, dataHandler, controller, queue):
     scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo['totalSplit'] = None
+    scanInfo["n_energies"] = len(energies)
     energyIndex = 0
     nScanRegions = len(xPos)
     scanInfo["coarse_only"] = scan["coarse_only"]
@@ -114,9 +115,10 @@ def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo['numMotorPoints'] = numLineMotorPoints * yPoints #total number of motor points configures the full data structrure
             scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
             if energy == energies[0]:
+                #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
-            controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
-                                                  samples=numLineDAQPoints, trigger="EXT")
+
+            controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = numLineDAQPoints, trigger = "EXT")
             start_position_x = controller.motors[scan["x_motor"]]["motor"].trajectory_start[0] - \
                                controller.motors[scan["x_motor"]]["motor"].xpad
             start_position_y = controller.motors[scan["x_motor"]]["motor"].trajectory_start[1] - \

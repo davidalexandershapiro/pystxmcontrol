@@ -58,7 +58,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -12.475,
                     "xStop": 12.475,
@@ -80,13 +80,13 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 0.12,
                     "start": 600.0,
                     "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
             "energy": "Energy",
@@ -109,7 +109,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -4.9,
                     "xStop": 4.9,
@@ -131,13 +131,13 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 10.0,
                     "start": 600.0,
                     "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
             "energy": "Energy",
@@ -161,7 +161,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -4.9,
                     "xStop": 4.9,
@@ -183,13 +183,13 @@
                     "zCenter": -9271.08
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 1.0,
                     "start": 700.0,
                     "stop": 701.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
             "z": "ZonePlateZ",
@@ -213,7 +213,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -4.9,
                     "xStop": 4.9,
@@ -235,13 +235,13 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 1.0,
                     "start": 600.0,
                     "stop": 700.0,
                     "step": 1.0,
-                    "nEnergies": 101
+                    "n_energies": 101
                 }
             },
             "energy": "Energy",
@@ -265,7 +265,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -39.650000000000006,
                     "xStop": -29.750000000000004,
@@ -287,13 +287,13 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 10.0,
                     "start": 600.0,
                     "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
             "energy": "Energy",
@@ -317,7 +317,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -4.853,
                     "xStop": 4.323,
@@ -339,13 +339,13 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 1.0,
                     "start": 700.0,
                     "stop": 701.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
             "doubleExposure": false,

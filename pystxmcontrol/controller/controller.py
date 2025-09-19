@@ -111,11 +111,10 @@ class controller:
         self.getMotorPositions()
         
         ##get the list of daqs from the config and start them
-        daqList = json.loads(open(self.daqConfigFile).read())
         self.daq = {}
-        for daq in daqList:
-            simulation = daqList[daq]["simulation"]
-            self.daq[daq] = eval(daqList[daq]["driver"] + '(simulation = %s)' %simulation)
+        for daq in self.daqConfig.keys():
+            simulation = self.daqConfig[daq]["simulation"]
+            self.daq[daq] = eval(self.daqConfig[daq]["driver"] + '(simulation = %s)' %simulation)
             self.daq[daq].start()
         self.dataHandler = dataHandler(self, self._logger)
         self.getMotorPositions()
@@ -169,8 +168,9 @@ class controller:
         return self.motors[motor]["motor"].config
 
     def startMonitor(self):
-        self.daq["default"].start()
-        self.daq["default"].config(self.main_config["monitor"]["dwell"])
+        for daq in self.daq.keys():
+            self.daq[daq].start()
+            self.daq[daq].config(dwell = self.main_config["monitor"]["dwell"])
         self.dataHandler.monitorDaq = True
         if not self.monitorThread.is_alive():
             self.monitorThread = threading.Thread(target = self.dataHandler.monitor, args = ())
@@ -180,7 +180,8 @@ class controller:
     def stopMonitor(self):
         self.scanQueue.put('end')
         self.monitorThread.join()
-        self.daq["default"].stop()
+        for daq in self.daq.keys():
+            self.daq[daq].stop()
 
     def getScanID(self, ptychography = False):
         self.currentScanID = self.dataHandler.getScanName(dir = self.main_config["server"]["data_dir"], \
@@ -215,6 +216,11 @@ class controller:
         self.scanThread.join()
         self.scanQueue.queue.clear()
         self.scanning = False
+
+    def config_daqs(self, dwell, count, samples, trigger):
+        for daq in self.daq.keys():
+            if self.daqConfig[daq]["record"]:
+                self.daq[daq].config(dwell / self.daqConfig[daq]["oversampling_factor"], count = count, samples = samples, trigger = trigger)
 
     def read_daq(self, daq, dwell, shutter = True):
         try:

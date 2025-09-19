@@ -20,6 +20,7 @@ class fccd_control(daq):
         self.cin = CIN()
         if not(self.simulation):
             pass
+        self.meta = {"ndim": 2, "type": "image", "name": "FCCD", "x label": "X Position", "y label": "Y Position"}
 
     def start(self):
         self.fbuffer = []
