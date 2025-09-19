@@ -2,13 +2,14 @@ import numpy as np
 from pystxmcontrol.controller.daq import daq
 from epics import caget, caput, cainfo
 from numpy.random import poisson
+from pystxmcontrol.drivers.shutter import shutter
 import time
 
 
 
 class xrfDetector(daq):
 
-    def __init__(self, address = 'XSP3_4Chan',simulation = False):
+    def __init__(self, address = 'XSP3_2Chan',simulation = False):
 
         self.address = address
         self.simulation = simulation
@@ -70,21 +71,24 @@ class xrfDetector(daq):
     def getLine(self):
         if self.simulation:
             #1e7 total counts/second across nbins, collection of count*samples points
+            #This might not be right. I dunno if this is in its own thread or not.
             time.sleep(self.dwell/1000*self.count*self.samples)
             data = poisson(1e7/self.nbins*self.dwell/1000,(self.count*self.samples,self.nbins))
             return(data)
         else:
-            # Should already be configured to take a number of samples. Else the default is 1.
+            # Should already be configured to take a number of samples and a dwell time. Else the default is 1.
             caput(self.address+self.det_prefix+'Acquire',1)
+            # Trigger off of external pulse, run until acquire time. I think this is trigger state 4: TTL_Both
+            caput(self.address+self.det_prefix+'TriggerMode', 4)
             #How to tell when it's done? We wait for idle maybe?
             while caget(self.address+self.det_prefix+'DetectorState_RBV') != 'Idle':
                 #print(caget(self.address+self.det_prefix+'DetectorState_RBV'))
-                pass
-            #How to read data? I am missing some PVs.
+                time.sleep(0.1)
+            #Read Data. This is the right shape. Not sure if it is the right data.
             data = caget(self.address+self.MCA_prefix+'ArrayData')
 
             #Can we update data as it is collected?
 
-            #How do we put the gate in here? Look at keysight53230A.py probably.
+            #I don't think we need the gate so long as the diode is operating it.
 
             return(data)

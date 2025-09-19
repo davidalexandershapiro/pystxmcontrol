@@ -12,6 +12,8 @@ class E712Motor(motor):
         #self.simulation = False
         self.config = None
         self.axis = None
+        self.position = 0
+        self.moving = False
         self.trigger_axis = 1 #1 for X and 2 for Y
         self.include_return = True
         self.config = {"minValue":-5000,"maxValue":5000,"offset":0,"units":1.}

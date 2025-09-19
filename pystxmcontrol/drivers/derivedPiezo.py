@@ -196,6 +196,7 @@ class derivedPiezo(motor):
                 self.moveTo(self.stop[0], coarseOnly = True)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
+                print("Doing arbitrary line scan")
                 self.positions = self.axes["axis1"].controller.acquire_xy()
                 self.positions = self.scale2gui(self.positions[0]) + offset[0], self.scale2gui(self.positions[1]) + offset[1]
             else:

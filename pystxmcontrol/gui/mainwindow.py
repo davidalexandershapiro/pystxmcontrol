@@ -2123,9 +2123,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setGUIfromScan(self.last_scan["Image"])
         self.setSingleEnergy()
         self.activateGUI()
-        if not self.client.main_config["geometry"]["enable_coarse_only"]:
-            self.ui.tiledCheckbox.setChecked(True)
-            self.ui.tiledCheckbox.setEnabled(False)
+        #if not self.client.main_config["geometry"]["enable_coarse_only"]:
+        self.ui.tiledCheckbox.setChecked(False)
+        self.ui.tiledCheckbox.setEnabled(False)
 
         try:
             #This can fail if there's a problem with the alsapi server or the environment variables aren't set
