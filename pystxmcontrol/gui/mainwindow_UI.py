@@ -75,8 +75,8 @@ class Ui_MainWindow(object):
         self.tabWidget_3 = QTabWidget(self.centralwidget)
         self.tabWidget_3.setObjectName(u"tabWidget_3")
         self.tabWidget_3.setGeometry(QRect(0, 0, 1521, 1031))
-        self.tabWidget_3.setTabPosition(QTabWidget.North)
-        self.tabWidget_3.setTabShape(QTabWidget.Rounded)
+        self.tabWidget_3.setTabPosition(QTabWidget.TabPosition.North)
+        self.tabWidget_3.setTabShape(QTabWidget.TabShape.Rounded)
         self.tabWidget_3.setDocumentMode(False)
         self.tab_9 = QWidget()
         self.tab_9.setObjectName(u"tab_9")
@@ -596,7 +596,7 @@ class Ui_MainWindow(object):
         font2 = QFont()
         font2.setPointSize(22)
         self.daqCurrentValue.setFont(font2)
-        self.daqCurrentValue.setTextFormat(Qt.PlainText)
+        self.daqCurrentValue.setTextFormat(Qt.TextFormat.PlainText)
         self.layoutWidget3 = QWidget(self.tab_9)
         self.layoutWidget3.setObjectName(u"layoutWidget3")
         self.layoutWidget3.setGeometry(QRect(1100, 16, 377, 41))
@@ -779,94 +779,79 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_3.addWidget(self.label_26)
 
-        self.textEdit = QTextEdit(self.verticalLayoutWidget)
-        self.textEdit.setObjectName(u"textEdit")
+        self.commentEdit = QTextEdit(self.verticalLayoutWidget)
+        self.commentEdit.setObjectName(u"commentEdit")
 
-        self.verticalLayout_3.addWidget(self.textEdit)
+        self.verticalLayout_3.addWidget(self.commentEdit)
 
         self.tabWidget_5.addTab(self.Experiment, "")
         self.beamlineTab = QWidget()
         self.beamlineTab.setObjectName(u"beamlineTab")
         self.gridLayoutWidget_7 = QWidget(self.beamlineTab)
         self.gridLayoutWidget_7.setObjectName(u"gridLayoutWidget_7")
-        self.gridLayoutWidget_7.setGeometry(QRect(10, 10, 291, 161))
+        self.gridLayoutWidget_7.setGeometry(QRect(10, 10, 291, 141))
         self.gridLayout_8 = QGridLayout(self.gridLayoutWidget_7)
         self.gridLayout_8.setObjectName(u"gridLayout_8")
         self.gridLayout_8.setContentsMargins(0, 0, 0, 0)
-        self.dsLabel = QLabel(self.gridLayoutWidget_7)
-        self.dsLabel.setObjectName(u"dsLabel")
-
-        self.gridLayout_8.addWidget(self.dsLabel, 1, 1, 1, 1)
-
         self.ndsLabel = QLabel(self.gridLayoutWidget_7)
         self.ndsLabel.setObjectName(u"ndsLabel")
 
         self.gridLayout_8.addWidget(self.ndsLabel, 2, 1, 1, 1)
-
-        self.label_14 = QLabel(self.gridLayoutWidget_7)
-        self.label_14.setObjectName(u"label_14")
-
-        self.gridLayout_8.addWidget(self.label_14, 2, 0, 1, 1)
-
-        self.dsEdit = QLineEdit(self.gridLayoutWidget_7)
-        self.dsEdit.setObjectName(u"dsEdit")
-
-        self.gridLayout_8.addWidget(self.dsEdit, 1, 2, 1, 1)
-
-        self.A0Edit = QLineEdit(self.gridLayoutWidget_7)
-        self.A0Edit.setObjectName(u"A0Edit")
-
-        self.gridLayout_8.addWidget(self.A0Edit, 3, 2, 1, 1)
-
-        self.label_4 = QLabel(self.gridLayoutWidget_7)
-        self.label_4.setObjectName(u"label_4")
-
-        self.gridLayout_8.addWidget(self.label_4, 0, 0, 1, 1)
-
-        self.energyEdit = QLineEdit(self.gridLayoutWidget_7)
-        self.energyEdit.setObjectName(u"energyEdit")
-
-        self.gridLayout_8.addWidget(self.energyEdit, 0, 2, 1, 1)
-
-        self.A0Label = QLabel(self.gridLayoutWidget_7)
-        self.A0Label.setObjectName(u"A0Label")
-
-        self.gridLayout_8.addWidget(self.A0Label, 3, 1, 1, 1)
 
         self.label_34 = QLabel(self.gridLayoutWidget_7)
         self.label_34.setObjectName(u"label_34")
 
         self.gridLayout_8.addWidget(self.label_34, 3, 0, 1, 1)
 
-        self.energyLabel_2 = QLabel(self.gridLayoutWidget_7)
-        self.energyLabel_2.setObjectName(u"energyLabel_2")
+        self.A0Edit = QLineEdit(self.gridLayoutWidget_7)
+        self.A0Edit.setObjectName(u"A0Edit")
 
-        self.gridLayout_8.addWidget(self.energyLabel_2, 0, 1, 1, 1)
+        self.gridLayout_8.addWidget(self.A0Edit, 3, 2, 1, 1)
 
-        self.ndsEdit = QLineEdit(self.gridLayoutWidget_7)
-        self.ndsEdit.setObjectName(u"ndsEdit")
+        self.energyEdit = QLineEdit(self.gridLayoutWidget_7)
+        self.energyEdit.setObjectName(u"energyEdit")
 
-        self.gridLayout_8.addWidget(self.ndsEdit, 2, 2, 1, 1)
+        self.gridLayout_8.addWidget(self.energyEdit, 0, 2, 1, 1)
 
         self.label_13 = QLabel(self.gridLayoutWidget_7)
         self.label_13.setObjectName(u"label_13")
 
         self.gridLayout_8.addWidget(self.label_13, 1, 0, 1, 1)
 
-        self.label_35 = QLabel(self.gridLayoutWidget_7)
-        self.label_35.setObjectName(u"label_35")
+        self.A0Label = QLabel(self.gridLayoutWidget_7)
+        self.A0Label.setObjectName(u"A0Label")
 
-        self.gridLayout_8.addWidget(self.label_35, 4, 0, 1, 1)
+        self.gridLayout_8.addWidget(self.A0Label, 3, 1, 1, 1)
 
-        self.A1Label = QLabel(self.gridLayoutWidget_7)
-        self.A1Label.setObjectName(u"A1Label")
+        self.dsLabel = QLabel(self.gridLayoutWidget_7)
+        self.dsLabel.setObjectName(u"dsLabel")
 
-        self.gridLayout_8.addWidget(self.A1Label, 4, 1, 1, 1)
+        self.gridLayout_8.addWidget(self.dsLabel, 1, 1, 1, 1)
 
-        self.A1Edit = QLineEdit(self.gridLayoutWidget_7)
-        self.A1Edit.setObjectName(u"A1Edit")
+        self.ndsEdit = QLineEdit(self.gridLayoutWidget_7)
+        self.ndsEdit.setObjectName(u"ndsEdit")
 
-        self.gridLayout_8.addWidget(self.A1Edit, 4, 2, 1, 1)
+        self.gridLayout_8.addWidget(self.ndsEdit, 2, 2, 1, 1)
+
+        self.label_14 = QLabel(self.gridLayoutWidget_7)
+        self.label_14.setObjectName(u"label_14")
+
+        self.gridLayout_8.addWidget(self.label_14, 2, 0, 1, 1)
+
+        self.energyLabel_2 = QLabel(self.gridLayoutWidget_7)
+        self.energyLabel_2.setObjectName(u"energyLabel_2")
+
+        self.gridLayout_8.addWidget(self.energyLabel_2, 0, 1, 1, 1)
+
+        self.dsEdit = QLineEdit(self.gridLayoutWidget_7)
+        self.dsEdit.setObjectName(u"dsEdit")
+
+        self.gridLayout_8.addWidget(self.dsEdit, 1, 2, 1, 1)
+
+        self.label_4 = QLabel(self.gridLayoutWidget_7)
+        self.label_4.setObjectName(u"label_4")
+
+        self.gridLayout_8.addWidget(self.label_4, 0, 0, 1, 1)
 
         self.tabWidget_5.addTab(self.beamlineTab, "")
         self.epuTab = QWidget()
@@ -968,6 +953,53 @@ class Ui_MainWindow(object):
         self.gridLayout_6.addWidget(self.polLabel, 0, 3, 1, 1)
 
         self.tabWidget_5.addTab(self.epuTab, "")
+        self.tab_2 = QWidget()
+        self.tab_2.setObjectName(u"tab_2")
+        self.gridLayoutWidget_4 = QWidget(self.tab_2)
+        self.gridLayoutWidget_4.setObjectName(u"gridLayoutWidget_4")
+        self.gridLayoutWidget_4.setGeometry(QRect(9, 9, 291, 101))
+        self.gridLayout_5 = QGridLayout(self.gridLayoutWidget_4)
+        self.gridLayout_5.setObjectName(u"gridLayout_5")
+        self.gridLayout_5.setContentsMargins(0, 0, 0, 0)
+        self.serverAddressEdit = QLineEdit(self.gridLayoutWidget_4)
+        self.serverAddressEdit.setObjectName(u"serverAddressEdit")
+        self.serverAddressEdit.setEnabled(False)
+
+        self.gridLayout_5.addWidget(self.serverAddressEdit, 1, 2, 1, 1)
+
+        self.label_35 = QLabel(self.gridLayoutWidget_4)
+        self.label_35.setObjectName(u"label_35")
+
+        self.gridLayout_5.addWidget(self.label_35, 0, 0, 1, 1)
+
+        self.A1Label = QLabel(self.gridLayoutWidget_4)
+        self.A1Label.setObjectName(u"A1Label")
+
+        self.gridLayout_5.addWidget(self.A1Label, 0, 1, 1, 1)
+
+        self.label_41 = QLabel(self.gridLayoutWidget_4)
+        self.label_41.setObjectName(u"label_41")
+        self.label_41.setFont(font1)
+
+        self.gridLayout_5.addWidget(self.label_41, 1, 0, 1, 1)
+
+        self.A1Edit = QLineEdit(self.gridLayoutWidget_4)
+        self.A1Edit.setObjectName(u"A1Edit")
+
+        self.gridLayout_5.addWidget(self.A1Edit, 0, 2, 1, 1)
+
+        self.serverAddressLabel = QLabel(self.gridLayoutWidget_4)
+        self.serverAddressLabel.setObjectName(u"serverAddressLabel")
+
+        self.gridLayout_5.addWidget(self.serverAddressLabel, 1, 1, 1, 1)
+
+        self.serverConnectButton = QPushButton(self.gridLayoutWidget_4)
+        self.serverConnectButton.setObjectName(u"serverConnectButton")
+        self.serverConnectButton.setEnabled(False)
+
+        self.gridLayout_5.addWidget(self.serverConnectButton, 2, 2, 1, 1)
+
+        self.tabWidget_5.addTab(self.tab_2, "")
         self.tabWidget_2 = QTabWidget(self.tab_9)
         self.tabWidget_2.setObjectName(u"tabWidget_2")
         self.tabWidget_2.setGeometry(QRect(10, 140, 691, 361))
@@ -1385,7 +1417,7 @@ class Ui_MainWindow(object):
         self.label_20.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">X:</span></p></body></html>", None))
         self.label_24.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Intensity:</span></p></body></html>", None))
         self.cursorIntensity.setText("")
-        self.daqCurrentValue.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><br/></p></body></html>", None))
+        self.daqCurrentValue.setText("")
         self.label_3.setText(QCoreApplication.translate("MainWindow", u"Plot", None))
         self.plotType.setItemText(0, QCoreApplication.translate("MainWindow", u"Monitor", None))
         self.plotType.setItemText(1, QCoreApplication.translate("MainWindow", u"Motor Scan", None))
@@ -1413,16 +1445,14 @@ class Ui_MainWindow(object):
         self.label_31.setText(QCoreApplication.translate("MainWindow", u"Proposal", None))
         self.label_26.setText(QCoreApplication.translate("MainWindow", u"Comment", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.Experiment), QCoreApplication.translate("MainWindow", u"Experiment", None))
-        self.dsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
         self.ndsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.label_14.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Non-Dispersive Slit</span></p></body></html>", None))
-        self.label_4.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Energy</span></p></body></html>", None))
-        self.A0Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
         self.label_34.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A0</span></p></body></html>", None))
-        self.energyLabel_2.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
         self.label_13.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Dispersive Slit</span></p></body></html>", None))
-        self.label_35.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A1</span></p></body></html>", None))
-        self.A1Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.A0Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.dsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.label_14.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Non-Dispersive Slit</span></p></body></html>", None))
+        self.energyLabel_2.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.label_4.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Energy</span></p></body></html>", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.beamlineTab), QCoreApplication.translate("MainWindow", u"Beamline", None))
         self.label_12.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">M101 Pitch</span></p></body></html>", None))
         self.label_17.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Harmonic</span></p></body></html>", None))
@@ -1434,6 +1464,12 @@ class Ui_MainWindow(object):
         self.m101Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
         self.polLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.epuTab), QCoreApplication.translate("MainWindow", u"EPU", None))
+        self.label_35.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A1</span></p></body></html>", None))
+        self.A1Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.label_41.setText(QCoreApplication.translate("MainWindow", u"Server IP", None))
+        self.serverAddressLabel.setText(QCoreApplication.translate("MainWindow", u"127.0.0.1", None))
+        self.serverConnectButton.setText(QCoreApplication.translate("MainWindow", u"Connect", None))
+        self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.tab_2), QCoreApplication.translate("MainWindow", u"Staff", None))
         self.autofocusCheckbox.setText(QCoreApplication.translate("MainWindow", u"autofocus", None))
         self.roiCheckbox.setText(QCoreApplication.translate("MainWindow", u"Show ROI", None))
         self.defocusCheckbox.setText(QCoreApplication.translate("MainWindow", u"Defocus", None))

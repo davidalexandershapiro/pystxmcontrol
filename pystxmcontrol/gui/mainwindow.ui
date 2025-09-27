@@ -1730,7 +1730,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           </widget>
          </item>
          <item>
-          <widget class="QTextEdit" name="textEdit"/>
+          <widget class="QTextEdit" name="commentEdit"/>
          </item>
         </layout>
        </widget>
@@ -1745,49 +1745,12 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <x>10</x>
           <y>10</y>
           <width>291</width>
-          <height>161</height>
+          <height>141</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_8">
-         <item row="1" column="1">
-          <widget class="QLabel" name="dsLabel">
-           <property name="text">
-            <string>TextLabel</string>
-           </property>
-          </widget>
-         </item>
          <item row="2" column="1">
           <widget class="QLabel" name="ndsLabel">
-           <property name="text">
-            <string>TextLabel</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="label_14">
-           <property name="text">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Non-Dispersive Slit&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="2">
-          <widget class="QLineEdit" name="dsEdit"/>
-         </item>
-         <item row="3" column="2">
-          <widget class="QLineEdit" name="A0Edit"/>
-         </item>
-         <item row="0" column="0">
-          <widget class="QLabel" name="label_4">
-           <property name="text">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Energy&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="2">
-          <widget class="QLineEdit" name="energyEdit"/>
-         </item>
-         <item row="3" column="1">
-          <widget class="QLabel" name="A0Label">
            <property name="text">
             <string>TextLabel</string>
            </property>
@@ -1800,15 +1763,11 @@ font: 75 11pt &quot;Ubuntu&quot;;
            </property>
           </widget>
          </item>
-         <item row="0" column="1">
-          <widget class="QLabel" name="energyLabel_2">
-           <property name="text">
-            <string>TextLabel</string>
-           </property>
-          </widget>
+         <item row="3" column="2">
+          <widget class="QLineEdit" name="A0Edit"/>
          </item>
-         <item row="2" column="2">
-          <widget class="QLineEdit" name="ndsEdit"/>
+         <item row="0" column="2">
+          <widget class="QLineEdit" name="energyEdit"/>
          </item>
          <item row="1" column="0">
           <widget class="QLabel" name="label_13">
@@ -1817,22 +1776,46 @@ font: 75 11pt &quot;Ubuntu&quot;;
            </property>
           </widget>
          </item>
-         <item row="4" column="0">
-          <widget class="QLabel" name="label_35">
-           <property name="text">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Zone Plate A1&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="1">
-          <widget class="QLabel" name="A1Label">
+         <item row="3" column="1">
+          <widget class="QLabel" name="A0Label">
            <property name="text">
             <string>TextLabel</string>
            </property>
           </widget>
          </item>
-         <item row="4" column="2">
-          <widget class="QLineEdit" name="A1Edit"/>
+         <item row="1" column="1">
+          <widget class="QLabel" name="dsLabel">
+           <property name="text">
+            <string>TextLabel</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="2">
+          <widget class="QLineEdit" name="ndsEdit"/>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label_14">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Non-Dispersive Slit&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="energyLabel_2">
+           <property name="text">
+            <string>TextLabel</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="2">
+          <widget class="QLineEdit" name="dsEdit"/>
+         </item>
+         <item row="0" column="0">
+          <widget class="QLabel" name="label_4">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Energy&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+          </widget>
          </item>
         </layout>
        </widget>
@@ -2012,6 +1995,76 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <widget class="QLabel" name="polLabel">
            <property name="text">
             <string>TextLabel</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+      <widget class="QWidget" name="tab_2">
+       <attribute name="title">
+        <string>Staff</string>
+       </attribute>
+       <widget class="QWidget" name="gridLayoutWidget_4">
+        <property name="geometry">
+         <rect>
+          <x>9</x>
+          <y>9</y>
+          <width>291</width>
+          <height>101</height>
+         </rect>
+        </property>
+        <layout class="QGridLayout" name="gridLayout_5">
+         <item row="1" column="2">
+          <widget class="QLineEdit" name="serverAddressEdit">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="0">
+          <widget class="QLabel" name="label_35">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Zone Plate A1&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="A1Label">
+           <property name="text">
+            <string>TextLabel</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label_41">
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Server IP</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="2">
+          <widget class="QLineEdit" name="A1Edit"/>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="serverAddressLabel">
+           <property name="text">
+            <string>127.0.0.1</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="2">
+          <widget class="QPushButton" name="serverConnectButton">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Connect</string>
            </property>
           </widget>
          </item>
@@ -2585,7 +2638,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <x>0</x>
      <y>0</y>
      <width>1550</width>
-     <height>42</height>
+     <height>23</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

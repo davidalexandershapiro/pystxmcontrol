@@ -111,7 +111,7 @@ def derived_ptychography_image(scan, dataHandler, controller, queue):
     """
 
     scan["randomize"] = True
-    energies = dataHandler.data.energies
+    energies = dataHandler.data.energies["default"]
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "ptychographyGrid"}
     scanInfo["type"] = scan["scan_type"]

@@ -3,23 +3,23 @@ from pystxmcontrol.controller.daq import daq
 from pystxmcontrol.drivers.keysightCounter import counter
 from pystxmcontrol.drivers.shutter import shutter
 from numpy.random import poisson
+import asyncio
 
 class keysight53230A(daq):
-    def __init__(self, visa_address = "USB::0x0957::0x1907::INSTR", simulation = False):
-        self.visa_address = visa_address
+    def __init__(self, address = "USB::0x0957::0x1907::INSTR", simulation = False):
+        self.address = address
         self.simulation = simulation
+        self.meta = {"ndim": 0, "x": [], "type": "point", "name": "Keysight 53230A","channel": 1, "gate": False}
         self.gate = shutter()
         self.gate.connect(simulation = self.simulation)
         self.gate.setStatus(softGATE = 0)
-        if not(self.simulation):
-            self.counter = counter()
-            self.idle_ms = 1
-            self.ctrNum = 0
-        self.meta = {"ndim": 0, "x": [], "type": "point", "name": "Keysight 53230A"}
+        self.counter = counter()
+        self.idle_ms = 1
+        self.ctrNum = 0
 
     def start(self):
-        if not (self.simulation):
-            self.counter.connect(visa_address=self.visa_address)
+        if not(self.simulation):
+            self.counter.connect(visa_address=self.address)
 
     def stop(self):
         if not (self.simulation):
@@ -36,7 +36,7 @@ class keysight53230A(daq):
         if self.simulation:
             pass
         else:
-            self.counter.config(self.dwell, count=count, samples=samples, trigger=trigger, output=output)
+            self.counter.config(self.dwell, count=count, samples=samples, trigger=trigger, output=output, channel = self.meta["channel"])
             self.setGateDwell(0,0)
 
     def initLine(self):
@@ -56,23 +56,24 @@ class keysight53230A(daq):
         self.gate.dwell2 = dwell2
         self.gate.setStatus()
 
-    def getLine(self):
+    async def getLine(self):
         if self.simulation:
-            data = poisson(1e7 * self.dwell / 1000., self.count * self.samples)
-            time.sleep(self.dwell / 1000.*self.count*self.samples)
-            return data
+            self.data = poisson(1e7 * self.dwell / 1000., self.count * self.samples)
+            await asyncio.sleep(self.dwell / 1000.*self.count*self.samples)
+            return self.data
         else:
-            data = self.counter.getLine()
-            return data
+            self.data = (await asyncio.gather(self.counter.getLine()))[0]
+            return self.data
 
-    def getPoint(self):
+    async def getPoint(self):
         if self.simulation:
-            time.sleep(self.dwell / 1000.)
-            data = poisson(1e7 * self.dwell / 1000.)
-            return data
+            await asyncio.sleep(self.dwell / 1000.)
+            self.data = [poisson(1e7 * self.dwell / 1000.)]
+            return self.data
         else:
-            data = self.counter.getPoint()
-            return data
+            # data = self.counter.getPoint()
+            self.data = (await asyncio.gather(self.counter.getPoint()))[0]
+            return self.data
 
     def setGate(self, gate):
         """

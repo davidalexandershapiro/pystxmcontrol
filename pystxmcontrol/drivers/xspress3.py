@@ -3,6 +3,7 @@ from pystxmcontrol.controller.daq import daq
 from epics import caget, caput, cainfo
 from numpy.random import poisson
 import time
+import asyncio
 
 class xspress3(daq):
 
@@ -20,9 +21,9 @@ class xspress3(daq):
         #Default is 4096 bins, 10 eV per bin.
         self.nbins = 4096
         self._bin_ev_delta = 10.0
-        self._bottom_bin = 250.0 #this is just a place holder
-        self.energies = np.linspace(self._bottom_bin, self._bottom_bin + self.nbins * self._bin_ev_delta, self.nbins)
-        self.meta = {"ndim": 1, "x": self.energies, "y": np.zeros_like(self.energies), "type": "spectrum", "name": "XSPRESS3", "x label": "Energy"}
+        self._bottom_bin = 0.0 #this is just a place holder
+        self.all_energies = np.linspace(self._bottom_bin, self._bottom_bin + self.nbins * self._bin_ev_delta, self.nbins)
+        self.meta = {"ndim": 1, "type": "spectrum", "name": "XSPRESS3", "x label": "Energy", "max energy": 3000}
 
 
     def start(self):
@@ -34,6 +35,9 @@ class xspress3(daq):
     def config(self, dwell = 1, count  = 1, samples = 1,trigger = 'BUS', output = 'OFF'):
         # Trying to make this the same inputs as the keysight counter so that we can feed it the same thing.
 
+        self._idx = max(np.where(self.all_energies <= self.meta["max energy"])[0])
+        self.energies = self.all_energies[:self._idx]
+        self.meta["x"] = self.energies
         self.dwell = dwell
         self.count = count
         self.samples = samples
@@ -52,16 +56,15 @@ class xspress3(daq):
 
         #Not using output there yet but keeping it so the arguments are the same.
 
-    def getPoint(self):
+    async def getPoint(self):
         if self.simulation:
-            #1e7 total counts/second across nbins
-            time.sleep(self.dwell/1000)
-            data = poisson(1e7/self.nbins*self.dwell/1000,(self.nbins,))
-
             #but this is a spectrum so we need to return some energy information.  I assume that is done below
             #but I don't yet know the format of the data.  For now I"ll return it as two lists
-            self.energies = np.linspace(500,1000,self.nbins)
-            return (self.energies,data)
+
+            #1e7 total counts/second across nbins
+            await asyncio.sleep(self.dwell/1000)
+            self.data = poisson(1e7/self.nbins*self.dwell/1000,(self.nbins,))[:self._idx]
+            return self.data
         else:
             #Get old configuration
             oldTrigger = caget(self.address+self.det_prefix+'TriggerMode_RBV')
@@ -73,17 +76,17 @@ class xspress3(daq):
             time.sleep(self.dwell/1000)
             caput(self.address+self.det_prefix+'Acquire',0)
             #How to read????
-            data = caget(self.addres+self.MCA_prefix+'ArrayData')
+            self.data = caget(self.addres+self.MCA_prefix+'ArrayData')[:self._idx]
             #set back to old trigger mode
             caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
-            return(data)
+            return self.data
 
-    def getLine(self):
+    async def getLine(self):
         if self.simulation:
             #1e7 total counts/second across nbins, collection of count*samples points
-            time.sleep(self.dwell/1000*self.count*self.samples)
-            data = poisson(1e7/self.nbins*self.dwell/1000,(self.count*self.samples,self.nbins))
-            return(data)
+            await asyncio.sleep(self.dwell/1000*self.count*self.samples)
+            self.data = poisson(1e7/self.nbins*self.dwell/1000,(self.nbins,self.count*self.samples))[:self._idx,:]
+            return self.data
         else:
             # Should already be configured to take a number of samples. Else the default is 1.
             caput(self.address+self.det_prefix+'Acquire',1)
@@ -92,10 +95,10 @@ class xspress3(daq):
                 #print(caget(self.address+self.det_prefix+'DetectorState_RBV'))
                 pass
             #How to read data? I am missing some PVs.
-            data = caget(self.address+self.MCA_prefix+'ArrayData')
+            self.data = caget(self.address+self.MCA_prefix+'ArrayData')[:self._idx,:]
 
             #Can we update data as it is collected?
 
             #How do we put the gate in here? Look at keysight53230A.py probably.
 
-            return(data)
+            return self.data

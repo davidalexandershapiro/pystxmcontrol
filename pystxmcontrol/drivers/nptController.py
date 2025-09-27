@@ -341,6 +341,7 @@ class nptController(hardwareController):
             raise("invalid state requested. valid states are 0 for open and 1 for closed.")
         addr = self.sAddress(axis)
         self.writeToDev4B(addr, state)
+        time.sleep(0.1)
 
     def setZero(self, axis):
         #sets current position to zero

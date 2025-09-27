@@ -1,9 +1,12 @@
 from pystxmcontrol.controller.scans.scan_utils import *
 from numpy import ones
 from time import sleep, time
+import asyncio
 
-def derived_line_focus(scan, dataHandler, controller, queue):
-    energies = dataHandler.data.energies
+async def derived_line_focus(scan, dataHandler, controller, queue):
+
+    await scan["synch_event"].wait()
+    energies = dataHandler.data.energies["default"]
     scanInfo = {"mode": "continuousLine"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
@@ -29,10 +32,17 @@ def derived_line_focus(scan, dataHandler, controller, queue):
     controller.motors[scan["x_motor"]]["motor"].include_return = scanInfo["include_return"]
     coarse_only = scan["coarse_only"]  # this needs to be set properly if a coarse scan is possible
     coarse_offset = 20.
-    if scan["oversampling_factor"] > 1:
-        scanInfo["interpolate"] = True
-    else:
-        scanInfo["interpolate"] = False
+    scanInfo["rawData"] = {}
+    for daq in controller.daq.keys():
+        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
+        else:
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
+        if controller.daq[daq].meta["oversampling_factor"] > 1:
+            scanInfo["rawData"][daq]["interpolate"] = True
+        else:
+            scanInfo["rawData"][daq]["interpolate"] = False
 
     controller.getMotorPositions()
     dataHandler.data.motorPositions[0] = controller.allMotorPositions
@@ -83,8 +93,9 @@ def derived_line_focus(scan, dataHandler, controller, queue):
     scanInfo['numMotorPoints'] = numLineMotorPoints * zPoints #total number of motor points configures the full data structrure
     scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
     dataHandler.data.updateArrays(0, scanInfo)
-    controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
-                                            samples=numLineDAQPoints, trigger="EXT")
+    controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = numLineDAQPoints, trigger = "EXT")
+    # controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
+    #                                         samples=numLineDAQPoints, trigger="EXT")
 
     start_position_x = controller.motors[scan["x_motor"]]["motor"].trajectory_start[0] - \
                        controller.motors[scan["x_motor"]]["motor"].xpad
@@ -120,11 +131,11 @@ def derived_line_focus(scan, dataHandler, controller, queue):
         scanInfo["lineIndex"] = i
         scanInfo["zIndex"] = 0
         if queue.empty():
-            if not doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime,axes=[1,2]):
-                return terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
+            if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime,axes=[1,2]):
+                return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
         else:
-            queue.get()
+            await queue.get()
             dataHandler.data.saveRegion(0)
-            return terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan aborted.")
-    dataHandler.dataQueue.put('endOfRegion')
-    terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan completed.")
+            return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan aborted.")
+    await dataHandler.dataQueue.put('endOfRegion')
+    await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan completed.")

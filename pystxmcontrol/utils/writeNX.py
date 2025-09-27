@@ -146,7 +146,6 @@ class stxm:
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
                 for item in list(self._nx_reader[entryStr + "/motors"]):
-                    #print(item)
                     self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/motors/" + item][()]
                 self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/counter0/energy"][()].astype("float64")
                 self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/counter0/count_time"][()].astype("float64")
@@ -165,7 +164,6 @@ class stxm:
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
                 for item in list(self._nx_reader[entryStr + "/instrument/motors"]):
-                    #print(item)
                     self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/instrument/motors/" + item][()]
                 self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/instrument/monochromator/energy"][()].astype("float64")
                 self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/data/count_time"][()].astype("float64")
@@ -191,7 +189,6 @@ class stxm:
                 self.data[entryStr] = {}
                 self.data[entryStr]["motors"] = {}
                 for item in list(self._nx_reader[entryStr + "/motors"]):
-                    #print(item)
                     self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/motors/" + item][()]
                 self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/counter0/energy"][()].astype("float64")
                 self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/counter0/count_time"][()].astype("float64")
@@ -205,18 +202,19 @@ class stxm:
 
     def _extractEnergies(self, scan):
         ##get energies
-        self.energies = np.array(())
+        self.daq_list = scan["daq list"]
         self.dwells = np.array(())
+        self.energies = {daq: [] for daq in self.daq_list}
         if scan.get("energy_list") is None:
             for energy_region in scan["energy_regions"].keys():
                 start = scan["energy_regions"][energy_region]["start"]
                 stop = scan["energy_regions"][energy_region]["stop"]
                 n_energies = scan["energy_regions"][energy_region]["n_energies"]
-                self.energies = np.concatenate((self.energies,np.round(np.linspace(start, stop, n_energies), 2)))
+                self.energies["default"] = np.concatenate((self.energies["default"],np.round(np.linspace(start, stop, n_energies), 2)))
                 self.dwells = np.concatenate((self.dwells,np.ones(n_energies) * scan["energy_regions"][energy_region]["dwell"]))
         else:
-            self.energies = np.array(scan["energy_list"])
-            self.dwells = np.ones(self.energies.size) * scan["dwell"]
+            self.energies["default"] = np.array(scan["energy_list"])
+            self.dwells = np.ones(self.energies["default"].size) * scan["dwell"]
 
     def _extractPositions(self, scan):
         self.xPos, self.yPos, self.zPos = [], [], []
@@ -224,8 +222,8 @@ class stxm:
         self.xstepsize = []
         self.ystepsize = []
         self.daq_list = scan["daq list"]
-        self.counts = dict.fromkeys(self.daq_list,[]) 
-        self.interp_counts = dict.fromkeys(self.daq_list,[]) 
+        self.counts = {daq: [] for daq in self.daq_list}
+        self.interp_counts = {daq: [] for daq in self.daq_list} 
 
         for region in scan["scan_regions"].keys():
             self.xPos.append(np.linspace(scan["scan_regions"][region]["xStart"], \
@@ -255,8 +253,9 @@ class stxm:
             self.yMeasured.append(np.zeros(nPixels_m))
             self.zMeasured.append(np.zeros(nPixels_m))
             for daq in scan["daq list"]:
-                self.counts[daq].append(np.zeros((self.energies.size,nPixels_m))) #this is a long vector of measured positions
-                self.interp_counts[daq].append(np.zeros((self.energies.size,nyPos,nxPos))) #this is a matrix of requested positions
+                self.counts[daq].append(np.zeros((self.energies["default"].size,nPixels_m))) #this is a long vector of measured positions
+                self.interp_counts[daq].append(np.zeros((self.energies["default"].size,nyPos,nxPos))) #this is a matrix of requested positions
+  
             
     def updateArrays(self,region,scanInfo):
         #doing things this way requires the scan driver to correctly provide the number of points for each line and image
@@ -265,12 +264,12 @@ class stxm:
         #self.interp_counts does not need to be updated here because its shape doesn't depend on the calculated trajectories
         motorLength = scanInfo['numMotorPoints']
         DAQLength = scanInfo['numDAQPoints']
-        n_energies = scanInfo["n_energies"]
         for daq in self.daq_list:
+            n_energies = scanInfo["rawData"][daq]["meta"]["n_energies"]
             self.counts[daq][region] = np.zeros((n_energies,DAQLength))
-        self.xMeasured[region] = np.zeros((self.energies.size,motorLength))
-        self.yMeasured[region] = np.zeros((self.energies.size,motorLength))
-        self.zMeasured[region] = np.zeros((self.energies.size,motorLength))
+        self.xMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
+        self.yMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
+        self.zMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
         self.saveRegion(region)
 
     def startOutput(self):
@@ -310,6 +309,7 @@ class stxm:
             self._nx_writer[f'entry{i}/data'].create_dataset(daq, data = self.interp_counts[daq][i])
             self._nx_writer[f'entry{i}/instrument/{daq}/data'].flush()
             self._nx_writer[f'entry{i}/data/{daq}'].flush()
+            self._nx_writer[f'entry{i}/instrument/{daq}/data'].attrs["energies"] = self.energies[daq]
         for motor in self.motorPositions[i].keys():
             try:
                 self._nx_writer[f'entry{i}/instrument/motors'].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
@@ -325,7 +325,7 @@ class stxm:
         grp.create_dataset(name = str(framenum), data=frame, maxshape=None)
 
     def createEntry(self,i):
-        ne,nz_m,ny_m,nx_m = len(self.energies),len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
+        nz_m,ny_m,nx_m = len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
 
         nxentry = self._nx_writer.create_group(f'entry{i}')
         nxentry.attrs["NX_class"] = np.bytes_("NXentry")
@@ -344,11 +344,13 @@ class stxm:
         nxsource.create_dataset("probe", data=self.scan_dict['main_config']['source']['probe'])
         nxmono = nxinstrument.create_group("monochromator")
         nxmono.attrs["NX_class"] = np.bytes_("NXmonochromator")
-        nxmono.create_dataset("energy",data=self.energies)
+        nxmono.create_dataset("energy",data=self.energies["default"]) #this is the incident energy of the beamline
         for daq in self.daq_list:
             nxdetector = nxinstrument.create_group(daq)
             nxdetector.attrs["NX_class"] = np.bytes_("NXdetector")
-            nxdetector.create_dataset("data",data=np.zeros_like(self.counts[daq][i]))
+            nxdetector.attrs["type"] = np.bytes_("photon")
+            dset = nxdetector.create_dataset("data",data=np.zeros_like(self.counts[daq][i]))
+            dset.attrs["energies"] = self.energies[daq]
         measured_xgrp = nxinstrument.create_group("sample_x")
         measured_ygrp = nxinstrument.create_group("sample_y")
         measured_zgrp = nxinstrument.create_group("sample_z")
@@ -364,6 +366,7 @@ class stxm:
         sample.attrs["NX_class"] = np.bytes_("NXsample")
         sample.create_dataset("rotation_angle", data='')
         sample.create_dataset("description", data=self.scan_dict["sample"])
+        sample.create_dataset("comment", data=self.scan_dict["comment"])
         d = nxentry.create_group("data")
         d.attrs["NX_class"] = np.bytes_("NXdata")
         d.attrs["axes"] = [np.bytes_("energy"),np.bytes_("sample_y"),np.bytes_("sample_x")]
@@ -371,7 +374,7 @@ class stxm:
         d.create_dataset("stxm_scan_type",data=[self.scan_dict["scan_type"]])
         for daq in self.daq_list:
             d.create_dataset(daq,data=np.zeros_like(self.interp_counts[daq][i]))
-        energy = d.create_dataset("energy",data=self.energies)
+        energy = d.create_dataset("energy",data=self.energies["default"])
         energy.attrs["axis"] = 1
         d.create_dataset("count_time",data=self.dwells)
         sample_y = d.create_dataset("sample_y",data=self.yPos[i])

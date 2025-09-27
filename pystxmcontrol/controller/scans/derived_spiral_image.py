@@ -16,7 +16,7 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
     :param scan:
     :return:
     """
-    energies = dataHandler.data.energies
+    energies = dataHandler.data.energies["default"]
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "continuousSpiral"}
     scanInfo["scan"] = scan
@@ -222,7 +222,8 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
                 np.floor((actMotorDwell - dwellPad) / DAQsamples / DAQTimeResolution)) * DAQTimeResolution
 
             #print('Configuring DAQ: {} ms dwell, {} count, {} samples, "EXT" trigger'.format(actDAQDwell,DAQcount,DAQsamples))
-            controller.daq["default"].config(actDAQDwell, count=DAQcount, samples=DAQsamples, trigger="EXT")
+            # controller.daq["default"].config(actDAQDwell, count=DAQcount, samples=DAQsamples, trigger="EXT")
+            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQSamples, trigger = "EXT")
 
             # Move to first position
             controller.moveMotor(scan["x"], xcoarse + scanInfo['xFineCenter'])

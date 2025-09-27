@@ -1,6 +1,7 @@
 from time import time,sleep
 import numpy as np
 import traceback
+import asyncio
 
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
@@ -10,10 +11,15 @@ def getLoopMotorPositions(scan):
     stop = center + r / 2
     return np.linspace(start, stop, points)
 
-def terminateFlyscan(controller, dataHandler, scan, axis, message):
-    dataHandler.dataQueue.put('endOfScan')
+async def terminateFlyscan(controller, dataHandler, scan, axis, message):
+    await dataHandler.dataQueue.put('endOfScan')
     controller.motors[scan[axis]]["motor"].setPositionTriggerOff()
-    controller.scanQueue.queue.clear()
+    while not controller.scanQueue.empty():
+        try:
+            controller.scanQueue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+    print(message)
     return False
 
 
@@ -31,7 +37,7 @@ def executeReturnTrajectory(self, motor, xStart, xStop, yStart, yStop):
     motor.moveLine()
 
 
-def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
+async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
     # try:
     controller.daq["default"].initLine()
     controller.daq["default"].autoGateOpen()
@@ -47,7 +53,7 @@ def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
     try: 
         #this will timeout if there is a missed trigger.  That can happen at the start of
         #big scans or some reason.
-        dataHandler.getLine(scanInfo.copy())
+        await dataHandler.getLine(scanInfo.copy())
     except Exception as e:
         traceback.print_exc()
         return False

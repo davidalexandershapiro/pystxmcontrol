@@ -2,6 +2,7 @@ import threading, traceback, zmq
 from pystxmcontrol.controller.controller import controller
 from pystxmcontrol.utils.logger import logger
 import time, os, datetime, sys
+import asyncio
 from optparse import OptionParser
 
 parser = OptionParser()

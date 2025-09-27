@@ -134,7 +134,6 @@ class aerotechMotor(motor):
         Returns:
             bool: True if position is within limits, False otherwise
         """
-
         return self.config["minValue"] <= pos <= self.config["maxValue"]
 
     def connect(self, axis = None, **kwargs):
@@ -543,7 +542,7 @@ class aerotechMotor(motor):
             else:
                 self.position = self.position + step
         else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
+            print("[Aerotech] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
         return self.getPos()
 
     def moveTo(self, position, **kwargs):
@@ -601,7 +600,7 @@ class aerotechMotor(motor):
                 self.controller.moving = False
                 self.position = position
         else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,position))
+            print("[Aerotech] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,position))
         return self.getPos()
 
     def stop(self):
