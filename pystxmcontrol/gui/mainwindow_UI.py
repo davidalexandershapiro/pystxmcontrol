@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'mainwindow.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.8.2
+## Created by: Qt User Interface Compiler version 6.7.3
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -493,6 +493,7 @@ class Ui_MainWindow(object):
         self.warningLabel.setStyleSheet(u"color: rgb(224, 27, 36);\n"
 "font: 75 11pt \"Ubuntu\";\n"
 "")
+        self.warningLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_6 = QLabel(self.tab_9)
         self.label_6.setObjectName(u"label_6")
         self.label_6.setGeometry(QRect(10, 10, 171, 34))
@@ -1291,7 +1292,7 @@ class Ui_MainWindow(object):
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 1550, 23))
+        self.menubar.setGeometry(QRect(0, 0, 1550, 42))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuOpen = QMenu(self.menuFile)

@@ -32,13 +32,15 @@ class xspress3(daq):
     def stop(self):
         pass
 
-    def config(self, dwell = 1, count  = 1, samples = 1,trigger = 'BUS', output = 'OFF'):
+    def config(self, dwell = (1,0), count  = 1, samples = 1,trigger = 'BUS', output = 'OFF'):
         # Trying to make this the same inputs as the keysight counter so that we can feed it the same thing.
-
+        if isinstance(dwell, list):
+            self.dwell,self.dwell2 = dwell
+        else:
+            self.dwell = dwell
         self._idx = max(np.where(self.all_energies <= self.meta["max energy"])[0])
         self.energies = self.all_energies[:self._idx]
         self.meta["x"] = self.energies
-        self.dwell = dwell
         self.count = count
         self.samples = samples
         if not self.simulation:
@@ -64,6 +66,7 @@ class xspress3(daq):
             #1e7 total counts/second across nbins
             await asyncio.sleep(self.dwell/1000)
             self.data = poisson(1e7/self.nbins*self.dwell/1000,(self.nbins,))[:self._idx]
+            self.data = np.reshape(self.data,(self.data.size,1))
             return self.data
         else:
             #Get old configuration

@@ -37,7 +37,7 @@ class dataHandler:
 
         if "ccd" in self.controller.daq.keys():
             #publish ccd data to the preprocessor
-            self.controller.daq["ccd"].config(10, 0, 0)
+            self.controller.daq["ccd"].config([10, 0], 0)
             self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
             print("Publishing ccd frames on: %s" %self.ccd_pub_address)
             self.ccd_pub_socket = context.socket(zmq.PUB)
@@ -304,7 +304,10 @@ class dataHandler:
             
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
-            self.data.interp_counts[k][m,y,c] = scanInfo['rawData']
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
 
         elif "Focus" in scanInfo["type"]:
             if scanInfo["mode"]=="continuousLine":
@@ -418,7 +421,7 @@ class dataHandler:
         scan["start_time"] = datetime.datetime.now().isoformat()
         self.data = stxm(scan)
         #for DAQs that define the energy range, like energy dispersives, get their energy list
-        #into he data structure
+        #into the data structure
         for daq in self.controller.daq.keys():
             if self.controller.daq[daq].meta["type"] == "spectrum":
                 self.data.energies[daq] = self.controller.daq[daq].energies
@@ -430,11 +433,14 @@ class dataHandler:
         scanInfo = {"type": "monitor"}
         scanInfo["mode"] = "monitor"
         scanInfo["energy"] = 500
+        scanInfo['index'] = 0
         scanInfo["energyRegion"] = "EnergyRegion1"
         scanInfo["scanRegion"] = "Region1"
+        scanInfo["scan_type"] = None
         scanInfo["dwell"] = self.controller.main_config["monitor"]["dwell"]
+        scanInfo["daq list"] = list(self.daq.keys())
         scanInfo["rawData"] = {}
-        for daq in self.daq.keys():
+        for daq in scanInfo["daq list"]:
             scanInfo["rawData"][daq]={"meta":self.daq[daq].meta,"data": None}
         chunk = []
         while True:
@@ -458,7 +464,7 @@ class dataHandler:
     def processFrame(self, frame):
         y,x = frame.shape
         frame = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
-        return frame[frame > 1.].sum()
+        return frame[frame > 1.].sum(),frame
 
     def zmq_start_event(self, scan, metadata=None):
         self.ccd_pub_socket.send_pyobj({'event':'start','data':scan, 'metadata':metadata})
@@ -481,8 +487,8 @@ class dataHandler:
                 await self.stxm_pub_socket.send_pyobj('scan_complete')
                 return
             elif scanInfo == "endOfRegion":
-                self.data.saveRegion(region)
                 self.regionComplete = True
+                self.data.saveRegion(region)
             else:
                 self.regionComplete = False
                 region = int(scanInfo['scanRegion'].split('Region')[1]) - 1
@@ -490,28 +496,34 @@ class dataHandler:
                 scanInfo["data"] = {} #this is the data in NX coordinates for the file
                 scanInfo["image"] = {} #this is the image that goes to the gui
                 if scanInfo["mode"] == "ptychographyGrid":
-                    self.ptychodata.addFrame(scanInfo["ccd_frame"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
+                    self.ptychodata.addFrame(scanInfo["rawData"]["ccd"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
                     self.zmq_send({'event':'frame','data':scanInfo})
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:
                             if scanInfo["ccd_frame_num"] % 2 == 0:
-                                pointData = self.processFrame(scanInfo["ccd_frame"])
+                                pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["ccd"]["data"])
                         else:
-                            pointData = self.processFrame(scanInfo["ccd_frame"])
-                        scanInfo["rawData"] = pointData
-                        scanInfo.pop("ccd_frame",None)
+                            pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["ccd"]["data"])
+                        # for daq in scanInfo["daq list"]:
+                        #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
+                        #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
+                        scanInfo["data"]["default"] = pointData
+                        scanInfo["data"]["ccd"] = frameNoBKG
+                        scanInfo["data"]["xrf"] = scanInfo["rawData"]["xrf"]["data"]
                     else:
-                        self.darkFrame = scanInfo["ccd_frame"]
-                    scanInfo['image'] = self.addDataToStack(scanInfo)
+                        self.darkFrame = scanInfo["rawData"]["ccd"]["data"]
+                        scanInfo["data"]["default"] = 0.
+                        scanInfo["data"]["ccd"] = self.darkFrame
+                    scanInfo["image"]["default"] = self.addDataToStack(scanInfo,"default")
                 elif scanInfo["mode"] == "point":
-                    for daq in self.daq.keys():
+                    for daq in scanInfo["daq list"]:
                         scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
                         scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
                 else:
                     #prepare data to send onto socket (for the GUI)
                     #interpolate_points takes scanInfo["rawData"] and converts to image coordinates 
                     # scanInfo["data"] = self.interpolate_points(scanInfo) #this is the image in user coordinates for display in the GUI
-                    for daq in self.daq.keys():
+                    for daq in scanInfo["daq list"]:
                         scanInfo["data"][daq] = self.interpolate_points(scanInfo,daq)
                         scanInfo["image"][daq] = self.addDataToStack(scanInfo,daq)
                 await self.sendDataToSock(scanInfo)
@@ -521,21 +533,20 @@ class dataHandler:
         await self.stxm_pub_socket.send_pyobj(scan_info)
 
     async def getPoint(self, scanInfo):
-        if scanInfo["mode"] == "ptychographyGrid":
-            data = self.daq["ccd"].getPoint()
-            if data is not None:
-                frame_num, scanInfo["ccd_frame"] = data
-                scanInfo["rawData"]["ccd"]["data"] = np.array(0.)
-            else:
-                return False
-        else:
-            daq_tasks = []
-            for daq in self.daq.keys():
-                if self.controller.daqConfig[daq]["record"]:
-                    daq_tasks.append(self.daq[daq].getPoint())
-            await asyncio.gather(*daq_tasks)
-            for daq in self.daq.keys():
-                scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+        daq_tasks = []
+        for daq in scanInfo["daq list"]:
+            if self.controller.daqConfig[daq]["record"]:
+                daq_tasks.append(self.daq[daq].getPoint())
+        await asyncio.gather(*daq_tasks)
+        for daq in scanInfo["daq list"]:
+            scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+
+        # #if we fail to get a CCD frame, return BAD
+        # if self.daq["ccd"].data is not None:
+        #     pass
+        # else:
+        #     return False
+
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
         return True
@@ -545,12 +556,11 @@ class dataHandler:
 
     async def getLine(self, scanInfo):
         daq_tasks = []
-        for daq in self.daq.keys():
+        for daq in scanInfo["daq list"]:
             if self.controller.daqConfig[daq]["record"]:
                 daq_tasks.append(self.daq[daq].getLine())
-        for reading in await asyncio.gather(*daq_tasks):
-            pass
-        for daq in self.daq.keys():
+        await asyncio.gather(*daq_tasks)
+        for daq in scanInfo["daq list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
         #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
         #Until sendscandata is called, the raw data is stored in 'data'

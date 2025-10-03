@@ -3,6 +3,7 @@ from pystxmcontrol.controller.daq import daq
 from pystxmcontrol.drivers.keysightCounter import counter
 from pystxmcontrol.drivers.shutter import shutter
 from numpy.random import poisson
+from numpy import array
 import asyncio
 
 class keysight53230A(daq):
@@ -27,8 +28,11 @@ class keysight53230A(daq):
     def set_dwell(self, dwell):
         self.dwell = dwell
 
-    def config(self, dwell, dwell2 = 0, count=1, samples=1, trigger='BUS', output = 'OFF'):
-        self.dwell = dwell
+    def config(self, dwell, count=1, samples=1, trigger='BUS', output = 'OFF'):
+        if isinstance(dwell, list):
+            self.dwell,self.dwell2 = dwell
+        else:
+            self.dwell = dwell
         self.count = count
         self.trigger = trigger
         self.samples = samples
@@ -68,7 +72,7 @@ class keysight53230A(daq):
     async def getPoint(self):
         if self.simulation:
             await asyncio.sleep(self.dwell / 1000.)
-            self.data = [poisson(1e7 * self.dwell / 1000.)]
+            self.data = array([poisson(1e7 * self.dwell / 1000.)])
             return self.data
         else:
             # data = self.counter.getPoint()

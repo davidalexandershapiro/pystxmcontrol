@@ -30,6 +30,7 @@ async def derived_line_spectrum(scan, dataHandler, controller, queue):
     controller.motors[scan["x_motor"]]["motor"].include_return = scanInfo["include_return"]
     coarse_only = False  # this needs to be set properly if a coarse scan is possible
     coarse_offset = 30
+    scanInfo['daq list'] = scan['daq list']
     scanInfo["rawData"] = {}
     for daq in controller.daq.keys():
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}

@@ -1,28 +1,37 @@
 {
   "default": {
     "index": 0,
-    "name": "Diode",
+    "name": "PMT",
+    "type": "point",
     "driver": "keysight53230A",
     "visa": "USB::0x0957::0x1907::INSTR",
-    "address": "169.254.2.30",
+    "address": "127.0.0.1",
     "port": 5025,
+    "oversampling": 1,
+    "record": true,
     "simulation": true
   },
-  "adc": {
+  "xrf": {
     "index": 1,
-    "name": "ADC",
-    "driver": "keysightU2356A",
-    "visa": "USB::0x0957::0x1418::INSTR",
+    "name": "XPRESS3",
+    "type": "spectrum",
+    "driver": "xspress3",
+    "address": "192.168.1.100",
     "channel": 101,
-    "name": "dummy",
+    "max energy": 3000,
+    "oversampling": 1,
+    "record": true,
     "simulation": true
   },
   "ccd": {
     "index": 2,
     "name": "CCD",
+    "type": "image",
     "driver": "fccd_control",
-    "address": "131.243.73.179",
+    "address": "127.0.0.1",
     "port": 49206,
+    "oversampling": 1,
+    "record": true,
     "simulation": true
   }
 }

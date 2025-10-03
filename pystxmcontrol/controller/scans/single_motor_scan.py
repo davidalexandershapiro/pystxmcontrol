@@ -21,6 +21,7 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
     else:
         scanInfo["scanMotor"] = scan["x_motor"]
     energyIndex = 0
+    scanInfo['daq list'] = scan['daq list']
     scanInfo["rawData"] = {}
     for daq in controller.daq.keys():
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}

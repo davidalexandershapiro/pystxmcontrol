@@ -5,6 +5,7 @@ from numpy.random import poisson
 import zmq
 from pystxmcontrol.drivers.cin import CIN
 from pystxmcontrol.drivers.fccd import FCCD
+import asyncio
 
 class fccd_control(daq):
     def __init__(self, address = "131.243.73.179", port = 49206, simulation = False, shape = (1040,1152)):
@@ -20,7 +21,8 @@ class fccd_control(daq):
         self.cin = CIN()
         if not(self.simulation):
             pass
-        self.meta = {"ndim": 2, "type": "image", "name": "FCCD", "x label": "X Position", "y label": "Y Position"}
+        self.meta = {"ndim": 2, "type": "image", "name": "FCCD", "x label": "X Position", "y label": "Y Position",\
+                     "oversampling_factor": 1}
 
     def start(self):
         self.fbuffer = []
@@ -46,9 +48,15 @@ class fccd_control(daq):
         """
         pass
 
-    def config(self, dwell, dwell2 = 0, exposure_mode = 0):
-        self.dwell = dwell
-        self.dwell2 = dwell2
+    # def config(self, dwell, dwell2 = 0, exposure_mode = 0,count  = 1, samples = 1,trigger = 'BUS'):
+    #     self.dwell = dwell
+    #     self.dwell2 = dwell2
+    def config(self, dwell, exposure_mode = 0, count  = 1, samples = 1, trigger = 'BUS'):
+        if isinstance(dwell,list):
+            self.dwell,self.dwell2 = dwell
+        else:
+            self.dwell = dwell
+            self.dwell2 = 0.
         self.doubleExposureMode = exposure_mode
         if self.simulation:
             pass
@@ -67,11 +75,13 @@ class fccd_control(daq):
             self.cin.set_register("8001", "0106", 0)
             time.sleep(0.002)
 
-    def getPoint(self):
+    async def getPoint(self):
         if self.simulation:
             time.sleep(self.dwell / 1000.)
             self.framenum += 1
-            return self.framenum - 1, 2. * np.random.random((1040,1152))
+            #return self.framenum - 1, 2. * np.random.random((1040,1152))
+            self.data = 2. * np.random.random((1040,1152))
+            return self.data
         else:
             return self.zmq_receive()
 
@@ -115,4 +125,4 @@ class fccd_control(daq):
         npbuf = np.frombuffer(buf, '<u2')
         npbuf = npbuf.reshape((12 * self.num_rows, self.num_adcs))
         image = self.CCD.assemble2(npbuf.astype(np.uint16))
-        return num, image
+        return image

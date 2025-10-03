@@ -116,6 +116,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.multiFrameCheckbox.stateChanged.connect(self.setMultiFrame)
         self.ui.proposalComboBox.currentIndexChanged.connect(self.updateExperimenters)
         self.ui.plotType.currentIndexChanged.connect(self.changePlot)
+        self.ui.serverConnectButton.clicked.connect(self.changeServer)
 
         self.ui.compositeImageCheckbox.setCheckState(QtCore.Qt.Unchecked)
         self.ui.showBeamPosition.setCheckState(QtCore.Qt.Unchecked)
@@ -223,6 +224,16 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.singleMotorScanXData = []
         self.singleMotorScanYData = []
         self.consoleStr = ''
+
+    def changeServer(self):
+        # address = self.ui.serverAddressEdit.text().split(':')
+        # if len(address) > 1:
+        #     address,port = address
+        # else:
+        #     port = self.client.main_config["server"]["command_port"]
+        # if self.client.connect_to_server(address, command_port = port):
+        #     self.initGUI()
+        pass
 
     def setCursor2Zero(self):
         x = round(self.cursorX,2)
@@ -368,9 +379,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def activateStaff(self):
         self.ui.A1Edit.setEnabled(True)
+        self.ui.serverAddressEdit.setEnabled(True)
+        self.ui.serverConnectButton.setEnabled(True)
 
     def deactivateStaff(self):
         self.ui.A1Edit.setEnabled(False)
+        self.ui.serverAddressEdit.setEnabled(False)
+        self.ui.serverConnectButton.setEnabled(False)
 
     def updateCompositeImage(self):
         if self.ui.compositeImageCheckbox.isChecked():
@@ -1051,7 +1066,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan["oversampling_factor"] = self.client.main_config["geometry"]["oversampling_factor"]
         self.scan['autofocus'] = self.ui.autofocusCheckbox.isChecked()
         self.scan["coarse_only"] = False #this is set True later in scanCheck() for coarse only scans
-        self.scan["daq list"] = list(self.client.daqConfig.keys())
+        self.scan["daq list"] = self.client.scanConfig["scans"][self.scanType]["daq list"].split(',') #list(self.client.daqConfig.keys())
         if self.scan["mode"] == "continuousSpiral":
             self.scan["spiral"] = True
         self.scan['retract'] = True
@@ -1480,7 +1495,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.mainImage.removeItem(self.horizontalLine)
             if self.verticalLine is not None:
                 self.ui.mainImage.removeItem(self.verticalLine)
-        elif self.ui.channelSelect.currentText() == self.client.daqConfig["default"]["name"]: #"Diode":
+        elif self.ui.channelSelect.currentText() == self.client.daqConfig["default"]["name"]:
             xScale,yScale = self.imageScale
             if self.image is None:
                 self.image = np.zeros((100,100))
@@ -1583,13 +1598,16 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 yScale = 1 
             elif "Line Spectrum" in self.scan["scan_type"]:
                 self.image = self.image.T
-                for daq in self.client.daqConfig.keys():
+                for daq in self.scan["daq list"]:
                     self.stxm.interp_counts[daq][scanRegNumber][:,0,:] = message["image"][daq]
                 xScale = 1 
                 yScale = 1 
             elif "Image" in self.scan["scan_type"]:
-                for daq in self.client.daqConfig.keys():
-                    self.stxm.interp_counts[daq][scanRegNumber][message["energyIndex"]] = message["image"][daq]
+                for daq in self.scan["daq list"]:
+                    try:
+                        self.stxm.interp_counts[daq][scanRegNumber][message["energyIndex"]] = message["image"][daq]
+                    except KeyError:
+                        pass
                 xScale = float(self.xRange) / float(self.xPts)
                 yScale = float(self.yRange) / float(self.yPts)
             else:
@@ -1648,7 +1666,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.ui.plotType.setCurrentText("Motor Scan")
                     self.updatePlot(message)
                 elif self.scan["scan_type"] == "Double Motor":
-                    self.image = message["image"]
+                    self.image = message["image"]["default"]
                     xScale = float(self.xRange) / float(self.xPts)
                     yScale = float(self.yRange) / float(self.yPts)
                     pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
@@ -1701,7 +1719,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
             self.updatePlot(message)
         try: 
-            self.updateImageFromCCD(message["ccd_frame"])
+            self.updateImageFromCCD(message["rawData"]["ccd"]["data"])
         except:
             pass
         xPos = self.currentMotorPositions["SampleX"]
@@ -2209,11 +2227,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def connectClient(self):
         self.client.monitor.scan_data.connect(self.updateImageFromMessage)
         self.controlThread.controlResponse.connect(self.printToConsole)
-        # self.client.monitor.elapsed_time.connect(self.updateTime)
-        try:
-            self.client.ccd.framedata.connect(self.updateImageFromCCD)
-        except:
-            print("Cannot connect to CCD monitor")
         try:
             self.client.ptycho.ptychoData.connect(self.updateImageFromRPI)
         except:

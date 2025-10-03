@@ -1095,6 +1095,9 @@ font: 75 11pt &quot;Ubuntu&quot;;
        <property name="text">
         <string/>
        </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
       </widget>
      </widget>
      <widget class="QLabel" name="label_6">
@@ -2638,7 +2641,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <x>0</x>
      <y>0</y>
      <width>1550</width>
-     <height>23</height>
+     <height>42</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

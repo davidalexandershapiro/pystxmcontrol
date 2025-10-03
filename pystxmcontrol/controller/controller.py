@@ -225,11 +225,8 @@ class controller:
                 self.scanQueue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-        print("starting daq")
         for daq in self.daq.keys():
             self.daq[daq].start()
-        # if scan["mode"] == "ptychographyGrid":
-        #     self.daq["ccd"].start()
         self.scanDef = scan
         scan["synch_event"] = asyncio.Event()
         scan_tasks = []
@@ -237,10 +234,11 @@ class controller:
         scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
         await asyncio.gather(*scan_tasks)
         self.dataHandler.data.close()
+        self.dataHandler.zmq_send({'event': 'stxm', 'data': {"identifier":os.path.basename(self.dataHandler.data.file_name)}})
+        if scan["scan_type"] == "Ptychography Image":
+           self.dataHandler.zmq_send({'event': 'ccd_data', 'data': {"identifier":os.path.basename(self.dataHandler.ptychodata.file_name)}})
         for daq in self.daq.keys():
             self.daq[daq].stop()
-        # if scan["mode"] == "ptychographyGrid":
-        #     self.daq["ccd"].stop()
         self.scanQueue = None
         self.dataHandler.dataQueue = None
         self.startMonitor()
@@ -263,7 +261,11 @@ class controller:
     def config_daqs(self, dwell, count, samples, trigger):
         for daq in self.daq.keys():
             if self.daqConfig[daq]["record"]:
-                self.daq[daq].config(dwell / self.daqConfig[daq]["oversampling_factor"], count = count, samples = samples, trigger = trigger)
+                try:
+                    dwell / self.daqConfig[daq]["oversampling_factor"]
+                except:
+                    pass
+                self.daq[daq].config(dwell, count = count, samples = samples, trigger = trigger)
 
     def read_daq(self, daq, dwell, shutter = True):
         try:

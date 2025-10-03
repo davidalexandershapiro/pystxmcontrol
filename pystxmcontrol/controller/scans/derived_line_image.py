@@ -32,8 +32,9 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     coarse_only = scan["coarse_only"] #this needs to be set properly if a coarse scan is possible
     scanInfo["include_return"] = controller.scanConfig["scans"][scan["scan_type"]]["include_return"]
     coarse_offset = 20
+    scanInfo['daq list'] = scan['daq list']
     scanInfo["rawData"] = {}
-    for daq in controller.daq.keys():
+    for daq in scanInfo["daq list"]:
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
