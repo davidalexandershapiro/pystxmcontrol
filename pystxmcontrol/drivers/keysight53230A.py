@@ -11,9 +11,6 @@ class keysight53230A(daq):
         self.address = address
         self.simulation = simulation
         self.meta = {"ndim": 0, "x": [], "type": "point", "name": "Keysight 53230A","channel": 1, "gate": False}
-        self.gate = shutter()
-        self.gate.connect(simulation = self.simulation)
-        self.gate.setStatus(softGATE = 0)
         self.counter = counter()
         self.idle_ms = 1
         self.ctrNum = 0
@@ -21,6 +18,9 @@ class keysight53230A(daq):
     def start(self):
         if not(self.simulation):
             self.counter.connect(visa_address=self.address)
+        self.gate = shutter(address = self.meta["gate address"])
+        self.gate.connect(simulation=self.simulation)
+        self.gate.setStatus(softGATE=0)
 
     def stop(self):
         if not (self.simulation):

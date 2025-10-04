@@ -243,7 +243,7 @@ class stxm:
             nxPos = self.xPos[-1].size
             nyPos = self.yPos[-1].size
             nzPos = self.zPos[-1].size
-            nxPixels = nxPos * scan["oversampling_factor"] #we only oversample in one dimension
+            nxPixels = nxPos
             nyPixels = nyPos
             nzPixels = nzPos
             nPixels_m = nxPixels * nyPixels #total number of measured pixels

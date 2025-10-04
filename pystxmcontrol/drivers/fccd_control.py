@@ -77,9 +77,7 @@ class fccd_control(daq):
 
     async def getPoint(self):
         if self.simulation:
-            time.sleep(self.dwell / 1000.)
             self.framenum += 1
-            #return self.framenum - 1, 2. * np.random.random((1040,1152))
             self.data = 2. * np.random.random((1040,1152))
             return self.data
         else:

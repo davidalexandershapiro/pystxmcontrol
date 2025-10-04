@@ -37,6 +37,7 @@ class controller:
         self.scanning = False
         self.pause = False
         self.autoZonePlate = True
+        self.lock = asyncio.Lock()
         self._logger = logger
         self.initialize()
         self.startMonitor()
@@ -129,7 +130,7 @@ class controller:
             self.daq[daq] = eval(f"{driver}(address = '{address}', simulation = {simulation})")
             self.daq[daq].meta = meta
             self.daq[daq].start()
-        self.dataHandler = dataHandler(self, self._logger)
+        self.dataHandler = dataHandler(self, self.lock, self._logger)
         self.monitorThread = threading.Thread(target=self.dataHandler.monitor, args=())
 
     def updateMotorStatus(self):
@@ -233,10 +234,12 @@ class controller:
         scan_tasks.append(self.dataHandler.startScanProcess(scan))
         scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
         await asyncio.gather(*scan_tasks)
+
+        #close the data file and send the zmq event to downstream processing
         self.dataHandler.data.close()
-        self.dataHandler.zmq_send({'event': 'stxm', 'data': {"identifier":os.path.basename(self.dataHandler.data.file_name)}})
-        if scan["scan_type"] == "Ptychography Image":
-           self.dataHandler.zmq_send({'event': 'ccd_data', 'data': {"identifier":os.path.basename(self.dataHandler.ptychodata.file_name)}})
+        self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(self.dataHandler.data.file_name)}})
+
+        #clean up and restart the monitor
         for daq in self.daq.keys():
             self.daq[daq].stop()
         self.scanQueue = None

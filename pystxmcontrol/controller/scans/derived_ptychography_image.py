@@ -2,7 +2,7 @@ from pystxmcontrol.controller.scans.scan_utils import *
 from pystxmcontrol.utils.writeNX import stxm
 import numpy as np
 import time, datetime
-import asyncio
+import asyncio, os
 
 
 def insertSTXMDetector(controller):
@@ -87,20 +87,19 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 frame_num += 1
                 scanInfo["ccd_frame_num"] = frame_num
             else:
-                for i in range(n_repeats):
-                    # controller.daq["ccd"].init()
-                    controller.daq["default"].setGateDwell(dwell1, 0)
-                    controller.daq["default"].autoGateOpen()
-                    time.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
-                    if not await dataHandler.getPoint(scanInfo.copy()):
-                        #queue.get(True)
-                        # dataHandler.data.saveRegion(0)
-                        print("Failed to receive a ccd frame.")
-                        await dataHandler.dataQueue.put('endOfScan')
-                        # self._logger.log("Terminating grid scan")
-                        return False
-                    frame_num += 1
-                    scanInfo["ccd_frame_num"] = frame_num
+                controller.daq["default"].setGateDwell(dwell1, 0)
+                controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
+                time.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                #now get the data
+                if not await dataHandler.getPoint(scanInfo.copy()):
+                    #queue.get(True)
+                    # dataHandler.data.saveRegion(0)
+                    print("Failed to receive a ccd frame.")
+                    await dataHandler.dataQueue.put('endOfScan')
+                    # self._logger.log("Terminating grid scan")
+                    return False
+                frame_num += 1
+                scanInfo["ccd_frame_num"] = frame_num
         else:
             await queue.get()
             # dataHandler.data.saveRegion(0)
@@ -163,7 +162,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
     numLineDAQPoints = numLineMotorPoints * scan["oversampling_factor"]
     scanInfo['numMotorPoints'] = numLineMotorPoints * len(yPos) #total number of motor points configures the full data structrure
     scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
-    controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "EXT")
+    controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "BUS")
     # controller.daq["ccd"].start()
     # controller.daq["ccd"].config(dwell1 + 10., dwell2 + 10., scan["doubleExposure"])
 
@@ -276,8 +275,6 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             scanInfo["ccd_mode"] = "dark"
             print("acquiring background")
             if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
-                while not dataHandler.dataQueue.empty():
-                    await asyncio.sleep(0.1)
                 await dataHandler.dataQueue.put('endOfRegion')
             else:
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
@@ -290,9 +287,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             print("acquiring data")
             if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp, yp, zPos[j]), dataHandler, controller, queue, shutter=True,scanRegion=scanRegion):
                 #there is a race condition happening because apparently this is not thread safe
-                #I need to wait before and after sending the 'endOfRegin' flag to ensure data makes it through
-                while not dataHandler.dataQueue.empty():
-                    await asyncio.sleep(0.1)
+                #I need to wait after sending the 'endOfRegion' flag to ensure data makes it through
                 await dataHandler.dataQueue.put('endOfRegion')
                 while not dataHandler.dataQueue.empty():
                     await asyncio.sleep(0.1)
@@ -313,14 +308,12 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             dataHandler.ptychodata.addDict(scanMeta, "metadata")  # stuff needed by the preprocessor
             dataHandler.ptychodata.saveRegion(0)
             dataHandler.ptychodata.close()
+            dataHandler.zmq_send_string(
+                {'event': 'ccd_data', 'data': {"identifier": os.path.basename(dataHandler.ptychodata.file_name)}})
             dataHandler.data.end_time = str(datetime.datetime.now())
-            # dataHandler.data.saveRegion(j)
-            # dataHandler.zmq_stop_event()
             dataHandler.zmq_send({'event': 'stop', 'data': None})
             print("Done!")
         energyIndex += 1
-    while not dataHandler.dataQueue.empty():
-        await asyncio.sleep(0.1)
     await dataHandler.dataQueue.put('endOfScan')
     if scanInfo['retract']:
         insertSTXMDetector(controller)

@@ -2,11 +2,11 @@ from pystxmcontrol.utils.writeNX import stxm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time, os, datetime, threading, zmq
 import numpy as np
-from threading import Lock
 import scipy
 import asyncio
 import zmq.asyncio
 from copy import deepcopy
+import json
 
 class dataHandler:
 
@@ -18,7 +18,7 @@ class dataHandler:
             self.scanQueue = self.controller._ensure_scan_queue()
         return self.dataQueue, self.scanQueue
 
-    def __init__(self, controller, logger = None):
+    def __init__(self, controller, lock = None, logger = None):
         self.controller = controller
         self.daq = self.controller.daq
         self.dataQueue = None ##will be created lazily
@@ -32,12 +32,12 @@ class dataHandler:
         self.stxm_file_port = self.main_config["server"]["stxm_file_port"]
         self.pause = False
         self._logger = logger
-        self._lock = Lock()
+        self._lock = lock
         context = zmq.asyncio.Context()
 
-        if "ccd" in self.controller.daq.keys():
+        if "CCD" in self.controller.daq.keys():
             #publish ccd data to the preprocessor
-            self.controller.daq["ccd"].config([10, 0], 0)
+            self.controller.daq["CCD"].config([10, 0], 0)
             self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
             print("Publishing ccd frames on: %s" %self.ccd_pub_address)
             self.ccd_pub_socket = context.socket(zmq.PUB)
@@ -129,7 +129,6 @@ class dataHandler:
             return scanInfo["rawData"][daq]["data"]
 
         if scanInfo["mode"] == "continuousLine":
-
             xReq = scanInfo["xVal"]
             yReq = scanInfo["yVal"]
             xstart = xReq[0]
@@ -214,16 +213,17 @@ class dataHandler:
             region = int(scanInfo['scanRegion'].split('Region')[-1])-1
             
             #Next, the measured x and y values. Only take the ones which have been measured so far.
-            mi = (scanInfo['index'])*scanInfo['line_positions'][0].size
+            mi = scanInfo['position_index']#*scanInfo['line_positions'][0].size
             xMeasOld = self.data.xMeasured[region][scanInfo['energyIndex'],:mi]
             yMeasOld = self.data.yMeasured[region][scanInfo['energyIndex'],:mi]
             
             xMeas = np.append(xMeasOld,scanInfo['line_positions'][0])
             yMeas = np.append(yMeasOld,scanInfo['line_positions'][1])
+
             
             
             #Also, the raw data.
-            di = (scanInfo['index'])*scanInfo["rawData"][daq]["data"].size
+            di = (scanInfo['trajnum'])*scanInfo["rawData"][daq]["data"].size
             dataOld = self.data.counts["default"][region][scanInfo['energyIndex'],:di]
             data = np.append(dataOld,scanInfo["rawData"][daq]["data"])
             
@@ -250,8 +250,8 @@ class dataHandler:
                 DAQtraj = np.arange(len(scanInfo["rawData"][daq]["data"]))*actDAQDwell+DAQdelay
             
             endpoint = max(xytraj[-1],DAQtraj[-1])
-            xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
-            DAQ_tVals = np.array([DAQtraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
+            xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['trajnum']+1)]).flatten()
+            DAQ_tVals = np.array([DAQtraj+endpoint*i for i in range(scanInfo['trajnum']+1)]).flatten()
             
             #xy_tVals = np.arange(len(xMeas))*scanInfo['motorDwell']
             #DAQ_tVals = np.arange(len(data))*scanInfo['DAQDwell']
@@ -292,15 +292,17 @@ class dataHandler:
                 self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
-            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
-            self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
-
-        elif scanInfo["type"] == "Spiral Image":
-            mi = scanInfo['index']*scanInfo['line_positions'][0].size
+            mi = scanInfo['index']
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            self.data.interp_counts[k][m,:,:] = scanInfo['data']
+
+        elif scanInfo["type"] == "Spiral Image":
+            mi = scanInfo['position_index']#*scanInfo['line_positions'][0].size
+            mj = mi + scanInfo['line_positions'][0].size
+            self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
+            self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
+            self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
             
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
@@ -475,9 +477,13 @@ class dataHandler:
     def zmq_send(self, info):
         self.ccd_pub_socket.send_pyobj(info)
 
+    def zmq_send_string(self, info):
+        print(f"Sending as string: {info}")
+        self.ccd_pub_socket.send_string(json.dumps(info))
+
     async def sendScanData(self, event):
+        ptychography_streaming = self.controller.main_config["ptychography"]["streaming"]
         t0 = time.time()
-        chunk = []
         pointData = 0.
         event.set() #asyncio.Event from the controller to synchronize with the scan routine
         while True:
@@ -496,24 +502,26 @@ class dataHandler:
                 scanInfo["data"] = {} #this is the data in NX coordinates for the file
                 scanInfo["image"] = {} #this is the image that goes to the gui
                 if scanInfo["mode"] == "ptychographyGrid":
-                    self.ptychodata.addFrame(scanInfo["rawData"]["ccd"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
-                    self.zmq_send({'event':'frame','data':scanInfo})
+                    self.ptychodata.addFrame(scanInfo["rawData"]["CCD"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
+                    if ptychography_streaming:
+                        self.zmq_send({'event':'frame','data':scanInfo})
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:
                             if scanInfo["ccd_frame_num"] % 2 == 0:
-                                pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["ccd"]["data"])
+                                pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
                         else:
-                            pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["ccd"]["data"])
+                            pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
                         # for daq in scanInfo["daq list"]:
                         #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
                         #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
+                        #hard coding the daqs for now, need to generalize this.
                         scanInfo["data"]["default"] = pointData
-                        scanInfo["data"]["ccd"] = frameNoBKG
-                        scanInfo["data"]["xrf"] = scanInfo["rawData"]["xrf"]["data"]
+                        scanInfo["data"]["CCD"] = frameNoBKG
+                        #scanInfo["data"]["xrf"] = scanInfo["rawData"]["xrf"]["data"]
                     else:
-                        self.darkFrame = scanInfo["rawData"]["ccd"]["data"]
+                        self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
                         scanInfo["data"]["default"] = 0.
-                        scanInfo["data"]["ccd"] = self.darkFrame
+                        scanInfo["data"]["CCD"] = self.darkFrame
                     scanInfo["image"]["default"] = self.addDataToStack(scanInfo,"default")
                 elif scanInfo["mode"] == "point":
                     for daq in scanInfo["daq list"]:
@@ -521,7 +529,7 @@ class dataHandler:
                         scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
                 else:
                     #prepare data to send onto socket (for the GUI)
-                    #interpolate_points takes scanInfo["rawData"] and converts to image coordinates 
+                    #interpolate_points takes scanInfo["rawData"] and converts to image coordinates
                     # scanInfo["data"] = self.interpolate_points(scanInfo) #this is the image in user coordinates for display in the GUI
                     for daq in scanInfo["daq list"]:
                         scanInfo["data"][daq] = self.interpolate_points(scanInfo,daq)
@@ -537,7 +545,10 @@ class dataHandler:
         for daq in scanInfo["daq list"]:
             if self.controller.daqConfig[daq]["record"]:
                 daq_tasks.append(self.daq[daq].getPoint())
+
+        t0 = time.time()
         await asyncio.gather(*daq_tasks)
+        t1 = time.time()
         for daq in scanInfo["daq list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
 
@@ -549,6 +560,7 @@ class dataHandler:
 
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
+        print(f"Acquisition time: {t1-t0}")
         return True
 
     def read_daq(self,daq):
@@ -569,7 +581,7 @@ class dataHandler:
         #     if not scanInfo['scan']['spiral']:
         #         print('mismatched arrays!')
         #         return False
-        await self.dataQueue.put(scanInfo)
+        await self.dataQueue.put(deepcopy(scanInfo))
         return True
         
     def updateDwells(self, scanInfo):

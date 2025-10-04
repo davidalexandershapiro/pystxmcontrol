@@ -23,7 +23,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     scanInfo = {"mode": "continuousLine"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
-    scanInfo["oversampling_factor"] = scan["oversampling_factor"]
+    scanInfo["oversampling_factor"] = controller.daq["default"].meta["oversampling_factor"]
     scanInfo['totalSplit'] = None
 
     energyIndex = 0
@@ -88,9 +88,9 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             #this function only moves the coarse motors if needed
             controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints * scan["oversampling_factor"]
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints #* scanInfo["oversampling_factor"]
             controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
-                                                                                    energyIndex] / scan[
+                                                                                    energyIndex] / scanInfo[
                                                                                     "oversampling_factor"]
             controller.motors[scan["x_motor"]]["motor"].lineMode = "continuous"
 
@@ -122,9 +122,9 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             #numMotorPoints should be the total number of motor position measurements expected
             #numDAQPoints should be equal to xPoints * oversampling
             numLineMotorPoints = controller.motors[scan["x_motor"]]["motor"].npositions #this configures the DAQ for one line
-            numLineDAQPoints = controller.motors[scan["x_motor"]]["motor"].npositions * scan["oversampling_factor"]
+            numLineDAQPoints = controller.motors[scan["x_motor"]]["motor"].npositions * scanInfo["oversampling_factor"]
             scanInfo['numMotorPoints'] = numLineMotorPoints * yPoints #total number of motor points configures the full data structrure
-            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
+            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scanInfo["oversampling_factor"]
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
@@ -155,7 +155,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions
-                scanInfo["index"] = i * numLineDAQPoints
+                scanInfo["index"] = i * numLineMotorPoints
                 scanInfo["lineIndex"] = i
                 scanInfo["zIndex"] = 0 #need to pass a zIndex to the dataHandler
                 ##need to also be able to request measured positions

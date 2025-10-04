@@ -1063,10 +1063,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan["x_motor"] = self.ui.xMotorCombo.currentText() #["xMotor"]
         self.scan["y_motor"] = self.ui.yMotorCombo.currentText() #["yMotor"]
         self.scan["defocus"] = self.ui.defocusCheckbox.isChecked()
-        self.scan["oversampling_factor"] = self.client.main_config["geometry"]["oversampling_factor"]
         self.scan['autofocus'] = self.ui.autofocusCheckbox.isChecked()
         self.scan["coarse_only"] = False #this is set True later in scanCheck() for coarse only scans
-        self.scan["daq list"] = self.client.scanConfig["scans"][self.scanType]["daq list"].split(',') #list(self.client.daqConfig.keys())
+        self.scan["daq list"] = self.client.scanConfig["scans"][self.scanType]["daq list"].split(',')
+        self.scan["oversampling_factor"] = self.client.daqConfig["default"]["oversampling_factor"]
         if self.scan["mode"] == "continuousSpiral":
             self.scan["spiral"] = True
         self.scan['retract'] = True
@@ -1519,8 +1519,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateImageFromCCD(self, ccdData):
         self.currentCCDData = ccdData
         if self.ui.channelSelect.currentText() == "CCD":
-            self.ui.mainImage.setImage(self.currentCCDData, autoRange=False, autoLevels=False, \
-                        autoHistogramRange=False)
+            self.ui.mainImage.setImage(self.currentCCDData, autoRange=self.ui.autorangeCheckbox.isChecked(),
+                                               autoLevels=self.ui.autoscaleCheckbox.isChecked(), \
+                                               autoHistogramRange=self.ui.autorangeCheckbox.isChecked(), pos=(0,0),
+                                               scale=(1,1))
                         
     def updateImageFromRPI(self, rpiData):
         self.currentRPIData, self.ptychoXpixm, self.ptychoYpixm = rpiData
@@ -1716,10 +1718,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 else:
                     self.monitorData[channel]["data"] = message["rawData"][daq]["data"]
                 self.monitorData[channel]["meta"] = message["rawData"][daq]["meta"]
-
             self.updatePlot(message)
-        try: 
-            self.updateImageFromCCD(message["rawData"]["ccd"]["data"])
+        try:
+            self.updateImageFromCCD(message["rawData"]["CCD"]["data"])
         except:
             pass
         xPos = self.currentMotorPositions["SampleX"]
