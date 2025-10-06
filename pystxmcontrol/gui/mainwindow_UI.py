@@ -109,6 +109,10 @@ class Ui_MainWindow(object):
         self.horizontalLayout_5.setContentsMargins(0, 0, 0, 0)
         self.label_2 = QLabel(self.layoutWidget1)
         self.label_2.setObjectName(u"label_2")
+        font = QFont()
+        font.setBold(False)
+        font.setKerning(False)
+        self.label_2.setFont(font)
 
         self.horizontalLayout_5.addWidget(self.label_2)
 
@@ -119,6 +123,9 @@ class Ui_MainWindow(object):
         sizePolicy1.setVerticalStretch(0)
         sizePolicy1.setHeightForWidth(self.serverAddress.sizePolicy().hasHeightForWidth())
         self.serverAddress.setSizePolicy(sizePolicy1)
+        font1 = QFont()
+        font1.setBold(True)
+        self.serverAddress.setFont(font1)
 
         self.horizontalLayout_5.addWidget(self.serverAddress)
 
@@ -141,10 +148,10 @@ class Ui_MainWindow(object):
         self.motorMover2Plus = QPushButton(self.layoutWidget_3)
         self.motorMover2Plus.setObjectName(u"motorMover2Plus")
         self.motorMover2Plus.setMaximumSize(QSize(30, 30))
-        font = QFont()
-        font.setPointSize(14)
-        font.setBold(True)
-        self.motorMover2Plus.setFont(font)
+        font2 = QFont()
+        font2.setPointSize(14)
+        font2.setBold(True)
+        self.motorMover2Plus.setFont(font2)
 
         self.gridLayout.addWidget(self.motorMover2Plus, 1, 6, 1, 1)
 
@@ -184,7 +191,7 @@ class Ui_MainWindow(object):
         self.motorMover1Plus = QPushButton(self.layoutWidget_3)
         self.motorMover1Plus.setObjectName(u"motorMover1Plus")
         self.motorMover1Plus.setMaximumSize(QSize(30, 16777215))
-        self.motorMover1Plus.setFont(font)
+        self.motorMover1Plus.setFont(font2)
 
         self.gridLayout.addWidget(self.motorMover1Plus, 0, 6, 1, 1)
 
@@ -212,14 +219,14 @@ class Ui_MainWindow(object):
         self.motorMover1Minus.setObjectName(u"motorMover1Minus")
         self.motorMover1Minus.setMinimumSize(QSize(30, 0))
         self.motorMover1Minus.setMaximumSize(QSize(30, 16777215))
-        self.motorMover1Minus.setFont(font)
+        self.motorMover1Minus.setFont(font2)
 
         self.gridLayout.addWidget(self.motorMover1Minus, 0, 5, 1, 1)
 
         self.motorMover2Minus = QPushButton(self.layoutWidget_3)
         self.motorMover2Minus.setObjectName(u"motorMover2Minus")
         self.motorMover2Minus.setMaximumSize(QSize(30, 16777215))
-        self.motorMover2Minus.setFont(font)
+        self.motorMover2Minus.setFont(font2)
 
         self.gridLayout.addWidget(self.motorMover2Minus, 1, 5, 1, 1)
 
@@ -353,6 +360,9 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel(self.layoutWidget_2)
         self.label.setObjectName(u"label")
+        font3 = QFont()
+        font3.setBold(False)
+        self.label.setFont(font3)
 
         self.horizontalLayout_3.addWidget(self.label)
 
@@ -438,8 +448,6 @@ class Ui_MainWindow(object):
         palette.setBrush(QPalette.Disabled, QPalette.PlaceholderText, brush11)
 #endif
         self.energyLabel.setPalette(palette)
-        font1 = QFont()
-        font1.setBold(True)
         self.energyLabel.setFont(font1)
         self.energyLabel.setAutoFillBackground(False)
 
@@ -502,7 +510,7 @@ class Ui_MainWindow(object):
         self.scanType.setGeometry(QRect(10, 40, 171, 42))
         self.gridLayoutWidget_6 = QWidget(self.tab_9)
         self.gridLayoutWidget_6.setObjectName(u"gridLayoutWidget_6")
-        self.gridLayoutWidget_6.setGeometry(QRect(330, 830, 361, 122))
+        self.gridLayoutWidget_6.setGeometry(QRect(340, 850, 361, 122))
         self.gridLayout_9 = QGridLayout(self.gridLayoutWidget_6)
         self.gridLayout_9.setObjectName(u"gridLayout_9")
         self.gridLayout_9.setContentsMargins(0, 0, 0, 0)
@@ -594,9 +602,9 @@ class Ui_MainWindow(object):
         sizePolicy4.setVerticalStretch(0)
         sizePolicy4.setHeightForWidth(self.daqCurrentValue.sizePolicy().hasHeightForWidth())
         self.daqCurrentValue.setSizePolicy(sizePolicy4)
-        font2 = QFont()
-        font2.setPointSize(22)
-        self.daqCurrentValue.setFont(font2)
+        font4 = QFont()
+        font4.setPointSize(22)
+        self.daqCurrentValue.setFont(font4)
         self.daqCurrentValue.setTextFormat(Qt.TextFormat.PlainText)
         self.layoutWidget3 = QWidget(self.tab_9)
         self.layoutWidget3.setObjectName(u"layoutWidget3")
@@ -662,9 +670,9 @@ class Ui_MainWindow(object):
         self.scaleBarLength.setSizePolicy(sizePolicy2)
         self.scaleBarLength.setMinimumSize(QSize(80, 0))
         self.scaleBarLength.setMaximumSize(QSize(80, 16777215))
-        font3 = QFont()
-        font3.setPointSize(10)
-        self.scaleBarLength.setFont(font3)
+        font5 = QFont()
+        font5.setPointSize(13)
+        self.scaleBarLength.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.scaleBarLength)
 
@@ -672,9 +680,7 @@ class Ui_MainWindow(object):
         self.label_44.setObjectName(u"label_44")
         sizePolicy2.setHeightForWidth(self.label_44.sizePolicy().hasHeightForWidth())
         self.label_44.setSizePolicy(sizePolicy2)
-        font4 = QFont()
-        font4.setPointSize(7)
-        self.label_44.setFont(font4)
+        self.label_44.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.label_44)
 
@@ -684,7 +690,7 @@ class Ui_MainWindow(object):
         self.pixelSizeLabel.setSizePolicy(sizePolicy2)
         self.pixelSizeLabel.setMinimumSize(QSize(60, 0))
         self.pixelSizeLabel.setMaximumSize(QSize(60, 16777215))
-        self.pixelSizeLabel.setFont(font3)
+        self.pixelSizeLabel.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.pixelSizeLabel)
 
@@ -694,8 +700,6 @@ class Ui_MainWindow(object):
         self.label_38.setSizePolicy(sizePolicy2)
         self.label_38.setMinimumSize(QSize(100, 0))
         self.label_38.setMaximumSize(QSize(100, 16777215))
-        font5 = QFont()
-        font5.setPointSize(12)
         self.label_38.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.label_38)
@@ -706,7 +710,7 @@ class Ui_MainWindow(object):
         self.dwellTimeLabel.setSizePolicy(sizePolicy2)
         self.dwellTimeLabel.setMinimumSize(QSize(60, 0))
         self.dwellTimeLabel.setMaximumSize(QSize(60, 16777215))
-        self.dwellTimeLabel.setFont(font3)
+        self.dwellTimeLabel.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.dwellTimeLabel)
 
@@ -714,7 +718,7 @@ class Ui_MainWindow(object):
         self.label_9.setObjectName(u"label_9")
         sizePolicy2.setHeightForWidth(self.label_9.sizePolicy().hasHeightForWidth())
         self.label_9.setSizePolicy(sizePolicy2)
-        self.label_9.setFont(font3)
+        self.label_9.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.label_9)
 
@@ -724,7 +728,7 @@ class Ui_MainWindow(object):
         self.imageEnergyLabel.setSizePolicy(sizePolicy2)
         self.imageEnergyLabel.setMinimumSize(QSize(80, 0))
         self.imageEnergyLabel.setMaximumSize(QSize(80, 16777215))
-        self.imageEnergyLabel.setFont(font3)
+        self.imageEnergyLabel.setFont(font5)
 
         self.horizontalLayout_8.addWidget(self.imageEnergyLabel)
 
@@ -746,6 +750,7 @@ class Ui_MainWindow(object):
 
         self.label_32 = QLabel(self.layoutWidget4)
         self.label_32.setObjectName(u"label_32")
+        self.label_32.setFont(font1)
 
         self.gridLayout_3.addWidget(self.label_32, 1, 0, 1, 1)
 
@@ -756,6 +761,7 @@ class Ui_MainWindow(object):
 
         self.label_33 = QLabel(self.layoutWidget4)
         self.label_33.setObjectName(u"label_33")
+        self.label_33.setFont(font1)
 
         self.gridLayout_3.addWidget(self.label_33, 2, 0, 1, 1)
 
@@ -766,6 +772,7 @@ class Ui_MainWindow(object):
 
         self.label_31 = QLabel(self.layoutWidget4)
         self.label_31.setObjectName(u"label_31")
+        self.label_31.setFont(font1)
 
         self.gridLayout_3.addWidget(self.label_31, 0, 0, 1, 1)
 
@@ -777,6 +784,7 @@ class Ui_MainWindow(object):
         self.verticalLayout_3.setContentsMargins(0, 0, 0, 0)
         self.label_26 = QLabel(self.verticalLayoutWidget)
         self.label_26.setObjectName(u"label_26")
+        self.label_26.setFont(font1)
 
         self.verticalLayout_3.addWidget(self.label_26)
 
@@ -975,6 +983,7 @@ class Ui_MainWindow(object):
 
         self.A1Label = QLabel(self.gridLayoutWidget_4)
         self.A1Label.setObjectName(u"A1Label")
+        self.A1Label.setFont(font3)
 
         self.gridLayout_5.addWidget(self.A1Label, 0, 1, 1, 1)
 
@@ -1292,7 +1301,7 @@ class Ui_MainWindow(object):
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 1550, 42))
+        self.menubar.setGeometry(QRect(0, 0, 1550, 38))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuOpen = QMenu(self.menuFile)
@@ -1410,13 +1419,13 @@ class Ui_MainWindow(object):
         self.label_6.setText(QCoreApplication.translate("MainWindow", u"Scan Type", None))
         self.imageCountText.setText(QCoreApplication.translate("MainWindow", u"Region 1 of 1 | Energy 1 of 1", None))
         self.scanFileName.setText("")
-        self.label_25.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Scan:</span></p></body></html>", None))
-        self.label_5.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Current Image:</span></p></body></html>", None))
+        self.label_25.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Scan:</span></p></body></html>", None))
+        self.label_5.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Current Image:</span></p></body></html>", None))
         self.xCursorPos.setText("")
-        self.label_23.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Y:</span></p></body></html>", None))
+        self.label_23.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Y:</span></p></body></html>", None))
         self.yCursorPos.setText("")
-        self.label_20.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">X:</span></p></body></html>", None))
-        self.label_24.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Intensity:</span></p></body></html>", None))
+        self.label_20.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">X:</span></p></body></html>", None))
+        self.label_24.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Intensity:</span></p></body></html>", None))
         self.cursorIntensity.setText("")
         self.daqCurrentValue.setText("")
         self.label_3.setText(QCoreApplication.translate("MainWindow", u"Plot", None))
@@ -1433,11 +1442,11 @@ class Ui_MainWindow(object):
 
         self.plotClearButton.setText(QCoreApplication.translate("MainWindow", u"Clear", None))
         self.scaleBarLength.setText("")
-        self.label_44.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-size:10pt; font-weight:600;\">Pixel Size:</span></p></body></html>", None))
+        self.label_44.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Pixel Size:</span></p></body></html>", None))
         self.pixelSizeLabel.setText("")
-        self.label_38.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-size:10pt; font-weight:600;\">Dwell Time:</span></p></body></html>", None))
+        self.label_38.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Dwell Time:</span></p></body></html>", None))
         self.dwellTimeLabel.setText("")
-        self.label_9.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-size:10pt; font-weight:600;\">Energy:</span></p></body></html>", None))
+        self.label_9.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Energy:</span></p></body></html>", None))
         self.imageEnergyLabel.setText("")
         self.experimentersLineEdit.setText("")
         self.label_32.setText(QCoreApplication.translate("MainWindow", u"Experimenters", None))
@@ -1446,27 +1455,27 @@ class Ui_MainWindow(object):
         self.label_31.setText(QCoreApplication.translate("MainWindow", u"Proposal", None))
         self.label_26.setText(QCoreApplication.translate("MainWindow", u"Comment", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.Experiment), QCoreApplication.translate("MainWindow", u"Experiment", None))
-        self.ndsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.ndsLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.label_34.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A0</span></p></body></html>", None))
         self.label_13.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Dispersive Slit</span></p></body></html>", None))
-        self.A0Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.dsLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.A0Label.setText(QCoreApplication.translate("MainWindow", u"None", None))
+        self.dsLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.label_14.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Non-Dispersive Slit</span></p></body></html>", None))
-        self.energyLabel_2.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.energyLabel_2.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.label_4.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Energy</span></p></body></html>", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.beamlineTab), QCoreApplication.translate("MainWindow", u"Beamline", None))
-        self.label_12.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">M101 Pitch</span></p></body></html>", None))
-        self.label_17.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Harmonic</span></p></body></html>", None))
-        self.label_18.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">EPU Offset</span></p></body></html>", None))
-        self.label_16.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Feedback Offset</span></p></body></html>", None))
-        self.label_15.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Polarization</span></p></body></html>", None))
-        self.epuLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.fbkLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.m101Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
-        self.polLabel.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.label_12.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">M101 Pitch</span></p></body></html>", None))
+        self.label_17.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Harmonic</span></p></body></html>", None))
+        self.label_18.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">EPU Offset</span></p></body></html>", None))
+        self.label_16.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Feedback Offset</span></p></body></html>", None))
+        self.label_15.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Polarization</span></p></body></html>", None))
+        self.epuLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
+        self.fbkLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
+        self.m101Label.setText(QCoreApplication.translate("MainWindow", u"None", None))
+        self.polLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.epuTab), QCoreApplication.translate("MainWindow", u"EPU", None))
         self.label_35.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A1</span></p></body></html>", None))
-        self.A1Label.setText(QCoreApplication.translate("MainWindow", u"TextLabel", None))
+        self.A1Label.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.label_41.setText(QCoreApplication.translate("MainWindow", u"Server IP", None))
         self.serverAddressLabel.setText(QCoreApplication.translate("MainWindow", u"127.0.0.1", None))
         self.serverConnectButton.setText(QCoreApplication.translate("MainWindow", u"Connect", None))

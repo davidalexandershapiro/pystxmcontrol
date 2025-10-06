@@ -62,6 +62,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.xLineRange = 70.
         self.yLineRange = 0.
         self.ui.linePointsEdit.setText('50')
+        self.imageScale = 1,1
+        self.imageCenter = 0,0
 
         self.ui.scanRegSpinbox.valueChanged.connect(self.updateScanRegDef)
         self.ui.energyRegSpinbox.valueChanged.connect(self.updateEnergyRegDef)
@@ -145,7 +147,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         #self.ui.scan_angle.valueChanged.connect(self.updateDial)
 
         self.tiled_scan = False
-        self.maxVelocity = 0.2
+        self.maxVelocity = 1.0
         self.velocity = 0.0
         self.imageScanTypes = ["ptychographyGrid", "rasterLine", "continuousLine",'continuousSpiral','point']
         self.currentDataDir = "\home"
@@ -517,6 +519,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if "Image" in self.currentImageType or self.currentImageType == "Double Motor":
             x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
             y = (np.round(scenePos.y(), 3) * self.imageScale[1]) + self.yCenter - self.yRange / 2.
+            # x = (np.round(pos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
+            # y = (np.round(pos.y(), 3) * self.imageScale[1]) + self.yCenter - self.yRange / 2.
             xUnits = " um"
             yUnits = " um"
         elif "Focus" in self.currentImageType:
@@ -999,6 +1003,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if self.ui.showRangeFinder.isChecked():
             if "Image" in self.scanType:
                 self.ui.mainImage.addItem(self.rangeROI)
+        self.setScanParams()
 
     def deactivateGUI(self):
         self.ui.compositeImageCheckbox.setEnabled(False)
@@ -1303,6 +1308,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 velocityList.append(self.scan["scan_regions"][region]["xStep"] / self.scan["energy_regions"]["EnergyRegion1"]["dwell"])
             self.velocity = max(velocityList)
             self.ui.scanVelocity.setText(str(np.round(self.velocity,2))+" mm/s")
+            if self.velocity > self.maxVelocity:
+                self.ui.scanVelocity.setStyleSheet(self._movingStyle)
+            else:
+                self.ui.scanVelocity.setStyleSheet(self._staticStyle)
         except:
             pass
 
@@ -1348,12 +1357,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 else:
                     if not self.ui.tiledCheckbox.isChecked():
                         if not self.client.main_config["geometry"]["enable_coarse_only"]:
-                            return "Scan range exceeds the max range"
+                            return f"The X scan range of {xRange} exceeds the max range of {xMaxRange}.  Please try a tiled scan."
                         else:
                             self.scan["coarse_only"] = True
                     else:
                         if not self.client.main_config["geometry"]["enable_tiled_scan"]:
-                            return f"A scan range of {yRange} exceeds the max range of {yMaxRange}"
+                            return f"The X scan range of {xRange} exceeds the max range of {xMaxRange}"
                         else:
                             self.tiled_scan = True
                             self.scan["tiled"] = True
@@ -1362,11 +1371,17 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     return "Tiled scans and multi-region scans are incompatible.  Reduce the size of region %s" %regStr.split("Region")[1]
                 #this should force a single region scan since it will be decomposed into several regions
                 else:
-                    if not self.client.main_config["geometry"]["enable_tiled_scan"]:
-                        return f"A scan range of {yRange} exceeds the max range of {yMaxRange}"
+                    if not self.ui.tiledCheckbox.isChecked():
+                        if not self.client.main_config["geometry"]["enable_coarse_only"]:
+                            return f"The X scan range of {yRange} exceeds the max range of {yMaxRange}.  Please try a tiled scan."
+                        else:
+                            self.scan["coarse_only"] = True
                     else:
-                        self.tiled_scan = True
-                        self.scan["tiled"] = True
+                        if not self.client.main_config["geometry"]["enable_tiled_scan"]:
+                            return f"The Y scan range of {yRange} exceeds the max range of {yMaxRange}"
+                        else:
+                            self.tiled_scan = True
+                            self.scan["tiled"] = True
         return
 
     def warningPopup(self,message):
@@ -1460,18 +1475,19 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pass
         channel = self.ui.channelSelect.currentText()
         if self.ui.plotType.currentText() == "Monitor":
-            if self.monitorData[channel]["meta"]["type"] == "point":
+            if self.monitorData[channel]["meta"]["type"] == "spectrum":
+                self.currentPlot = self.ui.mainPlot.plot(self.monitorData[channel]["meta"]["x"],np.squeeze(self.monitorData[channel]["data"]), \
+                pen = pg.mkPen('w', width = 1, style = QtCore.Qt.DotLine), symbol='o',symbolPen = 'g', symbolSize=3,\
+                                                        symbolBrush=(0,255,0))
+                self.ui.mainPlot.setLabel("left", channel)
+                self.ui.mainPlot.setLabel("bottom", self.monitorData[channel]["meta"]["x label"])
+            else:
+            #if self.monitorData[channel]["meta"]["type"] == "point":
                 self.currentPlot = self.ui.mainPlot.plot(np.array(self.monitorData[channel]["data"]), \
                 pen = pg.mkPen('w', width = 1, style = QtCore.Qt.DotLine), symbol='o',symbolPen = 'g', symbolSize=3,\
                                                         symbolBrush=(0,255,0))
                 self.ui.mainPlot.setLabel("left", channel)
                 self.ui.mainPlot.setLabel("bottom", "")
-            elif self.monitorData[channel]["meta"]["type"] == "spectrum":
-                self.currentPlot = self.ui.mainPlot.plot(np.array(self.monitorData[channel]["meta"]["x"]),np.array(self.monitorData[channel]["data"]), \
-                pen = pg.mkPen('w', width = 1, style = QtCore.Qt.DotLine), symbol='o',symbolPen = 'g', symbolSize=3,\
-                                                        symbolBrush=(0,255,0))
-                self.ui.mainPlot.setLabel("left", channel)
-                self.ui.mainPlot.setLabel("bottom", self.monitorData[channel]["meta"]["x label"])
             self.ui.daqCurrentValue.setText(str(self.monitorData[self.client.daqConfig["default"]["name"]]["data"][-1]*10.))
         elif self.ui.plotType.currentText() == "Motor Scan":
             self.currentPlot = self.ui.mainPlot.plot(np.array(self.singleMotorScanXData),np.array(self.singleMotorScanYData[channel]), \
@@ -1480,6 +1496,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.mainPlot.setLabel("left", channel)
         
     def setChannel(self):
+        xScale, yScale = 1., 1.
         if self.ui.channelSelect.currentText() == "CCD":
             xScale, yScale = 1., 1.
             self.hideROIs()
@@ -1573,6 +1590,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.currentEnergyIndex = message["energyIndex"]
             self.currentScanRegionIndex = scanRegNumber
             self.image = message["image"]["default"]
+
+            # xCenters,yCenters = [],[]
+            # for region in self.scan["scan_regions"].keys():
+            #     xCenters.append(self.scan["scan_regions"][region]["xCenter"])
+            #     yCenters.append(self.scan["scan_regions"][region]["xCenter"])
+            # self.xCenter = (max(xCenters)+min(xCenters))/2.
+            # self.yCenter = (max(yCenters)+min(yCenters))/2.
 
             self.xCenter = self.scan["scan_regions"][message["scanRegion"]]["xCenter"]
             self.yCenter = -self.scan["scan_regions"][message["scanRegion"]]["yCenter"]
@@ -1715,9 +1739,16 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.monitorData[channel]["data"].append(message["rawData"][daq]["data"][0])
                     if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
                         self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]
+                elif daq == "CCD":
+                    data = message["rawData"][daq]["data"] 
+                    data = ((data > 10.) * data).sum()
+                    self.monitorData[channel]["data"].append(data)
+                    if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
+                        self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]                   
                 else:
                     self.monitorData[channel]["data"] = message["rawData"][daq]["data"]
                 self.monitorData[channel]["meta"] = message["rawData"][daq]["meta"]
+
             self.updatePlot(message)
         try:
             self.updateImageFromCCD(message["rawData"]["CCD"]["data"])
@@ -2311,7 +2342,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setSingleEnergy()
         self.activateGUI()
         if not self.client.main_config["geometry"]["enable_coarse_only"]:
-            self.ui.tiledCheckbox.setChecked(self.client.main_config["geometry"]["enable_tiled_scan"])
+            #self.ui.tiledCheckbox.setChecked(self.client.main_config["geometry"]["enable_tiled_scan"])
             self.ui.tiledCheckbox.setEnabled(False)
         elif not self.client.main_config["geometry"]["enable_tiled_scan"]:
             self.ui.tiledCheckbox.setChecked(False)
@@ -2369,6 +2400,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         scanType = self.ui.scanType.currentText()
         self.ui.motors2CursorButton.setEnabled(False)
         self.ui.setCursor2ZeroButton.setEnabled(False)
+        self.ui.tiledCheckbox.setEnabled(False)
         if self.horizontalLine is not None:
             self.ui.mainImage.removeItem(self.horizontalLine)
         if self.verticalLine is not None:
@@ -2475,6 +2507,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.multiFrameCheckbox.setEnabled(True)
                 self.ui.defocusCheckbox.setEnabled(True)
             else:
+                self.ui.tiledCheckbox.setEnabled(True)
                 self.ui.doubleExposureCheckbox.setCheckState(QtCore.Qt.Unchecked)
                 self.ui.doubleExposureCheckbox.setEnabled(False)
                 self.ui.multiFrameCheckbox.setCheckState(QtCore.Qt.Unchecked)

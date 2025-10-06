@@ -361,9 +361,9 @@ class dataHandler:
         xStep = scan["scan_regions"]["Region1"]["xStep"]
         yStep = scan["scan_regions"]["Region1"]["yStep"]
         nxblocks, xcoarse, x_fine_start, x_fine_stop = \
-            self.controller.motors[scan["x"]]["motor"].decompose_range(xStart,xStop)
+            self.controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart,xStop)
         nyblocks, ycoarse, y_fine_start, y_fine_stop = \
-            self.controller.motors[scan["y"]]["motor"].decompose_range(yStart,yStop)
+            self.controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart,yStop)
         nblocks = nxblocks * nyblocks
 
         xcoarse, ycoarse = np.meshgrid(xcoarse, ycoarse)
@@ -482,7 +482,6 @@ class dataHandler:
         self.ccd_pub_socket.send_string(json.dumps(info))
 
     async def sendScanData(self, event):
-        ptychography_streaming = self.controller.main_config["ptychography"]["streaming"]
         t0 = time.time()
         pointData = 0.
         event.set() #asyncio.Event from the controller to synchronize with the scan routine
@@ -503,7 +502,7 @@ class dataHandler:
                 scanInfo["image"] = {} #this is the image that goes to the gui
                 if scanInfo["mode"] == "ptychographyGrid":
                     self.ptychodata.addFrame(scanInfo["rawData"]["CCD"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
-                    if ptychography_streaming:
+                    if self.controller.main_config["ptychography"]["streaming"]:
                         self.zmq_send({'event':'frame','data':scanInfo})
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:
@@ -560,7 +559,7 @@ class dataHandler:
 
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
-        print(f"Acquisition time: {t1-t0}")
+        #print(f"[Get Point] Acquisition time: {t1-t0}")
         return True
 
     def read_daq(self,daq):
@@ -571,7 +570,9 @@ class dataHandler:
         for daq in scanInfo["daq list"]:
             if self.controller.daqConfig[daq]["record"]:
                 daq_tasks.append(self.daq[daq].getLine())
+        t0 = time.time()
         await asyncio.gather(*daq_tasks)
+        t1 = time.time()
         for daq in scanInfo["daq list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
         #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
@@ -582,6 +583,7 @@ class dataHandler:
         #         print('mismatched arrays!')
         #         return False
         await self.dataQueue.put(deepcopy(scanInfo))
+        #print(f"[Get Line] Acquisition time: {t1-t0}")
         return True
         
     def updateDwells(self, scanInfo):
