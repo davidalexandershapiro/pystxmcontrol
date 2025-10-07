@@ -2,6 +2,8 @@ from pystxmcontrol.controller.hardwareController import hardwareController
 import serial
 from threading import Lock
 from pipython import GCSDevice, pitools
+import logging
+logging.getLogger('pipython').setLevel(logging.WARNING)
 
 __signature__ = 0x986c0f898592ce476e1c88820b09bf94
 CONTROLLERNAME = 'E-712'  # 'C-884' will also work

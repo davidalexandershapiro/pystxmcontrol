@@ -6,7 +6,7 @@ import time
 
 class xspress3(daq):
 
-    def __init__(self, address = 'XSP3_4Chan',simulation = False):
+    def __init__(self, address = 'XSP3_2Chan',simulation = False):
 
         self.address = address
         self.simulation = simulation
@@ -20,7 +20,7 @@ class xspress3(daq):
         #Default is 4096 bins, 10 eV per bin.
         self.nbins = 4096
         self._bin_ev_delta = 10.0
-        self._bottom_bin = 250.0 #this is just a place holder
+        self._bottom_bin = 0.0 #this is just a place holder
         self.energies = np.linspace(self._bottom_bin, self._bottom_bin + self.nbins * self._bin_ev_delta, self.nbins)
         self.meta = {"ndim": 1, "x": self.energies, "y": np.zeros_like(self.energies), "type": "spectrum", "name": "XSPRESS3", "x label": "Energy"}
 
@@ -40,16 +40,18 @@ class xspress3(daq):
         if not self.simulation:
             # Assign dwell in seconds. Only matters if trigger is bus.
             caput(self.address+self.det_prefix+'AcquireTime', dwell/1000)
+            caput(self.address+self.det_prefix+'NumImages',10000)
+            caput(self.address+self.det_prefix+'Acquire', 1)
             # Assign total number of images as count*samples
-            caput(self.address+self.det_prefix+'NumImages',count*samples)
+            #caput(self.address+self.det_prefix+'NumImages',count*samples)
             # Assign the trigger state: BUS is internal. EXT is external (probably not correct there is another option)
-            if trigger == 'BUS':
-                caput(self.address+self.det_prefix+'TriggerMode', 1) #Internal trigger
-            elif trigger == 'EXT':
-                caput(self.address+self.det_prefix+'TriggerMode', 3) #External trigger
+            #if trigger == 'BUS':
+            #    caput(self.address+self.det_prefix+'TriggerMode', 1) #Internal trigger
+            #elif trigger == 'EXT':
+            #    caput(self.address+self.det_prefix+'TriggerMode', 3) #External trigger
                 #Note: This trigger expects it to stay high for the duration of the measurement then goes low when stopped.
                 #This may be an output of the keysight that we can hook into.
-
+            pass
         #Not using output there yet but keeping it so the arguments are the same.
 
     def getPoint(self):
@@ -63,20 +65,25 @@ class xspress3(daq):
             self.energies = np.linspace(500,1000,self.nbins)
             return (self.energies,data)
         else:
+            #caput(self.address+self.det_prefix+'NumImages',1)
             #Get old configuration
-            oldTrigger = caget(self.address+self.det_prefix+'TriggerMode_RBV')
+            #oldTrigger = caget(self.address+self.det_prefix+'TriggerMode_RBV')
             #Configure to take a point
             #There may be a better way to do this by using the acquire time.
             #Will have to consider dead time.
-            caput(self.address+self.det_prefix+'TriggerMode', 2)
-            caput(self.address+self.det_prefix+'Acquire', 1)
-            time.sleep(self.dwell/1000)
-            caput(self.address+self.det_prefix+'Acquire',0)
+            #caput(self.address+self.det_prefix+'Acquire', 1)
+            #status = True
+            #while status:
+            #    array_counter = caget(self.address+self.det_prefix+'ArrayCounter_RBV')
+            #    status = not bool(array_counter)
+            #    print(array_counter)
+            #    time.sleep(self.dwell/1000.)
+            #caput(self.address+self.det_prefix+'Acquire',0)
             #How to read????
-            data = caget(self.addres+self.MCA_prefix+'ArrayData')
+            data = caget(self.address+self.MCA_prefix+'ArrayData')
             #set back to old trigger mode
-            caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
-            return(data)
+            #caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
+            return(self.energies,data)
 
     def getLine(self):
         if self.simulation:
