@@ -1,14 +1,17 @@
 import time
+import asyncio
 
-def osa_focus_scan(scan, dataHandler, controller, queue):
+async def osa_focus_scan(scan, dataHandler, controller, queue):
     """
     This is a point mode focus line scan where the line is defined by OSAX and OSAY and the focus axis is ZonePlateZ.
     It is done with the OSA in focus so the Z positions are shifted negative by A0
     :param scan:
     :return:
     """
+
+    await scan["synch_event"].wait()
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
-    energies = dataHandler.data.energies
+    energies = dataHandler.data.energies["default"]
     scanInfo = {"mode": "point"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
@@ -21,6 +24,17 @@ def osa_focus_scan(scan, dataHandler, controller, queue):
     scanInfo["energyIndex"] = 0
     scanInfo["energy"] = energies[energyIndex]
     scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
+    scanInfo["rawData"] = {}
+    for daq in controller.daq.keys():
+        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
+        else:
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
+        if controller.daq[daq].meta["oversampling_factor"] > 1:
+            scanInfo["rawData"][daq]["interpolate"] = True
+        else:
+            scanInfo["rawData"][daq]["interpolate"] = False
 
     #move the zone plate to be focused on the OSA
     A0 = controller.motors["Energy"]["motor"].config["A0"]
@@ -45,7 +59,8 @@ def osa_focus_scan(scan, dataHandler, controller, queue):
     scanInfo["yStart"] = yStart
     scanInfo["yCenter"] = yStart
     scanInfo["yRange"] = 0
-    controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
+    #controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
+    controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = 1, trigger = "BUS")
 
     #Since this is a line scan, we don't want to loop over all X-Y positions, but rather just one move each.
     for i in range(len(z)):
@@ -64,12 +79,12 @@ def osa_focus_scan(scan, dataHandler, controller, queue):
             scanInfo["index"] = i * len(z) + j
             if queue.empty():
                 controller.daq["default"].autoGateOpen(shutter=True)
-                dataHandler.getPoint(scanInfo)
+                await dataHandler.getPoint(scanInfo)
                 controller.daq["default"].autoGateClosed()
             else:
                 queue.get()
                 dataHandler.data.saveRegion(0)
-                dataHandler.dataQueue.put('endOfScan')
+                await dataHandler.dataQueue.put('endOfScan')
                 return
     dataHandler.data.saveRegion(0)
-    dataHandler.dataQueue.put('endOfScan')
+    await dataHandler.dataQueue.put('endOfScan')

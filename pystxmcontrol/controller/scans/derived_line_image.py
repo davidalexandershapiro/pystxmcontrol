@@ -1,8 +1,9 @@
 from pystxmcontrol.controller.scans.scan_utils import *
 from numpy import ones
 from time import sleep
+import asyncio
 
-def derived_line_image(scan, dataHandler, controller, queue):
+async def derived_line_image(scan, dataHandler, controller, queue):
     """
     Image scan in continuous flyscan mode.  Uses linear trajectory function on the controller
     What this driver does: it will move the coarse motors to the center of the scan range and then execute a fine scan
@@ -15,24 +16,34 @@ def derived_line_image(scan, dataHandler, controller, queue):
     :param scan:
     :return:
     """
-    energies = dataHandler.data.energies
+
+    await scan["synch_event"].wait()
+    energies = dataHandler.data.energies["default"]
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "continuousLine"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
-    scanInfo["oversampling_factor"] = scan["oversampling_factor"]
+    scanInfo["oversampling_factor"] = controller.daq["default"].meta["oversampling_factor"]
     scanInfo['totalSplit'] = None
-    scanInfo["n_energies"] = len(energies)
+
     energyIndex = 0
     nScanRegions = len(xPos)
     scanInfo["coarse_only"] = scan["coarse_only"]
     coarse_only = scan["coarse_only"] #this needs to be set properly if a coarse scan is possible
     scanInfo["include_return"] = controller.scanConfig["scans"][scan["scan_type"]]["include_return"]
     coarse_offset = 20
-    if scan["oversampling_factor"] > 1:
-        scanInfo["interpolate"] = True
-    else:
-        scanInfo["interpolate"] = False
+    scanInfo['daq list'] = scan['daq list']
+    scanInfo["rawData"] = {}
+    for daq in scanInfo["daq list"]:
+        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
+        else:
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
+        if controller.daq[daq].meta["oversampling_factor"] > 1:
+            scanInfo["rawData"][daq]["interpolate"] = True
+        else:
+            scanInfo["rawData"][daq]["interpolate"] = False
 
     for energy in energies:
         ##scanInfo is what gets passed with each data transmission
@@ -77,9 +88,9 @@ def derived_line_image(scan, dataHandler, controller, queue):
             #this function only moves the coarse motors if needed
             controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints * scan["oversampling_factor"]
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints #* scanInfo["oversampling_factor"]
             controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
-                                                                                    energyIndex] / scan[
+                                                                                    energyIndex] / scanInfo[
                                                                                     "oversampling_factor"]
             controller.motors[scan["x_motor"]]["motor"].lineMode = "continuous"
 
@@ -111,9 +122,9 @@ def derived_line_image(scan, dataHandler, controller, queue):
             #numMotorPoints should be the total number of motor position measurements expected
             #numDAQPoints should be equal to xPoints * oversampling
             numLineMotorPoints = controller.motors[scan["x_motor"]]["motor"].npositions #this configures the DAQ for one line
-            numLineDAQPoints = controller.motors[scan["x_motor"]]["motor"].npositions * scan["oversampling_factor"]
+            numLineDAQPoints = controller.motors[scan["x_motor"]]["motor"].npositions * scanInfo["oversampling_factor"]
             scanInfo['numMotorPoints'] = numLineMotorPoints * yPoints #total number of motor points configures the full data structrure
-            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
+            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scanInfo["oversampling_factor"]
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
@@ -144,18 +155,18 @@ def derived_line_image(scan, dataHandler, controller, queue):
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions
-                scanInfo["index"] = i * numLineDAQPoints
+                scanInfo["index"] = i * numLineMotorPoints
                 scanInfo["lineIndex"] = i
                 scanInfo["zIndex"] = 0 #need to pass a zIndex to the dataHandler
                 ##need to also be able to request measured positions
                 scanInfo["xVal"], scanInfo["yVal"] = x, y[i] * ones(len(x))
                 if queue.empty():
-                    if not doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
-                        return terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
+                    if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+                        return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
                 else:
-                    queue.get()
+                    await queue.get()
                     dataHandler.data.saveRegion(j)
-                    return terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan aborted.")
-            dataHandler.dataQueue.put('endOfRegion') #this forces a saveRegion() in dataHandler
+                    return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan aborted.")
+            await dataHandler.dataQueue.put('endOfRegion') #this forces a saveRegion() in dataHandler
         energyIndex += 1
-    terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan completed.")
+    await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan completed.")

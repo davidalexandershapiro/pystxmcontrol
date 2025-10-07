@@ -2,8 +2,9 @@ from pystxmcontrol.controller.scans.scan_utils import *
 from pystxmcontrol.controller.spiral import spiralcreator
 from numpy import ones
 from time import sleep
+import asyncio
 
-def derived_spiral_image(scan, dataHandler, controller, queue):
+async def derived_spiral_image(scan, dataHandler, controller, queue):
     """
     Image scan in continuous flyscan mode.  Uses linear trajectory function on the controller
     What this driver does: it will move the coarse motors to the center of the scan range and then execute a fine scan
@@ -16,17 +17,28 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
     :param scan:
     :return:
     """
-    energies = dataHandler.data.energies
+    await scan["synch_event"].wait()
+    energies = dataHandler.data.energies["default"]
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "continuousSpiral"}
     scanInfo["scan"] = scan
-    scanInfo["type"] = scan["type"]
+    scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo['totalSplit'] = None
     scanInfo['multiTrigger'] = True
     energyIndex = 0
     nScanRegions = len(xPos)
-    coarseOnly = False #this needs to be set properly if a coarse scan is possible
+    coarse_only = False #this needs to be set properly if a coarse scan is possible
+    scanInfo['daq list'] = scan['daq list']
+    scanInfo["rawData"] = {}
+    for daq in scanInfo["daq list"]:
+        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
+        else:
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
+        scanInfo["rawData"][daq]["interpolate"] = True
+
     if "outerLoop" in scan.keys():
         loopMotorPos = getLoopMotorPositions(scan)
     for energy in energies:
@@ -35,9 +47,9 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
         if len(energies) > 1:
-            controller.moveMotor(scan["energy"], energy)
+            controller.moveMotor(scan["energy_motor"], energy)
         else:
-            if scanInfo['scan']['refocus']:
+            if scanInfo['scan']['autofocus']:
                 controller.moveMotor("ZonePlateZ",
                                           controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
 
@@ -66,9 +78,9 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
             scanInfo['yVal'] = y
             waitTime = 0.005 + xPoints * 0.0001  # 0.005 + xRange * 0.02
             nxblocks, xcoarse, xStart_fine, xStop_fine = \
-                controller.motors[scan["x"]]["motor"].decompose_range(xStart, xStop)
+                controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
-                controller.motors[scan["y"]]["motor"].decompose_range(yStart, yStop)
+                controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
             scanInfo["offset"] = xcoarse,ycoarse
             scanInfo["xFineCenter"] = (xStart_fine + xStop_fine) / 2.
             scanInfo["yFineCenter"] = (yStart_fine + yStop_fine) / 2.
@@ -78,14 +90,14 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
             #this is done because we have to ensure it is the coarse motor that moves
             #but, first check for the correct coarseXY coordinates, it may not be needed if requested scan is within fine range
             #this function only moves the coarse motors if needed
-            controller.motors[scan["x"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
-            controller.motors[scan["y"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
+            controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
+            controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
 
-            controller.motors[scan["x"]]["motor"].trajectory_pixel_count = xPoints * scan["oversampling_factor"]
-            controller.motors[scan["x"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints #* scan["oversampling_factor"]
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
                                                                                     energyIndex] / scan[
                                                                                     "oversampling_factor"]
-            controller.motors[scan["x"]]["motor"].lineMode = "arbitrary"
+            controller.motors[scan["x_motor"]]["motor"].lineMode = "arbitrary"
 
             # The spiral scan makes a circular spiral. We need to scale it to get an oval if the y and x range are different
             radius = max(xRange, yRange) / 2.
@@ -222,11 +234,12 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
                 np.floor((actMotorDwell - dwellPad) / DAQsamples / DAQTimeResolution)) * DAQTimeResolution
 
             #print('Configuring DAQ: {} ms dwell, {} count, {} samples, "EXT" trigger'.format(actDAQDwell,DAQcount,DAQsamples))
-            controller.daq["default"].config(actDAQDwell, count=DAQcount, samples=DAQsamples, trigger="EXT")
+            # controller.daq["default"].config(actDAQDwell, count=DAQcount, samples=DAQsamples, trigger="EXT")
+            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = "EXT")
 
             # Move to first position
-            controller.moveMotor(scan["x"], xcoarse + scanInfo['xFineCenter'])
-            controller.moveMotor(scan["y"], ycoarse + scanInfo['yFineCenter'])
+            controller.moveMotor(scan["x_motor"], xcoarse + scanInfo['xFineCenter'])
+            controller.moveMotor(scan["y_motor"], ycoarse + scanInfo['yFineCenter'])
             sleep(0.2)
 
             # Fix raw data sizes in writeNX (only first energy)
@@ -242,21 +255,23 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
                 # dataHandler.data.updateArrays(j, params)
 
             # MCL "position" trigger does not need a position. I am unsure whether this is the pixel triggering mode.
-            controller.motors[scan["x"]]["motor"].axes["axis1"].controller.setPositionTrigger(pos = 0, axis = 1, mode = 'on')
+            controller.motors[scan["x_motor"]]["motor"].axes["axis1"].controller.setPositionTrigger(pos = 0, axis = 1, mode = 'on')
 
             for i in range(len(xList)):
 
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions
-                scanInfo["index"] = i  # *scanInfo['nPoints']
+                scanInfo["index"] = i * numTrajDAQPoints #the data point index
+                scanInfo["position_index"] = i * xList[i].size #the position index
+                scanInfo["trajnum"] = i #the trajectory index
 
                 # Do flyscan line?
                 if queue.empty():
                     while controller.pause:
                         if not (queue.empty()):
                             queue.get()
-                            dataHandler.dataQueue.put('endOfScan')
+                            await dataHandler.dataQueue.put('endOfScan')
                             print("Terminating grid scan")
                             return False
                         sleep(0.1)
@@ -265,25 +280,25 @@ def derived_spiral_image(scan, dataHandler, controller, queue):
                     # Set up motor trajectory
                     xMotorPos = xList[i]
                     yMotorPos = yList[i]
-                    controller.motors[scan["x"]]["motor"].trajectory_pixel_count = len(xMotorPos)
-                    controller.motors[scan["x"]]["motor"].trajectory_pixel_dwell = actMotorDwell
-                    controller.motors[scan["x"]]["motor"].lineMode = "arbitrary"
-                    controller.motors[scan["x"]]["motor"].trajectory_x_positions = xMotorPos
-                    controller.motors[scan["x"]]["motor"].trajectory_y_positions = yMotorPos
-                    controller.motors[scan["x"]]["motor"].update_trajectory()
+                    controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = len(xMotorPos)
+                    controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = actMotorDwell
+                    controller.motors[scan["x_motor"]]["motor"].lineMode = "arbitrary"
+                    controller.motors[scan["x_motor"]]["motor"].trajectory_x_positions = xMotorPos
+                    controller.motors[scan["x_motor"]]["motor"].trajectory_y_positions = yMotorPos
+                    controller.motors[scan["x_motor"]]["motor"].update_trajectory()
                     #print('Configuring Motor Controller: {} dwell, {} points'.format(actMotorDwell,len(xMotorPos)))
 
                     # If we ever have a position trigger, we will need this.
-                    # trigger_axis = controller.motors[scan["x"]]["motor"].trigger_axis
-                    # trigger_position = controller.motors[scan["x"]]["motor"].trajectory_trigger[trigger_axis-1]
-                    # controller.motors[scan["x"]]["motor"].setPositionTriggerOn(pos = trigger_position)
+                    # trigger_axis = controller.motors[scan["x_motor"]]["motor"].trigger_axis
+                    # trigger_position = controller.motors[scan["x_motor"]]["motor"].trajectory_trigger[trigger_axis-1]
+                    # controller.motors[scan["x_motor"]]["motor"].setPositionTriggerOn(pos = trigger_position)
 
-                    if not doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
-                        return terminateFlyscan(controller, dataHandler, scan, "x", "Data acquisition failed for flyscan line!")
+                    if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+                        return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
                 else:
                     queue.get()
                     dataHandler.data.saveRegion(j, nt=totalSplit)
-                    return terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan aborted.")
-            dataHandler.dataQueue.put('endOfRegion')
+                    return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan aborted.")
+            await dataHandler.dataQueue.put('endOfRegion')
         energyIndex += 1
-    terminateFlyscan(controller, dataHandler, scan, "x", "Flyscan completed.")
+    await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Flyscan completed.")

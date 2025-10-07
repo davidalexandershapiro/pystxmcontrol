@@ -27,6 +27,9 @@ class E712Controller(hardwareController):
 
     def getStatus(self, axis):
         return False
+    
+    def setVelocity(self, axis, velocity):
+        self.pidevice.VEL(axis,velocity)
 
     def home(self, axis):
         pass

@@ -133,7 +133,7 @@ class nptMotor(motor):
                 self.position = pos
                 time.sleep(self.waitTime / 1000.)
         else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
+            print("[nPoint] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
 
     def moveLine(self, direction = "forward"):
         #convert milliseconds to seconds for the controller call

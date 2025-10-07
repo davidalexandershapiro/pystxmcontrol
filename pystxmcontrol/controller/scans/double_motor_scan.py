@@ -1,20 +1,35 @@
 import time
+import asyncio
 
-def double_motor_scan(scan, dataHandler, controller, queue):
+async def double_motor_scan(scan, dataHandler, controller, queue):
     """
     Double motor point scan
     :param scan:
     :return:
     """
+
+    await scan["synch_event"].wait()
     regionNum = 0
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
-    energies = dataHandler.data.energies
+    energies = dataHandler.data.energies["default"]
     scanInfo = {"mode": "point"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
+    scanInfo['daq list'] = scan['daq list']
+    scanInfo["rawData"] = {}
+    for daq in controller.daq.keys():
+        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
+        else:
+            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
+        if controller.daq[daq].meta["oversampling_factor"] > 1:
+            scanInfo["rawData"][daq]["interpolate"] = True
+        else:
+            scanInfo["rawData"][daq]["interpolate"] = False
 
     if not scanInfo['scan']['autofocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
@@ -24,7 +39,7 @@ def double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
         if len(energies) > 1:
-            controller.moveMotor(scan["energy"], energy)
+            controller.moveMotor(scan["energy_motor"], energy)
             if not scanInfo['scan']['autofocus']:
                 if energy == energies[0]:
                     scanInfo['refocus_offset'] = currentZonePlateZ - controller.motors['ZonePlateZ'][
@@ -55,7 +70,9 @@ def double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yStart"] = yStart
         scanInfo["yCenter"] = yStart
         scanInfo["yRange"] = 0
-        controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
+        # controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
+        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = 1, trigger = "BUS")
+
         for i in range(len(yPos[0])):
             controller.moveMotor(scan["y_motor"], yPos[0][i])
             #time.sleep(0.02)
@@ -67,16 +84,15 @@ def double_motor_scan(scan, dataHandler, controller, queue):
                 scanInfo["columnIndex"] = j
                 scanInfo["index"] = i * len(yPos[0]) + j
                 controller.moveMotor(scan["x_motor"], xPos[0][j])
-                #time.sleep(0.02)
                 if queue.empty():
                     controller.daq["default"].autoGateOpen(shutter=True)
-                    dataHandler.getPoint(scanInfo)
+                    await dataHandler.getPoint(scanInfo)
                     controller.daq["default"].autoGateClosed()
                 else:
                     queue.get()
                     dataHandler.data.saveRegion(0)
-                    dataHandler.dataQueue.put('endOfScan')
+                    await dataHandler.dataQueue.put('endOfScan')
                     return
         energyIndex += 1
     dataHandler.data.saveRegion(0)
-    dataHandler.dataQueue.put('endOfScan')
+    await dataHandler.dataQueue.put('endOfScan')

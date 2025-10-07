@@ -1,12 +1,12 @@
 import json, time, traceback
 import threading
-from queue import Queue
 from pystxmcontrol.drivers import *
 import os, sys
 from pystxmcontrol.controller.zmqFrameMonitor import zmqFrameMonitor
 from pystxmcontrol.drivers.derivedEnergy import derivedEnergy
 from pystxmcontrol.controller.dataHandler import dataHandler
 from pystxmcontrol.controller.scans import *
+import asyncio
 
 BASEPATH = sys.prefix
 
@@ -30,16 +30,23 @@ class controller:
         self.controllers = {}
         self.allMotorPositions = {}
         self.allMotorPositions["status"] = {}
-        self.scanQueue = Queue() ##for the Abort signal
+        self.scanQueue = None ##for the Abort signal - will be created lazily
         self.status = "Idle"
         self.dataSocket = None
         self.scanDef = None
         self.scanning = False
         self.pause = False
         self.autoZonePlate = True
+        self.lock = asyncio.Lock()
         self._logger = logger
         self.initialize()
         self.startMonitor()
+
+    def _ensure_scan_queue(self):
+        """Ensure scanQueue exists in the current event loop"""
+        if self.scanQueue is None:
+            self.scanQueue = asyncio.Queue()
+        return self.scanQueue
 
     def readConfig(self):
         """
@@ -53,7 +60,11 @@ class controller:
         self.motorConfig = json.loads(open(self.motorConfigFile).read())
         self.scanConfig = json.loads(open(self.scanConfigFile).read())
         self.main_config = json.loads(open(self.mainConfigFile).read())
-        self.daqConfig = json.loads(open(self.daqConfigFile).read())
+        self.daqConfigFromFile = json.loads(open(self.daqConfigFile).read())
+        self.daqConfig = {}
+        for daq in self.daqConfigFromFile.keys():
+            if self.daqConfigFromFile[daq]["record"]:
+                self.daqConfig[daq] = self.daqConfigFromFile[daq]
 
     def updateMotorConfig(self):
         for key in self.motorConfig.keys():
@@ -109,15 +120,17 @@ class controller:
 
         #get all initial motor positions
         self.getMotorPositions()
-        
-        ##get the list of daqs from the config and start them
         self.daq = {}
         for daq in self.daqConfig.keys():
-            simulation = self.daqConfig[daq]["simulation"]
-            self.daq[daq] = eval(self.daqConfig[daq]["driver"] + '(simulation = %s)' %simulation)
+            meta = self.daqConfig[daq]
+            simulation = meta["simulation"]
+            driver = meta["driver"]
+            address = meta["address"]
+            record = meta["record"]
+            self.daq[daq] = eval(f"{driver}(address = '{address}', simulation = {simulation})")
+            self.daq[daq].meta = meta
             self.daq[daq].start()
-        self.dataHandler = dataHandler(self, self._logger)
-        self.getMotorPositions()
+        self.dataHandler = dataHandler(self, self.lock, self._logger)
         self.monitorThread = threading.Thread(target=self.dataHandler.monitor, args=())
 
     def updateMotorStatus(self):
@@ -167,21 +180,36 @@ class controller:
     def getMotorConfig(self, motor):
         return self.motors[motor]["motor"].config
 
+    
+
     def startMonitor(self):
+        #the monitor is now a coroutine so that the queues can be asyncio.Queues.  Need a helper function to 
+        #run that in a thread
+        self._ensure_scan_queue()
         for daq in self.daq.keys():
             self.daq[daq].start()
             self.daq[daq].config(dwell = self.main_config["monitor"]["dwell"])
         self.dataHandler.monitorDaq = True
+        def run_monitor():
+            asyncio.run(self.dataHandler.monitor(self.scanQueue))
         if not self.monitorThread.is_alive():
-            self.monitorThread = threading.Thread(target = self.dataHandler.monitor, args = ())
+            self.monitorThread = threading.Thread(target = run_monitor, args = ())
             self.monitorThread.start()
-            self.scanQueue.queue.clear() #stopMonitor adds to the queue so that needs to be cleared
+        if self.scanQueue is not None:
+            while not self.scanQueue.empty():
+                try:
+                    self.scanQueue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break #stopMonitor adds to the queue so that needs to be cleared
 
     def stopMonitor(self):
-        self.scanQueue.put('end')
+        if self.scanQueue is not None:
+            self.scanQueue.put_nowait('end')
         self.monitorThread.join()
         for daq in self.daq.keys():
             self.daq[daq].stop()
+        self.scanQueue = None
+        self.dataHandler.dataQueue = None
 
     def getScanID(self, ptychography = False):
         self.currentScanID = self.dataHandler.getScanName(dir = self.main_config["server"]["data_dir"], \
@@ -189,38 +217,58 @@ class controller:
                                                       ptychography = ptychography)
         return self.currentScanID
 
-    def scan_helper(self, scan):
+    async def scan_helper(self, scan):
         self.scanning = True
         self.stopMonitor()
-        self.scanQueue.queue.clear()
-        self.daq["default"].start()
-        if scan["mode"] == "ptychographyGrid":
-            self.daq["ccd"].start()
+        self._ensure_scan_queue()
+        while not self.scanQueue.empty():
+            try:
+                self.scanQueue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        for daq in self.daq.keys():
+            self.daq[daq].start()
         self.scanDef = scan
-        self.dataHandler.startScanProcess(scan)
-        eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)")
-        self.dataHandler.stopScanProcess()
-        self.daq["default"].stop()
-        if scan["mode"] == "ptychographyGrid":
-            self.daq["ccd"].stop()
+        scan["synch_event"] = asyncio.Event()
+        scan_tasks = []
+        scan_tasks.append(self.dataHandler.startScanProcess(scan))
+        scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
+        await asyncio.gather(*scan_tasks)
+
+        #close the data file and send the zmq event to downstream processing
+        self.dataHandler.data.close()
+        self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(self.dataHandler.data.file_name)}})
+
+        #clean up and restart the monitor
+        for daq in self.daq.keys():
+            self.daq[daq].stop()
+        self.scanQueue = None
+        self.dataHandler.dataQueue = None
         self.startMonitor()
         self.scanning = False
 
     def scan(self, scan):
         scan["main_config"] = self.main_config
-        self.scanThread = threading.Thread(target=self.scan_helper, args=(scan,))
-        self.scanThread.start()
+        def run_scan():
+            asyncio.run(self.scan_helper(scan))
+        if not self.scanThread.is_alive():
+            self.scanThread = threading.Thread(target = run_scan, args = ())
+            self.scanThread.start()
+
 
     def end_scan(self):
-        self.scanQueue.put('end')
-        self.scanThread.join()
-        self.scanQueue.queue.clear()
+        if self.scanQueue is not None:
+            self.scanQueue.put_nowait('end')
         self.scanning = False
 
     def config_daqs(self, dwell, count, samples, trigger):
         for daq in self.daq.keys():
             if self.daqConfig[daq]["record"]:
-                self.daq[daq].config(dwell / self.daqConfig[daq]["oversampling_factor"], count = count, samples = samples, trigger = trigger)
+                try:
+                    dwell / self.daqConfig[daq]["oversampling_factor"]
+                except:
+                    pass
+                self.daq[daq].config(dwell, count = count, samples = samples, trigger = trigger)
 
     def read_daq(self, daq, dwell, shutter = True):
         try:

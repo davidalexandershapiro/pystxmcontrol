@@ -64,6 +64,7 @@ class aerotechController(hardwareController):
         # This reference is None if we are not connected. See connect() method for details.
         self.controller = None
         self.lock = Lock()
+        self._waittime = 1. #this is wait after move since "is_moving" seems to be inaccurate
 
     def _checkConnection(self):
         """
@@ -573,6 +574,7 @@ class aerotechController(hardwareController):
             # Get current position for timeout calculation
             current_pos = self.getPosition(motor)[1]
             move_delta = abs(target - current_pos)
+            self._waittime = move_delta #mm to seconds
             
             # Get current speed for timeout calculation
             speed_info = self.getAxisSpeed(motor)
@@ -601,6 +603,7 @@ class aerotechController(hardwareController):
                 if self.stopped:
                     self.moving = False
                     self.stopped = False
+                    time.sleep(self._waittime)
                     return [0, 'Move stopped']
                 
                 # Check if move is complete using status API
@@ -637,6 +640,7 @@ class aerotechController(hardwareController):
                     if not is_moving:
                         # print("breaking the loop - motion complete")
                         self.moving = False
+                        time.sleep(self._waittime)
                         return [0, 'Move completed']
                     
                     # Check timeout and abort if necessary

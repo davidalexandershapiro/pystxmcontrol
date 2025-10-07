@@ -25,9 +25,6 @@ class ccd_monitor(QtCore.QThread):
         self.simulation = simulation
         self.monitor = True
 
-    # def __del__(self):
-    #     self.wait()
-
     def run(self):
         if self.simulation:
             while self.monitor:
@@ -177,23 +174,47 @@ class stxm_client(QtCore.QThread):
         self.server_address = self.main_config["server"]["host"]
         self.command_port = self.main_config["server"]["command_port"]
         self.data_port = self.main_config["server"]["stxm_data_port"]
+        self.monitor_threads = []
+        self.context = zmq.Context()
 
-        context = zmq.Context()
-        self.command_sock = context.socket(zmq.REQ)
-        self.command_sock.connect("tcp://%s:%s" % (self.main_config["server"]["host"], self.main_config["server"]["command_port"]))
+        self.connect_to_server(self.server_address,self.command_port,self.data_port)
+        #self.start_monitors(self.server_address,self.data_port)
 
-        self.monitor = stxm_monitor(self.server_address, self.data_port)
+    def connect_to_server(self, address, command_port = None, data_port = None):
+        self.server_address = address
+        if command_port is not None:
+            self.command_port = command_port
+        if data_port is not None:
+            self.data_port = data_port
+        try:
+            self.command_sock = self.context.socket(zmq.REQ)
+            self.command_sock.connect("tcp://%s:%s" % (address, command_port))
+            self.get_config()
+            self.start_monitors(address,data_port)
+        except:
+            return False
+        else:
+            return True
+
+    def close_monitors(self):
+        #check whether the monitor is running and start if needed
+        for monitor in self.monitor_threads:
+            if monitor.isRunning():
+                monitor.monitor = False
+                monitor.wait()
+
+    def start_monitors(self, address, data_port):
+        self.close_monitors()
+        self.monitor = stxm_monitor(address, data_port)
         self.monitor.start()
-        self.get_config()
         self.monitor_threads = []
         self.monitor_threads.append(self.monitor)
-
-        try:
-            self.ccd = ccd_monitor(simulation = self.daqConfig["ccd"]["simulation"])
-            self.ccd.start()
-            self.monitor_threads.append(self.ccd)
-        except:
-            print("Cannot start CCD monitor")
+        # try:
+        #     self.ccd = ccd_monitor(simulation = self.daqConfig["ccd"]["simulation"])
+        #     self.ccd.start()
+        #     self.monitor_threads.append(self.ccd)
+        # except:
+        #     print("Cannot start CCD monitor")
         try:
             self.rpi = rpi_monitor(simulation = self.daqConfig["ptychography"]["simulation"])
             self.rpi.start()
@@ -217,9 +238,7 @@ class stxm_client(QtCore.QThread):
     def disconnect(self):
         message = {"command": "disconnect"}
         self.command_sock.send_pyobj(message)
-        for monitor in self.monitor_threads:
-            monitor.monitor = False
-            monitor.wait()
+        self.close_monitors()
         
     def send_message(self,message):
         with self.lock:
