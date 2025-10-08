@@ -2313,6 +2313,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.xMotorCombo.setCurrentIndex(self.ui.xMotorCombo.findText("SampleX"))
         self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText("SampleY"))
         self.compileScan()
+        print(self.scan)
         xMotor = self.scan["x_motor"]
         yMotor = self.scan["y_motor"]
         xMax = self.client.motorInfo[xMotor]["maxScanValue"]

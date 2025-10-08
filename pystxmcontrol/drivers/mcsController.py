@@ -7,7 +7,7 @@ import smaract.ctl as ctl
 
 class mcsController(hardwareController):
 
-    def __init__(self, address = '192.168.1.200', port = 18307, simulation = False):
+    def __init__(self, address = '192.168.1.200', port = None, simulation = False):
 
         # the smarAct ctl library does not take the IP address and just looks for all
         # devices on the network.  The port number here is the serial number of the desired

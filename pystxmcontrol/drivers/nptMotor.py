@@ -135,6 +135,17 @@ class nptMotor(motor):
         else:
             print("[nPoint] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
 
+    def moveTo2(self, pos = None):
+        if self.checkLimits(pos):
+            if not(self.simulation):
+                self.controller.moveTo2(axis = self._axis, pos = pos)
+                time.sleep(0.01) #piezo settling time of 10 ms
+            else:
+                self.position = pos
+                time.sleep(self.waitTime / 1000.)
+        else:
+            print("[nPoint] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
+
     def moveLine(self, direction = "forward"):
         #convert milliseconds to seconds for the controller call
         """

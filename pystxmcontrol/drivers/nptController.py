@@ -510,6 +510,17 @@ class nptController(hardwareController):
             trigger_position = int(self.signedIntToHex(trigger_position),16)
             self.writeToDev4B(self.getAddress(axis = axis)+0xC64, trigger_position) #write position offset
             self.writeToDev4B(self.getAddress(axis = axis)+0xC6C, 0) #write 0 after changing parameters
+
+    def moveTo2(self,axis,pos):
+        stop_pos = [0,0]
+        start_pos = [0,0]
+        stop_pos[axis-1] = pos
+        start_pos[axis-1] = self.getPos(axis)
+        velocity = 1.0
+        count = 1
+        dwell = 0.01 #(stop_pos[axis-1] - start_pos[axis-1])/velocity
+        self.setup_trajectory(axis,start_pos,stop_pos,dwell,count,pad=[0,0])
+        self.acquire_xy(axes=[axis])
             
     def setup_trajectory(self,trigger_axis, start_position, stop_position, \
         trajectory_pixel_dwell, trajectory_pixel_count, mode=None, pad=None, **kwargs):

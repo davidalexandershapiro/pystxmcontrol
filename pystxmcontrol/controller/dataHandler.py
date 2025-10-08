@@ -33,9 +33,10 @@ class dataHandler:
         self.pause = False
         self._logger = logger
         self._lock = lock
+        self._publish_zmq = self.controller.main_config["server"]["publish_zmq"]
         context = zmq.asyncio.Context()
 
-        if "CCD" in self.controller.daq.keys():
+        if "CCD" in self.controller.daq.keys() and self._publish_zmq:
             #publish ccd data to the preprocessor
             self.controller.daq["CCD"].config([10, 0], 0)
             self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
@@ -469,17 +470,20 @@ class dataHandler:
         return frame[frame > 1.].sum(),frame
 
     def zmq_start_event(self, scan, metadata=None):
-        self.ccd_pub_socket.send_pyobj({'event':'start','data':scan, 'metadata':metadata})
+        if self._publish_zmq:
+            self.ccd_pub_socket.send_pyobj({'event':'start','data':scan, 'metadata':metadata})
     
     def zmq_stop_event(self):
-        self.ccd_pub_socket.send_pyobj({'event':'stop','data':None})
+        if self._publish_zmq:
+            self.ccd_pub_socket.send_pyobj({'event':'stop','data':None})
     
     def zmq_send(self, info):
-        self.ccd_pub_socket.send_pyobj(info)
+        if self._publish_zmq:
+            self.ccd_pub_socket.send_pyobj(info)
 
     def zmq_send_string(self, info):
-        print(f"Sending as string: {info}")
-        self.ccd_pub_socket.send_string(json.dumps(info))
+        if self._publish_zmq:
+            self.ccd_pub_socket.send_string(json.dumps(info))
 
     async def sendScanData(self, event):
         t0 = time.time()
