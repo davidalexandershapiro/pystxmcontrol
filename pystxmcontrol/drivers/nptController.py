@@ -512,13 +512,22 @@ class nptController(hardwareController):
             self.writeToDev4B(self.getAddress(axis = axis)+0xC6C, 0) #write 0 after changing parameters
 
     def moveTo2(self,axis,pos):
+        """
+        This function is used to move the piezo to a given position.
+        It uses the trajectory generation feature of the nPoint controller to move the piezo.
+        :param axis: axis to move
+        :type axis: int
+        :param pos: position to move to
+        :type pos: float
+        """
         stop_pos = [0,0]
         start_pos = [0,0]
         stop_pos[axis-1] = pos
         start_pos[axis-1] = self.getPos(axis)
         velocity = 1.0
         count = 1
-        dwell = 0.01 #(stop_pos[axis-1] - start_pos[axis-1])/velocity
+        distance = abs(stop_pos[axis-1] - start_pos[axis-1])
+        dwell = distance/velocity
         self.setup_trajectory(axis,start_pos,stop_pos,dwell,count,pad=[0,0])
         self.acquire_xy(axes=[axis])
             
