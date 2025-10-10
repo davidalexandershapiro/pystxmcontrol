@@ -226,6 +226,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.singleMotorScanXData = []
         self.singleMotorScanYData = []
         self.consoleStr = ''
+        self.setWindowTitle(f"STXM Control: {self.client.main_config['server']['name']}")
 
     def changeServer(self):
         # address = self.ui.serverAddressEdit.text().split(':')
