@@ -54,6 +54,13 @@ class mcsMotor(motor):
         if not self.simulation:
             self.controller.stop(self._axis)
 
+    def setAxisParams(self, velocity):
+        print(f"MCS move velocity: {velocity} mm/s")
+        self.controller.set_velocity(self._axis,velocity)
+
+    def moveLine(self):
+        pass
+
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():
             self.logger = kwargs["logger"]

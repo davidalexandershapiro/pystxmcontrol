@@ -1146,7 +1146,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 zRange = 0
                 zPoints = 1
                 zStep = 0
-            elif (self.scanType == "Double Motor"):
+            elif (self.scanType == "Double Motor") or (self.scanType == "OSA Image"):
                 xCenter = float(region.ui.xCenter.text())
                 yCenter = float(region.ui.yCenter.text())
                 xRange = float(region.ui.xRange.text())
@@ -2313,7 +2313,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.xMotorCombo.setCurrentIndex(self.ui.xMotorCombo.findText("SampleX"))
         self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText("SampleY"))
         self.compileScan()
-        print(self.scan)
         xMotor = self.scan["x_motor"]
         yMotor = self.scan["y_motor"]
         xMax = self.client.motorInfo[xMotor]["maxScanValue"]
@@ -2485,7 +2484,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.mainImage.removeItem(self.rangeROI)
             self.updateLine()
             self.setGUIfromScan(self.last_scan[scanType])
-        elif "Image" in scanType:
+        elif "Image" in scanType and "OSA" not in scanType:
             for reg in self.scanRegList:
                 reg.setEnabled(True)
             self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(self.client.scanConfig["scans"]["Image"]["y_motor"]))
@@ -2574,4 +2573,31 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(y_motor))
             self.setGUIfromScan(self.last_scan[scanType])
             self.setEnergyScan()
+        elif scanType == "OSA Image":
+            self.setFocusWidgets(False)
+            self.setLineWidgets(False)
+            self.ui.roiCheckbox.setEnabled(True)
+            self.ui.defocusCheckbox.setEnabled(False)
+            while len(self.scanRegList) > 1:
+                self.ui.regionDefWidget.removeWidget(self.scanRegList[-1].region)
+                self.scanRegList[-1].region.deleteLater()
+                self.scanRegList[-1] = None
+                del self.scanRegList[-1]
+                self.ui.mainImage.removeItem(self.roiList[-1])
+                del self.roiList[-1]
+                self.nRegion -= 1
+            self.ui.scanRegSpinbox.setValue(1)
+            self.setSingleEnergy()
+            self.ui.toggleSingleEnergy.setChecked(True)
+            self.ui.toggleSingleEnergy.setEnabled(False)
+            self.ui.energyRegSpinbox.setEnabled(False)
+            self.ui.scanRegSpinbox.setEnabled(False)
+            x_motor = self.client.scanConfig["scans"]["Double Motor"]["x_motor"]
+            y_motor = self.client.scanConfig["scans"]["Double Motor"]["y_motor"]
+            self.ui.xMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(x_motor))
+            self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(y_motor))
+            self.setGUIfromScan(self.last_scan[scanType])
+            self.setEnergyScan()
+            self.ui.xMotorCombo.setEnabled(False)
+            self.ui.yMotorCombo.setEnabled(False)
 
