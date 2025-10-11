@@ -21,6 +21,7 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
+    scanInfo["direction"] = "forward"
     scanInfo['daq list'] = scan['daq list']
     scanInfo["rawData"] = {}
     for daq in controller.daq.keys():
@@ -110,12 +111,19 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
                         return
             elif mode == "continuousLine":
                 scanInfo["index"] = i * len(yPos[0])
-                controller.moveMotor(scan["x_motor"],xStart)
+                if i % 2 == 0:
+                    scanInfo["direction"] = "forward"
+                    controller.moveMotor(scan["x_motor"],xStart)
+                    target = xStop
+                else:
+                    scanInfo["direction"] = "backward"
+                    controller.moveMotor(scan["x_motor"],xStop)
+                    target = xStart
                 if queue.empty():
                     controller.daq["default"].initLine()
                     controller.daq["default"].autoGateOpen()
                     controller.daq["default"].bus_trigger()
-                    controller.moveMotor(scan["x_motor"],xStop)
+                    controller.moveMotor(scan["x_motor"],target)
                     controller.daq["default"].autoGateClosed()
                     scanInfo["line_positions"] = [np.linspace(xStart,xStop,samples),np.ones(samples)*yPos[0][i]]
                     try: 

@@ -62,7 +62,8 @@ class keysight53230A(daq):
         self.gate.setStatus()
 
     def bus_trigger(self):
-        self.counter.busTrigger()
+        if not self.simulation:
+            self.counter.busTrigger()
 
     async def getLine(self):
         if self.simulation:

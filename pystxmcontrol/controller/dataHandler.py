@@ -603,7 +603,10 @@ class dataHandler:
         await asyncio.gather(*daq_tasks)
         t1 = time.time()
         for daq in scanInfo["daq list"]:
-            scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+            if scanInfo["direction"] == "backward":
+                    scanInfo["rawData"][daq]["data"] = self.daq[daq].data[::-1]
+            else:
+                scanInfo["rawData"][daq]["data"] = self.daq[daq].data
         #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
         #Until sendscandata is called, the raw data is stored in 'data'
         # if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):

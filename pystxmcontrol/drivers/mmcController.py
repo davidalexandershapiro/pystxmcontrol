@@ -20,3 +20,4 @@ class mmcController(hardwareController):
         if not(self.simulation):
             self.serialPort = serial.Serial(port=self.address, baudrate=38400,
                 bytesize=8, timeout=1, stopbits=serial.STOPBITS_ONE)
+            

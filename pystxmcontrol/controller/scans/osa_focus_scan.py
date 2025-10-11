@@ -21,6 +21,7 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
+    scanInfo["direction"] = "forward"
 
     ##scanInfo is what gets passed with each data transmission
     regionNum = 0

@@ -25,6 +25,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = controller.daq["default"].meta["oversampling_factor"]
     scanInfo['totalSplit'] = None
+    scanInfo["direction"] = "forward"
 
     energyIndex = 0
     nScanRegions = len(xPos)
@@ -131,7 +132,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 #this should be changed to global units and then have the driver convert
                 controller.motors[scan["x_motor"]]["motor"].trajectory_start = (xStart_fine, yStart_fine)
                 controller.motors[scan["x_motor"]]["motor"].trajectory_stop = (xStop_fine, yStart_fine)
-                print("Using return trajectory: {}".format(scanInfo["include_return"]))
                 controller.motors[scan["x_motor"]]["motor"].update_trajectory(include_return = scanInfo["include_return"])
             else:
                 start_position_x = xStart - coarse_offset

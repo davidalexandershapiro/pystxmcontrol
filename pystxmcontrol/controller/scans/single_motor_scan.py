@@ -16,6 +16,8 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["lineIndex"] = 0
     scanInfo["zIndex"] = 0
+    scanInfo["direction"] = "forward"
+    
     if len(energies) > 1:
         scanInfo["scanMotor"] = "Energy"
     else:
@@ -23,7 +25,7 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
     energyIndex = 0
     scanInfo['daq list'] = scan['daq list']
     scanInfo["rawData"] = {}
-    for daq in controller.daq.keys():
+    for daq in scanInfo["daq list"]:
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])

@@ -224,7 +224,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.compositeImageCheckbox.stateChanged.connect(self.updateCompositeImage)
         self._motorLock = False
         self.singleMotorScanXData = []
-        self.singleMotorScanYData = []
+        self.singleMotorScanYData = {}
         self.consoleStr = ''
         self.setWindowTitle(f"STXM Control: {self.client.main_config['server']['name']}")
         if not self.client.main_config["geometry"]["A0_calibrated"]:
@@ -287,6 +287,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.messageQueue.put(message)
             message = {"command": "moveMotor"}
             message["axis"] = self.scan["y_motor"]
+            #print(f"[motor2Cursor] cursoryY {self.cursorY}")
             message["pos"] = self.cursorY
             self.messageQueue.put(message)
 
@@ -817,8 +818,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
                 x = (scenePos.x() * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2. - self.xPixelSize / 2.
                 y = (scenePos.y() * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2. - self.yPixelSize / 2.
-                print(scenePos.x(),scenePos.y(),self.imageScale)
                 self.cursorX, self.cursorY = x,y
+                #print(f"[mouseClicked] cursoryY {self.cursorY}")
                 self.ui.motors2CursorButton.setEnabled(True)
                 if self.scan["scan_type"] == "Double Motor" or self.scan["scan_type"] == "OSA Image":
                     self.ui.setCursor2ZeroButton.setEnabled(True)
@@ -1132,8 +1133,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 zPoints = 1
                 zStep = 0
             elif (self.scanType == "Single Motor"):
-                self.singleMotorScanXData = []
-                self.singleMotorScanYData = {}
                 self.scan["x_motor"] = self.ui.xMotorCombo.currentText()
                 self.scan["y_motor"] = self.ui.yMotorCombo.currentText()
                 self.scan["energy_motor"] = scanMotorList["energy_motor"]
@@ -2605,4 +2604,5 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.setEnergyScan()
             self.ui.xMotorCombo.setEnabled(False)
             self.ui.yMotorCombo.setEnabled(False)
+            self.hideROIs()
 
