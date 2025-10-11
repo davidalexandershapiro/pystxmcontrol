@@ -205,7 +205,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.roiCheckbox.setCheckState(QtCore.Qt.Checked)
         print("Connecting to Client.")
         self.connectClient()
-        print("Done. INitializing gui...")
+        print("Done. Initializing gui...")
         self.initGUI()
         self.focusRange = 100
         self.focusSteps = 50
@@ -226,6 +226,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.singleMotorScanXData = []
         self.singleMotorScanYData = []
         self.consoleStr = ''
+        self.setWindowTitle(self.client.main_config["server"]["name"])
 
     def changeServer(self):
         # address = self.ui.serverAddressEdit.text().split(':')

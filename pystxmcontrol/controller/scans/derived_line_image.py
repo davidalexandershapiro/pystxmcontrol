@@ -40,16 +40,40 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
         else:
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-        if controller.daq[daq].meta["oversampling_factor"] > 1:
+        if controller.daq[daq].meta["oversampling_factor"] > 1 or scanInfo["include_return"]:
             scanInfo["rawData"][daq]["interpolate"] = True
         else:
             scanInfo["rawData"][daq]["interpolate"] = False
 
+    # Find minimum dwell, dwell padding, and worst time resolution for attached daqs.
+    minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum dwell"]) for daq in scanInfo["daq list"] if not \
+                      scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
+
+    DAQDwellPad = max([float(scanInfo["rawData"][daq]["meta"]["dwell pad"]) for daq in scanInfo["daq list"] if not \
+                      scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.0])
+
+    DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq list"] if not \
+                      scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
+
+
+
+
     for energy in energies:
+        #Handle motor and daq timing minimum/maximum values
+        minMotorDwell = 0.12  # ms needs to be in config probably.
+        maxMotorDwell = 5  # ms Ditto
+
+        reqDwell = dataHandler.data.dwells[energyIndex]
+
+        reqDAQDwell = min(maxMotorDwell - DAQDwellPad, max(minDAQDwell, minMotorDwell, reqDwell))
+        actDAQDwell = np.floor(reqDAQDwell / DAQTimeResolution) * DAQTimeResolution
+        print(actDAQDwell)
+        actMotorDwell = actDAQDwell + DAQTimeResolution
+
         ##scanInfo is what gets passed with each data transmission
         scanInfo["energy"] = energy
         scanInfo["energyIndex"] = energyIndex
-        scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
+        scanInfo["dwell"] = actDAQDwell
         if len(energies) > 1:
             controller.moveMotor(scan["energy_motor"], energy)
         else:
@@ -89,8 +113,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
             controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints #* scanInfo["oversampling_factor"]
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
-                                                                                    energyIndex] / scanInfo[
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = actMotorDwell / scanInfo[
                                                                                     "oversampling_factor"]
             controller.motors[scan["x_motor"]]["motor"].lineMode = "continuous"
 
@@ -98,6 +121,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
                 controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
+
             if coarse_only:
                 xcoarse,ycoarse = 0.,0.
             scanInfo["offset"] = xcoarse,ycoarse
@@ -107,6 +131,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 #this should be changed to global units and then have the driver convert
                 controller.motors[scan["x_motor"]]["motor"].trajectory_start = (xStart_fine, yStart_fine)
                 controller.motors[scan["x_motor"]]["motor"].trajectory_stop = (xStop_fine, yStart_fine)
+                print("Using return trajectory: {}".format(scanInfo["include_return"]))
                 controller.motors[scan["x_motor"]]["motor"].update_trajectory(include_return = scanInfo["include_return"])
             else:
                 start_position_x = xStart - coarse_offset

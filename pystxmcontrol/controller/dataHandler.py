@@ -120,14 +120,19 @@ class dataHandler:
         #on the default DAQ is usual and also just the sum of the XRF spectra, so we at least get some image from the data
         #The full spectra will still be saved in the file under nx.counts["XRF"]
 
+        if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+            raw_data = scanInfo["rawData"][daq]["data"]
+        elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            raw_data = scanInfo["rawData"][daq]["data"].sum(0)
+
         try:
             if scanInfo["coarse_only"]:
-                return scanInfo["rawData"][daq]["data"]
+                return raw_data
         except:
             pass
 
         if not scanInfo["rawData"][daq]["interpolate"]:
-            return scanInfo["rawData"][daq]["data"]
+            return raw_data
 
         if scanInfo["mode"] == "continuousLine":
             xReq = scanInfo["xVal"]
@@ -155,14 +160,14 @@ class dataHandler:
             distBins = np.insert(distBins,0,2*distReq[0]-distBins[0])
             
             try:
-                cutoff = np.where(distMeas>ddistBins[-1])[0][0]
+                cutoff = np.where(distMeas>distBins[-1])[0][0]
             except:
                 cutoff = np.where(distMeas == max(distMeas))[0][0]
                 
             
             distMeas = distMeas[:cutoff]
             
-            data = scanInfo["rawData"][daq]["data"][:cutoff]
+            data = raw_data[:cutoff]
             
             if len(data)>len(distMeas):
                 data = data[:len(distMeas)]
@@ -199,7 +204,8 @@ class dataHandler:
         elif scanInfo["mode"] == "continuousSpiral":
             #Could do a similar method as above where we sample the spiral on an xy grid. This would use np.2dhistogram instead.
             #This would only work if there is at least 1 point per pixel.
-            
+
+
             #First the requested x and y values
             xReq = scanInfo['xVal']
             yReq = scanInfo['yVal']
@@ -224,9 +230,9 @@ class dataHandler:
             
             
             #Also, the raw data.
-            di = (scanInfo['trajnum'])*scanInfo["rawData"][daq]["data"].size
+            di = (scanInfo['trajnum'])*raw_data.size
             dataOld = self.data.counts["default"][region][scanInfo['energyIndex'],:di]
-            data = np.append(dataOld,scanInfo["rawData"][daq]["data"])
+            data = np.append(dataOld,raw_data)
             
             #Determine the actual motor dwell and daq dwell. Determined by testing.
             motDwellOffset = 0.0 #ms
@@ -248,7 +254,7 @@ class dataHandler:
             else:
                 #Find the times that each point was collected. Could need some work maybe.
                 xytraj = np.arange(len(scanInfo['line_positions'][0]))*actMotDwell+Motdelay
-                DAQtraj = np.arange(len(scanInfo["rawData"][daq]["data"]))*actDAQDwell+DAQdelay
+                DAQtraj = np.arange(len(raw_data))*actDAQDwell+DAQdelay
             
             endpoint = max(xytraj[-1],DAQtraj[-1])
             xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['trajnum']+1)]).flatten()
@@ -259,7 +265,6 @@ class dataHandler:
             
             xInterp = np.interp(DAQ_tVals, xy_tVals, xMeas)
             yInterp = np.interp(DAQ_tVals, xy_tVals, yMeas)
-            
             nEvents, ybins, xbins = np.histogram2d(yInterp, xInterp, bins = [yBins,xBins])
             binCounts, ybins, xbins = np.histogram2d(yInterp, xInterp, bins = [yBins,xBins], weights = data)
             
@@ -289,10 +294,11 @@ class dataHandler:
 
         #add the interpolated data to the structure
         if scanInfo["type"] == "Image":
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
+            #if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+            #    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
+            #elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            #    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
+            self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
             mi = scanInfo['index']
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
@@ -303,6 +309,10 @@ class dataHandler:
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
+            #if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+            #    self.data.interp_counts[daq][k][m,:,:] = scanInfo["data"][daq] #this is a matrix
+            #elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            #    self.data.interp_counts[daq][k][m,:,:] = scanInfo["data"][daq].sum(0) #this is a matrix
             self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
             
         elif scanInfo["type"] == "Ptychography Image":
@@ -425,9 +435,14 @@ class dataHandler:
         self.data = stxm(scan)
         #for DAQs that define the energy range, like energy dispersives, get their energy list
         #into the data structure
+        #Also ready this detector and set the filename for data.
         for daq in self.controller.daq.keys():
             if self.controller.daq[daq].meta["type"] == "spectrum":
                 self.data.energies[daq] = self.controller.daq[daq].energies
+                #These are currently specific to the xrf detector and will need to be implemented
+                #in other daqs of this type. Probably a better way to do this.
+                self.controller.daq[daq].set_filename(self.currentScanID)
+                self.controller.daq[daq].ready()
         await self.sendScanData(scan["synch_event"])
 
     async def monitor(self, scanQueue):

@@ -1,4 +1,4 @@
-from pystxmcontrol.drivers.xspress3 import xrfDetector
+from pystxmcontrol.drivers.xspress3 import xspress3
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
@@ -23,7 +23,7 @@ try:
 except:
     save = None
 
-gate = shutter()
+gate = shutter('arduino')
 gate.connect(simulation = simulation)
 gate.setStatus(softGATE = 0)
 
@@ -44,7 +44,7 @@ for y in np.arange(ystart,ystop,ystep):
     my.moveTo(y)
     c.setup_trajectory('x',xstart,xstop,dwell,int(abs(xstop-xstep)/xstep),mode = '1d_line_with_return')
 
-xrf = xrfDetector(simulation = simulation)
+xrf = xspress3(simulation = simulation)
 
 xrf.config(dwell,count,samples,trigger='BUS')
 

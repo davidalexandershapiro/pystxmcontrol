@@ -184,10 +184,10 @@ class mclController():
         which returns the position data.  That is called by trigger_line below.
         """
         if mode == "on":
-            error_code = self.bindISSClock(c_int(clock), c_int(2), c_int(5), c_int(self.handle))
+            error_code = self.bindISSClock(c_int(clock), c_int(2), c_int(1), c_int(self.handle))
             print("Clock bind error code: %i" %error_code)
         elif mode == "off":
-            error_code = self.bindISSClock(c_int(clock), c_int(4), c_int(5), c_int(self.handle))
+            error_code = self.bindISSClock(c_int(clock), c_int(4), c_int(1), c_int(self.handle))
             print("Clock unbind error code: %i" %error_code)
         else:
             return

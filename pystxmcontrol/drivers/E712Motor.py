@@ -25,13 +25,14 @@ class E712Motor(motor):
                 self.moving = self.controller.getStatus(self._axis)
         return self.moving
     
-    def setAxisParams(self, velocity = 0.1):
+    def setAxisParams(self, velocity = 1.0):
         """
         Set the axis parameters.
         """
         self.velocity = velocity
         if not self.simulation:
-            self.controller.setVelocity(axis = self.axis, velocity = velocity*self.config["units"])
+            #print(f"[E712] Setting axis {self.axis} velocity to {velocity}")
+            self.controller.setVelocity(axis = self._axis, velocity = velocity)
 
     def moveBy(self, step):
         self.position += step
@@ -76,4 +77,5 @@ class E712Motor(motor):
             self._axis = '1'
         elif axis == 'y':
             self._axis = '2'
+        self.setAxisParams()
         return True

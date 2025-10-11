@@ -38,6 +38,15 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
         else:
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
         scanInfo["rawData"][daq]["interpolate"] = True
+    # Find minimum dwell, dwell padding, and worst time resolution for attached daqs.
+    minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum dwell"]) for daq in scanInfo["daq list"] if not \
+                      scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
+
+    DAQDwellPad = max([float(scanInfo["rawData"][daq]["meta"]["dwell pad"]) for daq in scanInfo["daq list"] if not \
+                      scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.0])
+
+    DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq list"] if not \
+                      scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
     if "outerLoop" in scan.keys():
         loopMotorPos = getLoopMotorPositions(scan)
@@ -131,11 +140,12 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             # The original script also had a maximal speed. We ignore that here.
             numCorners = 50  # minimum average corners per loop
             minMotorDwell = 0.12  # ms
-            maxMotorDwell = 10.  # ms
+            minPointDwell = np.max([minMotorDwell, minDAQDwell+DAQDwellPad])
+            maxMotorDwell = 5.  # ms
 
             # minimal time allowed for motor movements (many loops)
             minLoopMotorPoints = numCorners * numLoops
-            minLoopMotorScanTime = minLoopMotorPoints * minMotorDwell / 1000
+            minLoopMotorScanTime = minLoopMotorPoints * minPointDwell / 1000
 
             # total scan time is now determined
             totScanTime = max(minFreqScanTime, minLoopMotorScanTime)
@@ -161,14 +171,14 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             # These are the desired number of points, but we have to adjust them again to round to the nearest 0.01 ms.
             motorTimeResolution = 0.001  # ms (based off old manual. Likely correct though.)
             # Here we set the dwell to the value for 5000 motor points in a trajectory.
-            if totalTrajTime / maxTrajPoints >= minMotorDwell / 1000.:
+            if totalTrajTime / maxTrajPoints >= minPointDwell / 1000.:
                 desMotorDwell = totalTrajTime / maxTrajPoints * 1000.
                 # Round to nearest dwell time. Ceiling so we don't have > 5000 points
                 actMotorDwell = np.ceil(desMotorDwell / motorTimeResolution) * motorTimeResolution
                 numTrajMotorPoints = int(totalTrajTime / actMotorDwell * 1000.)
             # If we can't, we instead set the dwell to the minimum
             else:
-                actMotorDwell = minMotorDwell
+                actMotorDwell = minPointDwell
                 numTrajMotorPoints = int(totalTrajTime / actMotorDwell * 1000.)
 
             # scanTime might be slightly different than the prior estimate
@@ -179,10 +189,13 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             nPosSamples = numTrajMotorPoints * totalSplit
 
             # The DAQ dwell time is set by the number of pixels requested and the actual scan time
-            # Resolution for the DAQ is 1 us.
-            DAQTimeResolution = 0.001  # ms (based on keysight manual and reading out CONF? command)
+            # Resolution for the DAQ is 1 us. Now set above for multiple daqs
+            #DAQTimeResolution = 0.001  # ms (based on keysight manual and reading out CONF? command)
             trajPixels = int(numTotalPixels / totalSplit * DAQOversample)
-            reqDAQDwell = totalTrajTime / trajPixels * 1000.
+            if minDAQDwell < minMotorDwell:
+                reqDAQDwell = totalTrajTime / trajPixels * 1000.
+            else:
+                reqDAQDwell = minPointDwell
             actDAQDwell = int(reqDAQDwell / DAQTimeResolution) * DAQTimeResolution
             numTrajDAQPoints = int(totalTrajTime / actDAQDwell * 1000.)
 
@@ -223,15 +236,25 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             xList = xSpiral.reshape(totalSplit, int(nPosSamples / totalSplit))
             yList = ySpiral.reshape(totalSplit, int(nPosSamples / totalSplit))
 
-            # Set up DAQ acquisition
-            DAQcount = numTrajMotorPoints
-            DAQsamples = int(np.ceil(numTrajDAQPoints / DAQcount))
-            numTrajDAQPoints = DAQsamples * DAQcount
-            # we pad the dwell time so that the daq is done collecting by the time the motor has moved on to the next position.
-            # May have to make this dependent on the motor dwell time? 4 us is a total guess.
-            dwellPad = 0.005 * DAQsamples
-            actDAQDwell = int(
-                np.floor((actMotorDwell - dwellPad) / DAQsamples / DAQTimeResolution)) * DAQTimeResolution
+            # Set up DAQ acquisition for short dwell times
+            if minDAQDwell < minMotorDwell:
+                DAQcount = numTrajMotorPoints
+                DAQsamples = int(np.ceil(numTrajDAQPoints / DAQcount))
+                numTrajDAQPoints = DAQsamples * DAQcount
+                # we pad the dwell time so that the daq is done collecting by the time the motor has moved on to the next position.
+                # May have to make this dependent on the motor dwell time? 4 us is a total guess.
+                dwellPad = 0.005 * DAQsamples
+                actDAQDwell = int(
+                    np.floor((actMotorDwell - dwellPad) / DAQsamples / DAQTimeResolution)) * DAQTimeResolution
+            else:
+                DAQcount = numTrajMotorPoints
+                DAQsamples = 1
+
+            print('dwell: {}'.format(actDAQDwell))
+            print('count: {}'.format(DAQcount))
+            print('samples: {}'.format(DAQsamples))
+            print('motor dwell: {}'.format(actMotorDwell))
+
 
             #print('Configuring DAQ: {} ms dwell, {} count, {} samples, "EXT" trigger'.format(actDAQDwell,DAQcount,DAQsamples))
             # controller.daq["default"].config(actDAQDwell, count=DAQcount, samples=DAQsamples, trigger="EXT")

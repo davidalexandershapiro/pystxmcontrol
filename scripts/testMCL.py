@@ -18,12 +18,12 @@ mcl.initialize()
 start = (10,10)
 stop = (20,20)
 repeats = 1
-tot_time = 2.0 #keep less than 2.5
+tot_time = 2.01#keep less than 2.5
 
 #Circular test
-Freq = 50 #Hz
+Freq = 1 #Hz
 ang_freq = Freq*(np.pi*2)
-nPoints = 4000
+nPoints = 1000
 dwell = tot_time/nPoints*1000
 trajx = 50+40*np.sin(np.linspace(0,tot_time,nPoints)*ang_freq)
 trajy = 50+40*np.cos(np.linspace(0,tot_time,nPoints)*ang_freq)
