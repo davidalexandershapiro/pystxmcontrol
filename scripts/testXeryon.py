@@ -5,7 +5,7 @@ from time import sleep
 
 #config = json.loads(open("../config/motorConfig.json").read())
 #c = xerController(address = config["xeryon"]["controllerID"])
-c = xerController(address = "/dev/ttyACM1")
+c = xerController(address = "/dev/ttyACM0")
 c.initialize(simulation = False)
 
 m = xerMotor(controller = c)

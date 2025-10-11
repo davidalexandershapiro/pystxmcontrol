@@ -22,7 +22,7 @@ class derivedEnergy(motor):
         ##I don't trust the beamline numbers
         A0 = self.config["A0"]
         A1 = self.config["A1"]
-        energy = self.getPos()
+        energy = self.position #getPos()
         self.calibratedPosition = A0 - A1 * energy
         return self.calibratedPosition
 
@@ -54,6 +54,7 @@ class derivedEnergy(motor):
     def getPos(self):
         if not(self.simulation):
             self.position = self.axes["axis1"].getPos()
+            self.getZonePlateCalibration()
             return self.position
         else:
             return self.position

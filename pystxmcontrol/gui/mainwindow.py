@@ -205,7 +205,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.roiCheckbox.setCheckState(QtCore.Qt.Checked)
         print("Connecting to Client.")
         self.connectClient()
-        print("Done. INitializing gui...")
+        print("Done. Initializing gui...")
         self.initGUI()
         self.focusRange = 100
         self.focusSteps = 50
@@ -227,6 +227,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.singleMotorScanYData = []
         self.consoleStr = ''
         self.setWindowTitle(f"STXM Control: {self.client.main_config['server']['name']}")
+        if not self.client.main_config["geometry"]["A0_calibrated"]:
+            self.ui.A0Edit.setEnabled(False)
 
     def changeServer(self):
         # address = self.ui.serverAddressEdit.text().split(':')
@@ -818,7 +820,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 print(scenePos.x(),scenePos.y(),self.imageScale)
                 self.cursorX, self.cursorY = x,y
                 self.ui.motors2CursorButton.setEnabled(True)
-                if self.scan["scan_type"] == "Double Motor":
+                if self.scan["scan_type"] == "Double Motor" or self.scan["scan_type"] == "OSA Image":
                     self.ui.setCursor2ZeroButton.setEnabled(True)
             elif "Focus" in self.scan["scan_type"]:
                 x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
@@ -999,12 +1001,15 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.ui.xMotorCombo.currentText() != "Energy":
                 for reg in self.scanRegList:
                     reg.setEnabled(True)
+        elif "OSA" in self.scanType:
+            pass
         elif self.ui.scanType.currentText() == "Line Spectrum":
             pass
         if self.ui.showRangeFinder.isChecked():
             if "Image" in self.scanType:
                 self.ui.mainImage.addItem(self.rangeROI)
         self.setScanParams()
+        self.hideROIs()
 
     def deactivateGUI(self):
         self.ui.compositeImageCheckbox.setEnabled(False)
@@ -1401,7 +1406,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         scanCheck = self.scanCheck()
         if scanCheck is None:
             self.scanning = True
-            #self.changePlot()
             self.deactivateGUI()
             self.client.scan = self.scan
             message = {"command": "scan"}
@@ -1818,15 +1822,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             except IOError:
                 print("No Such File or Directory.")
 
-    def loadScan(self, fileName = None):
+    def loadScan(self):
         try:
             self.nx = stxm(stxm_file = self.currentLoadFile)
-        except:
-            return
-        else:
+            print(f"Loading file {self.currentLoadFile}...")
             if "Image" in self.nx.meta["scan_type"] or self.nx.meta["scan_type"] == "Double Motor":
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
-                self.image = self.nx.data["entry0"]["counts"]
+                self.image = self.nx.data["entry0"]["counts"]["default"]
                 self.currentImageType = self.nx.meta["scan_type"]
                 ne,y,x = self.image.shape
                 self.yPts,self.xPts = y,x
@@ -1845,7 +1847,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
                 self.imageCenter = pos
                 self.imageScale = xScale,yScale
-                self.ui.mainImage.setImage(np.transpose(self.image, axes = axes), autoRange=False, autoLevels=True, \
+                self.ui.mainImage.setImage(np.transpose(self.image, axes = axes), autoRange=True, autoLevels=True, \
                     autoHistogramRange=True, pos = self.imageCenter, scale = self.imageScale)
                 self.scaleBarLength = np.round(
                     100. / self.ui.mainImage.imageItem.pixelSize()[0] * self.imageScale[0], 3)
@@ -1858,13 +1860,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
                 self.ui.plotType.setCurrentText("Motor Scan")
                 motor = self.nx.meta["x_motor"]
-                ne, ny, nx = self.nx.data["entry0"]["counts"].shape
+                ne, ny, nx = self.nx.data["entry0"]["counts"]["default"].shape
                 if motor == "Energy":
                     self.singleMotorScanXData = self.nx.data["entry0"]["energy"]
-                    self.singleMotorScanYData = np.reshape(self.nx.data["entry0"]["counts"], (ne))
+                    self.singleMotorScanYData = np.reshape(self.nx.data["entry0"]["counts"]["default"], (ne))
                 else:
                     self.singleMotorScanXData = self.nx.data["entry0"]["xpos"]
-                    self.singleMotorScanYData = np.reshape(self.nx.data["entry0"]["counts"], (nx))
+                    self.singleMotorScanYData = np.reshape(self.nx.data["entry0"]["counts"]["default"], (nx))
                 if self.yPlot is not None:
                     self.ui.mainPlot.removeItem(self.yPlot)
                 if self.xPlot is not None:
@@ -1875,10 +1877,14 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                                                          symbol='o', symbolPen='g', symbolSize=3, \
                                                          symbolBrush=(255, 255, 255))
                 self.ui.mainPlot.setLabel("bottom", motor)
+        except:
+            self.warningPopup(f"Failed to open file: {self.currentLoadFile}")
+            return
+        else:
             self.scanFromNX()
 
     def scanFromNX(self):
-        data = self.nx.data["entry0"]["counts"]
+        data = self.nx.data["entry0"]["counts"]["default"]
         z,y,x = data.shape
         self.dwell = self.nx.data["entry0"]["dwell"][0]
         self.energy = self.nx.data["entry0"]["energy"][0]
@@ -2260,10 +2266,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def connectClient(self):
         self.client.monitor.scan_data.connect(self.updateImageFromMessage)
         self.controlThread.controlResponse.connect(self.printToConsole)
-        try:
-            self.client.ptycho.ptychoData.connect(self.updateImageFromRPI)
-        except:
-            print("Cannot connect to PTYCHO monitor")
         self.ui.serverAddress.setText("%s:%s" %(self.client.main_config["server"]["host"],\
                                                 str(self.client.main_config["server"]["command_port"])))
         self.serverStatus = self.client.get_status()
@@ -2361,6 +2363,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.proposalComboBox.addItem(esaf)
         self.ui.proposalComboBox.addItem("Staff Access")
         self.deactivateGUI()
+        self.ui.mainImage.autoRange()
 
         if self.serverStatus["mode"] == "scanning":
             print("server is scanning")
@@ -2575,9 +2578,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.setGUIfromScan(self.last_scan[scanType])
             self.setEnergyScan()
         elif scanType == "OSA Image":
+            self.ui.focusCenterEdit.setText(str(np.round(self.currentMotorPositions["ZonePlateZ"], 2)))
             self.setFocusWidgets(False)
             self.setLineWidgets(False)
-            self.ui.roiCheckbox.setEnabled(True)
+            self.ui.roiCheckbox.setEnabled(False)
             self.ui.defocusCheckbox.setEnabled(False)
             while len(self.scanRegList) > 1:
                 self.ui.regionDefWidget.removeWidget(self.scanRegList[-1].region)

@@ -170,10 +170,10 @@ class stxm_client(QtCore.QThread):
         self.scan = None
         self.listen = False
         self.lock = threading.Lock()
-        self.main_config = json.loads(open(MAINCONFIGFILE).read())
-        self.server_address = self.main_config["server"]["host"]
-        self.command_port = self.main_config["server"]["command_port"]
-        self.data_port = self.main_config["server"]["stxm_data_port"]
+        self.client_config = json.loads(open(MAINCONFIGFILE).read())
+        self.server_address = self.client_config["server"]["host"]
+        self.command_port = self.client_config["server"]["command_port"]
+        self.data_port = self.client_config["server"]["stxm_data_port"]
         self.monitor_threads = []
         self.context = zmq.Context()
 
@@ -209,24 +209,6 @@ class stxm_client(QtCore.QThread):
         self.monitor.start()
         self.monitor_threads = []
         self.monitor_threads.append(self.monitor)
-        # try:
-        #     self.ccd = ccd_monitor(simulation = self.daqConfig["ccd"]["simulation"])
-        #     self.ccd.start()
-        #     self.monitor_threads.append(self.ccd)
-        # except:
-        #     print("Cannot start CCD monitor")
-        try:
-            self.rpi = rpi_monitor(simulation = self.daqConfig["ptychography"]["simulation"])
-            self.rpi.start()
-            self.monitor_threads.append(self.rpi)
-        except:
-            print("Cannot start RPI monitor")
-        try:
-            self.ptycho = ptycho_monitor(simulation = self.daqConfig["ptychography"]["simulation"])
-            self.ptycho.start()
-            self.monitor_threads.append(self.ptycho)
-        except:
-            print("Cannot start PTYCHO monitor")
 
     def get_status(self):
         message = {"command": "getStatus"}
@@ -247,10 +229,10 @@ class stxm_client(QtCore.QThread):
             return response
 
     def get_config(self):
-        self.main_config = json.loads(open(MAINCONFIGFILE).read())
+        self.client_config = json.loads(open(MAINCONFIGFILE).read())
         message = {"command": "get_config"}
         response = self.send_message(message)
-        self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, server_main_config = response['data']
+        self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, self.main_config = response['data']
 
     def write_config(self):
         with open(MAINCONFIGFILE, 'w') as fp:
