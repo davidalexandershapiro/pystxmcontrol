@@ -24,6 +24,7 @@ class counter:
         #print("Configuring counter with dwell = %.2f ms, count = %i, samples = %i and trigger = %s" %(dwell, count, samples, trigger))
         self.dwell = dwell
         self.count = count
+        self.trigger = trigger
         self.session.write("*RST")
         self.session.write("DISP OFF")
         self.session.write(f"CONF:TOT:TIM {dwell/1000.}, (@{channel})")

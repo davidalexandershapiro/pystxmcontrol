@@ -347,12 +347,22 @@ class dataHandler:
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
             return self.data.interp_counts[daq][k][m,:,:]
 
-        elif scanInfo["type"] == "Double Motor":
-            c = scanInfo["columnIndex"]
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"]
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
+        elif scanInfo["type"] == "Double Motor" or scanInfo["type"] == "OSA Image":
+            if scanInfo["mode"] == "point":
+                c = scanInfo["columnIndex"]
+                if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"]
+                elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
+            elif scanInfo["mode"] == "continuousLine":
+                if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
+                elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
+                mi = scanInfo['index']
+                mj = mi + scanInfo['line_positions'][0].size
+                self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
+                self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
             return self.data.interp_counts[daq][k][m,:,:]
 
         #add the raw data to the structure

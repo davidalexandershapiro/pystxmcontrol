@@ -25,6 +25,7 @@ class keysight53230A(daq):
     def stop(self):
         if not (self.simulation):
             self.counter.disconnect()
+            
     def set_dwell(self, dwell):
         self.dwell = dwell
 
@@ -59,6 +60,9 @@ class keysight53230A(daq):
         self.gate.dwell1 = dwell1
         self.gate.dwell2 = dwell2
         self.gate.setStatus()
+
+    def bus_trigger(self):
+        self.counter.busTrigger()
 
     async def getLine(self):
         if self.simulation:

@@ -42,6 +42,10 @@ class mcsController(hardwareController):
         ctl.SetProperty_i64(self._deviceID, axis, ctl.Property.MOVE_VELOCITY, 10000000000)
         ctl.SetProperty_i64(self._deviceID, axis, ctl.Property.MOVE_ACCELERATION, 10000000000)
 
+    def set_velocity(self,axis,velocity):
+        velocity = int(velocity * 1E9) #convert mm/s to pm/s
+        ctl.SetProperty_i64(self._deviceID,axis,ctl.Property.MOVE_VELOCITY,velocity)
+
     def stop(self,axis):
         ctl.Stop(self._deviceID, axis)
 
@@ -51,7 +55,7 @@ class mcsController(hardwareController):
         ctl.Move(self._deviceID, axis, int(position), 0)
         while self.moving:
             self.getStatus(axis)
-            sleep(0.05)
+            sleep(0.005)
             if (time() - t0) > self._timeout:
                 print("[MCS] Timeout exceeded on move. Stopping axis %i." %axis)
                 self.stop(axis)

@@ -86,7 +86,12 @@ class stxm:
             self.meta["experimenters"] = self._nx_reader["entry0/experimenters"][()].decode()
             self.meta["sample_description"] = self._nx_reader["entry0/sample/description"][()].decode()
             self.meta["proposal"] = self._nx_reader["entry0/title"][()].decode()
-            self.meta["scan_type"] = self._nx_reader["entry0/data/stxm_scan_type"][0].decode()
+            self.meta["scan_type"] = self._nx_reader["entry0/default/stxm_scan_type"][0].decode()
+            self.meta["daq_list"] = []
+            for daq in list(self._nx_reader[f"entry0/instrument"]):
+                if "type" in self._nx_reader[f"entry0/instrument/{daq}"].attrs.keys():
+                    if self._nx_reader[f"entry0/instrument/{daq}"].attrs["type"].decode() == "photon":
+                        self.meta["daq_list"].append(daq)
 
         #Version 2 was the first major change in how data was represented in the file.  This brought the separation between
         #raw data and interpolated data in the file.
@@ -166,10 +171,12 @@ class stxm:
                 for item in list(self._nx_reader[entryStr + "/instrument/motors"]):
                     self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/instrument/motors/" + item][()]
                 self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/instrument/monochromator/energy"][()].astype("float64")
-                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/data/count_time"][()].astype("float64")
-                self.data[entryStr]["counts"] = self._nx_reader[entryStr + "/data/data"][()].astype("float64") #data at user requested positions
-                self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/data/sample_x"][()]).astype("float64")
-                self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/data/sample_y"][()]).astype("float64")
+                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/default/count_time"][()].astype("float64")
+                self.data[entryStr]["counts"] = {}
+                for daq in self.meta["daq_list"]:
+                    self.data[entryStr]["counts"][daq] = self._nx_reader[entryStr + f"/{daq}/data"][()].astype("float64") #data at user requested positions
+                self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/default/sample_x"][()]).astype("float64")
+                self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/default/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
@@ -305,10 +312,10 @@ class stxm:
         for daq in self.daq_list:
             del self._nx_writer[f'entry{i}/instrument/{daq}/data']
             self._nx_writer[f'entry{i}/instrument/{daq}'].create_dataset("data", data = self.counts[daq][i])
-            del self._nx_writer[f'entry{i}/data/{daq}']
-            self._nx_writer[f'entry{i}/data'].create_dataset(daq, data = self.interp_counts[daq][i])
+            del self._nx_writer[f'entry{i}/{daq}/data']
+            self._nx_writer[f'entry{i}/{daq}'].create_dataset("data", data = self.interp_counts[daq][i])
             self._nx_writer[f'entry{i}/instrument/{daq}/data'].flush()
-            self._nx_writer[f'entry{i}/data/{daq}'].flush()
+            self._nx_writer[f'entry{i}/{daq}/data'].flush()
             self._nx_writer[f'entry{i}/instrument/{daq}/data'].attrs["energies"] = self.energies[daq]
         for motor in self.motorPositions[i].keys():
             try:
@@ -367,25 +374,25 @@ class stxm:
         sample.create_dataset("rotation_angle", data='')
         sample.create_dataset("description", data=self.scan_dict["sample"])
         sample.create_dataset("comment", data=self.scan_dict["comment"])
-        d = nxentry.create_group("data")
-        d.attrs["NX_class"] = np.bytes_("NXdata")
-        d.attrs["axes"] = [np.bytes_("energy"),np.bytes_("sample_y"),np.bytes_("sample_x")]
-        d.attrs["signal"] = "data"
-        d.create_dataset("stxm_scan_type",data=[self.scan_dict["scan_type"]])
         for daq in self.daq_list:
-            d.create_dataset(daq,data=np.zeros_like(self.interp_counts[daq][i]))
-        energy = d.create_dataset("energy",data=self.energies["default"])
-        energy.attrs["axis"] = 1
-        d.create_dataset("count_time",data=self.dwells)
-        sample_y = d.create_dataset("sample_y",data=self.yPos[i])
-        sample_y.attrs["axis"] = 2
-        sample_x = d.create_dataset("sample_x",data=self.xPos[i])
-        sample_x.attrs["axis"] = 3
-        d.create_dataset("motor_name_x",data=self.scan_dict["x_motor"])
-        try:
-            d.create_dataset("motor_name_y",data=self.scan_dict["y_motor"])
-        except:
-            d.create_dataset("motor_name_y", data="None")
+            d = nxentry.create_group(daq)
+            d.attrs["NX_class"] = np.bytes_("NXdata")
+            d.attrs["axes"] = [np.bytes_("energy"),np.bytes_("sample_y"),np.bytes_("sample_x")]
+            d.attrs["signal"] = "data"
+            d.create_dataset("stxm_scan_type",data=[self.scan_dict["scan_type"]])
+            d.create_dataset("data",data=np.zeros_like(self.interp_counts[daq][i]))
+            energy = d.create_dataset("energy",data=self.energies["default"])
+            energy.attrs["axis"] = 1
+            d.create_dataset("count_time",data=self.dwells)
+            sample_y = d.create_dataset("sample_y",data=self.yPos[i])
+            sample_y.attrs["axis"] = 2
+            sample_x = d.create_dataset("sample_x",data=self.xPos[i])
+            sample_x.attrs["axis"] = 3
+            d.create_dataset("motor_name_x",data=self.scan_dict["x_motor"])
+            try:
+                d.create_dataset("motor_name_y",data=self.scan_dict["y_motor"])
+            except:
+                d.create_dataset("motor_name_y", data="None")
         if self.scan_dict['scan_type'] == "Ptychography Image":
             ccd = nxentry.create_group('ccd0')
             ccd.create_group('dark')
