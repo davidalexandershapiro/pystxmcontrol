@@ -161,6 +161,7 @@ class mclMotor(motor):
         else: 
             mode = "line"
             self.dim = 2
+        print(mode)
         if not (self.simulation):
             self.controller.setup_trajectory(self.trigger_axis, self.start, self.stop, \
                                              self.trajectory_pixel_dwell, self.trajectory_pixel_count, \

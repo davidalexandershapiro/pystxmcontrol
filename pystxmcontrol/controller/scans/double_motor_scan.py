@@ -111,14 +111,18 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
                         return
             elif mode == "continuousLine":
                 scanInfo["index"] = i * len(yPos[0])
-                if i % 2 == 0:
-                    scanInfo["direction"] = "forward"
-                    controller.moveMotor(scan["x_motor"],xStart)
-                    target = xStop
-                else:
-                    scanInfo["direction"] = "backward"
-                    controller.moveMotor(scan["x_motor"],xStop)
-                    target = xStart
+                try:
+                    backlash = controller.motors[scan['x_motor']]['motor'].config['backlash']
+                except:
+                    backlash = 0.
+                # if i % 2 == 0:
+                scanInfo["direction"] = "forward"
+                controller.moveMotor(scan["x_motor"],xStart)
+                target = xStop
+                # else:
+                #     scanInfo["direction"] = "backward"
+                #     controller.moveMotor(scan["x_motor"],xStop+backlash)
+                #     target = xStart+backlash
                 if queue.empty():
                     controller.daq["default"].initLine()
                     controller.daq["default"].autoGateOpen()

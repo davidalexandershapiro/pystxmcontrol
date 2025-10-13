@@ -877,8 +877,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.messageQueue.put(message)
                 time.sleep(0.5)
             else:
-                #This changes the ZonePlateZ offset 
+                #This changes the ZonePlateZ offset
                 offsetDelta = (self.zonePlateCalibration - A0 - self.cursorFocusZ)
+                print('cursorZ position: {}'.format(self.cursorFocusZ))
+                print('requested zone plate position: {}'.format(self.zonePlateCalibration-A0))
+                print('old offset: {}'.format(self.zonePlateOffset))
                 newOffset = self.zonePlateOffset + offsetDelta
                 print(f"Setting ZonePlateZ offset to {newOffset}")
                 message = {"command": "changeMotorConfig"}
@@ -980,7 +983,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.motorMover2Edit.setText(\
                 str(np.round(self.currentMotorPositions[str(self.ui.motorMover2.currentText())], 3)))
 
-    def activateGUI(self):
+    def activateGUI(self, refocus = True):
+        print("Activating GUI")
         self.ui.compositeImageCheckbox.setEnabled(True)
         self.ui.removeLastImageButton.setEnabled(True)
         self.ui.clearImageButton.setEnabled(True)
@@ -1009,7 +1013,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if self.ui.showRangeFinder.isChecked():
             if "Image" in self.scanType:
                 self.ui.mainImage.addItem(self.rangeROI)
-        self.setScanParams()
+        self.setScanParams(refocus = refocus)
         self.hideROIs()
 
     def deactivateGUI(self):
@@ -1561,7 +1565,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if message is None:
             pass
         elif message == "scan_complete":
-            self.activateGUI()
+            self.activateGUI(refocus = False)
             self.scanning = False
         elif message["mode"] in self.imageScanTypes:
             self.currentDataDir,self.currentFile = os.path.split(message["scanID"])
@@ -1744,11 +1748,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
                         self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]
                 elif daq == "CCD":
-                    data = message["rawData"][daq]["data"] 
+                    data = message["rawData"][daq]["data"]
                     data = ((data > 10.) * data).sum()
                     self.monitorData[channel]["data"].append(data)
                     if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
-                        self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]                   
+                        self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]
                 else:
                     self.monitorData[channel]["data"] = message["rawData"][daq]["data"]
                 self.monitorData[channel]["meta"] = message["rawData"][daq]["meta"]
@@ -2398,7 +2402,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.lineAngleEdit.setText(str(self.lineAngle))
         self.ui.linePointsEdit.setEnabled(value)
 
-    def setScanParams(self):
+    def setScanParams(self, refocus = True):
         self.updateROIs()
         scanType = self.ui.scanType.currentText()
         self.ui.motors2CursorButton.setEnabled(False)
@@ -2439,7 +2443,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 reg.setEnabled(False)
                 reg.ui.xCenter.setEnabled(True)
                 reg.ui.yCenter.setEnabled(True)
-            self.ui.focusCenterEdit.setText(str(np.round(self.currentMotorPositions["ZonePlateZ"], 2)))
+            if refocus:
+                print('Resetting Focus Center from setScanParams: Focus')
+                self.ui.focusCenterEdit.setText(str(np.round(self.currentMotorPositions["ZonePlateZ"], 2)))
             self.ui.focusRangeEdit.setText(str(self.focusRange))
             self.ui.focusStepsEdit.setText(str(int(self.focusSteps)))
             self.ui.focusStepSizeLabel.setText(str(self.focusStepSize))

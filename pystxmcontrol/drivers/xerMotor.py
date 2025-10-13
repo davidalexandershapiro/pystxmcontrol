@@ -55,19 +55,19 @@ class xerMotor(motor):
                 #with self.lock:
                 self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
                 self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
-                self._axis.sendCommand('STOP=0')
+                #self._axis.sendCommand('STOP=0')
                 count = 1
                 #print('position requested: {}, position reached: {}'.format(pos,self.position))
-                while abs(pos - self.position) > 0.05 and count < 30:
+                while abs(pos - self.position) > 0.1 and count < 30:
                     #print('position requested: {}, position reached: {}'.format(pos,self.position))
                     #print("Tolerance not reached. Position error: %.4f" %abs(pos - self.position))
                     self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
-                    self._axis.sendCommand('STOP=0')
+                    #self._axis.sendCommand('STOP=0')
                     self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
                     time.sleep(0.01)
                     count += 1
-                if count == 6:
-                    print("ZonePlateZ motor giving up.  Just couldn't get there. Sorry y'all.")
+                #if count == 6:
+                #    print("ZonePlateZ motor giving up.  Just couldn't get there. Sorry y'all.")
             else:
                 self._controller_position = (pos - self.config["offset"]) / self.config["units"]
                 self.position = self.getPos()

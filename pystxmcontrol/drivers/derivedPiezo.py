@@ -171,6 +171,7 @@ class derivedPiezo(motor):
                         self.positions = self.axes["axis1"].controller.trigger_1d_waveform()
                     else:
                         self.positions = self.axes["axis1"].controller.acquire_xy(axes=axes)
+                    #print(self.positions)
                     self.positions = self.scale2gui(self.positions[0]) + offset[0], self.scale2gui(self.positions[1]) + offset[1]
                 else:
                     xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],

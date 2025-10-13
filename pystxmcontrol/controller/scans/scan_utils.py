@@ -36,7 +36,6 @@ def executeReturnTrajectory(self, motor, xStart, xStop, yStart, yStop):
     motor.update_trajectory()
     motor.moveLine()
 
-
 async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
     # try:
     controller.daq["default"].initLine()
