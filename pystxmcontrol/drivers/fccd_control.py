@@ -103,10 +103,7 @@ class fccd_control(daq):
                 t1 = time.time() - t0
                 if t1 < self.timeout:
                     try:
-                        #print("Waiting for frame...")
-                        #number, frame = self.frame_socket.recv_multipart(flags=zmq.NOBLOCK)  # not blocking
-                        frame = await self.frame_socket.recv(flags=zmq.NOBLOCK)
-                        print(frame)
+                        number, frame = self.frame_socket.recv_multipart(flags=zmq.NOBLOCK)  # not blocking
                         frame_received = True
                     except zmq.ZMQError as e:
                         time.sleep(slp)
@@ -118,10 +115,7 @@ class fccd_control(daq):
 
 
     def frame_to_image(self, frame):
-        print("Assembling frame...")
-        buf = frame
-        # self.framename = num
-        npbuf = np.frombuffer(buf, '<u2')
+        npbuf = np.frombuffer(frame, '<u2')
         npbuf = npbuf.reshape((12 * self.num_rows, self.num_adcs))
         image = self.CCD.assemble2(npbuf.astype(np.uint16))
         return image
