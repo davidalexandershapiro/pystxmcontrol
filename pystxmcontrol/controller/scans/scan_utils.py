@@ -41,9 +41,9 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
     # try:
     controller.daq["default"].initLine()
     controller.daq["default"].autoGateOpen()
-    for daq in scanInfo["daq list"]:
-        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            controller.daq[daq].ready()
+    #for daq in scanInfo["daq list"]:
+    #    if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+    #        controller.daq[daq].ready()
     #Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
     if scan["spiral"]:
         sleep(0.02)

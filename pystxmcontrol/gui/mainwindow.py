@@ -226,7 +226,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.singleMotorScanXData = []
         self.singleMotorScanYData = {}
         self.consoleStr = ''
-        self.setWindowTitle(f"STXM Control: {self.client.main_config['server']['name']}")
+        if "name" in self.client.main_config["server"].keys():
+            name = self.client.main_config['server']['name']
+        else:
+            name = "STXM Control"
+        self.setWindowTitle(f"STXM Control: {name}")
         if not self.client.main_config["geometry"]["A0_calibrated"]:
             self.ui.A0Edit.setEnabled(False)
 

@@ -188,7 +188,13 @@ class controller:
         self._ensure_scan_queue()
         for daq in self.daq.keys():
             self.daq[daq].start()
-            self.daq[daq].config(dwell = self.main_config["monitor"]["dwell"])
+            if self.daq[daq].meta['type'] == "spectrum":
+                #The spectrum detector is slow so we set it up to collect many samples and just poll it.
+                self.daq[daq].config(dwell = self.main_config["monitor"]["dwell"],samples = 10000)
+            else:
+                self.daq[daq].config(dwell=self.main_config["monitor"]["dwell"])
+
+
         self.dataHandler.monitorDaq = True
         def run_monitor():
             asyncio.run(self.dataHandler.monitor(self.scanQueue))
