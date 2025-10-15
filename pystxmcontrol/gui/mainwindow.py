@@ -247,6 +247,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         y_motor = self.scan["y_motor"]
         x_current_offset = self.client.motorInfo[x_motor]["offset"]
         y_current_offset = self.client.motorInfo[y_motor]["offset"]
+        print(x_current_offset, 0-x,y_current_offset,0-y)
         result = self.warningPopup(f"Set {x_motor} = {x} and {y_motor} = {y} to 0?")
         if result:
             message = {"time": str(datetime.datetime.now()),"message": f"Setting {x_motor} = {x} and {y_motor} = {y} to 0"}
@@ -522,11 +523,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         if "Image" in self.currentImageType or self.currentImageType == "Double Motor":
             x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
-            y = (np.round(scenePos.y(), 3) * self.imageScale[1]) + self.yCenter - self.yRange / 2.
-            # x = (np.round(pos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
-            # y = (np.round(pos.y(), 3) * self.imageScale[1]) + self.yCenter - self.yRange / 2.
+            y = -((np.round(scenePos.y(), 3) * self.imageScale[1]) - self.yCenter - self.yRange / 2.)
             xUnits = " um"
             yUnits = " um"
+
         elif "Focus" in self.currentImageType:
             lineRange = np.sqrt(self.xLineRange**2 + self.yLineRange**2)
             x = (np.round(scenePos.x(), 3) * self.imageScale[0]) * lineRange / self.xPts + self.xCenter - lineRange / 2.
@@ -816,10 +816,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
             if "Image" in self.scan["scan_type"] or self.scan["scan_type"] == "Double Motor":
 
-                x = (scenePos.x() * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2. - self.xPixelSize / 2.
-                y = (scenePos.y() * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2. - self.yPixelSize / 2.
+                # x = (scenePos.x() * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2. - self.xPixelSize / 2.
+                # y = (scenePos.y() * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2. - self.yPixelSize / 2.
+                x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
+                y = -((np.round(scenePos.y(), 3) * self.imageScale[1]) - self.yCenter - self.yRange / 2.)
                 self.cursorX, self.cursorY = x,y
-                #print(f"[mouseClicked] cursoryY {self.cursorY}")
                 self.ui.motors2CursorButton.setEnabled(True)
                 if self.scan["scan_type"] == "Double Motor" or self.scan["scan_type"] == "OSA Image":
                     self.ui.setCursor2ZeroButton.setEnabled(True)
@@ -836,7 +837,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 x = np.round(scenePos.x(), 3) + self.imageCenter[0]
 
             pen = pg.mkPen(color = (0,255,0),width=1,style=QtCore.Qt.SolidLine)
-            self.horizontalLine = pg.InfiniteLine(pos = y, angle = 0, pen = pen)
+            self.horizontalLine = pg.InfiniteLine(pos = -y, angle = 0, pen = pen)
             self.verticalLine = pg.InfiniteLine(pos = x, angle = 90, pen = pen)
             self.ui.mainImage.addItem(self.horizontalLine)
             self.ui.mainImage.addItem(self.verticalLine)
@@ -867,14 +868,15 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.client.main_config["geometry"]["A0_calibrated"]:
                 newA0 = A0 - (self.zonePlateCalibration - self.cursorFocusZ)
                 print(f"Setting A0 to {newA0}")
-                self.updateA0(A0=newA0)
+                # self.updateA0(A0=newA0)
                 #change the motor offset to SampleZ such that it's position during the focus scan is set to the new A0 value.
                 sampleZ_offsetDelta=newA0-A0
                 newSampleZOffset = self.client.motorInfo["SampleZ"]["offset"]+sampleZ_offsetDelta
-                print(f"Setting SampleZ offset to {newSampleZOffset}")
+                print(f"Setting SampleZ offset to {newSampleZOffset}.")
                 message = {"command": "changeMotorConfig"}
                 message["data"] = {"motor":"SampleZ","config":"offset","value":newSampleZOffset}
                 self.messageQueue.put(message)
+                self.updateA0(A0=newA0)
                 time.sleep(0.5)
             else:
                 #This changes the ZonePlateZ offset
@@ -1568,6 +1570,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.activateGUI(refocus = False)
             self.scanning = False
         elif message["mode"] in self.imageScanTypes:
+            print(message)
             self.currentDataDir,self.currentFile = os.path.split(message["scanID"])
             self.stxm.NXfile = message["scanID"]
             elapsedTime = message["elapsedTime"]
@@ -2010,6 +2013,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def showROIs(self):
         for roi in self.roiList:
             self.ui.mainImage.addItem(roi)
+        self.ui.mainImage.autoRange()
 
     def hideROIs(self):
         for roi in self.roiList:
@@ -2328,6 +2332,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.xRange = xMax - xMin
         self.scanXrange = xMax - xMin
         self.scanYrange = yMax - yMin
+        self.xGlobalCenter, self.yGlobalCenter = 0,0
+        self.xGlobalRange, self.yGlobalRange = xMax - xMin, yMax - yMin
         try:
             self.ui.mainImage.removeItem(self.rangeROI)
         except:

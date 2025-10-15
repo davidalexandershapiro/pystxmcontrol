@@ -123,8 +123,8 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
                 controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
 
-            #print(coarse_only,scanInfo["include_return"],xcoarse,ycoarse)
-            #print(xStart_fine,xStop_fine,yStart_fine,yStop_fine)
+            print("[derived line image]", coarse_only,scanInfo["include_return"],xcoarse,ycoarse)
+            print("[derived line image]", xStart_fine,xStop_fine,yStart_fine,yStop_fine)
 
             if coarse_only:
                 xcoarse,ycoarse = 0.,0.
