@@ -42,7 +42,7 @@ async def derived_line_focus(scan, dataHandler, controller, queue):
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
         else:
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-        if controller.daq[daq].meta["oversampling_factor"] > 1:
+        if controller.daq[daq].meta["oversampling_factor"] > 1 or scanInfo["include_return"]:
             scanInfo["rawData"][daq]["interpolate"] = True
         else:
             scanInfo["rawData"][daq]["interpolate"] = False

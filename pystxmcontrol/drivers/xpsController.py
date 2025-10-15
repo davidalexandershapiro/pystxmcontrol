@@ -11,8 +11,8 @@ class xpsController(hardwareController):
         self.position = 0. #used for simulation mode
         self._nSockets = 0
         self._sockets = []
-        self._timeout = 30
-        self._position_tolerance = 5.0
+        self._timeout = 0.5
+        self._position_tolerance = 20.0
 
     def initialize(self, simulation = False):
         self.simulation = simulation
@@ -65,6 +65,7 @@ class xpsController(hardwareController):
             err,currentPos = self.getPosition(socketId, motor)
             positionErr = target - currentPos
             if abs(positionErr) > self._position_tolerance:
+                print(positionErr,self._position_tolerance)
                 if not(self.stopped):
                     if (time.time() - t0) > self._timeout:
                         print("XPS move timeout. Aborting...")

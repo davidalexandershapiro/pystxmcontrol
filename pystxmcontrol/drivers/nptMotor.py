@@ -127,6 +127,7 @@ class nptMotor(motor):
     def moveTo(self, pos = None):
         if self.checkLimits(pos):
             if not(self.simulation):
+                pos = round((pos - self.config["offset"]) / self.config["units"],3)
                 self.controller.moveTo(axis = self._axis, pos = pos)
                 time.sleep(0.01) #piezo settling time of 10 ms
             else:
@@ -169,7 +170,9 @@ class nptMotor(motor):
 
     def getPos(self):
         if not(self.simulation):
-            return self.controller.getPos(axis = self._axis)
+            pos = self.controller.getPos(axis = self._axis)
+            self.position = pos * self.config["units"] + self.config["offset"]
+            return self.position
         else:
             return self.position
             

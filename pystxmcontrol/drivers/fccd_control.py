@@ -6,9 +6,10 @@ import zmq
 from pystxmcontrol.drivers.cin import CIN
 from pystxmcontrol.drivers.fccd import FCCD
 import asyncio
+import zmq.asyncio as zmq_asyncio
 
 class fccd_control(daq):
-    def __init__(self, address = "131.243.73.179", port = 49206, simulation = False, shape = (1040,1152)):
+    def __init__(self, address = "131.243.73.85", port = 49206, simulation = False, shape = (1040,1152)):
         self.address = address
         self.port = port
         self.addr = 'tcp://%s' % (self.address + ':' + str(self.port))
@@ -27,12 +28,13 @@ class fccd_control(daq):
     def start(self):
         self.fbuffer = []
         if not (self.simulation):
-            context = zmq.Context()
+            context = zmq_asyncio.Context()
             self.frame_socket = context.socket(zmq.SUB)
             self.frame_socket.setsockopt(zmq.SUBSCRIBE, b'')
-            self.frame_socket.set_hwm(2000)
+            self.frame_socket.setsockopt(zmq.MAXMSGSIZE,2**34)
+            self.frame_socket.set_hwm(10000)
             self.frame_socket.connect(self.addr)
-            print("Connected to CCD frame server.")
+            print(f"[fccd control] Subscribed to {self.addr}")
 
     def stop(self):
         if not (self.simulation):
@@ -48,9 +50,6 @@ class fccd_control(daq):
         """
         pass
 
-    # def config(self, dwell, dwell2 = 0, exposure_mode = 0,count  = 1, samples = 1,trigger = 'BUS'):
-    #     self.dwell = dwell
-    #     self.dwell2 = dwell2
     def config(self, dwell, exposure_mode = 0, count  = 1, samples = 1, trigger = 'BUS'):
         if isinstance(dwell,list):
             self.dwell,self.dwell2 = dwell
@@ -81,12 +80,13 @@ class fccd_control(daq):
             self.data = 2. * np.random.random((1040,1152))
             return self.data
         else:
-            return self.zmq_receive()
+            self.data = await self.zmq_receive()
+            return self.data
 
     def getLine(self):
         pass
 
-    def zmq_receive(self):
+    async def zmq_receive(self):
         if self.timeout == 0:
             number, frame = self.frame_socket.recv_multipart()  # blocking
             # Could have been stopped in the meantime, so we need to
@@ -104,22 +104,23 @@ class fccd_control(daq):
                 if t1 < self.timeout:
                     try:
                         #print("Waiting for frame...")
-                        number, frame = self.frame_socket.recv_multipart(flags=zmq.NOBLOCK)  # blocking
-                        #print("received frame: ", number)
+                        #number, frame = self.frame_socket.recv_multipart(flags=zmq.NOBLOCK)  # not blocking
+                        frame = await self.frame_socket.recv(flags=zmq.NOBLOCK)
+                        print(frame)
                         frame_received = True
-                        #print("Received frame %i" %np.frombuffer(number,'<u2'))
-                    except zmq.ZMQError:
+                    except zmq.ZMQError as e:
                         time.sleep(slp)
                         continue
                     else:
-                        return self.frame_to_image((number,frame))
+                        return self.frame_to_image((frame))
                 else:
                     return None
 
 
     def frame_to_image(self, frame):
-        num, buf = frame
-        self.framename = num
+        print("Assembling frame...")
+        buf = frame
+        # self.framename = num
         npbuf = np.frombuffer(buf, '<u2')
         npbuf = npbuf.reshape((12 * self.num_rows, self.num_adcs))
         image = self.CCD.assemble2(npbuf.astype(np.uint16))

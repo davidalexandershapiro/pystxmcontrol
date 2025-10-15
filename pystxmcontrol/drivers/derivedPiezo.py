@@ -171,6 +171,7 @@ class derivedPiezo(motor):
                         self.positions = self.axes["axis1"].controller.trigger_1d_waveform()
                     else:
                         self.positions = self.axes["axis1"].controller.acquire_xy(axes=axes)
+
                     self.positions = self.scale2gui(self.positions[0]) + offset[0], self.scale2gui(self.positions[1]) + offset[1]
                 else:
                     xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],
@@ -223,6 +224,7 @@ class derivedPiezo(motor):
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
+        #print(f"[derived piezo] axis {self.axis}, requested {pos}, delta {deltaPos}, current {self.getPos()}")
         if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
             self.axes["axis1"].moveTo(newFinePos)
         else:
@@ -235,10 +237,10 @@ class derivedPiezo(motor):
                 self.axes["axis1"].setZero()
                 if not(coarse_only):
                     self.axes["axis1"].servoState(True)
-            # #use the piezo to clean up slop in the coarse motion
-            # deltaPos = pos - self.getPos()
-            # if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
-            #     self.axes["axis1"].moveTo(deltaPos)
+            #use the piezo to clean up slop in the coarse motion
+            deltaPos = pos - self.getPos()
+            if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
+                self.axes["axis1"].moveTo(deltaPos)
 
         self.moving = False
 
