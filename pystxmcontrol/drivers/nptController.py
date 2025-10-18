@@ -528,6 +528,7 @@ class nptController(hardwareController):
         count = 1
         distance = abs(stop_pos[axis-1] - start_pos[axis-1])
         dwell = distance/velocity
+        print(f"[npt controller moveTo2] dwell {dwell}, distance {distance}, velocity {velocity}", stop_pos,start_pos)
         self.setup_trajectory(axis,start_pos,stop_pos,dwell,count,pad=[0,0])
         self.acquire_xy(axes=[axis])
             
@@ -586,6 +587,7 @@ class nptController(hardwareController):
         self.trajectory["stop_y"] = stop_y
         self.trajectory["velocitySum"] = velocitySum
         self.trajectory["distance"] = distance
+        self.trajectory["return_velocity"] = 0.3
         self.npositions = trajectory_pixel_count
 
     def acquire_xy(self,axes=[1,],**kwargs):
@@ -593,7 +595,7 @@ class nptController(hardwareController):
         #center/range are in microns, velocity is microns/millisecond and dwell is millisecond
         for axis in axes:
             self.writeToDev4B(self.getAxisAddress(axis)+0xB10, 1)  # enable trajectory generation on axis 1
-        self.writeToDev4B(0x1182A000, 2) #Number of coordinates in trajectory, just doing a line here
+        self.writeToDev4B(0x1182A000, 3) #Number of coordinates in trajectory, just doing a line here
         self.writeToDev4B(0x1182A004, 1) #Number of trajectory iterations
 
         ##write the positions, velocity, acceleration, jerk and dwell for the two coordinates
@@ -618,6 +620,8 @@ class nptController(hardwareController):
         #Dwell at start
         self.writeNext(self.timeToCounts(0.0))
 
+        ###########################################################################
+        ###########################################################################
         ##Repeat for second coordinate
         self.writeNext(self.trajectory["stop_x"])
         self.writeNext(self.trajectory["stop_y"])
@@ -629,22 +633,50 @@ class nptController(hardwareController):
         self.writeNext(self.nmToSteps(0.))
 
         #now for the velocity limit
-        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["return_velocity"]))
 
         #Acceleration limit
-        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["return_velocity"]))
 
         #Jerk limit
-        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["velocitySum"]))
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["return_velocity"]))
 
         #Dwell at start
         self.writeNext(self.timeToCounts(0.0))
+
+        ###########################################################################
+        ###########################################################################
+        ##Add a third point for the return trip
+        self.writeNext(self.trajectory["start_x"])
+        self.writeNext(self.trajectory["start_y"])
+
+        #the next 4 values are blank
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+        self.writeNext(self.nmToSteps(0.))
+
+        #now for the velocity limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["return_velocity"]))
+
+        #Acceleration limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["return_velocity"]))
+
+        #Jerk limit
+        self.writeFloat32(self.vLimitToCountLoop(self.trajectory["return_velocity"]))
+
+        #Dwell at start
+        self.writeNext(self.timeToCounts(0.0))
+        ###########################################################################
+        ###########################################################################
 
         #Start the trajectory
         self.writeToDev4B(0x11829048,1)
 
         #just wait the expected time (plus 10 ms) and then exit.  Assumes accurate velocity
-        time.sleep(1. * self.trajectory["distance"] / self.trajectory["velocitySum"] / 1000.+0.01)
+        forward_time = self.trajectory["distance"] / self.trajectory["velocitySum"] / 1000.
+        reverse_time = self.trajectory["distance"] / self.trajectory["return_velocity"] / 1000.
+        time.sleep(forward_time+reverse_time+0.0)
 
         #Stop the trajectory, just to be certain?
         self.writeToDev4B(0x1182904C,1)

@@ -157,6 +157,7 @@ class controller:
         
 
     def moveMotor(self, axis, pos, **kwargs):
+        print(f"[controller] moving motor {axis} to {pos}")
         if self._logger is not None:
             self._logger.log(f"Controller moved motor {axis} to position {pos}",level="info")
         if "varType" in self.motorConfig[axis].keys():
@@ -179,8 +180,6 @@ class controller:
         
     def getMotorConfig(self, motor):
         return self.motors[motor]["motor"].config
-
-    
 
     def startMonitor(self):
         #the monitor is now a coroutine so that the queues can be asyncio.Queues.  Need a helper function to 

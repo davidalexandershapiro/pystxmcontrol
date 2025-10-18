@@ -566,13 +566,26 @@ class stxm:
             print("Failed to open file: %s" %stxm_file)
             return
         self.meta = {}
-        self.meta["file_name"] = stxm_file
-        self.meta["experimenters"] = f["entry0/experimenters"][()][0].decode()
-        self.meta["sample_description"] = f["entry0/sample_description"][()][0].decode()
-        self.meta["proposal"] = f["entry0/proposal"][()][0].decode()
-        self.meta["start_time"] = f["entry0/start_time"][()][0].decode()
-        self.meta["end_time"] = f["entry0/end_time"][()][0].decode()
-        self.meta["scan_type"] = f["entry0/counter0/stxm_scan_type"][()][0].decode()
+        #Version 3 brought a major revision in the names of the various entries.  Names were mostly consistent before that.
+        if self.meta["version"] < 3:
+            self.meta["start_time"] = self._nx_reader["entry0/start_time"][()][0].decode()
+            self.meta["end_time"] = self._nx_reader["entry0/end_time"][()][0].decode()
+            self.meta["experimenters"] = self._nx_reader["entry0/experimenters"][()][0].decode()
+            self.meta["sample_description"] = self._nx_reader["entry0/sample_description"][()].decode()
+            self.meta["proposal"] = self._nx_reader["entry0/proposal"][()].decode()
+            self.meta["scan_type"] = self._nx_reader["entry0/counter0/stxm_scan_type"][()].decode()
+        else:
+            self.meta["start_time"] = self._nx_reader["entry0/start_time"][()].decode()
+            self.meta["end_time"] = self._nx_reader["entry0/end_time"][()].decode()
+            self.meta["experimenters"] = self._nx_reader["entry0/experimenters"][()].decode()
+            self.meta["sample_description"] = self._nx_reader["entry0/sample/description"][()].decode()
+            self.meta["proposal"] = self._nx_reader["entry0/title"][()].decode()
+            self.meta["scan_type"] = self._nx_reader["entry0/default/stxm_scan_type"][0].decode()
+            self.meta["daq_list"] = []
+            for daq in list(self._nx_reader[f"entry0/instrument"]):
+                if "type" in self._nx_reader[f"entry0/instrument/{daq}"].attrs.keys():
+                    if self._nx_reader[f"entry0/instrument/{daq}"].attrs["type"].decode() == "photon":
+                        self.meta["daq_list"].append(daq)
         self.nRegions = len(list(f))
         self.data = {}
         
@@ -652,7 +665,29 @@ class stxm:
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
                 
-            
+        #major revision in the entry names and data structure to make this nexus compliant
+        elif self.meta["version"] == 3.0:
+             for i in range(self.nRegions):
+                entryStr = 'entry' + str(i)
+                self.data[entryStr] = {}
+                self.data[entryStr]["motors"] = {}
+                for item in list(self._nx_reader[entryStr + "/instrument/motors"]):
+                    self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/instrument/motors/" + item][()]
+                self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/instrument/monochromator/energy"][()].astype("float64")
+                self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/default/count_time"][()].astype("float64")
+                ##this ignores all daqs but default
+                self.data[entryStr]["counts"] = self._nx_reader[entryStr + f"/default/data"][()].astype("float64")
+                self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/default/sample_x"][()]).astype("float64")
+                self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/default/sample_y"][()]).astype("float64")
+                xpos = self.data[entryStr]["xpos"]
+                ypos = self.data[entryStr]["ypos"]
+                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/(xpos.size - 1)
+                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/(ypos.size - 1)
+                try:
+                    self.meta["x_motor"] = self._nx_reader[entryStr + "/data/motor_name_x"][()].decode()
+                    self.meta["y_motor"] = self._nx_reader[entryStr + "/data/motor_name_y"][()].decode()
+                except:
+                    pass            
 
             
         else:

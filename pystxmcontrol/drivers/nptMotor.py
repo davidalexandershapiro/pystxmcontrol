@@ -76,6 +76,7 @@ class nptMotor(motor):
         
     def setPositionTriggerOn(self, pos, debug = False):
         if not(self.simulation):
+            #pos = round((pos - self.config["offset"]) / self.config["units"],3)
             if debug:
                 print(f"[nptMotor] Turning position trigger on for axis {self._axis} at position {pos}")
             self.controller.setPositionTrigger(pos = pos, axis = self._axis, mode = 'on')
@@ -129,18 +130,7 @@ class nptMotor(motor):
             if not(self.simulation):
                 pos = round((pos - self.config["offset"]) / self.config["units"],3)
                 self.controller.moveTo(axis = self._axis, pos = pos)
-                time.sleep(0.01) #piezo settling time of 10 ms
-            else:
-                self.position = pos
-                time.sleep(self.waitTime / 1000.)
-        else:
-            print("[nPoint] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
-
-    def moveTo2(self, pos = None):
-        if self.checkLimits(pos):
-            if not(self.simulation):
-                self.controller.moveTo2(axis = self._axis, pos = pos)
-                time.sleep(0.01) #piezo settling time of 10 ms
+                #time.sleep(0.01) #piezo settling time of 10 ms
             else:
                 self.position = pos
                 time.sleep(self.waitTime / 1000.)

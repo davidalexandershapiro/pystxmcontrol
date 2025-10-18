@@ -196,6 +196,7 @@ class derivedPiezo(motor):
                 self.axes["axis2"].setAxisParams(velocity = velocity)
                 t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
+                print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
                 self.axes["axis2"].setAxisParams(velocity = 2.0)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:

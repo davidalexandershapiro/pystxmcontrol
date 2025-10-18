@@ -10,6 +10,7 @@ class bcsMotor(motor):
         self.offset = 0.
         self.units = 1.
         self.moving = False
+        self._timeout = 1.
 
     def connect(self, axis = 'x'):
         self.axis = axis
@@ -44,6 +45,7 @@ class bcsMotor(motor):
             pos = (pos - self.config["offset"]) / self.config["units"]
             if (self.axis is not None) and not(self.controller.simulation):
                 with self.lock:
+                    t0 = time.time()
                     message = ('moveto %s %f\r\n') % (self.axis, pos)
                     self.moving = True
                     self.controller.controlSocket.sendall(message.encode())
@@ -57,6 +59,9 @@ class bcsMotor(motor):
                 while status.split('.')[0] != "Move finished":
                     time.sleep(0.1)
                     status = self.getBCSStatus()
+                    if (time.time()-t0) > self._timeout:
+                        self.moving = False
+                        return
                 self.moving = False
                 return retval
             elif self.controller.simulation:
