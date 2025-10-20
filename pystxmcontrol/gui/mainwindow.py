@@ -1396,7 +1396,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def beginScan(self):
         self.tiled_scan = False
         scanCheck = self.scanCheck()
-        print(self.scan)
         if scanCheck is None:
             self.scanning = True
             self.deactivateGUI()
@@ -2527,9 +2526,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             #This get's called twice on startup for some reason, first time before there are any scanReg's in the list
             if len(self.scanRegList) > 0: 
                 self.setGUIfromScan(self.last_scan[scanType])
-            self.ui.toggleSingleEnergy.setCheckState(QtCore.Qt.Checked)
+            #self.ui.toggleSingleEnergy.setCheckState(QtCore.Qt.Checked)
             self.ui.toggleSingleEnergy.setEnabled(True)
-            self.setSingleEnergy()
+            #self.setSingleEnergy()
             self.ui.xMotorCombo.setEnabled(False)
             self.ui.yMotorCombo.setEnabled(False)
             if "Ptychography" in scanType:
