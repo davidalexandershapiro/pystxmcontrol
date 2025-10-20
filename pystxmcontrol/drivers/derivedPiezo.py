@@ -164,6 +164,7 @@ class derivedPiezo(motor):
             axes = kwargs["axes"]
         else:
             axes = [1,]
+        print('offset for scan: {}'.format(offset))
         if self.lineMode == 'continuous':
             if not(coarse_only):
                 if not (self.simulation):
@@ -216,12 +217,13 @@ class derivedPiezo(motor):
             self.position = self.position + step
 
     def moveTo(self, pos = None, sleep = True, **kwargs):
-        pos = (pos - self.config["offset"]) / self.config["units"]
+        #pos = (pos - self.config["offset"]) / self.config["units"]
         if "coarse_only" in kwargs.keys():
             coarse_only = kwargs["coarse_only"]
         else:
             coarse_only = False
         self.moving = True
+        #print('moving to {} from {}'.format(pos, self.getPos()))
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
         if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
@@ -250,6 +252,7 @@ class derivedPiezo(motor):
         if self.config["reset_after_move"]:
             self.axes["axis1"].servoState(False)
             self.axes["axis1"].setZero()
+        print('moving coarse motor to {}'.format(pos))
         self.axes["axis2"].moveTo(pos)
         if self.config["reset_after_move"]:
             self.axes["axis1"].setZero()

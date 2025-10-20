@@ -45,6 +45,19 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
     else:
         controller.daq["default"].gate.mode = "close"
 
+    ## NOTE DAYNE EDIT 20251014: I'm implementing some ZOnePlateZ motion correction for tilted samples
+    # based on stuff in the 2025-05-21 logbook for reflection imaging
+
+    ## Put angle correction setup code here. Calculate zPos
+    ###########################################################
+    #sample_tilt = np.deg2rad(46.11) # Convert degree to radian. You need to put your angle here.
+    #y_initial = scan["scan_regions"][scanRegion]["yCenter"]#np.mean(yPos)
+    #z_initial = -10744.4 # Hard coding the ZonePlateZ position #controller.motors['ZonePlateZ']['motor'].getPos()
+    #zPos = (z_initial - (np.array(yPos) - y_initial) / np.tan(sample_tilt)).tolist()
+    ###########################################################
+
+    # END DAYNE EDIT
+
     frame_num = 0
     scanInfo["ccd_frame_num"] = frame_num
     for i in range(len(yPos)):
@@ -54,6 +67,12 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         scanInfo["motorPositions"] = controller.allMotorPositions
         controller.moveMotor(scan["y_motor"], yPos[i])
         controller.moveMotor(scan["x_motor"], xPos[i])
+
+        # NOTE DAYNE EDIT 20251014: The following line corrects ZonePlateZ motion for sample surface tilt angle
+
+        #controller.moveMotor("ZonePlateZ", zPos[i])
+
+        # END DAYNE EDIT
 
         xpts = scan["scan_regions"][scanRegion]["xPoints"]
         ypts = scan["scan_regions"][scanRegion]["yPoints"]
@@ -66,7 +85,16 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         scanInfo["xVal"], scanInfo["yVal"] = xPos[i], yPos[i] * np.ones(len(xPos))
         scanInfo['xPos'] = xPos[i]
         scanInfo['yPos'] = yPos[i]
+
+        # NOTE DAYNE EDIT 20251014: Add scanInfo for ZonePlateZ
+
+        #scanInfo['zPos'] = zPos[i]
+        #print(f'SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[i]}')
+
+        # END DAYNE EDIT
+
         scanInfo['isDoubleExposure'] = scan['doubleExposure']
+
 
         if queue.empty():
             if scan["doubleExposure"]:
@@ -152,9 +180,13 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             scanInfo["rawData"][daq]["interpolate"] = False
 
     print("starting ptychography scan: ", scanID)
+
+    #EDIT 20251013: We're getting stuck at the if statement below. I think the diode is getting stuck?..
+    #               The if statement will be temporarily commented out
     if scanInfo['retract']:
         retractSTXMDetector(controller)
-    print('Done retracting STXM diode')
+
+    print('Done with retracting STXM diode')
 
     if scan["doubleExposure"]:
         dwell1 = scanInfo["dwell"] * 10.
@@ -163,6 +195,8 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
         dwell1 = scanInfo["dwell"]
         dwell2 = 0
 
+    print('Done with double exposure statement')
+
     #numMotorPoints should be the total number of motor position measurements expected
     #numDAQPoints should be equal to xPoints * oversampling
     numLineMotorPoints = len(xPos) #this configures the DAQ for one line
@@ -170,9 +204,13 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
     scanInfo['numMotorPoints'] = numLineMotorPoints * len(yPos) #total number of motor points configures the full data structrure
     scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
     controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "BUS")
+    # controller.daq["ccd"].start()
+    # controller.daq["ccd"].config(dwell1 + 10., dwell2 + 10., scan["doubleExposure"])
 
     if "outerLoop" in scan.keys():
         loopMotorPos = getLoopMotorPositions(scan)
+    print('Done with get loop motor positions')
+
     currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
 
     for energy in energies:
@@ -260,6 +298,43 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 yp = yp + (np.random.rand(len(yp)) - 0.5) * scanMeta["step_size_y"] / 2.
             scanMeta["translations"] = [pos for pos in zip(yp, xp)]
 
+            # NOTE Dayne EDIT 2025-02-11-1045: Define the ZonePlateZ values here
+            #           2025-02-11-1310: The code is written within the comment block
+            #           2025-02-11-1314: TODO: Consider how the ZonePlateZ tilt adjustment
+            #                            needs to be further adjusted for spectromicroscopy
+            #if abs(scanInfo['scan']['sampleAngle']) > 0.5:  # degrees
+                #pass
+            # Call calcTiltZPCorrection in scan_utils.py. This calculates the
+            # ZonePlateZ tilt correction using the tilt angle stored in
+            # scanInfo and the current SampleY and ZonePlateZ positions
+            # (which is assumed to give the focus the user desires)
+
+            # NOTE EDIT 20251014: Inserting the function for calcCorrectedZPTilt from scan_utils since the last
+            #                     set of scan files we used dissappeared somewhere
+            # Convert the sample angle to radian
+            #sample_tilt = np.deg2rad(SAMPLE_ANGLE)
+
+            # Grab the current ZonePlateZ and SampleY positions
+
+            # Set the position to the center of the scan
+            #y_initial = np.mean(yPos)
+            # y_initial = controller.motors['SampleY']['motor'].getPos()
+            #z_initial = controller.motors['ZonePlateZ']['motor'].getPos()
+
+            # Calculate the tilt-corrected ZonePlateZ positions
+            #zPos = z_initial - (np.array(yPos) - y_initial) / np.tan(sample_tilt)
+
+            #zp = zPos.tolist()
+            #print('zPos')
+            #print(zp[0])
+            #print(f"Length of zp: {len(zp)}")
+            #print(f"Length of yp: {len(yp)}")
+            # Run a test to make sure that zp has the correct positions
+            #print('Printing corrected ZonePlateZ positions')
+            #print(zp)
+            #print('Ok nothing broke (yet)')
+            ## END DAYNE EDIT
+
             scanMeta["n_repeats"] = scan["n_repeats"]
             #remove the asyncio.event so it can be serialized in the output file
             scan_copy = {k: v for k, v in scan.items() if k != "synch_event"}
@@ -276,8 +351,13 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             xp_dark = np.linspace(xp.min(), xp.max(), 5)
             yp_dark = np.linspace(yp.min(), yp.max(), 5)
 
+            # 20251013: THIS IS A DAYNE EDIT; REMOVE AFTER REFLECTION BEAM TIME
+            #zp_dark = np.ones((5,)) * controller.motors['ZonePlateZ']['motor'].getPos()
+            # END DAYNE EDIT
+
             scanInfo["ccd_mode"] = "dark"
             print("acquiring background")
+            # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement
             if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
                 await dataHandler.dataQueue.put('endOfRegion')
             else:
@@ -289,8 +369,9 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 return
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
-
+            # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement
             if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp, yp, zPos[j]), dataHandler, controller, queue, shutter=True,scanRegion=scanRegion):
+
                 #there is a race condition happening because apparently this is not thread safe
                 #I need to wait after sending the 'endOfRegion' flag to ensure data makes it through
                 await dataHandler.dataQueue.put('endOfRegion')

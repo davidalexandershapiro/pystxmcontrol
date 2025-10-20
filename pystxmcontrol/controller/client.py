@@ -44,9 +44,6 @@ class ccd_monitor(QtCore.QThread):
             i = 0.
             while self.monitor:
                 self.number, buf = frame_socket.recv_multipart()  # blocking
-                # npbuf = np.frombuffer(buf[2304 * (975-self.roi -10) * 2: 2304 * 975 *2],'<u2')
-                # pedestal = np.frombuffer(buf[2304 * 100 * 2: 2304 * 300 *2],'<u2')
-                # print npbuf.size / 2304
                 npbuf = np.frombuffer(buf[row_bytes * 5: row_bytes * (self.roi + 15)], '<u2')
                 pedestal = np.frombuffer(buf[row_bytes * 5: row_bytes * 55], '<u2')
                 npbuf = npbuf.reshape((npbuf.size // self.CCD._nbmux, self.CCD._nbmux)).astype('float')
@@ -54,8 +51,7 @@ class ccd_monitor(QtCore.QThread):
                 if i == 0.:
                     bg = npbuf.copy()
                 assembled = self.CCD.assemble_nomask(npbuf - bg)
-                self.frame = assembled  
-                #self.frame[0:480,840:] = 0.
+                self.frame = assembled
                 self.frame[self.frame < 1] = 1.
                 self.framedata.emit(np.log10(self.frame.T/400.))
                 i += 1.

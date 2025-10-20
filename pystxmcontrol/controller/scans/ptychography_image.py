@@ -3,6 +3,8 @@ from pystxmcontrol.utils.writeNX import stxm
 import numpy as np
 import time, datetime
 
+# Define this parameter if you're setting the sample angle to something
+SAMPLE_ANGLE = 0
 
 def insertSTXMDetector(controller):
     controller.moveMotor("Detector Y", 0)
@@ -40,6 +42,11 @@ def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, q
     else:
         controller.daq["default"].gate.mode = "close"
 
+    # NOTE EDIT 2025-02-11-0930: What do we want to do here?...
+    if abs(scanInfo['scan']['sampleAngle'])>0.5: #degrees
+        pass
+    # END EDIT
+
     frame_num = 0
     scanInfo["ccd_frame_num"] = frame_num
     for i in range(len(yPos)):
@@ -49,6 +56,14 @@ def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, q
         scanInfo["motorPositions"] = controller.allMotorPositions
         controller.moveMotor(scan["y"], yPos[i])
         controller.moveMotor(scan["x"], xPos[i])
+        # NOTE EDIT 2025-02-11-1404: Unless the sample tilt is greater than some threshold angle
+        #                            (in this case 0.5 degree), then don't bother moving
+        #                            ZonePlateZ. We may want to revisit this angle...
+        if abs(scanInfo['scan']['sampleAngle']) > 0.5:
+            controller.moveMotor('ZonePlateZ', zPos[i])
+        # END EDIT
+        # print(f'This motor movement set took {time.time() - time_start} seconds')
+
         scanInfo['zIndex'] = 0
         scanInfo['lineIndex'] = i // scanInfo['nXPoints']
         scanInfo['columnIndex'] = i % scanInfo['nXPoints']
@@ -58,6 +73,12 @@ def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, q
         scanInfo['xPos'] = xPos[i]
         scanInfo['yPos'] = yPos[i]
         scanInfo['isDoubleExposure'] = scan['doubleExposure']
+
+        # NOTE EDIT 2025-02-11-1245: Here, we want to update zPos[i] in scanInfo.
+        if abs(scanInfo['scan']['sampleAngle']) > 0.5:
+            #pass
+            scanInfo['zPos'] = zPos[i]
+        # END EDIT
         if queue.empty():
             if scan["doubleExposure"]:
                 scanInfo['dwell'] = dwell2
@@ -224,6 +245,28 @@ def ptychography_image(scan, dataHandler, controller, queue):
                 xp = xp + (np.random.rand(len(xp)) - 0.5) * scanMeta["step_size_x"] / 2.
                 yp = yp + (np.random.rand(len(yp)) - 0.5) * scanMeta["step_size_y"] / 2.
             scanMeta["translations"] = [pos for pos in zip(yp, xp)]
+
+            # NOTE EDIT 2025-02-11-1045: Define the ZonePlateZ values here
+            #           2025-02-11-1310: The code is written within the comment block
+            #           2025-02-11-1314: TODO: Consider how the ZonePlateZ tilt adjustment
+            #                            needs to be further adjusted for spectromicroscopy
+            #if abs(scanInfo['scan']['sampleAngle']) > 0.5:  # degrees
+                #pass
+            # Call calcTiltZPCorrection in scan_utils.py. This calculates the
+            # ZonePlateZ tilt correction using the tilt angle stored in
+            # scanInfo and the current SampleY and ZonePlateZ positions
+            # (which is assumed to give the focus the user desires)
+            zp = calcCorrectedZPTilt(yPos=yp,scanInfo=scanInfo, controller=controller)
+            print('zPos')
+            print(zp[0])
+            print(f"Length of zp: {len(zp)}")
+            print(f"Length of yp: {len(yp)}")
+            # Run a test to make sure that zp has the correct positions
+            print('Printing corrected ZonePlateZ positions')
+            #print(zp)
+            print('Ok nothing broke (yet)')
+            # END EDIT
+
             scanMeta["n_repeats"] = scan["n_repeats"]
             scanMeta["scan"] = scan
 

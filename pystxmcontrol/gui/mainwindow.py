@@ -145,6 +145,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.xMotorCombo.currentIndexChanged.connect(self.setEnergyScan)
         self.ui.A1Edit.setEnabled(False)
         #self.ui.scan_angle.valueChanged.connect(self.updateDial)
+        self.ui.showRangeFinder.setCheckState(QtCore.Qt.Unchecked)
 
         self.tiled_scan = False
         self.maxVelocity = 1.0
@@ -306,6 +307,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             sampleX = self.currentMotorPositions['SampleX']
             sampleY = self.currentMotorPositions['SampleY']
             self.scanRegList[0].ui.xCenter.setText(str(round(sampleX,2)))
+            print(f"[setEnergyScan] Setting scan y Center {sampleY}")
             self.scanRegList[0].ui.yCenter.setText(str(round(sampleY,2)))
             self.scanRegList[0].ui.xRange.setText('0.0')
             self.scanRegList[0].ui.yRange.setText('0.0')
@@ -817,7 +819,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if "Image" in self.scan["scan_type"] or self.scan["scan_type"] == "Double Motor":
 
                 x = (scenePos.x() * self.imageScale[0]) + self.xGlobalCenter - self.xGlobalRange / 2. - self.xPixelSize / 2.
-                y = (scenePos.y() * self.imageScale[1]) + self.yGlobalCenter - self.yGlobalRange / 2. - self.yPixelSize / 2.
+                y = (scenePos.y() * self.imageScale[1]) - self.yGlobalCenter - self.yGlobalRange / 2. - self.yPixelSize / 2.
                 self.cursorX, self.cursorY = x,y
                 #print(f"[mouseClicked] cursoryY {self.cursorY}")
                 self.ui.motors2CursorButton.setEnabled(True)
@@ -881,6 +883,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 offsetDelta = (self.zonePlateCalibration - A0 - self.cursorFocusZ)
                 print('cursorZ position: {}'.format(self.cursorFocusZ))
                 print('requested zone plate position: {}'.format(self.zonePlateCalibration-A0))
+                print('Calibrated zone plate Position: {}'.format(self.zonePlateCalibration))
                 print('old offset: {}'.format(self.zonePlateOffset))
                 newOffset = self.zonePlateOffset + offsetDelta
                 print(f"Setting ZonePlateZ offset to {newOffset}")
@@ -984,7 +987,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 str(np.round(self.currentMotorPositions[str(self.ui.motorMover2.currentText())], 3)))
 
     def activateGUI(self, refocus = True):
-        print("Activating GUI")
         self.ui.compositeImageCheckbox.setEnabled(True)
         self.ui.removeLastImageButton.setEnabled(True)
         self.ui.clearImageButton.setEnabled(True)
@@ -1185,6 +1187,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.scan["scan_regions"][regStr]["xRange"] = xRange
             self.scan["scan_regions"][regStr]["yRange"] = yRange
             self.scan["scan_regions"][regStr]["xCenter"] = xCenter
+            print(f"[compile scan] yCenter {yCenter}")
             self.scan["scan_regions"][regStr]["yCenter"] = yCenter
             self.scan["scan_regions"][regStr]["zStart"] = zCenter - zRange / 2.0 + zStep / 2.
             self.scan["scan_regions"][regStr]["zStop"] = zCenter + zRange / 2.0 - zStep / 2.
@@ -1544,7 +1547,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateImageFromCCD(self, ccdData):
         self.currentCCDData = ccdData
         if self.ui.channelSelect.currentText() == "CCD":
-            self.ui.mainImage.setImage(self.currentCCDData, autoRange=self.ui.autorangeCheckbox.isChecked(),
+            self.ui.mainImage.setImage(self.currentCCDData.T, autoRange=self.ui.autorangeCheckbox.isChecked(),
                                                autoLevels=self.ui.autoscaleCheckbox.isChecked(), \
                                                autoHistogramRange=self.ui.autorangeCheckbox.isChecked(), pos=(0,0),
                                                scale=(1,1))
@@ -1607,7 +1610,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             # self.yCenter = (max(yCenters)+min(yCenters))/2.
 
             self.xCenter = self.scan["scan_regions"][message["scanRegion"]]["xCenter"]
-            self.yCenter = -self.scan["scan_regions"][message["scanRegion"]]["yCenter"]
+            self.yCenter = self.scan["scan_regions"][message["scanRegion"]]["yCenter"]
             self.zCenter = self.scan["scan_regions"][message["scanRegion"]]["zCenter"]
             self.xRange = self.scan["scan_regions"][message["scanRegion"]]["xRange"]
             self.yRange = self.scan["scan_regions"][message["scanRegion"]]["yRange"]
@@ -1759,7 +1762,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
             self.updatePlot(message)
         try:
-            self.updateImageFromCCD(message["rawData"]["CCD"]["data"])
+            self.updateImageFromCCD(message["data"]["CCD"])
         except:
             pass
         xPos = self.currentMotorPositions["SampleX"]
@@ -1915,6 +1918,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xStep = self.xRange / x
                 self.yStep = self.yRange / y
                 self.scanRegList[i].ui.xCenter.setText(str(np.round(self.xCenter, 3)))
+                print(f"[scanFromNX] Setting scan y Center {self.yCenter}")
                 self.scanRegList[i].ui.yCenter.setText(str(np.round(self.yCenter, 3)))
                 self.scanRegList[i].ui.xRange.setText(str(np.round(self.xRange, 3)))
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
@@ -1970,6 +1974,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xStep = scan["scan_regions"]["Region" + str(i+1)]["xStep"]
                 self.yStep = scan["scan_regions"]["Region" + str(i+1)]["yStep"]
                 self.scanRegList[i].ui.xCenter.setText(str(np.round(self.xCenter, 3)))
+                print(f"[setGUIfromScan] Setting scan y Center {self.yCenter}")
                 self.scanRegList[i].ui.yCenter.setText(str(np.round(self.yCenter, 3)))
                 self.scanRegList[i].ui.xRange.setText(str(np.round(self.xRange, 3)))
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
@@ -2026,11 +2031,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         xPoints = int(self.scanRegList[i].ui.xNPoints.text()) #self.scan["scan_regions"][regStr]['xPoints']
         yPoints = int(self.scanRegList[i].ui.yNPoints.text()) #self.scan["scan_regions"][regStr]['yPoints']
         self.scanRegList[i].ui.noEmit = True
+        print(roi.pos(),self.xCenter,self.yCenter)
         if scanType == "image":
             xRange = roi.size()[0]
             yRange = roi.size()[1]
             xCenter = roi.pos()[0] + xRange / 2.
-            yCenter = roi.pos()[1] + yRange / 2.
+            yCenter = (roi.pos()[1] + yRange / 2.)
             newXStep = np.round(xRange / xPoints,3)
             newYStep = np.round(yRange / yPoints,3)
             self.scanRegList[i].ui.xRange.setText(str(np.round(xRange, 3)))
@@ -2046,6 +2052,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             x1 = roi.mapSceneToParent(roi.getHandles()[1].scenePos()).x()
             y0 = roi.mapSceneToParent(roi.getHandles()[0].scenePos()).y()
             y1 = roi.mapSceneToParent(roi.getHandles()[1].scenePos()).y()
+            print('ROI Positions: ', x0, x1, y0, y1)
             self.xLineRange = np.abs(x1 - x0)
             self.yLineRange = np.abs(y1 - y0)
             xCenter = np.min((x0,x1)) + self.xLineRange / 2.
@@ -2067,7 +2074,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.lineLengthEdit.setText(str(np.round(length,3)))
 
         self.scanRegList[i].ui.xCenter.setText(str(np.round(xCenter,3)))
-        self.scanRegList[i].ui.yCenter.setText(str(np.round(-yCenter,3)))
+        print(f"[updateScanRegFromROI] Setting scan y Center {yCenter}")
+        self.scanRegList[i].ui.yCenter.setText(str(np.round(yCenter,3)))
         self.regDefs[i][0] = np.round(xCenter, 3)
         self.regDefs[i][1] = np.round(yCenter, 3)
         self.scanRegList[i].ui.noEmit = False
@@ -2118,7 +2126,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         xRange = float(a.ui.xRange.text())
         yRange = float(a.ui.yRange.text())
         xCenter = float(a.ui.xCenter.text())
-        yCenter = -float(a.ui.yCenter.text())
+        yCenter = float(a.ui.yCenter.text())
         i = regNum - 1
         if scanType == "image":
             self.roiList[i].setPos((xCenter - xRange / 2.,yCenter - yRange / 2.))
@@ -2172,6 +2180,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def addScanReg(self, regNum = 0):
         a = scanRegionDef()
         a.ui.xCenter.setText(str(self.regDefs[regNum][0]))
+        print(f"[addScanReg] Setting scan y Center {str(self.regDefs[regNum][1])}")
         a.ui.yCenter.setText(str(self.regDefs[regNum][1]))
         a.ui.xRange.setText(str(self.regDefs[regNum][2]))
         a.ui.yRange.setText(str(self.regDefs[regNum][3]))
@@ -2335,7 +2344,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         roiPen = pg.mkPen((255,255,255),width = 1, style = QtCore.Qt.DashLine)
         self.rangeROI = pg.RectROI((xMin,yMin), (xMax - xMin, yMax - yMin), snapSize = 0.0, pen = roiPen, \
                          rotatable = False, resizable = False, movable = False, removable = False)
-        self.ui.mainImage.addItem(self.rangeROI)
+        #self.ui.mainImage.addItem(self.rangeROI)
         self.rangeROI.removeHandle(self.rangeROI.getHandles()[0])
         self.imageCenter = 0,0
         self.imageScale = 0.1,0.1

@@ -57,6 +57,8 @@ class bcsMotor(motor):
                 while status.split('.')[0] != "Move finished":
                     time.sleep(0.1)
                     status = self.getBCSStatus()
+
+                #time.sleep(10)
                 self.moving = False
                 return retval
             elif self.controller.simulation:
