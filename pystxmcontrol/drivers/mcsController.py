@@ -22,6 +22,7 @@ class mcsController(hardwareController):
         self.lock = Lock()
 
     def initialize(self, simulation = False):
+        print(ctl.FindDevices().split("\n"))
         self.simulation = simulation
         if not(self.simulation):
             try:

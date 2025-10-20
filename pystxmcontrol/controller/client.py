@@ -230,6 +230,18 @@ class stxm_client(QtCore.QThread):
         response = self.send_message(message)
         self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, self.main_config = response['data']
 
+    def change_motor_config(self,motor,key,value):
+        #This needs to be a blocking call for the GUI otherwise madness ensues
+        message = {"command": "changeMotorConfig"}
+        message["data"] = {"motor":motor,"config":key,"value":value}
+        response = self.send_message(message)
+        self.get_config()
+
+    def move_to_focus(self):
+        message = {"command": "move_to_focus"}
+        response = self.send_message(message)
+        return response
+
     def write_config(self):
         with open(MAINCONFIGFILE, 'w') as fp:
             json.dump(self.main_config, fp, indent=4)

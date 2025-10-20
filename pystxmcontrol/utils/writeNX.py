@@ -140,8 +140,8 @@ class stxm:
                 self.data[entryStr]["ypos"] = yReq
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
-                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
-                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
+                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/(xpos.size - 1)
+                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/(ypos.size - 1)
 
         #yet another revision in how the raw data and interpolated data are represented
         elif self.meta["version"] == 2.1:
@@ -159,8 +159,8 @@ class stxm:
                 self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/binned_values/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
-                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
-                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
+                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/(xpos.size - 1)
+                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/(ypos.size - 1)
 
         #major revision in the entry names and data structure to make this nexus compliant
         elif self.meta["version"] == 3.0:
@@ -179,8 +179,8 @@ class stxm:
                 self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/default/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]
                 ypos = self.data[entryStr]["ypos"]
-                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/xpos.size
-                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/ypos.size
+                self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/(xpos.size - 1)
+                self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/(ypos.size - 1)
                 try:
                     self.meta["x_motor"] = self._nx_reader[entryStr + "/data/motor_name_x"][()].decode()
                     self.meta["y_motor"] = self._nx_reader[entryStr + "/data/motor_name_y"][()].decode()

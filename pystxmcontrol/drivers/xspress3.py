@@ -59,6 +59,8 @@ class xspress3(daq):
             elif trigger == 'EXT':
                 caput(self.address+self.det_prefix+'TriggerMode', 8) #External trigger
                 #This triggers on the pulse
+            self.ready()
+
             pass
         #Not using output there yet but keeping it so the arguments are the same.
 
@@ -73,9 +75,11 @@ class xspress3(daq):
             self.data = np.reshape(self.data,(self.data.size,1))
             return self.data
         else:
+            #this just polls the detector and collects data. Should be automatically collecting after configured.
             #caput(self.address+self.det_prefix+'NumImages',1)
             #Get old configuration
-            oldTrigger = caget(self.address+self.det_prefix+'TriggerMode_RBV')
+            #oldTrigger = caget(self.address+self.det_prefix+'TriggerMode_RBV')
+
             #Configure to take a point
             #There may be a better way to do this by using the acquire time.
             #Will have to consider dead time.
@@ -90,7 +94,9 @@ class xspress3(daq):
             #How to read????
             self.data = caget(self.address+self.MCA_prefix+'ArrayData')[:self._idx]
             #set back to old trigger mode
-            caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
+            if caget(self.address+self.det_prefix+'ArrayCounter_RBV')>self.samples*self.count-100:
+                self.ready()
+            #caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
             return self.data
     def ready(self):
         if not self.simulation:

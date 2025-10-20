@@ -129,8 +129,7 @@ class fccd_control(daq):
                 else:
                     return None
     def frame_to_image(self, frame):
-        buf = frame
-        npbuf = np.frombuffer(buf, '<u2')
+        npbuf = np.frombuffer(frame, '<u2')
         npbuf = npbuf.reshape((12 * self.num_rows, self.num_adcs))
         image = self.CCD.assemble2(npbuf.astype(np.uint16))
         return image

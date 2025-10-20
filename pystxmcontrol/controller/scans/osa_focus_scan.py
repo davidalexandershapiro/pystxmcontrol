@@ -79,6 +79,7 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
     controller.config_daqs(dwell=scanInfo["dwell"], count=1, samples=samples, trigger="BUS")
 
     #Since this is a line scan, we don't want to loop over all X-Y positions, but rather just one move each.
+    controller.moveMotor(scan["y_motor"], yPos[0][0])
     for i in range(len(z)):
         controller.moveMotor("ZonePlateZ", z[i]-A0)
         controller.getMotorPositions()

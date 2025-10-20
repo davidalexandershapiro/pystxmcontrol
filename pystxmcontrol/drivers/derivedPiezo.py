@@ -172,7 +172,7 @@ class derivedPiezo(motor):
                         self.positions = self.axes["axis1"].controller.trigger_1d_waveform()
                     else:
                         self.positions = self.axes["axis1"].controller.acquire_xy(axes=axes)
-                    #print(self.positions)
+
                     self.positions = self.scale2gui(self.positions[0]) + offset[0], self.scale2gui(self.positions[1]) + offset[1]
                 else:
                     xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],
@@ -197,6 +197,7 @@ class derivedPiezo(motor):
                 self.axes["axis2"].setAxisParams(velocity = velocity)
                 t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
+                print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
                 self.axes["axis2"].setAxisParams(velocity = 2.0)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
@@ -226,6 +227,7 @@ class derivedPiezo(motor):
         #print('moving to {} from {}'.format(pos, self.getPos()))
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
+        #print(f"[derived piezo] axis {self.axis}, requested {pos}, delta {deltaPos}, current {self.getPos()}")
         if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
             self.axes["axis1"].moveTo(newFinePos)
         else:
@@ -238,10 +240,10 @@ class derivedPiezo(motor):
                 self.axes["axis1"].setZero()
                 if not(coarse_only):
                     self.axes["axis1"].servoState(True)
-            # #use the piezo to clean up slop in the coarse motion
-            # deltaPos = pos - self.getPos()
-            # if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
-            #     self.axes["axis1"].moveTo(deltaPos)
+            #use the piezo to clean up slop in the coarse motion
+            deltaPos = pos - self.getPos()
+            if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
+                self.axes["axis1"].moveTo(deltaPos)
 
         self.moving = False
 

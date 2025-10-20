@@ -7,6 +7,7 @@ import asyncio
 import zmq.asyncio
 from copy import deepcopy
 import json
+import atexit
 
 class dataHandler:
 
@@ -46,12 +47,15 @@ class dataHandler:
             self.ccd_pub_socket.set_hwm(2000)
             self.ccd_pub_socket.bind(self.ccd_pub_address)
 
-        #publish stxm data to the gui
+        #publish stxm data for downstream viewers
         #publish to other listeners like RPI reconstruction for instance
         self.stxm_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"], self.stxm_data_port)
         print("Publishing stxm data on: %s" % self.stxm_pub_address)
         self.stxm_pub_socket = context.socket(zmq.PUB)
         self.stxm_pub_socket.bind(self.stxm_pub_address)
+
+        # Register cleanup handler to close sockets on exit
+        atexit.register(self.cleanup)
 
     def getScanName(self, dir = None, prefix = None, ptychography = False):
         """
@@ -630,3 +634,34 @@ class dataHandler:
     def updateDwells(self, scanInfo):
         self.data.DAQdwell = scanInfo['DAQDwell']
         self.data.motdwell = scanInfo['motorDwell']
+
+    def cleanup(self):
+        """
+        Cleanup method to properly close ZMQ sockets.
+        Called automatically on program exit via atexit.
+        """
+        try:
+            if hasattr(self, 'stxm_pub_socket'):
+                self.stxm_pub_socket.close(linger=0)
+                if self._logger:
+                    self._logger.log("STXM publisher socket closed", level="info")
+                else:
+                    print("STXM publisher socket closed")
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error closing stxm_pub_socket: {e}", level="error")
+            else:
+                print(f"Error closing stxm_pub_socket: {e}")
+
+        try:
+            if hasattr(self, 'ccd_pub_socket'):
+                self.ccd_pub_socket.close(linger=0)
+                if self._logger:
+                    self._logger.log("CCD publisher socket closed", level="info")
+                else:
+                    print("CCD publisher socket closed")
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error closing ccd_pub_socket: {e}", level="error")
+            else:
+                print(f"Error closing ccd_pub_socket: {e}")

@@ -68,7 +68,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
 
         reqDAQDwell = min(maxMotorDwell - DAQDwellPad, max(minDAQDwell, minMotorDwell, reqDwell))
         actDAQDwell = np.floor(reqDAQDwell / DAQTimeResolution) * DAQTimeResolution
-        #print(actDAQDwell)
         actMotorDwell = actDAQDwell + DAQTimeResolution
 
         ##scanInfo is what gets passed with each data transmission
@@ -139,8 +138,8 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             #yStart_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[2]
             #yStop_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[3]
 
-            #print(coarse_only,scanInfo["include_return"],xcoarse,ycoarse)
-            #print(xStart_fine,xStop_fine,yStart_fine,yStop_fine)
+            # print("[derived line image]", coarse_only,scanInfo["include_return"],xcoarse,ycoarse)
+            # print("[derived line image]", xStart_fine,xStop_fine,yStart_fine,yStop_fine)
 
             if coarse_only:
                 xcoarse,ycoarse = 0.,0.
@@ -196,6 +195,8 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             for i in range(len(y)):
                 controller.moveMotor(scan["x_motor"], xcoarse + start_position_x)
                 controller.moveMotor(scan["y_motor"],y[i])
+                #print(f"[derived line image] moving {scan['x_motor']} to {xcoarse + start_position_x}")
+                #print(f"[derived line image] moving {scan['y_motor']} to {y[i]}")
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions

@@ -6,7 +6,9 @@ from pystxmcontrol.controller.zmqFrameMonitor import zmqFrameMonitor
 from pystxmcontrol.drivers.derivedEnergy import derivedEnergy
 from pystxmcontrol.controller.dataHandler import dataHandler
 from pystxmcontrol.controller.scans import *
+from pystxmcontrol.controller.operation_logger import OperationLogger
 import asyncio
+import atexit
 
 BASEPATH = sys.prefix
 
@@ -38,9 +40,25 @@ class controller:
         self.pause = False
         self.autoZonePlate = True
         self.lock = asyncio.Lock()
+        self._log_motors = True
         self._logger = logger
         self.initialize()
         self.startMonitor()
+        self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger)
+        self.operation_logger.start()
+        self._motor_logger_thread = threading.Thread(target=self._motor_logger,args=())
+        self._motor_logger_thread.start()
+
+        # Register cleanup handler for graceful shutdown
+        atexit.register(self.cleanup)
+
+    def _motor_logger(self):
+        while self._log_motors:
+            self.getMotorPositions()
+            for motor in self.motors:
+                self.operation_logger.log_motor_position(motor,self.allMotorPositions[motor],
+                                                         motor_offset = self.motors[motor]["motor"].config["offset"])
+            time.sleep(self.main_config["server"]["motor log period"])
 
     def _ensure_scan_queue(self):
         """Ensure scanQueue exists in the current event loop"""
@@ -65,6 +83,7 @@ class controller:
         for daq in self.daqConfigFromFile.keys():
             if self.daqConfigFromFile[daq]["record"]:
                 self.daqConfig[daq] = self.daqConfigFromFile[daq]
+        self.backupConfig()
 
     def updateMotorConfig(self):
         for key in self.motorConfig.keys():
@@ -156,13 +175,45 @@ class controller:
                     print("getStatus failed on %s" %motor)
         
 
-    def moveMotor(self, axis, pos, **kwargs):
-        if self._logger is not None:
-            self._logger.log(f"Controller moved motor {axis} to position {pos}",level="info")
-        if "varType" in self.motorConfig[axis].keys():
-            self.motors[axis]["motor"].setVar(pos, self.motorConfig[axis]["varType"])
-        else:
-            self.motors[axis]["motor"].moveTo(pos, **kwargs)
+    def moveMotor(self, axis, pos, log=None, **kwargs):
+
+        # Determine if we should log this move
+        # If log is explicitly set, use that. Otherwise, auto-detect: log if NOT scanning
+        should_log = log if log is not None else not self.scanning or self.main_config["server"]["log motors while scanning"]
+
+        # Log the move start
+        if should_log:
+            self.operation_logger.log_motor_move(axis, pos)
+
+        # Record start time for duration calculation
+        start_time = time.time() if should_log else None
+
+        try:
+            if "varType" in self.motorConfig[axis].keys():
+                self.motors[axis]["motor"].setVar(pos, self.motorConfig[axis]["varType"])
+            else:
+                self.motors[axis]["motor"].moveTo(pos, **kwargs)
+
+            # Log successful completion with actual position
+            if should_log:
+                try:
+                    actual_pos = self.motors[axis]["motor"].getPos()
+                except:
+                    actual_pos = None
+                duration = time.time() - start_time
+                self.operation_logger.log_motor_move(
+                    axis, pos, actual_position=actual_pos,
+                    duration=duration, success=True
+                )
+        except Exception as e:
+            # Log failed move
+            if should_log:
+                duration = time.time() - start_time
+                self.operation_logger.log_motor_move(
+                    axis, pos, duration=duration,
+                    success=False, error_message=str(e)
+                )
+            raise
 
     def changeMotorConfig(self, c):
         key = c["config"]
@@ -176,11 +227,24 @@ class controller:
     def writeConfig(self):
         with open(self.motorConfigFile,'w') as fp:
             json.dump(self.motorConfig,fp,indent=4)
-        
+
+    def backupConfig(self):
+        basedir = os.path.join(self.main_config["server"]["data_dir"],"pystxmcontrol_data")
+        motorConfigFile = os.path.join(basedir,"motorConfig.json")
+        with open(motorConfigFile,'w') as fp:
+            json.dump(self.motorConfig,fp,indent=4)       
+        mainConfigFile = os.path.join(basedir,"main.json")
+        with open(mainConfigFile,'w') as fp:
+            json.dump(self.main_config,fp,indent=4)  
+        daqConfigFile = os.path.join(basedir,"daqConfig.json")
+        with open(daqConfigFile,'w') as fp:
+            json.dump(self.daqConfigFromFile,fp,indent=4)
+        scanConfigFile = os.path.join(basedir,"scans.json")
+        with open(scanConfigFile,'w') as fp:
+            json.dump(self.scanConfig,fp,indent=4)  
+
     def getMotorConfig(self, motor):
         return self.motors[motor]["motor"].config
-
-    
 
     def startMonitor(self):
         #the monitor is now a coroutine so that the queues can be asyncio.Queues.  Need a helper function to 
@@ -188,7 +252,13 @@ class controller:
         self._ensure_scan_queue()
         for daq in self.daq.keys():
             self.daq[daq].start()
-            self.daq[daq].config(dwell = self.main_config["monitor"]["dwell"])
+            if self.daq[daq].meta['type'] == "spectrum":
+                #The spectrum detector is slow so we set it up to collect many samples and just poll it.
+                self.daq[daq].config(dwell = self.main_config["monitor"]["dwell"],samples = 10000)
+            else:
+                self.daq[daq].config(dwell=self.main_config["monitor"]["dwell"])
+
+
         self.dataHandler.monitorDaq = True
         def run_monitor():
             asyncio.run(self.dataHandler.monitor(self.scanQueue))
@@ -219,33 +289,87 @@ class controller:
 
     async def scan_helper(self, scan):
         self.scanning = True
-        self.stopMonitor()
-        self._ensure_scan_queue()
-        while not self.scanQueue.empty():
-            try:
-                self.scanQueue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        for daq in self.daq.keys():
-            self.daq[daq].start()
-        self.scanDef = scan
-        scan["synch_event"] = asyncio.Event()
-        scan_tasks = []
-        scan_tasks.append(self.dataHandler.startScanProcess(scan))
-        scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
-        await asyncio.gather(*scan_tasks)
+        scan_start_time = time.time()
+        scan_id = None
+        scan_status = "started"
+        scan_error = None
 
-        #close the data file and send the zmq event to downstream processing
-        self.dataHandler.data.close()
-        self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(self.dataHandler.data.file_name)}})
+        # Log scan start
+        scan_params = {
+            "driver": scan.get("driver"),
+            "scan_type": scan.get("scan_type"),
+            "x_motor": scan.get("x_motor"),
+            "y_motor": scan.get("y_motor"),
+            "energy_motor": scan.get("energy_motor"),
+            "dwell": scan.get("dwell"),
+            "oversampling_factor": scan.get("oversampling_factor"),
+            "proposal": scan.get("proposal"),
+            "experimenters": scan.get("experimenters"),
+            "sample": scan.get("sample"),
+            "comment": scan.get("comment"),
+            "nxFileVersion": scan.get("nxFileVersion"),
+            "daq list": scan.get("daq list"),
+        }
 
-        #clean up and restart the monitor
-        for daq in self.daq.keys():
-            self.daq[daq].stop()
-        self.scanQueue = None
-        self.dataHandler.dataQueue = None
-        self.startMonitor()
-        self.scanning = False
+        try:
+            self.stopMonitor()
+            self._ensure_scan_queue()
+            while not self.scanQueue.empty():
+                try:
+                    self.scanQueue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            for daq in self.daq.keys():
+                self.daq[daq].start()
+            self.scanDef = scan
+            scan["synch_event"] = asyncio.Event()
+
+            # Get scan ID after data file is created
+            scan_id = getattr(self, 'currentScanID', None)
+            self.operation_logger.log_scan_start(
+                scan_id=scan_id,
+                scan_type=scan.get("scan_type", "unknown"),
+                parameters=scan_params
+            )
+
+            scan_tasks = []
+            scan_tasks.append(self.dataHandler.startScanProcess(scan))
+            scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
+            await asyncio.gather(*scan_tasks)
+
+            #close the data file and send the zmq event to downstream processing
+            self.dataHandler.data.close()
+            file_path = self.dataHandler.data.file_name
+            self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(file_path)}})
+
+            scan_status = "completed"
+
+        except Exception as e:
+            scan_status = "failed"
+            scan_error = str(e)
+            raise
+        finally:
+            # Log scan end
+            scan_duration = time.time() - scan_start_time
+            file_path = getattr(self.dataHandler.data, 'file_name', None) if hasattr(self, 'dataHandler') else None
+
+            self.operation_logger.log_scan_end(
+                scan_id=scan_id,
+                scan_type=scan.get("scan_type", "unknown"),
+                parameters=scan_params,
+                file_path=file_path,
+                duration=scan_duration,
+                status=scan_status,
+                error_message=scan_error
+            )
+
+            #clean up and restart the monitor
+            for daq in self.daq.keys():
+                self.daq[daq].stop()
+            self.scanQueue = None
+            self.dataHandler.dataQueue = None
+            self.startMonitor()
+            self.scanning = False
 
     def scan(self, scan):
         scan["main_config"] = self.main_config
@@ -289,11 +413,38 @@ class controller:
         self.motors["Energy"]["motor"].getZonePlateCalibration()
         #move the zone plate to the calibrated position
         self.moveMotor("ZonePlateZ",pos = self.motors["Energy"]["motor"].calibratedPosition)
-    
-    
-    
-    
-    
-        
-        
-        
+
+    def cleanup(self):
+        """
+        Cleanup method for graceful shutdown.
+        Stops operation logger and closes resources.
+        Called automatically on program exit via atexit.
+        """
+        try:
+            if hasattr(self, 'operation_logger'):
+                self._log_motors = False
+                self.operation_logger.stop()
+                if self._logger:
+                    self._logger.log("Operation logger stopped during cleanup", level="info")
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error stopping operation logger: {e}", level="error")
+            else:
+                print(f"Error stopping operation logger: {e}")
+
+        try:
+            if hasattr(self, 'dataHandler'):
+                self.dataHandler.cleanup()
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error cleaning up dataHandler: {e}", level="error")
+            else:
+                print(f"Error cleaning up dataHandler: {e}")
+
+
+
+
+
+
+
+

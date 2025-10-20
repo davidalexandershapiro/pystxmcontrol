@@ -11,6 +11,7 @@ class mmcMotor(motor):
         self.moving = False
         self.idleStrings = ['8','136']
         self._lt = '\r'
+        self._timeout = 1
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -53,9 +54,11 @@ class mmcMotor(motor):
                     self.controller.serialPort.write((str(self._axis) + "MVA" + str(pos) + "\r").encode())
                 while True:
                     self.getStatus()
-                    if self.moving:
+                    dt = time.time() - t0
+                    if self.moving and dt < self._timeout:
                         time.sleep(0.005)
                     else:
+                        self.moving = False
                         return
             else:
                 self.position = pos
