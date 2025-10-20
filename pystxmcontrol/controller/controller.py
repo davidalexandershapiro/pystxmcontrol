@@ -44,7 +44,7 @@ class controller:
         self._logger = logger
         self.initialize()
         self.startMonitor()
-        self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger)
+        self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
         self.operation_logger.start()
         self._motor_logger_thread = threading.Thread(target=self._motor_logger,args=())
         self._motor_logger_thread.start()
@@ -230,6 +230,7 @@ class controller:
 
     def backupConfig(self):
         basedir = os.path.join(self.main_config["server"]["data_dir"],"pystxmcontrol_data")
+        os.makedirs(basedir, exist_ok=True)
         motorConfigFile = os.path.join(basedir,"motorConfig.json")
         with open(motorConfigFile,'w') as fp:
             json.dump(self.motorConfig,fp,indent=4)       

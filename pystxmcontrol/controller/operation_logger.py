@@ -17,7 +17,7 @@ import matplotlib.dates as mdates
 
 
 class OperationLogger:
-    def __init__(self, db_path=None, logger=None):
+    def __init__(self, db_path=None, logger=None, readonly=True):
         """
         Initialize operation logger with SQLite database
 
@@ -25,6 +25,7 @@ class OperationLogger:
         :param logger: Optional external logger for error reporting
         """
         self._logger = logger
+        self._readonly = readonly
         self.use_monthly_rotation = (db_path is None)
 
         if self.use_monthly_rotation:
@@ -42,13 +43,13 @@ class OperationLogger:
         self.running = False
 
         # Create database and tables
-        self._create_database()
+        if not self._readonly:
+            self._create_database()
 
     def _get_db_directory(self):
         """Get database directory"""
         import sys
         db_dir = os.path.join(self.db_base_dir, 'pystxmcontrol_data')
-        print(f"Using directory {db_dir} for database")
         os.makedirs(db_dir, exist_ok=True)
         return db_dir
 
@@ -75,7 +76,7 @@ class OperationLogger:
         """
         if db_path is None:
             db_path = self.db_path
-
+        print(f"[Logger] database path: {db_path}")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -212,7 +213,7 @@ class OperationLogger:
 
     def start(self):
         """Start the async logging writer task"""
-        if self.running:
+        if self.running or self._readonly:
             return
 
         self.running = True
@@ -230,7 +231,7 @@ class OperationLogger:
 
     def stop(self):
         """Stop the async logging writer task"""
-        if not self.running:
+        if not self.running or self._readonly:
             return
 
         self.running = False
@@ -255,6 +256,8 @@ class OperationLogger:
 
     async def _log_writer(self):
         """Background task that writes log entries to database"""
+        if self._readonly:
+            return
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         batch = []
@@ -298,6 +301,8 @@ class OperationLogger:
 
     def _write_batch(self, cursor, batch):
         """Write a batch of log entries to database"""
+        if self._readonly:
+            return
         for entry in batch:
             try:
                 if entry['type'] == 'motor_move':
@@ -367,7 +372,7 @@ class OperationLogger:
         :param success: Whether move succeeded
         :param error_message: Error message if failed
         """
-        if not self.running or self.log_queue is None:
+        if not self.running or self.log_queue is None or self._readonly:
             return
 
         entry = {
@@ -397,7 +402,7 @@ class OperationLogger:
         :param actual_position: Final position (if available)
         :param error_message: Error message if failed
         """
-        if not self.running or self.log_queue is None:
+        if not self.running or self.log_queue is None or self._readonly:
             return
 
         entry = {
@@ -425,7 +430,7 @@ class OperationLogger:
         :param scan_type: Type of scan (e.g., 'line_image', 'ptychography')
         :param parameters: Dictionary of scan parameters
         """
-        if not self.running or self.log_queue is None:
+        if not self.running or self.log_queue is None or self._readonly:
             return
 
         entry = {
@@ -457,7 +462,7 @@ class OperationLogger:
         :param status: 'completed', 'aborted', or 'failed'
         :param error_message: Error message if failed
         """
-        if not self.running or self.log_queue is None:
+        if not self.running or self.log_queue is None or self._readonly:
             return
 
         entry = {
@@ -549,7 +554,6 @@ class OperationLogger:
 
         # Get relevant database files
         db_files = self._get_db_files_for_range(start_time, end_time)
-
         all_results = []
         for db_path, db_start, db_end in db_files:
             conn = sqlite3.connect(db_path)

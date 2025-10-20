@@ -206,9 +206,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.penStyles = [QtCore.Qt.SolidLine, QtCore.Qt.DashLine]
         self.last_scan = self.client.main_config["lastScan"]
         self.ui.roiCheckbox.setCheckState(QtCore.Qt.Checked)
-        print("Connecting to Client.")
         self.connectClient()
-        print("Done. Initializing gui...")
         self.initGUI()
         self.focusRange = 100
         self.focusSteps = 50
@@ -254,7 +252,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         y_motor = self.scan["y_motor"]
         x_current_offset = self.client.motorInfo[x_motor]["offset"]
         y_current_offset = self.client.motorInfo[y_motor]["offset"]
-        #print(y,y_current_offset,y_current_offset-y)
         result = self.warningPopup(f"Set {x_motor} = {x} and {y_motor} = {y} to 0?")
         if result:
             message = {"time": str(datetime.datetime.now()),"message": f"Setting {x_motor} = {x} and {y_motor} = {y} to 0"}
@@ -292,7 +289,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.messageQueue.put(message)
             message = {"command": "moveMotor"}
             message["axis"] = self.scan["y_motor"]
-            #print(f"[motor2Cursor] cursoryY {self.cursorY}")
             message["pos"] = self.cursorY
             self.messageQueue.put(message)
 
@@ -311,7 +307,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             sampleX = self.currentMotorPositions['SampleX']
             sampleY = self.currentMotorPositions['SampleY']
             self.scanRegList[0].ui.xCenter.setText(str(round(sampleX,2)))
-            print(f"[setEnergyScan] Setting scan y Center {sampleY}")
             self.scanRegList[0].ui.yCenter.setText(str(round(sampleY,2)))
             self.scanRegList[0].ui.xRange.setText('0.0')
             self.scanRegList[0].ui.yRange.setText('0.0')
@@ -691,7 +686,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             else:
                 newValue = energy
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "Energy"
@@ -704,7 +699,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             newValue = float(self.ui.dsEdit.text())
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "DISPERSIVE_SLIT"
@@ -715,7 +710,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             newValue = float(self.ui.ndsEdit.text())
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "NONDISPERSIVE_SLIT"
@@ -726,7 +721,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             newValue = float(self.ui.m101Edit.text())
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "M101PITCH"
@@ -737,7 +732,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             newValue = float(self.ui.fbkEdit.text())
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "FBKOFFSET"
@@ -748,7 +743,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             newValue = float(self.ui.epuEdit.text())
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "EPUOFFSET"
@@ -759,7 +754,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             newValue = float(self.ui.polEdit.text())
         except:
-            print("Please enter a floating point number")
+            self.warningPopup("Please enter a floating point number")
         else:
             message = {"command": "moveMotor"}
             message["axis"] = "POLARIZATION"
@@ -1174,7 +1169,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.scan["scan_regions"][regStr]["xRange"] = xRange
             self.scan["scan_regions"][regStr]["yRange"] = yRange
             self.scan["scan_regions"][regStr]["xCenter"] = xCenter
-            print(f"[compile scan] yCenter {yCenter}")
             self.scan["scan_regions"][regStr]["yCenter"] = yCenter
             self.scan["scan_regions"][regStr]["zStart"] = zCenter - zRange / 2.0 + zStep / 2.
             self.scan["scan_regions"][regStr]["zStop"] = zCenter + zRange / 2.0 - zStep / 2.
@@ -1823,7 +1817,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             try:
                 self.loadScan()
             except IOError:
-                print("No Such File or Directory.")
+                self.warningPopup("File not found.")
 
     def loadScan(self):
         try:
@@ -1916,7 +1910,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xCenter = self.nx.data["entry0"]["xpos"].min() + self.xRange / 2. - self.xStep/2.
                 self.yCenter = self.nx.data["entry0"]["ypos"].min() + self.yRange / 2. - self.yStep/2.
                 self.scanRegList[i].ui.xCenter.setText(str(np.round(self.xCenter, 3)))
-                print(f"[scanFromNX] Setting scan y Center {self.yCenter}")
                 self.scanRegList[i].ui.yCenter.setText(str(np.round(self.yCenter, 3)))
                 self.scanRegList[i].ui.xRange.setText(str(np.round(self.xRange, 3)))
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
@@ -1972,7 +1965,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.xStep = scan["scan_regions"]["Region" + str(i+1)]["xStep"]
                 self.yStep = scan["scan_regions"]["Region" + str(i+1)]["yStep"]
                 self.scanRegList[i].ui.xCenter.setText(str(np.round(self.xCenter, 3)))
-                print(f"[setGUIfromScan] Setting scan y Center {self.yCenter}")
                 self.scanRegList[i].ui.yCenter.setText(str(np.round(self.yCenter, 3)))
                 self.scanRegList[i].ui.xRange.setText(str(np.round(self.xRange, 3)))
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
@@ -2044,7 +2036,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         xPoints = int(self.scanRegList[i].ui.xNPoints.text()) #self.scan["scan_regions"][regStr]['xPoints']
         yPoints = int(self.scanRegList[i].ui.yNPoints.text()) #self.scan["scan_regions"][regStr]['yPoints']
         self.scanRegList[i].ui.noEmit = True
-        print(roi.pos(),self.xCenter,self.yCenter)
         if scanType == "image":
             xRange = roi.size()[0]
             yRange = roi.size()[1]
@@ -2065,7 +2056,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             x1 = roi.mapSceneToParent(roi.getHandles()[1].scenePos()).x()
             y0 = roi.mapSceneToParent(roi.getHandles()[0].scenePos()).y()
             y1 = roi.mapSceneToParent(roi.getHandles()[1].scenePos()).y()
-            print('ROI Positions: ', x0, x1, y0, y1)
             self.xLineRange = np.abs(x1 - x0)
             self.yLineRange = np.abs(y1 - y0)
             xCenter = np.min((x0,x1)) + self.xLineRange / 2.
@@ -2179,7 +2169,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 y1,y0 = yCenter - yRange / 2, yCenter + yRange / 2
             roi = pg.LineSegmentROI(
                 positions=((x0,y0), (x1,y1)), pen=roiPen)
-            print(x0,x1,y0,y1)
             roi.sigRegionChanged.connect(self.updateScanRegFromROIdrag)
 
             self.xLineRange = np.abs(x1 - x0)
@@ -2193,7 +2182,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def addScanReg(self, regNum = 0):
         a = scanRegionDef()
         a.ui.xCenter.setText(str(self.regDefs[regNum][0]))
-        print(f"[addScanReg] Setting scan y Center {str(self.regDefs[regNum][1])}")
         a.ui.yCenter.setText(str(self.regDefs[regNum][1]))
         a.ui.xRange.setText(str(self.regDefs[regNum][2]))
         a.ui.yRange.setText(str(self.regDefs[regNum][3]))
@@ -2382,7 +2370,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             from pystxmcontrol.utils.alsapi import getCurrentEsafList
             self.esaf_list, self.participants_list = getCurrentEsafList(beamline = self.client.main_config["source"]["beamline"])
         except:
-            #print(traceback.format_exc())
             self.esaf_list = []
         self.ui.proposalComboBox.clear()
         self.ui.proposalComboBox.addItem("Select a Proposal")
@@ -2393,7 +2380,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.mainImage.autoRange()
 
         if self.serverStatus["mode"] == "scanning":
-            print("server is scanning")
             self.scan = self.serverStatus["data"]
             self.setGUIfromScan(self.scan)
             self.joinScan()
