@@ -10,7 +10,7 @@ class bcsMotor(motor):
         self.offset = 0.
         self.units = 1.
         self.moving = False
-        self._timeout = 1.
+        self._timeout = 5.
 
     def connect(self, axis = 'x'):
         self.axis = axis

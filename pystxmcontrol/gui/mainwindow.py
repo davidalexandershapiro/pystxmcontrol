@@ -2237,7 +2237,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         storedWidgets = len(self.energyRegList)
         if self.ui.energyRegSpinbox.value() > 1:
             self.ui.toggleSingleEnergy.setCheckState(QtCore.Qt.Unchecked)
-            #self.setSingleEnergy()
         while self.ui.energyRegSpinbox.value() > len(self.energyRegList):
             self.energyDefs["EnergyRegion %i" %(storedWidgets+1)] = {}
             self.addEnergyReg(regNum = len(self.energyRegList))
@@ -2527,9 +2526,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             #This get's called twice on startup for some reason, first time before there are any scanReg's in the list
             if len(self.scanRegList) > 0: 
                 self.setGUIfromScan(self.last_scan[scanType])
-            self.ui.toggleSingleEnergy.setCheckState(QtCore.Qt.Checked)
+            #self.ui.toggleSingleEnergy.setCheckState(QtCore.Qt.Checked)
             self.ui.toggleSingleEnergy.setEnabled(True)
-            self.setSingleEnergy()
+            #self.setSingleEnergy()
             self.ui.xMotorCombo.setEnabled(False)
             self.ui.yMotorCombo.setEnabled(False)
             if "Ptychography" in scanType:

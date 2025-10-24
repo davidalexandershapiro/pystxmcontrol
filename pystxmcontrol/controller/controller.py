@@ -157,7 +157,6 @@ class controller:
         
 
     def moveMotor(self, axis, pos, **kwargs):
-        print(f"[controller] moving motor {axis} to {pos}")
         if self._logger is not None:
             self._logger.log(f"Controller moved motor {axis} to position {pos}",level="info")
         if "varType" in self.motorConfig[axis].keys():

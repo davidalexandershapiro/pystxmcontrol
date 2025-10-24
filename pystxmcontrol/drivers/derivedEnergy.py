@@ -43,7 +43,7 @@ class derivedEnergy(motor):
                 self.axes["axis1"].moveTo(energy)
             else:
                 self.axes["axis1"].moveTo(energy)
-            self.calibratedPosition = self.getZonePlateCalibration()
+            self.getPos()
             self.axes["axis2"].moveTo(self.calibratedPosition)
             self.axes["axis2"].calibratedPosition = self.calibratedPosition
             self.moving = False

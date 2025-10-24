@@ -190,8 +190,12 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 ##need to also be able to request measured positions
                 scanInfo["xVal"], scanInfo["yVal"] = x, y[i] * ones(len(x))
                 if queue.empty():
+                    #await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime)
                     if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
-                        return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
+                        controller.daq["default"].stop()
+                        controller.daq["default"].start()
+                        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = numLineDAQPoints, trigger = "EXT")
+                        #return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
                 else:
                     await queue.get()
                     dataHandler.data.saveRegion(j)
