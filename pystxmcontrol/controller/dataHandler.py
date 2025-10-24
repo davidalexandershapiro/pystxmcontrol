@@ -352,7 +352,7 @@ class dataHandler:
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
             return self.data.interp_counts[daq][k][m,:,:]
 
-        elif scanInfo["type"] == "Double Motor" or scanInfo["type"] == "OSA Image":
+        elif scanInfo["type"] in ["Double Motor","OSA Image","Detector XY Image"]:
             if scanInfo["mode"] == "point":
                 c = scanInfo["columnIndex"]
                 if scanInfo["rawData"][daq]["meta"]["type"] == "point":

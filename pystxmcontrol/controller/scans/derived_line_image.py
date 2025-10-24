@@ -56,9 +56,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
-
-
-
     for energy in energies:
         #Handle motor and daq timing minimum/maximum values
         minMotorDwell = 0.12  # ms needs to be in config probably.
@@ -82,8 +79,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                                           controller.motors["Energy"]["motor"].calibratedPosition)
 
         for j in range(nScanRegions):
-            #x, y = xPos[j], yPos[j]
-            x, y = xPos[j], -yPos[j]
+            x, y = xPos[j], yPos[j]
             scanInfo["scanRegion"] = "Region" + str(j + 1)
             xStart, xStop = x[0], x[-1]
             yStart, yStop = y[0], y[-1]
@@ -99,12 +95,9 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo["yPoints"] = yPoints
             scanInfo["yStep"] = yStep
             scanInfo["yStart"] = yStart
-            #scanInfo["yCenter"] = yStart + yRange / 2.
-            scanInfo["yCenter"] = -yStart - yRange / 2.
+            scanInfo["yCenter"] = yStart - yRange / 2.
             scanInfo["yRange"] = yRange
             waitTime = 0.005 + xPoints * 0.0001  # 0.005 + xRange * 0.02
-
-            print('yCenter {}'.format(scanInfo["yCenter"]))
 
             #at this level nxblocks is always 1 because the decision to tile is higher up.  Need to put an option
             #there to untile and use the coarse motor
@@ -125,14 +118,14 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
                 controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
-            print('nyblocks {}'.format(nyblocks))
-            print('ycoarse {}'.format(ycoarse))
-            print('yStart_fine {}'.format(yStart_fine))
-            print('yStop_fine {}'.format(yStop_fine))
-            print('nxblocks {}'.format(nxblocks))
-            print('xcoarse {}'.format(xcoarse))
-            print('xStart_fine {}'.format(xStart_fine))
-            print('xStop_fine {}'.format(xStop_fine))
+            # print('nyblocks {}'.format(nyblocks))
+            # print('ycoarse {}'.format(ycoarse))
+            # print('yStart_fine {}'.format(yStart_fine))
+            # print('yStop_fine {}'.format(yStop_fine))
+            # print('nxblocks {}'.format(nxblocks))
+            # print('xcoarse {}'.format(xcoarse))
+            # print('xStart_fine {}'.format(xStart_fine))
+            # print('xStop_fine {}'.format(xStop_fine))
             #nyblocks = controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[0]
             #ycoarse = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[1]
             #yStart_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[2]
