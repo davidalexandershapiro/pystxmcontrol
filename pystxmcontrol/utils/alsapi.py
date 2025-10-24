@@ -81,7 +81,6 @@ def api_response(
             headers=headers,
             timeout=timeout,
     ) as api_client:
-        print(query)
         response = api_client.get(query)
     return response
 
@@ -110,7 +109,6 @@ def api_streaming_response(
 def setupQuery():
     query = "/als-cycles/relative"
     response = api_response(query, base_url=EXPERIMENT_API_BASE_URL)
-    print(response)
     response.json()
     global user_cycle_times
     user_cycle_times = response.json()

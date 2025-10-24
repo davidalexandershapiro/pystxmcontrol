@@ -372,9 +372,9 @@ class stack():
         entryStr = "entry" + str(self.iRegion)
         self.energies = self.nx.data[entryStr]["energy"]
         self.rawFrames = []
-        sh = self.nx.data["entry" + str(self.iRegion)]["counts"].shape
+        sh = self.nx.data["entry" + str(self.iRegion)]["counts"]["default"].shape
         for i in range(sh[0]):
-            im = image(data = self.nx.data[entryStr]["counts"][i])
+            im = image(data = self.nx.data[entryStr]["counts"]["default"][i])
             im.energy = self.nx.data[entryStr]["energy"][i]
             im.xpixelsize = self.nx.data[entryStr]["xstepsize"]
             im.ypixelsize = self.nx.data[entryStr]["ystepsize"]

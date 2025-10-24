@@ -1837,8 +1837,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.currentImageType = self.nx.meta["scan_type"]
                 ne,y,x = self.image.shape
                 self.yPts,self.xPts = y,x
-                self.image = np.reshape(self.image, (y,x))
-                axes = (1,0)
+                #self.image = np.reshape(self.image, (y,x))
+                axes = (0,2,1)
                 xpos = self.nx.data['entry0']['xpos']
                 ypos = self.nx.data['entry0']['ypos']
                 self.xRange = xpos.max()-xpos.min()
