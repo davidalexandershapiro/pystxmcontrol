@@ -554,7 +554,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 y, x = sh
             elif len(sh) == 3:
                 z, y, x = sh
-            frameIndex = self.ui.mainImage.currentIndex
+            frameIndex = int(self.ui.mainImage.currentIndex)
             if (row in range(0,x)) and (col in range(0,y)):
                 if len(sh) == 2:
                     cursorIntensity = np.transpose(self.image, axes=(1,0))[row,col]
@@ -1936,7 +1936,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.updateROIfromRegion(i+1)
             self.compileScan()
             self.last_scan["Image"] = self.scan
-            self.stxm.energies = self.nx.data["entry0"]["energy"]
+            self.stxm.energies = {}
+            self.stxm.energies["default"] = self.nx.data["entry0"]["energy"]
             self.updateImageLabels()
 
     def updateImageLabels(self):
@@ -1945,7 +1946,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.imageEnergyLabel.setText(str(self.energy) + " eV")
 
     def updateTimeIndex(self):
-        energyIndex = self.ui.mainImage.currentIndex
+        energyIndex = int(self.ui.mainImage.currentIndex)
         self.energy = self.stxm.energies["default"][energyIndex]
         self.updateImageLabels()
 
