@@ -148,6 +148,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         #self.ui.scan_angle.valueChanged.connect(self.updateDial)
         self.ui.showRangeFinder.setCheckState(QtCore.Qt.Unchecked)
 
+        self._nEnergies = 1
         self.tiled_scan = False
         self.maxVelocity = 1.0
         self.velocity = 0.0
@@ -213,8 +214,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.focusStepSize = 2.0
         self.cursorX = None
         self.cursorY = None
-        self.metaFile = os.path.join(BASEPATH,'pystxmcontrol_cfg/meta.json')
-        self.metaStr = json.loads(open(self.metaFile).read())
         self._movingStyle = """QLabel {color: red;}"""
         self._staticStyle = """QLabel {color: black;}"""
         self.xCenter, self.yCenter = 0.,0.
@@ -460,7 +459,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if openFileName != '':
             try:
                 scan = json.loads(open(openFileName).read())
-                if scan["type"] == "Image":
+                if scan["scan_type"] == "Image":
                     self.ui.scanType.setCurrentIndex(0)
                     self.last_scan["Image"] = self.scan
                     self.setGUIfromScan(scan)
@@ -1239,6 +1238,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.client.write_config()
 
     def updateEstimatedTime(self):
+        n = int(self.energyRegList[0].energyDef.nEnergies.text())
+        if n > 1:
+            self._nEnergies = n
         self.lineOverhead = self.client.main_config["geometry"]["line overhead"]
         self.energyOverhead = self.client.main_config["geometry"]["energy overhead"]
         self.pointOverhead = self.client.main_config["geometry"]["point overhead"]
@@ -2280,8 +2282,18 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.energyRegList[0].energyDef.energyStep.setText(str(1))
             self.energyRegList[0].energyDef.nEnergies.setText(str(1))
         else:
-            self.energyRegList[-1].setMultiEnergy()
+            self.setMultiEnergy()
         self.updateEstimatedTime()
+
+    def setMultiEnergy(self):
+        for i in range(len(self.energyRegList)):
+            self.energyRegList[i].setMultiEnergy()
+            self.energyRegList[i].energyDef.energyStart.setText(str(self.energyRegDefs[i][0]))
+            self.energyRegList[i].energyDef.energyStop.setText(str(self.energyRegDefs[i][1]))
+            self.energyRegList[i].energyDef.energyStep.setText(str(self.energyRegDefs[i][2]))
+            self.energyRegList[i].energyDef.nEnergies.setText(str(self.energyRegDefs[i][3]))
+            self.energyRegList[i].energyDef.dwellTime.setText(str(self.energyRegDefs[i][4]))
+        self.energyRegList[0].energyDef.nEnergies.setText(str(self._nEnergies))
 
     def connectClient(self):
         self.client.monitor.scan_data.connect(self.updateImageFromMessage)
@@ -2372,6 +2384,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         elif not self.client.main_config["geometry"]["enable_tiled_scan"]:
             self.ui.tiledCheckbox.setChecked(False)
             self.ui.tiledCheckbox.setEnabled(False)
+
         try:
             #This can fail if there's a problem with the alsapi server or the environment variables aren't set
             from pystxmcontrol.utils.alsapi import getCurrentEsafList
@@ -2473,7 +2486,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.rangeROI is not None:
                 self.ui.mainImage.removeItem(self.rangeROI)
             self.updateLine()
-            self.setGUIfromScan(self.last_scan[scanType])
+            #self.setGUIfromScan(self.last_scan[scanType])
         elif scanType == "Line Spectrum":
             self.ui.defocusCheckbox.setEnabled(False)
             self.ui.xMotorCombo.setEnabled(False)
@@ -2512,7 +2525,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.rangeROI is not None:
                 self.ui.mainImage.removeItem(self.rangeROI)
             self.updateLine()
-            self.setGUIfromScan(self.last_scan[scanType])
+            #self.setGUIfromScan(self.last_scan[scanType])
         elif "Image" in scanType and "OSA" not in scanType and "Detector" not in scanType:
             for reg in self.scanRegList:
                 reg.setEnabled(True)
@@ -2545,8 +2558,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.multiFrameCheckbox.setEnabled(False)
                 self.ui.defocusCheckbox.setEnabled(False)
             if not(self.currentImageType == self.ui.scanType.currentText()):
-                # if scanType != "Ptychography Image":
-                #     self.ui.mainImage.clear()
                 if "Image" not in scanType:
                     self.ui.mainImage.clear()
                 if self.horizontalLine is not None:
@@ -2574,8 +2585,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.toggleSingleEnergy.setEnabled(False)
             self.ui.energyRegSpinbox.setEnabled(False)
             self.ui.scanRegSpinbox.setEnabled(False)
-            # self.ui.xMotorCombo.setCurrentIndex(
-            #     self.ui.xMotorCombo.findText(self.client.scanConfig["scans"]["Image"]["energy_motor"]))
             self.setGUIfromScan(self.last_scan[scanType])
         elif scanType == "Double Motor":
             self.setFocusWidgets(False)
