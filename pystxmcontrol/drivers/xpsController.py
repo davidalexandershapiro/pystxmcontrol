@@ -1,4 +1,4 @@
-import socket, time
+import socket, time, threading
 from pystxmcontrol.controller.hardwareController import hardwareController
 
 class xpsController(hardwareController):
@@ -12,7 +12,8 @@ class xpsController(hardwareController):
         self._nSockets = 0
         self._sockets = []
         self._timeout = 0.5
-        self._position_tolerance = 20.0
+        self._position_tolerance = 2.0
+        self._lock = threading.Lock()
 
     def initialize(self, simulation = False):
         self.simulation = simulation
@@ -23,10 +24,11 @@ class xpsController(hardwareController):
 
     def __sendAndReceive(self, socketId, command):
         try:
-            self._sockets[socketId].send(command.encode())
-            response = self._sockets[socketId].recv(1024).decode()
-            while (response.find(',EndOfAPI') == -1):
-                response += self._sockets[socketId].recv(1024)
+            with self._lock:
+                self._sockets[socketId].send(command.encode())
+                response = self._sockets[socketId].recv(1024).decode()
+                while (response.find(',EndOfAPI') == -1):
+                    response += self._sockets[socketId].recv(1024)
         except socket.timeout:
             return [-2, '']
         except socket.error as errString:
@@ -55,34 +57,38 @@ class xpsController(hardwareController):
         return [err, retString]
 
     def moveTo(self, socketId, motor, target):
+        #An XPS can get in a state where absolute moves are inaccurate.  Use Relative.
         err,currentPos = self.getPosition(socketId, motor)
-        moveDelta = abs(target - currentPos)
-        command = 'GroupMoveAbsolute(' + motor + ',' + str(target) + ')'
-        self.moving = True
-        [err, retString] = self.__sendAndReceive(socketId, command)
-        t0 = time.time()
-        while self.moving:
-            err,currentPos = self.getPosition(socketId, motor)
-            positionErr = target - currentPos
-            if abs(positionErr) > self._position_tolerance:
-                print(positionErr,self._position_tolerance)
-                if not(self.stopped):
-                    if (time.time() - t0) > self._timeout:
-                        print("XPS move timeout. Aborting...")
-                        self.moving = False
-                        return self.abortMove(socketId, motor)
-                    else:
-                        time.sleep(0.1)
-                else:
-                    self.moving = False
-                    self.stopped = False
-                    return [err, retString]
-            else:
-                self.moving = False
-                return [err, retString]
+        [err, retString] = self.moveRelative(socketId,motor,target,target-currentPos)
+        return [err, retString]
 
-    def moveBy(self, socketId, motor, displacement, target):
-        command = 'GroupMoveRelative(' + motor + ',' + str(displacement)+')'
+        # moveDelta = abs(target - currentPos)
+        # command = 'GroupMoveAbsolute(' + motor + ',' + str(target) + ')'
+        # self.moving = True
+        # [err, retString] = self.__sendAndReceive(socketId, command)
+        # t0 = time.time()
+        # while self.moving:
+        #     err,currentPos = self.getPosition(socketId, motor)
+        #     positionErr = target - currentPos
+        #     if abs(positionErr) > self._position_tolerance:
+        #         print(positionErr,self._position_tolerance)
+        #         if not(self.stopped):
+        #             if (time.time() - t0) > self._timeout:
+        #                 print("XPS move timeout. Aborting...")
+        #                 self.moving = False
+        #                 return self.abortMove(socketId, motor)
+        #             else:
+        #                 time.sleep(0.1)
+        #         else:
+        #             self.moving = False
+        #             self.stopped = False
+        #             return [err, retString]
+        #     else:
+        #         self.moving = False
+        #         return [err, retString]
+
+    def moveRelative(self, socketId,motor,target,displacement):
+        command = f"GroupMoveRelative({motor},{displacement})"
         self.moving = True
         [err, retString] = self.__sendAndReceive(socketId, command)
         t0 = time.time()

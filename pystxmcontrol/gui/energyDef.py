@@ -124,12 +124,10 @@ class energyDefWidget(QtWidgets.QWidget, Ui_energyDef):
         self.energyDef.energyStop.setEnabled(False)
         self.energyDef.energyStep.setEnabled(False)
         self.energyDef.nEnergies.setEnabled(False)
-        self.energyDef.nEnergies.setText('1')
         self.energyDef.singleEnergy = True
 
     def setMultiEnergy(self):
         self.energyDef.energyStop.setEnabled(True)
         self.energyDef.energyStep.setEnabled(True)
         self.energyDef.nEnergies.setEnabled(True)
-        self.energyDef.nEnergies.setText('2')
         self.energyDef.singleEnergy = False

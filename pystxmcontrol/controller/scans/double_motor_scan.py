@@ -9,6 +9,12 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
     :return:
     """
 
+    xhome = controller.allMotorPositions[scan["x_motor"]]
+    yhome = controller.allMotorPositions[scan["y_motor"]]
+    def move_home():
+        controller.moveMotor(scan["x_motor"],xhome)
+        controller.moveMotor(scan["y_motor"],yhome)
+
     await scan["synch_event"].wait()
     regionNum = 0
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
@@ -101,12 +107,13 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
                     scanInfo["index"] = i * len(yPos[0]) + j
                     controller.moveMotor(scan["x_motor"], xPos[0][j])
                     if queue.empty():
-                        controller.daq["default"].autoGateOpen(shutter=True)
+                        controller.daq["default"].autoGateOpen()
                         await dataHandler.getPoint(scanInfo)
                         controller.daq["default"].autoGateClosed()
                     else:
-                        queue.get()
+                        await queue.get()
                         dataHandler.data.saveRegion(0)
+                        move_home()
                         await dataHandler.dataQueue.put('endOfScan')
                         return
             elif mode == "continuousLine":
@@ -115,14 +122,9 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
                     backlash = controller.motors[scan['x_motor']]['motor'].config['backlash']
                 except:
                     backlash = 0.
-                # if i % 2 == 0:
                 scanInfo["direction"] = "forward"
                 controller.moveMotor(scan["x_motor"],xStart)
                 target = xStop
-                # else:
-                #     scanInfo["direction"] = "backward"
-                #     controller.moveMotor(scan["x_motor"],xStop+backlash)
-                #     target = xStart+backlash
                 if queue.empty():
                     controller.daq["default"].initLine()
                     controller.daq["default"].autoGateOpen()
@@ -135,10 +137,12 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
                     except:
                         pass
                 else:
-                    queue.get()
+                    await queue.get()
                     dataHandler.data.saveRegion(0)
+                    move_home()
                     await dataHandler.dataQueue.put('endOfScan')
                     return
         energyIndex += 1
     dataHandler.data.saveRegion(0)
+    move_home()
     await dataHandler.dataQueue.put('endOfScan')

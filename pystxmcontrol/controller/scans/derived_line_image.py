@@ -56,9 +56,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
-
-
-
     for energy in energies:
         #Handle motor and daq timing minimum/maximum values
         minMotorDwell = 0.12  # ms needs to be in config probably.
@@ -98,7 +95,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo["yPoints"] = yPoints
             scanInfo["yStep"] = yStep
             scanInfo["yStart"] = yStart
-            scanInfo["yCenter"] = yStart + yRange / 2.
+            scanInfo["yCenter"] = yStart - yRange / 2.
             scanInfo["yRange"] = yRange
             waitTime = 0.005 + xPoints * 0.0001  # 0.005 + xRange * 0.02
 
@@ -121,6 +118,18 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
                 controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
+            # print('nyblocks {}'.format(nyblocks))
+            # print('ycoarse {}'.format(ycoarse))
+            # print('yStart_fine {}'.format(yStart_fine))
+            # print('yStop_fine {}'.format(yStop_fine))
+            # print('nxblocks {}'.format(nxblocks))
+            # print('xcoarse {}'.format(xcoarse))
+            # print('xStart_fine {}'.format(xStart_fine))
+            # print('xStop_fine {}'.format(xStop_fine))
+            #nyblocks = controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[0]
+            #ycoarse = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[1]
+            #yStart_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[2]
+            #yStop_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[3]
 
             # print("[derived line image]", coarse_only,scanInfo["include_return"],xcoarse,ycoarse)
             # print("[derived line image]", xStart_fine,xStop_fine,yStart_fine,yStop_fine)

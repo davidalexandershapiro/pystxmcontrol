@@ -164,6 +164,7 @@ class derivedPiezo(motor):
             axes = kwargs["axes"]
         else:
             axes = [1,]
+
         if self.lineMode == 'continuous':
             if not(coarse_only):
                 if not (self.simulation):
@@ -182,7 +183,7 @@ class derivedPiezo(motor):
             #commenting this so I can test the coarse stage scan without the piezo talking
             #elif not(self.simulation):
             else:
-                #this hack just applies to the XPS which stupidly uses microns/second for velocity.  Need to generalize units in config
+                #this hack just applies to the XPS which  uses microns/second for velocity.  Need to generalize units in config
                 #self.velocity is calculated above with reasonable units of microns/millisecond
                 xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],
                                          self.trajectory_pixel_count)
@@ -196,7 +197,7 @@ class derivedPiezo(motor):
                 self.axes["axis2"].setAxisParams(velocity = velocity)
                 t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
-                print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
+                #print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
                 self.axes["axis2"].setAxisParams(velocity = 2.0)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
@@ -225,14 +226,17 @@ class derivedPiezo(motor):
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
-        #print(f"[derived piezo] axis {self.axis}, requested {pos}, delta {deltaPos}, current {self.getPos()}")
         if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
             self.axes["axis1"].moveTo(newFinePos)
         else:
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
+                time.sleep(0.03)
+                fineDelta=self.axes["axis1"].getPos()
+                #print(f"[derived piezo] axis {self.axis} fineDelta = {fineDelta}")
                 self.axes["axis1"].setZero()
+            self.axes["axis2"].config["offset"]-=fineDelta
             self.axes["axis2"].moveTo(pos)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()

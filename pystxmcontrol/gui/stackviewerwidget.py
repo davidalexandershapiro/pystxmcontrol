@@ -678,11 +678,11 @@ class stackViewerWidget(QtWidgets.QWidget):
     def stack_from_nx(self,nxdata):
         self.stack = stack()
         self.stack.nx = nxdata
-        self.stack.energies = self.stack.nx.energies
+        self.stack.energies = self.stack.nx.energies["default"]
         self.stack.rawFrames = []
-        ne,ny,nx = self.stack.nx.interp_counts[self.iRegion].shape
+        ne,ny,nx = self.stack.nx.interp_counts["default"][self.iRegion].shape
         for i in range(ne):
-            im = image(data = self.stack.nx.interp_counts[self.iRegion][i])
+            im = image(data = self.stack.nx.interp_counts["default"][self.iRegion][i])
             im.energy = self.stack.energies[i]
             im.xpixelsize = self.stack.nx.xstepsize[self.iRegion]
             im.ypixelsize = self.stack.nx.ystepsize[self.iRegion]
@@ -696,15 +696,15 @@ class stackViewerWidget(QtWidgets.QWidget):
     def _update_stack(self,nxdata):
         self.stack.nx = nxdata
         self.stack.rawFrames = []
-        ne,ny,nx = self.stack.nx.interp_counts[self.iRegion].shape
+        ne,ny,nx = self.stack.nx.interp_counts["default"][self.iRegion].shape
         for i in range(ne):
-            im = image(data = self.stack.nx.interp_counts[self.iRegion][i])
+            im = image(data = self.stack.nx.interp_counts["default"][self.iRegion][i])
             im.energy = self.stack.energies[i]
             im.xpixelsize = self.stack.nx.xstepsize[self.iRegion]
             im.ypixelsize = self.stack.nx.ystepsize[self.iRegion]
             im.nypixels, im.nxpixels = im.data.shape
             self.stack.rawFrames.append(im)
-        self.stack.processedFrames = np.array(nxdata.interp_counts[0])
+        self.stack.processedFrames = np.array(nxdata.interp_counts["default"][0])
 
     def recv_live_data(self, nxdata, scanInfo):
         if self.ui.live_display.isChecked():
@@ -718,7 +718,7 @@ class stackViewerWidget(QtWidgets.QWidget):
             self.ui.frameEnergy.setText("Energy = %s eV" %str(self.stack.energies[scanInfo["energyIndex"]]))
             self.ui.verticalSlider.setValue(scanInfo["energyIndex"])
             self.ui.fileName.setText(self.stack_file)
-            self.nRegion = len(self.stack.nx.interp_counts)
+            self.nRegion = len(self.stack.nx.interp_counts["default"])
             self.updateMainImage()
             self.updateRegionCombo()
 

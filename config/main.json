@@ -10,7 +10,10 @@
         "data_dir": "/data",
         "file_prefix": "MES",
         "nx_file_version": "3",
-        "alshub-apikey": ""
+        "alshub-apikey": "",
+        "publish_zmq": false,
+        "log motors while scanning": false,
+        "motor log period": 10
     },
     "zonePlate": {
         "diameter": 360.0,
@@ -42,7 +45,11 @@
         "oversampling_factor": 1,
         "enable_coarse_only": true,
         "enable_tiled_scan": false,
-        "A0_calibrated": true
+        "A0_calibrated": true,
+        "line overhead": 0.1,
+        "energy overhead": 1,
+        "point overhead": 0.0,
+        "max line length": 100
     },
     "lastScan": {
         "Image": {

@@ -86,11 +86,11 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
             scanInfo["index"] = 0
             scanInfo["energyIndex"] = energyIndex
             if queue.empty():
-                controller.daq["default"].autoGateOpen(shutter=True)
+                controller.daq["default"].autoGateOpen()
                 await dataHandler.getPoint(scanInfo)
                 controller.daq["default"].autoGateClosed()
             else:
-                queue.get()
+                await queue.get()
                 dataHandler.data.saveRegion(0)
                 await dataHandler.dataQueue.put('endOfScan')
                 return
@@ -101,7 +101,7 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
                 scanInfo["energyIndex"] = 0
                 controller.moveMotor(scan["x_motor"], xPos[0][i])
                 if queue.empty():
-                    controller.daq["default"].autoGateOpen(shutter=True)
+                    controller.daq["default"].autoGateOpen()
                     await dataHandler.getPoint(scanInfo)
                     controller.daq["default"].autoGateClosed()
                 else:

@@ -7,6 +7,7 @@ import asyncio
 import zmq.asyncio
 from copy import deepcopy
 import json
+import atexit
 
 class dataHandler:
 
@@ -31,6 +32,7 @@ class dataHandler:
         self.stxm_data_port = self.main_config["server"]["stxm_data_port"]
         self.stxm_file_port = self.main_config["server"]["stxm_file_port"]
         self.pause = False
+        self._framenum = 0
         self._logger = logger
         self._lock = lock
         self._publish_zmq = self.controller.main_config["server"]["publish_zmq"]
@@ -45,12 +47,15 @@ class dataHandler:
             self.ccd_pub_socket.set_hwm(2000)
             self.ccd_pub_socket.bind(self.ccd_pub_address)
 
-        #publish stxm data to the gui
+        #publish stxm data for downstream viewers
         #publish to other listeners like RPI reconstruction for instance
         self.stxm_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"], self.stxm_data_port)
         print("Publishing stxm data on: %s" % self.stxm_pub_address)
         self.stxm_pub_socket = context.socket(zmq.PUB)
         self.stxm_pub_socket.bind(self.stxm_pub_address)
+
+        # Register cleanup handler to close sockets on exit
+        atexit.register(self.cleanup)
 
     def getScanName(self, dir = None, prefix = None, ptychography = False):
         """
@@ -317,10 +322,10 @@ class dataHandler:
             
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
+            # if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+            #     self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
+            # elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            #     self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
 
         elif "Focus" in scanInfo["type"]:
             if scanInfo["mode"]=="continuousLine":
@@ -347,7 +352,7 @@ class dataHandler:
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
             return self.data.interp_counts[daq][k][m,:,:]
 
-        elif scanInfo["type"] == "Double Motor" or scanInfo["type"] == "OSA Image":
+        elif scanInfo["type"] in ["Double Motor","OSA Image","Detector XY Image"]:
             if scanInfo["mode"] == "point":
                 c = scanInfo["columnIndex"]
                 if scanInfo["rawData"][daq]["meta"]["type"] == "point":
@@ -468,6 +473,7 @@ class dataHandler:
         scanInfo["dwell"] = self.controller.main_config["monitor"]["dwell"]
         scanInfo["daq list"] = list(self.daq.keys())
         scanInfo["rawData"] = {}
+        scanInfo["data"] = {}
         for daq in scanInfo["daq list"]:
             scanInfo["rawData"][daq]={"meta":self.daq[daq].meta,"data": None}
         chunk = []
@@ -483,6 +489,9 @@ class dataHandler:
             scanInfo['motorPositions'] = self.controller.allMotorPositions
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
             scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].offset
+            if "CCD" in scanInfo["daq list"]:
+                #just subtract background from the monitor data which goes to the GUI
+                scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
             if scanQueue.empty():
                 await self.sendDataToSock(scanInfo)
             else:
@@ -491,8 +500,8 @@ class dataHandler:
                 
     def processFrame(self, frame):
         y,x = frame.shape
-        frame = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
-        return frame[frame > 1.].sum(),frame
+        point = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
+        return point.sum()
 
     def zmq_start_event(self, scan, metadata=None):
         if self._publish_zmq:
@@ -536,15 +545,15 @@ class dataHandler:
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:
                             if scanInfo["ccd_frame_num"] % 2 == 0:
-                                pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
+                                pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
                         else:
-                            pointData,frameNoBKG = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
+                            pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
                         # for daq in scanInfo["daq list"]:
                         #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
                         #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
                         #hard coding the daqs for now, need to generalize this.
                         scanInfo["data"]["default"] = pointData
-                        scanInfo["data"]["CCD"] = frameNoBKG
+                        scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
                         #scanInfo["data"]["xrf"] = scanInfo["rawData"]["xrf"]["data"]
                     else:
                         self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
@@ -589,6 +598,10 @@ class dataHandler:
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Point] Acquisition time: {t1-t0}")
+        if "CCD" in scanInfo["daq list"]:
+            if self._framenum == 0:
+                self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
+        self._framenum += 1
         return True
 
     def read_daq(self,daq):
@@ -621,3 +634,34 @@ class dataHandler:
     def updateDwells(self, scanInfo):
         self.data.DAQdwell = scanInfo['DAQDwell']
         self.data.motdwell = scanInfo['motorDwell']
+
+    def cleanup(self):
+        """
+        Cleanup method to properly close ZMQ sockets.
+        Called automatically on program exit via atexit.
+        """
+        try:
+            if hasattr(self, 'stxm_pub_socket'):
+                self.stxm_pub_socket.close(linger=0)
+                if self._logger:
+                    self._logger.log("STXM publisher socket closed", level="info")
+                else:
+                    print("STXM publisher socket closed")
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error closing stxm_pub_socket: {e}", level="error")
+            else:
+                print(f"Error closing stxm_pub_socket: {e}")
+
+        try:
+            if hasattr(self, 'ccd_pub_socket'):
+                self.ccd_pub_socket.close(linger=0)
+                if self._logger:
+                    self._logger.log("CCD publisher socket closed", level="info")
+                else:
+                    print("CCD publisher socket closed")
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error closing ccd_pub_socket: {e}", level="error")
+            else:
+                print(f"Error closing ccd_pub_socket: {e}")

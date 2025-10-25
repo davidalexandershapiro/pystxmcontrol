@@ -81,6 +81,8 @@ class areaDetector(daq):
                 except ValueError:
                     self.data = np.reshape(frame, (current_dim,current_dim))
                     self.old_dim = current_dim
+            else:
+                self.data = np.reshape(frame, (current_dim, current_dim))
 
             #publish each frame to ZMQ to it can be received by GUI
             return self.framenum - 1, self.data
