@@ -1,13 +1,12 @@
 from pystxmcontrol.utils.writeNX import stxm
+from pystxmcontrol.controller.zmq_publisher import ZMQPublisher
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import time, os, datetime, threading, zmq
+import time, os, datetime, threading
 import numpy as np
 import scipy
 import asyncio
-import zmq.asyncio
 from copy import deepcopy
 import json
-import atexit
 
 class dataHandler:
 
@@ -28,34 +27,21 @@ class dataHandler:
         self.lineScanModes = ["rasterLine", "continuousLine","continuousSpiral"]
         self.currentScanID = None
         self.monitorDaq = True
-        self.ccd_data_port = self.main_config["server"]["ccd_data_port"]
-        self.stxm_data_port = self.main_config["server"]["stxm_data_port"]
-        self.stxm_file_port = self.main_config["server"]["stxm_file_port"]
         self.pause = False
         self._framenum = 0
         self._logger = logger
         self._lock = lock
-        self._publish_zmq = self.controller.main_config["server"]["publish_zmq"]
-        context = zmq.asyncio.Context()
 
-        if "CCD" in self.controller.daq.keys() and self._publish_zmq:
-            #publish ccd data to the preprocessor
+        # Initialize ZMQ publisher (replaces direct socket management)
+        self.zmq_publisher = ZMQPublisher(
+            config=self.main_config["server"],
+            daq_dict=self.controller.daq,
+            logger=logger
+        )
+
+        # Configure CCD if present
+        if "CCD" in self.controller.daq.keys():
             self.controller.daq["CCD"].config([10, 0], 0)
-            self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
-            print("Publishing ccd frames on: %s" %self.ccd_pub_address)
-            self.ccd_pub_socket = context.socket(zmq.PUB)
-            self.ccd_pub_socket.set_hwm(2000)
-            self.ccd_pub_socket.bind(self.ccd_pub_address)
-
-        #publish stxm data for downstream viewers
-        #publish to other listeners like RPI reconstruction for instance
-        self.stxm_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"], self.stxm_data_port)
-        print("Publishing stxm data on: %s" % self.stxm_pub_address)
-        self.stxm_pub_socket = context.socket(zmq.PUB)
-        self.stxm_pub_socket.bind(self.stxm_pub_address)
-
-        # Register cleanup handler to close sockets on exit
-        atexit.register(self.cleanup)
 
     def getScanName(self, dir = None, prefix = None, ptychography = False):
         """
@@ -505,20 +491,20 @@ class dataHandler:
         return point
 
     def zmq_start_event(self, scan, metadata=None):
-        if self._publish_zmq:
-            self.ccd_pub_socket.send_pyobj({'event':'start','data':scan, 'metadata':metadata})
-    
+        """Send scan start event via ZMQ publisher"""
+        self.zmq_publisher.send_scan_start_event(scan, metadata)
+
     def zmq_stop_event(self):
-        if self._publish_zmq:
-            self.ccd_pub_socket.send_pyobj({'event':'stop','data':None})
-    
+        """Send scan stop event via ZMQ publisher"""
+        self.zmq_publisher.send_scan_stop_event()
+
     def zmq_send(self, info):
-        if self._publish_zmq:
-            self.ccd_pub_socket.send_pyobj(info)
+        """Send CCD frame data via ZMQ publisher"""
+        self.zmq_publisher.publish_ccd_frame(info)
 
     def zmq_send_string(self, info):
-        if self._publish_zmq:
-            self.ccd_pub_socket.send_string(json.dumps(info))
+        """Send STXM data as JSON string via ZMQ publisher"""
+        self.zmq_publisher.publish_stxm_string(info)
 
     async def sendScanData(self, event):
         t0 = time.time()
@@ -528,7 +514,7 @@ class dataHandler:
             scanInfo = await self.dataQueue.get()
             if scanInfo == 'endOfScan':
                 self.regionComplete = True
-                await self.stxm_pub_socket.send_pyobj('scan_complete')
+                self.zmq_publisher.publish_stxm_data('scan_complete')
                 return
             elif scanInfo == "endOfRegion":
                 self.regionComplete = True
@@ -576,7 +562,7 @@ class dataHandler:
 
     async def sendDataToSock(self, scan_info):
         scan_info["scanID"] = self.currentScanID
-        await self.stxm_pub_socket.send_pyobj(scan_info)
+        self.zmq_publisher.publish_stxm_data(scan_info)
 
     async def getPoint(self, scanInfo):
         daq_tasks = []
@@ -590,12 +576,6 @@ class dataHandler:
         for daq in scanInfo["daq list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
 
-        # #if we fail to get a CCD frame, return BAD
-        # if self.daq["ccd"].data is not None:
-        #     pass
-        # else:
-        #     return False
-
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Point] Acquisition time: {t1-t0}")
@@ -605,8 +585,9 @@ class dataHandler:
         self._framenum += 1
         return True
 
-    def read_daq(self,daq):
-        return np.array(self.daq[daq].getPoint())
+    async def read_daq(self,daq):
+        data = await self.daq[daq].getPoint()
+        return data
 
     async def getLine(self, scanInfo):
         daq_tasks = []
@@ -621,13 +602,7 @@ class dataHandler:
                     scanInfo["rawData"][daq]["data"] = self.daq[daq].data[::-1]
             else:
                 scanInfo["rawData"][daq]["data"] = self.daq[daq].data
-        #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
-        #Until sendscandata is called, the raw data is stored in 'data'
-        # if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):
-        #     print(len(scanInfo['rawData']),len(scanInfo['line_positions'][0]))
-        #     if not scanInfo['scan']['spiral']:
-        #         print('mismatched arrays!')
-        #         return False
+
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Line] Acquisition time: {t1-t0}")
         return True
@@ -641,28 +616,6 @@ class dataHandler:
         Cleanup method to properly close ZMQ sockets.
         Called automatically on program exit via atexit.
         """
-        try:
-            if hasattr(self, 'stxm_pub_socket'):
-                self.stxm_pub_socket.close(linger=0)
-                if self._logger:
-                    self._logger.log("STXM publisher socket closed", level="info")
-                else:
-                    print("STXM publisher socket closed")
-        except Exception as e:
-            if self._logger:
-                self._logger.log(f"Error closing stxm_pub_socket: {e}", level="error")
-            else:
-                print(f"Error closing stxm_pub_socket: {e}")
-
-        try:
-            if hasattr(self, 'ccd_pub_socket'):
-                self.ccd_pub_socket.close(linger=0)
-                if self._logger:
-                    self._logger.log("CCD publisher socket closed", level="info")
-                else:
-                    print("CCD publisher socket closed")
-        except Exception as e:
-            if self._logger:
-                self._logger.log(f"Error closing ccd_pub_socket: {e}", level="error")
-            else:
-                print(f"Error closing ccd_pub_socket: {e}")
+        # Delegate cleanup to ZMQ publisher
+        if hasattr(self, 'zmq_publisher'):
+            self.zmq_publisher.cleanup()

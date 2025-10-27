@@ -69,7 +69,6 @@ def ptychography_scan(meta):
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -77,14 +76,16 @@ def ptychography_scan(meta):
             "doubleExposure": meta["doubleExposure"],
             "n_repeats": 1,
             "defocus": meta["defocus"],
-            "autofocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 1,
             "mode": 'ptychographyGrid',
             "coarse_only": False,
             "spiral": False,
             "retract": meta["retract"],
             "tiled": False,
-            "daq list": ['default', 'CCD'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
+            "coarse_only": False,
             "driver": scans[scan_type]["driver"], #"ptychography_image",
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
@@ -115,13 +116,14 @@ def ptychography_scan(meta):
     response = sock.recv_pyobj()
     if not response["status"]:
         return False
+    file_name = response["data"]
     status = False
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
         response = sock.recv_pyobj()
         status = response["status"]
-    return status
+    return file_name
 
 def stxm_scan(meta):
     # s = connect(ADDRESS, PORT)
@@ -137,7 +139,6 @@ def stxm_scan(meta):
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -145,13 +146,15 @@ def stxm_scan(meta):
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "autofocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 3,
             "mode": "continuousLine",
             "coarse_only": False,
             "spiral": meta["spiral"],
             "tiled": False,
-            "daq list": ['default'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
+            "coarse_only": False,
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
@@ -186,18 +189,18 @@ def stxm_scan(meta):
     response = sock.recv_pyobj()
     if not response["status"]:
         return False
+    file_name = response["data"]
     status = False
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
         response = sock.recv_pyobj()
         status = response["status"]
-    return status
+    return file_name
 
 def multi_region_ptychography_scan(meta, scanRegList):
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -205,13 +208,15 @@ def multi_region_ptychography_scan(meta, scanRegList):
             "doubleExposure": meta["doubleExposure"],
             "n_repeats": 1,
             "defocus": meta["defocus"],
-            "autofocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 1,
             "mode": "ptychographyGrid",
             "coarse_only": False,
             "spiral": meta["spiral"],
             "retract": meta["retract"],
-            "daq list": ['default', 'CCD'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
+            "coarse_only": False,
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -249,19 +254,19 @@ def multi_region_ptychography_scan(meta, scanRegList):
     response = sock.recv_pyobj()
     if not response["status"]:
         return False
+    file_name = response["data"]
     status = False
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
         response = sock.recv_pyobj()
         status = response["status"]
-    return status
+    return file_name
 
 def multi_region_stxm_scan(meta, scanRegList):
     # s = connect(ADDRESS, PORT)
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": meta["type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
+    scan = {"scan_type": meta["scan_type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -269,12 +274,14 @@ def multi_region_stxm_scan(meta, scanRegList):
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "autofocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 1,
             "mode": meta["mode"],
             "coarse_only": False,
             "spiral": meta["spiral"],
-            "daq list": ['default'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
+            "coarse_only": False,
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -312,13 +319,14 @@ def multi_region_stxm_scan(meta, scanRegList):
     response = sock.recv_pyobj()
     if not response["status"]:
         return False
+    file_name = response["data"]
     status = False
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
         response = sock.recv_pyobj()
         status = response["status"]
-    return status
+    return file_name
 
 def decimate(stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0):
     """
@@ -372,17 +380,18 @@ def get_motor_position(motor):
     return response['data'][motor]
 
 def single_motor_scan(meta):
+    running = {'value': True}
+
     def exit_function(event):
-        data.saveRegion(0)
-        data.closeFile()
-        start_monitor()
-        sys.exit()
+        running['value'] = False
+        plt.close(figure)
 
     def stop_function(event):
-        data.interp_counts = data.counts.copy()
+        data.interp_counts["default"] = data.counts["default"].copy()
         data.saveRegion(0)
+        data.close()
         start_monitor()
-        while True:
+        while running['value']:
             figure.canvas.flush_events()
 
     xstart = meta['xcenter'] - meta['xrange'] / 2.
@@ -397,7 +406,6 @@ def single_motor_scan(meta):
     ycenter = 0
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
             "sample": meta["Sample"],
             "x_motor": meta["xmotor"],
             "y_motor": None,
@@ -405,12 +413,13 @@ def single_motor_scan(meta):
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "autofocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 1,
             "mode": "point",
             "coarse_only": False,
             "spiral": meta["spiral"],
-            "daq list": ['default'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
@@ -438,9 +447,9 @@ def single_motor_scan(meta):
     data.file_name = sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
-    move_motor("Energy",data.energies[0])
+    move_motor("Energy",data.energies["default"][0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motorPositions = sock.recv_pyobj()["data"]
+    data.motorPositions = [sock.recv_pyobj()["data"]]
 
     plt.ion()
     # here we are creating sub plots
@@ -453,7 +462,7 @@ def single_motor_scan(meta):
     plt.ylabel(meta["daq"])
     mpts = np.linspace(xstart, xstop, meta["xpoints"])
 
-    line1, = ax.plot(mpts, data.counts[0][0,:], 'ro-', mfc='white')
+    line1, = ax.plot(mpts, data.counts["default"][0][0,:], 'ro-', mfc='white')
     ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
     stop_button = Button(ax_button, "Stop")
     stop_button.on_clicked(stop_function)
@@ -465,35 +474,36 @@ def single_motor_scan(meta):
     i = 0
     for m in mpts:
         move_motor(meta["xmotor"], m)
-        data.counts[0][0,i] = read_daq(meta["daq"], meta["dwell"])
+        data.counts["default"][0][0,i] = read_daq(meta["daq"], meta["dwell"])
         line1.set_xdata(mpts)
-        line1.set_ydata(data.counts[0][0,:])
+        line1.set_ydata(data.counts["default"][0][0,:])
         ax.relim()
         ax.autoscale_view()
         figure.canvas.draw()
         data.end_time = str(datetime.datetime.now())
         figure.canvas.flush_events()
         i += 1
-    data.interp_counts = data.counts.copy()
+    data.interp_counts["default"] = data.counts["default"].copy()
     data.saveRegion(0)
     start_monitor()
 
-    while True:
+    while running['value']:
         figure.canvas.flush_events()
     return data.file_name
 
 def two_motor_scan(meta):
+    running = {'value': True}
+
     def exit_function(event):
-        data.saveRegion(0)
-        data.closeFile()
-        start_monitor()
-        sys.exit()
+        running['value'] = False
+        plt.close(figure)
 
     def stop_function(event):
-        data.interp_counts = data.counts.copy()
+        data.interp_counts["default"] = data.counts["default"].copy()
         data.saveRegion(0)
+        data.close()
         start_monitor()
-        while True:
+        while running['value']:
             figure.canvas.flush_events()
 
     xstart = meta['xcenter'] - meta['xrange'] / 2.
@@ -510,7 +520,6 @@ def two_motor_scan(meta):
     ypoints = meta['ypoints']
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
             "sample": meta["Sample"],
             "x_motor": meta["xmotor"],
             "y_motor": meta["ymotor"],
@@ -518,12 +527,13 @@ def two_motor_scan(meta):
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "autofocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 1,
             "mode": "point",
             "coarse_only": False,
             "spiral": meta["spiral"],
-            "daq list": ['default'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
@@ -551,9 +561,8 @@ def two_motor_scan(meta):
     data.file_name = sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
-    #move_motor("Energy", data.energies[0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motorPositions = sock.recv_pyobj()["data"]
+    data.motorPositions = [sock.recv_pyobj()["data"]]
 
     plt.ion()
     # here we are creating sub plots
@@ -571,7 +580,7 @@ def two_motor_scan(meta):
     x = np.linspace(start[0], stop[0], npoints[0])
     y = np.linspace(start[1], stop[1], npoints[1])
 
-    im = ax.imshow(np.reshape(data.counts[0][0,:],npoints), extent = (start[1],stop[1],start[0],stop[0]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
+    im = ax.imshow(np.reshape(data.counts["default"][0][0,:],npoints), extent = (start[1],stop[1],start[0],stop[0]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
     move_motor(meta["ymotor"], y[0])
     move_motor(meta["xmotor"], x[0])
 
@@ -587,19 +596,19 @@ def two_motor_scan(meta):
         for j in range(npoints[0]):
             move_motor(meta["xmotor"],x[j])
             k = j + i * npoints[0]
-            data.counts[0][0,k] = read_daq(meta["daq"],meta["dwell"])
-            im.set_data(np.reshape(data.counts[0][0,:],npoints))
-            im.set_clim(vmin = data.counts[0][data.counts[0] > 0.].min(), vmax = data.counts[0].max())
+            data.counts["default"][0][0,k] = read_daq(meta["daq"],meta["dwell"])
+            im.set_data(np.reshape(data.counts["default"][0][0,:],npoints))
+            im.set_clim(vmin = data.counts["default"][0][data.counts["default"][0] > 0.].min(), vmax = data.counts["default"][0].max())
             ax.relim()
             ax.autoscale_view()
             # drawing updated values
             figure.canvas.draw()
             data.end_time = str(datetime.datetime.now())
             figure.canvas.flush_events()
-    data.interp_counts = data.counts.copy()
+    data.interp_counts["default"] = data.counts["default"].copy()
     data.saveRegion(0)
     start_monitor()
-    while True:
+    while running['value']:
         figure.canvas.flush_events()
     return data.file_name
 
@@ -616,7 +625,6 @@ def andor_ptychography_scan(meta):
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
-            "comment": "",
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -624,14 +632,15 @@ def andor_ptychography_scan(meta):
             "doubleExposure": meta["doubleExposure"],
             "n_repeats": 1,
             "defocus": meta["defocus"],
-            "refocus": meta["refocus"],
+            "autofocus": meta["autofocus"],
             "oversampling_factor": 1,
             "mode": 'ptychographyGrid',
             "spiral": False,
             "retract": meta["retract"],
             "tiled": False,
             "coarse_only": False,
-            "daq list": ['default', 'CCD'],
+            "daq list": meta["daq list"],
+            "comment": meta["comment"],
             "driver": scans[scan_type]["driver"], #"ptychography_image",
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
@@ -686,6 +695,8 @@ meta["dwell"] = 10.
 meta["defocus"] = False
 meta["doubleExposure"] = False
 meta["spiral"] = False
-meta["refocus"] = True
+meta["autofocus"] = True
+meta["daq list"] = ["default"]
+meta["comment"] = ""
 MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = get_config()
 

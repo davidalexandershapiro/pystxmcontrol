@@ -236,14 +236,10 @@ class OperationLogger:
 
         self.running = False
 
-        # Signal writer to stop
+        # Signal writer to stop by adding sentinel value
         if self.log_queue is not None:
             try:
-                # Use a non-async method to put the sentinel
-                asyncio.run_coroutine_threadsafe(
-                    self.log_queue.put(None),
-                    asyncio.get_event_loop()
-                ).result(timeout=1)
+                self.log_queue.put_nowait(None)
             except:
                 pass
 
