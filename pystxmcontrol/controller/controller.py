@@ -46,7 +46,7 @@ class controller:
         self.startMonitor()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
         self.operation_logger.start()
-        self._motor_logger_thread = threading.Thread(target=self._motor_logger,args=())
+        self._motor_logger_thread = threading.Thread(target=self._motor_logger, args=(), daemon=True)
         self._motor_logger_thread.start()
 
         # Register cleanup handler for graceful shutdown
@@ -264,7 +264,7 @@ class controller:
         def run_monitor():
             asyncio.run(self.dataHandler.monitor(self.scanQueue))
         if not self.monitorThread.is_alive():
-            self.monitorThread = threading.Thread(target = run_monitor, args = ())
+            self.monitorThread = threading.Thread(target=run_monitor, args=())
             self.monitorThread.start()
         if self.scanQueue is not None:
             while not self.scanQueue.empty():
@@ -276,7 +276,8 @@ class controller:
     def stopMonitor(self):
         if self.scanQueue is not None:
             self.scanQueue.put_nowait('end')
-        self.monitorThread.join()
+        if self.monitorThread.is_alive():
+            self.monitorThread.join(timeout=2)
         for daq in self.daq.keys():
             self.daq[daq].stop()
         self.scanQueue = None
@@ -377,7 +378,7 @@ class controller:
         def run_scan():
             asyncio.run(self.scan_helper(scan))
         if not self.scanThread.is_alive():
-            self.scanThread = threading.Thread(target = run_scan, args = ())
+            self.scanThread = threading.Thread(target=run_scan, args=())
             self.scanThread.start()
 
 
@@ -395,12 +396,12 @@ class controller:
                     pass
                 self.daq[daq].config(dwell, count = count, samples = samples, trigger = trigger)
 
-    def read_daq(self, daq, dwell, shutter = True):
+    async def read_daq(self, daq, dwell, shutter = True):
         try:
             self.daq["default"].start()
             self.daq["default"].config(dwell)
             self.daq["default"].autoGateOpen(shutter=0)
-            data = self.daq["default"].getPoint()
+            data = await self.daq["default"].getPoint()
             self.daq["default"].autoGateClosed()
             self.daq["default"].stop()
         except Exception:

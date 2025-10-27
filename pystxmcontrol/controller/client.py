@@ -185,7 +185,9 @@ class stxm_client(QtCore.QThread):
         try:
             self.command_sock = self.context.socket(zmq.REQ)
             self.command_sock.connect("tcp://%s:%s" % (address, command_port))
+            print("Connected to server")
             self.get_config()
+            print("Got config from server")
             self.start_monitors(address,data_port)
         except:
             return False
@@ -214,9 +216,8 @@ class stxm_client(QtCore.QThread):
         self.monitor.close()
 
     def disconnect(self):
-        message = {"command": "disconnect"}
-        self.command_sock.send_pyobj(message)
         self.close_monitors()
+        self.command_sock.close()
         
     def send_message(self,message):
         with self.lock:

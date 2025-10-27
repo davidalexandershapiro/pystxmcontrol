@@ -3,7 +3,9 @@ from pystxmcontrol.controller.controller import controller
 from pystxmcontrol.utils.logger import logger
 import time, os, datetime, sys
 import asyncio
+import atexit
 from optparse import OptionParser
+import zmq.asyncio
 
 parser = OptionParser()
 parser.add_option('--simulation', dest = 'simulation', default = '1', help = 'use simulation motor moves and data. ON by default.')
@@ -17,19 +19,55 @@ allowedSubnets = ['131.243.73','131.243.163','131.243.191','127.0.0']
 class stxmServer:
     def __init__(self, simulation = True):
         self.simulation = simulation
-        context = zmq.Context()
-        self.command_sock = context.socket(zmq.REP)
+        self.context = zmq.asyncio.Context()
+        self.command_sock = self.context.socket(zmq.REP)
         self.controller = None
         self.listening = True
+        self.running = True
         self._logger = logger(name = self.__class__.__name__, outfile = os.path.join(sys.prefix,'pystxmcontrol_cfg/stxmLog.txt'))
         self.controller = controller(self.simulation, self._logger)
         self.command_sock.bind("tcp://%s:%s" %(self.controller.main_config["server"]["host"],\
                                                        self.controller.main_config["server"]["command_port"]))
+        atexit.register(self.cleanup)
 
-    def command_handler(self):
-        while True:
-            #time.sleep(0.1)
-            message = self.command_sock.recv_pyobj()
+    def cleanup(self):
+        """Clean shutdown of server and controller"""
+        self.running = False
+
+        # Stop the controller monitor and cleanup
+        if hasattr(self, 'controller') and self.controller is not None:
+            try:
+                self.controller.stopMonitor()
+                if self._logger:
+                    self._logger.log("Controller monitor stopped", level="info")
+            except Exception as e:
+                if self._logger:
+                    self._logger.log(f"Error stopping controller monitor: {e}", level="error")
+
+        # Close ZMQ socket
+        if hasattr(self, 'command_sock') and self.command_sock is not None:
+            try:
+                self.command_sock.close(linger=0)
+                if self._logger:
+                    self._logger.log("Command socket closed", level="info")
+            except Exception as e:
+                if self._logger:
+                    self._logger.log(f"Error closing command socket: {e}", level="error")
+
+        # Terminate ZMQ context
+        if hasattr(self, 'context') and self.context is not None:
+            try:
+                self.context.term()
+                if self._logger:
+                    self._logger.log("ZMQ context terminated", level="info")
+            except Exception as e:
+                if self._logger:
+                    self._logger.log(f"Error terminating ZMQ context: {e}", level="error")
+
+    async def command_handler(self):
+        while self.running:
+            message={"command":None}
+            message = await self.command_sock.recv_pyobj()
             #recv_pyobj is blocking so we need to check the scan thread status after getting the message
             scanning = self.controller.scanThread.is_alive()
             if message["command"] == "get_config":
@@ -78,7 +116,7 @@ class stxmServer:
             elif message["command"] == "getData":
                 if not(scanning):
                     message["status"] = True
-                    message["data"] = self.controller.read_daq(daq=message["daq"], dwell=message["dwell"],
+                    message["data"] = await self.controller.read_daq(daq=message["daq"], dwell=message["dwell"],
                                                    shutter=message["shutter"])
                 else:
                     message["status"] = False
@@ -193,11 +231,11 @@ class stxmServer:
                 message["time"] = str(datetime.datetime.now())
                 self.controller.daq["default"].gate.setStatus()
                 self.command_sock.send_pyobj(message)
-            else:
-                message["status"] = False
-                message["mode"] = "idle"
-                message["time"] = str(datetime.datetime.now())
-                self.command_sock.send_pyobj(message)
+            # else:
+            #     message["status"] = False
+            #     message["mode"] = "idle"
+            #     message["time"] = str(datetime.datetime.now())
+            #     self.command_sock.send_pyobj(message)
             if message["command"] == "close":
                 self.command_sock.send_pyobj(message)
         else:
@@ -209,5 +247,10 @@ class stxmServer:
 
 if __name__=="__main__":
     a = stxmServer(simulation = options['simulation'])
-    command_thread = threading.Thread(target=a.command_handler, args=())
-    command_thread.start()
+    try:
+        asyncio.run(a.command_handler())
+    except KeyboardInterrupt:
+        print("\nShutting down server...")
+        a.cleanup()
+        print("Server stopped")
+        sys.exit(0)

@@ -296,13 +296,25 @@ class stxm:
         self._nx_writer.create_dataset(name=name, data=json.dumps(d))
 
     def saveRegion(self,i, nt = None):
-        if ('entry' + str(i)) in list(self._nx_writer):
-            self.updateEntry(i)
-        else:
-            self.createEntry(i)
-            self.updateEntry(i)
-        self.end_time = datetime.datetime.now().isoformat()
-        self._nx_writer[f'entry{i}/end_time'][...] = str(self.end_time).encode("UTF_8")
+        # Check if file is still open before attempting to save
+        if self._nx_writer is None:
+            return
+
+        try:
+            # Attempt to list entries - will fail if file is closed
+            entries = list(self._nx_writer)
+
+            if (f"entry{i}") in entries:
+                self.updateEntry(i)
+            else:
+                self.createEntry(i)
+                self.updateEntry(i)
+            self.end_time = datetime.datetime.now().isoformat()
+            self._nx_writer[f'entry{i}/end_time'][...] = str(self.end_time).encode("UTF_8")
+
+        except Exception:
+            # File is closed or invalid - silently skip save
+            pass
 
     def updateEntry(self,i):
 
@@ -400,4 +412,8 @@ class stxm:
         self._nx_writer.flush()
 
     def close(self):
-        self._nx_writer.close()
+        if self._nx_writer is not None:
+            try:
+                self._nx_writer.close()
+            except Exception:
+                pass
