@@ -25,7 +25,7 @@ class xerMotor(motor):
             self.lock = self.controller.lock
             self._axis = self.controller.addAxis(Stage.XLS_5, axis)
             self.controller.start()
-            #self.home()
+            self.home()
             self.getPos()
 
     def checkLimits(self, pos):

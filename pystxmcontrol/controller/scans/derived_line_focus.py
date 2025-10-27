@@ -77,7 +77,7 @@ async def derived_line_focus(scan, dataHandler, controller, queue):
         # this should be changed to global units and then have the driver convert
         controller.motors[scan["x_motor"]]["motor"].trajectory_start = (xStart_fine, yStart_fine)
         controller.motors[scan["x_motor"]]["motor"].trajectory_stop = (xStop_fine, yStop_fine)
-        controller.motors[scan["x_motor"]]["motor"].update_trajectory()
+        controller.motors[scan["x_motor"]]["motor"].update_trajectory(include_return = scanInfo["include_return"])
     else:
         start_position_x = xStart - coarse_offset
         start_position_y = yStart

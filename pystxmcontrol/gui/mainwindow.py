@@ -1538,7 +1538,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateImageFromCCD(self, ccdData):
         self.currentCCDData = ccdData
         if self.ui.channelSelect.currentText() == "CCD":
-            self.ui.mainImage.setImage(self.currentCCDData.T, autoRange=self.ui.autorangeCheckbox.isChecked(),
+            modified_CCD = self.currentCCDData.T+10
+            modified_CCD[modified_CCD<1] = 1
+            modified_CCD = np.log(modified_CCD)
+            self.ui.mainImage.setImage(modified_CCD, autoRange=self.ui.autorangeCheckbox.isChecked(),
                                                autoLevels=self.ui.autoscaleCheckbox.isChecked(), \
                                                autoHistogramRange=self.ui.autorangeCheckbox.isChecked(), pos=(0,0),
                                                scale=(1,1))
@@ -1592,6 +1595,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.currentEnergyIndex = message["energyIndex"]
             self.currentScanRegionIndex = scanRegNumber
             self.image = message["image"]["default"]
+            #prnt(message)
 
             # xCenters,yCenters = [],[]
             # for region in self.scan["scan_regions"].keys():

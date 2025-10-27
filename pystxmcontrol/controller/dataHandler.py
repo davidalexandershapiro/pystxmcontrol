@@ -322,10 +322,10 @@ class dataHandler:
             
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
-            # if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-            #     self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
-            # elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            #     self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
 
         elif "Focus" in scanInfo["type"]:
             if scanInfo["mode"]=="continuousLine":
@@ -500,8 +500,9 @@ class dataHandler:
                 
     def processFrame(self, frame):
         y,x = frame.shape
-        point = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
-        return point.sum()
+        #point = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
+        point = ((frame.astype('float64') > 10.) * frame.astype('float64')).sum()
+        return point
 
     def zmq_start_event(self, scan, metadata=None):
         if self._publish_zmq:

@@ -68,22 +68,25 @@ def ptychography_scan(meta):
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": "SampleX",
-            "y": "SampleY",
-            "energy": "Energy",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
+            "energy_motor": "Energy",
             "doubleExposure": meta["doubleExposure"],
             "n_repeats": 1,
             "defocus": meta["defocus"],
-            "refocus": meta["refocus"],
+            "autofocus": meta["refocus"],
             "oversampling_factor": 1,
             "mode": 'ptychographyGrid',
+            "coarse_only": False,
             "spiral": False,
             "retract": meta["retract"],
             "tiled": False,
+            "daq list": ['default', 'CCD'],
             "driver": scans[scan_type]["driver"], #"ptychography_image",
-            "scanRegions": {"Region1": {"xStart": xstart,
+            "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
                                         "xStep": xstep,
@@ -98,11 +101,11 @@ def ptychography_scan(meta):
                                         "zStart": 0,
                                         "zStop": 0,
                                         "zPoints": 0}},
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
     if "energyList" in meta.keys():
         scan["energy_list"] = meta["energyList"]
@@ -133,20 +136,23 @@ def stxm_scan(meta):
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": "SampleX",
-            "y": "SampleY",
-            "energy": "Energy",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
+            "energy_motor": "Energy",
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "refocus": meta["refocus"],
+            "autofocus": meta["refocus"],
             "oversampling_factor": 3,
             "mode": "continuousLine",
+            "coarse_only": False,
             "spiral": meta["spiral"],
             "tiled": False,
-            "scanRegions": {"Region1": {"xStart": xstart,
+            "daq list": ['default'],
+            "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
                                         "xStep": xstep,
@@ -161,18 +167,18 @@ def stxm_scan(meta):
                                         "zStart": 0,
                                         "zStop": 0,
                                         "zPoints": 0}},
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
     if "energyList" in meta.keys():
         scan["energy_list"] = meta["energyList"]
         scan["dwell"] = meta["dwell"]
     if meta["spiral"]:
         scan["driver"] = scans["Spiral Image"]["driver"] #"spiral_image"
-        scan["type"] = 'Spiral Image'
+        scan["scan_type"] = 'Spiral Image'
     else:
         scan["driver"] = scans["Image"]["driver"] #"line_image"
     message = {"command": "scan", "scan": scan}
@@ -190,26 +196,29 @@ def stxm_scan(meta):
 
 def multi_region_ptychography_scan(meta, scanRegList):
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": "SampleX",
-            "y": "SampleY",
-            "energy": "Energy",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
+            "energy_motor": "Energy",
             "doubleExposure": meta["doubleExposure"],
             "n_repeats": 1,
             "defocus": meta["defocus"],
-            "refocus": meta["refocus"],
+            "autofocus": meta["refocus"],
             "oversampling_factor": 1,
             "mode": "ptychographyGrid",
+            "coarse_only": False,
             "spiral": meta["spiral"],
             "retract": meta["retract"],
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "daq list": ['default', 'CCD'],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
-    scan["scanRegions"] = {}
+    scan["scan_regions"] = {}
     i = 1
     for region in scanRegList:
         xstart, xstop, ystart, ystop = region
@@ -219,7 +228,7 @@ def multi_region_ptychography_scan(meta, scanRegList):
         y_range = ystop - ystart
         ycenter = ystart + y_range / 2.
         ypoints = int(y_range / meta["ystep"])
-        scan["scanRegions"]["Region" + str(i)] = {"xStart": xstart,
+        scan["scan_regions"]["Region" + str(i)] = {"xStart": xstart,
                                     "xStop": xstop,
                                     "xPoints": xpoints,
                                     "xStep": meta["xstep"],
@@ -252,24 +261,27 @@ def multi_region_stxm_scan(meta, scanRegList):
     # s = connect(ADDRESS, PORT)
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
     scan = {"type": meta["type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": "SampleX",
-            "y": "SampleY",
-            "energy": "Energy",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
+            "energy_motor": "Energy",
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "refocus": meta["refocus"],
+            "autofocus": meta["refocus"],
             "oversampling_factor": 1,
             "mode": meta["mode"],
+            "coarse_only": False,
             "spiral": meta["spiral"],
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "daq list": ['default'],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
-    scan["scanRegions"] = {}
+    scan["scan_regions"] = {}
     i = 1
     for region in scanRegList:
         xstart, xstop, ystart, ystop = region
@@ -279,7 +291,7 @@ def multi_region_stxm_scan(meta, scanRegList):
         y_range = ystop - ystart
         ycenter = ystart + y_range / 2.
         ypoints = int(y_range / meta["ystep"])
-        scan["scanRegions"]["Region" + str(i)] = {"xStart": xstart,
+        scan["scan_regions"]["Region" + str(i)] = {"xStart": xstart,
                                     "xStop": xstop,
                                     "xPoints": xpoints,
                                     "xStep": meta["xstep"],
@@ -384,19 +396,22 @@ def single_motor_scan(meta):
     y_range = 0
     ycenter = 0
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": meta["xmotor"],
-            "y": None,
-            "energy": "Energy",
+            "x_motor": meta["xmotor"],
+            "y_motor": None,
+            "energy_motor": "Energy",
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "refocus": meta["refocus"],
+            "autofocus": meta["refocus"],
             "oversampling_factor": 1,
             "mode": "point",
+            "coarse_only": False,
             "spiral": meta["spiral"],
-            "scanRegions": {"Region1": {"xStart": xstart,
+            "daq list": ['default'],
+            "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
                                         "xStep": xstep,
@@ -411,11 +426,11 @@ def single_motor_scan(meta):
                                         "zStart": 0,
                                         "zStop": 0,
                                         "zPoints": 1}},
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
     scan["main_config"] = MAIN_CONFIG
     data = stxm(scan) #create the data structure
@@ -494,19 +509,22 @@ def two_motor_scan(meta):
     ycenter = y_range / 2. + ystart
     ypoints = meta['ypoints']
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": meta["xmotor"],
-            "y": meta["ymotor"],
-            "energy": "Energy",
+            "x_motor": meta["xmotor"],
+            "y_motor": meta["ymotor"],
+            "energy_motor": "Energy",
             "doubleExposure": False,
             "n_repeats": 1,
             "defocus": False,
-            "refocus": meta["refocus"],
+            "autofocus": meta["refocus"],
             "oversampling_factor": 1,
             "mode": "point",
+            "coarse_only": False,
             "spiral": meta["spiral"],
-            "scanRegions": {"Region1": {"xStart": xstart,
+            "daq list": ['default'],
+            "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
                                         "xStep": xstep,
@@ -521,11 +539,11 @@ def two_motor_scan(meta):
                                         "zStart": 0,
                                         "zStop": 0,
                                         "zPoints": 1}},
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
     scan["main_config"] = MAIN_CONFIG
     data = stxm(scan) #create the data structure
@@ -597,11 +615,12 @@ def andor_ptychography_scan(meta):
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+            "comment": "",
             "sample": meta["Sample"],
-            "x": "SampleX",
-            "y": "SampleY",
-            "energy": "Energy",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
+            "energy_motor": "Energy",
             "doubleExposure": meta["doubleExposure"],
             "n_repeats": 1,
             "defocus": meta["defocus"],
@@ -611,8 +630,10 @@ def andor_ptychography_scan(meta):
             "spiral": False,
             "retract": meta["retract"],
             "tiled": False,
+            "coarse_only": False,
+            "daq list": ['default', 'CCD'],
             "driver": scans[scan_type]["driver"], #"ptychography_image",
-            "scanRegions": {"Region1": {"xStart": xstart,
+            "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
                                         "xStep": xstep,
@@ -627,11 +648,11 @@ def andor_ptychography_scan(meta):
                                         "zStart": 0,
                                         "zStop": 0,
                                         "zPoints": 0}},
-            "energyRegions": {"EnergyRegion1": {"dwell": meta["dwell"],
+            "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
                                                 "step": energyStep,
-                                                "nEnergies": meta["energyPoints"]}}
+                                                "n_energies": meta["energyPoints"]}}
             }
     if "energyList" in meta.keys():
         scan["energy_list"] = meta["energyList"]
