@@ -285,10 +285,6 @@ class dataHandler:
 
         #add the interpolated data to the structure
         if scanInfo["type"] == "Image":
-            #if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-            #    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
-            #elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            #    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
             self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
             mi = scanInfo['index']
             mj = mi + scanInfo['line_positions'][0].size
@@ -300,18 +296,14 @@ class dataHandler:
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            #if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-            #    self.data.interp_counts[daq][k][m,:,:] = scanInfo["data"][daq] #this is a matrix
-            #elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            #    self.data.interp_counts[daq][k][m,:,:] = scanInfo["data"][daq].sum(0) #this is a matrix
             self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
             
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
-            # if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-            #     self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
-            # elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            #     self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
 
         elif "Focus" in scanInfo["type"]:
             if scanInfo["mode"]=="continuousLine":
