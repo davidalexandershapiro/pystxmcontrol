@@ -12,6 +12,7 @@ import json
 import os
 import threading
 from datetime import datetime, timedelta
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
@@ -159,6 +160,31 @@ class OperationLogger:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_scans_scan_id
             ON scans(scan_id)
+        ''')
+
+        # Commands table - logs all commands processed by server
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                datetime TEXT NOT NULL,
+                command TEXT NOT NULL,
+                parameters TEXT,
+                status BOOLEAN,
+                mode TEXT,
+                error_message TEXT,
+                duration REAL
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_commands_timestamp
+            ON commands(timestamp)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_commands_command
+            ON commands(command, timestamp)
         ''')
 
         conn.commit()
@@ -336,7 +362,7 @@ class OperationLogger:
                         entry.get('error_message')
                     ))
 
-                if entry['type'] == 'motor_position':
+                elif entry['type'] == 'motor_position':
                     cursor.execute('''
                         INSERT INTO motor_positions
                         (timestamp, datetime, motor_name,
@@ -351,6 +377,22 @@ class OperationLogger:
                         entry.get('error_message')
                     ))
 
+                elif entry['type'] == 'command':
+                    cursor.execute('''
+                        INSERT INTO commands
+                        (timestamp, datetime, command, parameters,
+                         status, mode, error_message, duration)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        entry['timestamp'],
+                        entry['datetime'],
+                        entry['command'],
+                        json.dumps(entry.get('parameters', {})),
+                        entry.get('status'),
+                        entry.get('mode'),
+                        entry.get('error_message'),
+                        entry.get('duration')
+                    ))
 
             except Exception as e:
                 if self._logger:
@@ -472,6 +514,39 @@ class OperationLogger:
             'duration': duration,
             'status': status,
             'error_message': error_message
+        }
+
+        try:
+            self.log_queue.put_nowait(entry)
+        except asyncio.QueueFull:
+            if self._logger:
+                self._logger.log("Log queue full, dropping entry", level="warning")
+
+    def log_command(self, command, parameters=None, status=None, mode=None,
+                    error_message=None, duration=None):
+        """
+        Log a command processed by the server (non-blocking)
+
+        :param command: The command name (e.g., 'moveMotor', 'scan', 'getData')
+        :param parameters: Dictionary of command parameters
+        :param status: Whether the command succeeded
+        :param mode: Mode after command execution (e.g., 'idle', 'scanning')
+        :param error_message: Error message if failed
+        :param duration: Time taken to process command in seconds
+        """
+        if not self.running or self.log_queue is None or self._readonly:
+            return
+
+        entry = {
+            'type': 'command',
+            'timestamp': time.time(),
+            'datetime': datetime.now().isoformat(),
+            'command': command,
+            'parameters': parameters or {},
+            'status': status,
+            'mode': mode,
+            'error_message': error_message,
+            'duration': duration
         }
 
         try:
@@ -611,6 +686,65 @@ class OperationLogger:
             if scan_type:
                 query += " AND scan_type = ?"
                 params.append(scan_type)
+
+            query += " AND timestamp >= ? AND timestamp <= ?"
+            params.append(db_start)
+            params.append(db_end)
+
+            query += " ORDER BY timestamp DESC"
+
+            cursor.execute(query, params)
+            all_results.extend([dict(row) for row in cursor.fetchall()])
+            conn.close()
+
+        # Sort combined results and apply limit
+        all_results.sort(key=lambda x: x['timestamp'], reverse=True)
+        results = all_results[:limit]
+
+        # Parse JSON parameters
+        for result in results:
+            if result['parameters']:
+                try:
+                    result['parameters'] = json.loads(result['parameters'])
+                except:
+                    pass
+
+        return results
+
+    def query_commands(self, command=None, start_time=None, end_time=None, limit=100):
+        """
+        Query commands from database(s) - works across monthly rotation
+
+        :param command: Filter by command name (None for all)
+        :param start_time: Start timestamp (None for all)
+        :param end_time: End timestamp (None for all)
+        :param limit: Maximum number of results
+        :return: List of command records
+        """
+        # Default to recent data if no time range specified
+        if start_time is None and end_time is None:
+            end_time = time.time()
+            start_time = end_time - (30 * 24 * 3600)  # Last 30 days
+        elif start_time is None:
+            start_time = 0
+        elif end_time is None:
+            end_time = time.time()
+
+        # Get relevant database files
+        db_files = self._get_db_files_for_range(start_time, end_time)
+
+        all_results = []
+        for db_path, db_start, db_end in db_files:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM commands WHERE 1=1"
+            params = []
+
+            if command:
+                query += " AND command = ?"
+                params.append(command)
 
             query += " AND timestamp >= ? AND timestamp <= ?"
             params.append(db_start)
@@ -832,6 +966,372 @@ class OperationLogger:
         # Save if requested
         if save_path:
             plt.savefig(save_path, dpi=150)
+            print(f"Plot saved to {save_path}")
+
+        # Show if requested
+        if show:
+            plt.show()
+
+        return fig
+
+    def plot_commands(self, date=None, show=True, save_path=None):
+        """
+        Plot command frequency over a given day
+
+        :param date: Date to plot (datetime object or 'YYYY-MM-DD' string). If None, uses today.
+        :param show: Whether to display the plot
+        :param save_path: Path to save the plot image (optional)
+        :return: matplotlib figure object
+        """
+        # Parse date
+        if date is None:
+            date = datetime.now().date()
+        elif isinstance(date, str):
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+        elif isinstance(date, datetime):
+            date = date.date()
+
+        # Get start and end timestamps for the day
+        start_datetime = datetime.combine(date, datetime.min.time())
+        end_datetime = datetime.combine(date, datetime.max.time())
+        start_timestamp = start_datetime.timestamp()
+        end_timestamp = end_datetime.timestamp()
+
+        # Query commands for the day
+        results = self.query_commands(
+            start_time=start_timestamp,
+            end_time=end_timestamp,
+            limit=100000  # High limit for full day
+        )
+
+        if not results:
+            print(f"No commands found on {date}")
+            return None
+
+        # Sort by timestamp ascending for plotting
+        results.sort(key=lambda x: x['timestamp'])
+
+        # Count commands by type
+        from collections import Counter
+        command_counts = Counter(r['command'] for r in results)
+
+        # Extract data for plotting
+        timestamps = [datetime.fromtimestamp(r['timestamp']) for r in results]
+        commands = [r['command'] for r in results]
+        statuses = [r['status'] for r in results]
+
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+
+        # Plot 1: Command frequency over time
+        unique_commands = sorted(set(commands))
+        colors = plt.cm.tab20(range(len(unique_commands)))
+        command_colors = dict(zip(unique_commands, colors))
+
+        for cmd in unique_commands:
+            cmd_times = [timestamps[i] for i, c in enumerate(commands) if c == cmd]
+            cmd_y = [unique_commands.index(cmd)] * len(cmd_times)
+            ax1.scatter(cmd_times, cmd_y, label=cmd, color=command_colors[cmd],
+                       alpha=0.6, s=50)
+
+        ax1.set_yticks(range(len(unique_commands)))
+        ax1.set_yticklabels(unique_commands)
+        ax1.set_xlabel('Time', fontsize=12)
+        ax1.set_ylabel('Command Type', fontsize=12)
+        ax1.set_title(f'Commands Timeline - {date}', fontsize=14, fontweight='bold')
+        ax1.grid(True, alpha=0.3, axis='x')
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+
+        # Plot 2: Command type distribution (bar chart)
+        cmd_names = list(command_counts.keys())
+        cmd_values = list(command_counts.values())
+        bars = ax2.barh(cmd_names, cmd_values, color=[command_colors[c] for c in cmd_names])
+
+        ax2.set_xlabel('Count', fontsize=12)
+        ax2.set_ylabel('Command Type', fontsize=12)
+        ax2.set_title('Command Distribution', fontsize=14, fontweight='bold')
+        ax2.grid(True, alpha=0.3, axis='x')
+
+        # Add value labels on bars
+        for bar, value in zip(bars, cmd_values):
+            ax2.text(value, bar.get_y() + bar.get_height()/2,
+                    f' {value}', va='center', fontsize=9)
+
+        # Add statistics
+        failed_count = sum(1 for s in statuses if s is False)
+        success_count = sum(1 for s in statuses if s is True)
+        stats_text = f'Total: {len(results)} | Success: {success_count} | Failed: {failed_count}'
+        fig.text(0.5, 0.02, stats_text, ha='center', fontsize=11,
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
+        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.08)
+
+        # Save if requested
+        if save_path:
+            plt.savefig(save_path, dpi=150)
+            print(f"Plot saved to {save_path}")
+
+        # Show if requested
+        if show:
+            plt.show()
+
+        return fig
+
+    def plot_motor_with_commands(self, motor_name, date=None, show=True, save_path=None):
+        """
+        Plot motor positions with overlaid command execution information.
+
+        This creates a comprehensive view showing:
+        - Motor position over time
+        - Command execution markers
+        - Command type annotations
+        - Motor moves highlighted
+        - Scan operations marked
+
+        :param motor_name: Name of the motor to plot
+        :param date: Date to plot (datetime object or 'YYYY-MM-DD' string). If None, uses today.
+        :param show: Whether to display the plot
+        :param save_path: Path to save the plot image (optional)
+        :return: matplotlib figure object
+        """
+        # Parse date
+        if date is None:
+            date = datetime.now().date()
+        elif isinstance(date, str):
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+        elif isinstance(date, datetime):
+            date = date.date()
+
+        # Get start and end timestamps for the day
+        start_datetime = datetime.combine(date, datetime.min.time())
+        end_datetime = datetime.combine(date, datetime.max.time())
+        start_timestamp = start_datetime.timestamp()
+        end_timestamp = end_datetime.timestamp()
+
+        # Query motor positions for the day
+        position_results = self.query_motor_positions(
+            motor_name=motor_name,
+            start_time=start_timestamp,
+            end_time=end_timestamp,
+            limit=100000
+        )
+
+        # Query commands for the day
+        command_results = self.query_commands(
+            start_time=start_timestamp,
+            end_time=end_timestamp,
+            limit=100000
+        )
+
+        if not position_results:
+            print(f"No position data found for motor '{motor_name}' on {date}")
+            return None
+
+        # Sort by timestamp
+        position_results.sort(key=lambda x: x['timestamp'])
+        if command_results:
+            command_results.sort(key=lambda x: x['timestamp'])
+
+        # Extract position data
+        pos_timestamps = [datetime.fromtimestamp(r['timestamp']) for r in position_results]
+        positions = [r['actual_position'] for r in position_results if r['actual_position'] is not None]
+        pos_times_filtered = [pos_timestamps[i] for i, r in enumerate(position_results) if r['actual_position'] is not None]
+
+        # Create figure with 2 subplots
+        fig = plt.figure(figsize=(16, 10))
+        gs = fig.add_gridspec(2, 1, height_ratios=[2, 1], hspace=0.3)
+        ax1 = fig.add_subplot(gs[0])  # Motor position
+        ax2 = fig.add_subplot(gs[1], sharex=ax1)  # Command details table
+
+        # Plot 1: Motor position over time
+        ax1.plot(pos_times_filtered, positions, '-', linewidth=1, alpha=0.7, label='Position')
+        ax1.set_ylabel(f'{motor_name} Position', fontsize=12, fontweight='bold')
+        ax1.set_title(f'{motor_name} Position with Commands - {date}', fontsize=14, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(loc='upper left')
+
+        # Add position statistics
+        if positions:
+            pos_stats = f'Range: {min(positions):.3f} - {max(positions):.3f} | Readings: {len(positions)}'
+            ax1.text(0.02, 0.98, pos_stats, transform=ax1.transAxes,
+                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+
+        if command_results:
+            # Categorize commands
+            motor_commands = []
+            scan_commands = []
+            other_commands = []
+
+            for cmd in command_results:
+                cmd_time = datetime.fromtimestamp(cmd['timestamp'])
+                cmd_name = cmd['command']
+                cmd_status = cmd.get('status', True)
+
+                if cmd_name in ['moveMotor', 'move_to_focus', 'getMotorPositions']:
+                    motor_commands.append((cmd_time, cmd_name, cmd_status, cmd.get('parameters', {})))
+                elif cmd_name in ['scan', 'cancel', 'pause']:
+                    scan_commands.append((cmd_time, cmd_name, cmd_status, cmd.get('parameters', {})))
+                else:
+                    other_commands.append((cmd_time, cmd_name, cmd_status))
+
+            # Overlay motor commands on position plot
+            if motor_commands:
+                move_times = [t for t, cmd, status, _ in motor_commands if cmd == 'moveMotor' and status]
+                failed_times = [t for t, cmd, status, _ in motor_commands if cmd == 'moveMotor' and not status]
+
+                if move_times:
+                    ax1.scatter(move_times, [ax1.get_ylim()[0]] * len(move_times),
+                              marker='^', s=100, c='green', alpha=0.6,
+                              label='Motor Move', zorder=5)
+                if failed_times:
+                    ax1.scatter(failed_times, [ax1.get_ylim()[0]] * len(failed_times),
+                              marker='x', s=100, c='red', alpha=0.8,
+                              label='Failed Move', zorder=5)
+
+            # Overlay scan operations
+            if scan_commands:
+                scan_start_times = [t for t, cmd, _, _ in scan_commands if cmd == 'scan']
+                scan_cancel_times = [t for t, cmd, _, _ in scan_commands if cmd == 'cancel']
+
+                for scan_time in scan_start_times:
+                    ax1.axvline(x=scan_time, color='blue', linestyle='--',
+                              alpha=0.4, linewidth=2, label='Scan Start' if scan_time == scan_start_times[0] else '')
+
+                for cancel_time in scan_cancel_times:
+                    ax1.axvline(x=cancel_time, color='red', linestyle=':',
+                              alpha=0.4, linewidth=2, label='Scan Cancel' if cancel_time == scan_cancel_times[0] else '')
+
+            ax1.legend(loc='upper left', fontsize=9)
+
+            # Plot 2: Command details with annotations
+            ax2.set_title('Command Execution Details', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Command', fontsize=11, fontweight='bold')
+            ax2.set_xlabel('Time', fontsize=12, fontweight='bold')
+
+            # Select important commands to display
+            # Prioritize: scans, motor moves, and failed commands
+            important_commands = []
+            for cmd in command_results:
+                cmd_name = cmd['command']
+                if cmd_name in ['scan', 'moveMotor', 'cancel', 'pause'] or cmd.get('status') is False:
+                    important_commands.append(cmd)
+
+            # Limit to reasonable number for display (e.g., last 50)
+            display_commands = important_commands[-50:] if len(important_commands) > 50 else important_commands
+
+            if display_commands:
+                # Create color map for command types
+                unique_commands = sorted(set(c['command'] for c in display_commands))
+                colors = plt.cm.tab20(range(len(unique_commands)))
+                command_colors = dict(zip(unique_commands, colors))
+
+                # Plot commands as vertical lines with annotations
+                for cmd in display_commands:
+                    cmd_time = datetime.fromtimestamp(cmd['timestamp'])
+                    cmd_name = cmd['command']
+                    cmd_status = cmd.get('status', True)
+                    params = cmd.get('parameters', {})
+
+                    # Line style based on status
+                    linestyle = '-' if cmd_status else '--'
+                    alpha = 0.7 if cmd_status else 0.9
+                    linewidth = 1.5 if cmd_status else 2
+
+                    # Draw vertical line for command
+                    color = command_colors[cmd_name]
+                    ax2.axvline(x=cmd_time, color=color, linestyle=linestyle,
+                              alpha=alpha, linewidth=linewidth)
+
+                    # Build annotation text with command details
+                    annotation_parts = [cmd_name]
+
+                    # Add relevant parameters based on command type
+                    if cmd_name == 'moveMotor':
+                        axis = params.get('axis', '?')
+                        pos = params.get('pos', '?')
+                        if axis != '?' and pos != '?':
+                            annotation_parts.append(f"{axis}→{pos:.2f}" if isinstance(pos, (int, float)) else f"{axis}→{pos}")
+                    elif cmd_name == 'scan':
+                        scan_type = params.get('scan_type', '?')
+                        scan_id = params.get('scan_id', '?')
+                        if scan_type != '?':
+                            annotation_parts.append(scan_type)
+                        if scan_id != '?':
+                            annotation_parts.append(f"#{scan_id}")
+                    elif cmd_name == 'getData':
+                        daq = params.get('daq', '?')
+                        dwell = params.get('dwell', '?')
+                        if daq != '?' or dwell != '?':
+                            annotation_parts.append(f"daq:{daq}")
+
+                    # Add status indicator
+                    if not cmd_status:
+                        annotation_parts.append('✗FAIL')
+
+                    annotation = '\n'.join(annotation_parts)
+
+                    # Annotate every Nth command to avoid clutter
+                    # Show all failed commands and every 5th successful command
+                    show_annotation = (not cmd_status) or (display_commands.index(cmd) % 5 == 0)
+
+                    if show_annotation:
+                        ax2.text(cmd_time, 0.5, annotation,
+                               rotation=90, verticalalignment='bottom',
+                               fontsize=8, alpha=0.8,
+                               bbox=dict(boxstyle='round,pad=0.3', facecolor=color, alpha=0.3))
+
+                # Set y-axis limits and remove ticks
+                ax2.set_ylim(0, 1)
+                ax2.set_yticks([])
+
+                # Add legend for command types
+                from matplotlib.patches import Patch
+                legend_elements = [Patch(facecolor=command_colors[cmd], label=cmd, alpha=0.7)
+                                 for cmd in unique_commands]
+                ax2.legend(handles=legend_elements, loc='upper left', fontsize=8, ncol=min(len(unique_commands), 5))
+
+                # Add statistics
+                failed_count = sum(1 for r in command_results if r.get('status') is False)
+                success_count = sum(1 for r in command_results if r.get('status') is True)
+                cmd_stats = f'Total: {len(command_results)} | Displayed: {len(display_commands)} | Success: {success_count} | Failed: {failed_count}'
+                ax2.text(0.98, 0.98, cmd_stats, transform=ax2.transAxes,
+                        ha='right', verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.7),
+                        fontsize=9)
+            else:
+                ax2.text(0.5, 0.5, 'No important commands to display\n(Showing: scan, moveMotor, cancel, pause, and failures)',
+                        ha='center', va='center', transform=ax2.transAxes, fontsize=11, style='italic')
+                ax2.set_ylim(0, 1)
+                ax2.set_yticks([])
+
+            ax2.grid(True, alpha=0.3, axis='x')
+
+        else:
+            # No commands - just show empty plot
+            ax2.text(0.5, 0.5, 'No commands recorded', ha='center', va='center',
+                    transform=ax2.transAxes, fontsize=12, style='italic')
+            ax2.set_ylabel('Command', fontsize=11, fontweight='bold')
+            ax2.set_xlabel('Time', fontsize=12, fontweight='bold')
+            ax2.set_ylim(0, 1)
+            ax2.set_yticks([])
+            ax2.grid(True, alpha=0.3, axis='x')
+
+        # Format x-axis (time) on bottom plot only
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        ax2.xaxis.set_major_locator(mdates.HourLocator(interval=max(1, int(24 / 12))))  # ~12 ticks max
+        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+        # Hide x labels on upper plot
+        plt.setp(ax1.get_xticklabels(), visible=False)
+
+        plt.tight_layout()
+
+        # Save if requested
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Plot saved to {save_path}")
 
         # Show if requested

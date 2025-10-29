@@ -10,6 +10,7 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Low scan overhead
 - Microsecond shutter timing and synchronization using an Arduino Due microcontroller
 - Full integration of ptychography scanning
+- Data logger which saves to a database all commands, motor moves and motor positions at a defined interval
 
 # Currently supported devices
 - [Mad City Labs](https://www.madcitylabs.com/nanodrive.html) Nano-Drive controller

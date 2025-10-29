@@ -42,10 +42,12 @@ class controller:
         self.lock = asyncio.Lock()
         self._log_motors = True
         self._logger = logger
+        self.readConfig()
         self.initialize()
         self.startMonitor()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
         self.operation_logger.start()
+        self.getMotorPositions()
         self._motor_logger_thread = threading.Thread(target=self._motor_logger, args=(), daemon=True)
         self._motor_logger_thread.start()
 
@@ -55,9 +57,6 @@ class controller:
     def _motor_logger(self):
         while self._log_motors:
             self.getMotorPositions()
-            for motor in self.motors:
-                self.operation_logger.log_motor_position(motor,self.allMotorPositions[motor],
-                                                         motor_offset = self.motors[motor]["motor"].config["offset"])
             time.sleep(self.main_config["server"]["motor log period"])
 
     def _ensure_scan_queue(self):
@@ -107,7 +106,6 @@ class controller:
                                       %(config["controller"], config["controllerID"], config["port"], config["simulation"]))
 
     def initialize(self):
-        self.readConfig()
         for key in self.motorConfig.keys():
             if self.motorConfig[key]["type"] == "primary":
                 ##for this motor, add the controller if it doesn't exist
@@ -137,8 +135,6 @@ class controller:
             self.motors[motor]["motor"].offset = self.motors[motor]["motor"].config["offset"]
             self.motors[motor]["motor"].units = self.motors[motor]["motor"].config["units"]
 
-        #get all initial motor positions
-        self.getMotorPositions()
         self.daq = {}
         for daq in self.daqConfig.keys():
             meta = self.daqConfig[daq]
@@ -173,6 +169,8 @@ class controller:
                     self.allMotorPositions["status"][motor] = self.motors[motor]["motor"].getStatus()
                 except:
                     print("getStatus failed on %s" %motor)
+                self.operation_logger.log_motor_position(motor,self.allMotorPositions[motor],
+                                                         motor_offset = self.motors[motor]["motor"].config["offset"])
         
 
     def moveMotor(self, axis, pos, log=None, **kwargs):

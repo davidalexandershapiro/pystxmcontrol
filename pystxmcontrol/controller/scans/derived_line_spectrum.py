@@ -90,13 +90,11 @@ async def derived_line_spectrum(scan, dataHandler, controller, queue):
     #numMotorPoints should be the total number of motor position measurements expected
     #numDAQPoints should be equal to xPoints * oversampling
     numLineMotorPoints = controller.motors[scan["x_motor"]]["motor"].npositions #this configures the DAQ for one line
-    numLineDAQPoints = controller.motors[scan["x_motor"]]["motor"].npositions * scan["oversampling_factor"]
+    scanInfo["numLineDAQPoints"] = controller.motors[scan["x_motor"]]["motor"].npositions * scan["oversampling_factor"]
     scanInfo['numMotorPoints'] = numLineMotorPoints #total number of motor points configures the full data structrure
     scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
     dataHandler.data.updateArrays(0, scanInfo)
-    controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = numLineDAQPoints, trigger = "EXT")
-    # controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, \
-    #                                         samples=numLineDAQPoints, trigger="EXT")
+    controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT")
 
     start_position_x = controller.motors[scan["x_motor"]]["motor"].trajectory_start[0] - \
                        controller.motors[scan["x_motor"]]["motor"].xpad
@@ -145,8 +143,10 @@ async def derived_line_spectrum(scan, dataHandler, controller, queue):
                     dataHandler.dataQueue.put('endOfScan')
                     print("Terminating grid scan")
                     return False
-            if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime,axes=[1,2]):
-                return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
+            if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+                #this will just skip lines with a failed trigger, putting 0's in the data file
+                #this could instead loop through a few tries
+                pass
         else:
             await queue.get()
             dataHandler.data.saveRegion(0)

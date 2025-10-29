@@ -256,6 +256,10 @@ class stxm:
             nPixels_m = nxPixels * nyPixels #total number of measured pixels
             nPixels_r = nxPos * nyPos #total number of requested pixels, shown for clarity
 
+            if "Focus" in scan["scan_type"]:
+                #hack because out data structure doesn't have the Z positions needed for a focus scan
+                nyPos = nzPos
+
             self.xMeasured.append(np.zeros(nPixels_m))
             self.yMeasured.append(np.zeros(nPixels_m))
             self.zMeasured.append(np.zeros(nPixels_m))
@@ -329,6 +333,11 @@ class stxm:
             self._nx_writer[f'entry{i}/instrument/{daq}/data'].flush()
             self._nx_writer[f'entry{i}/{daq}/data'].flush()
             self._nx_writer[f'entry{i}/instrument/{daq}/data'].attrs["energies"] = self.energies[daq]
+        #add the measured motor positions
+        del self._nx_writer[f'entry{i}/instrument/sample_x/data']
+        self._nx_writer[f'entry{i}/instrument/sample_x'].create_dataset("data", data = self.xMeasured[i])
+        del self._nx_writer[f'entry{i}/instrument/sample_y/data']
+        self._nx_writer[f'entry{i}/instrument/sample_y'].create_dataset("data", data = self.yMeasured[i])
         for motor in self.motorPositions[i].keys():
             try:
                 self._nx_writer[f'entry{i}/instrument/motors'].create_dataset(motor.replace(" ","_").lower(), data = self.motorPositions[i][motor])
