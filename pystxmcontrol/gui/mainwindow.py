@@ -1300,7 +1300,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 timePerPoint += (self.scan["energy_regions"][region]["dwell"] / 1000. \
                                + self.pointOverhead) * self.scan["energy_regions"][region]["n_energies"]
             nEnergies += self.scan["energy_regions"][region]["n_energies"]
-        estimatedTime = nPoints * timePerPoint + nLines * self.lineOverhead + (nEnergies - 1) * self.energyOverhead
+        estimatedTime = nPoints * timePerPoint + nLines * self.lineOverhead * nEnergies + (nEnergies - 1) * self.energyOverhead
         if estimatedTime < 100.:
             self.ui.estimatedTime.setText(str(np.round(estimatedTime, 2)) + ' s')
         elif estimatedTime < 3600.:
@@ -1348,7 +1348,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 xRange = xStop - xStart
             yRange = self.scan["scan_regions"][regStr]["yStop"] - self.scan["scan_regions"][regStr]["yStart"]
             if xStart < xMin:
-                print(f"[scan check] xMin {xMin}, xMax {xMax}, xStart {xStart}, xStop {xStop}")
                 return "Scan X is below xMin."
             elif xStop > xMax:
                 return "Scan X is above xMax"
