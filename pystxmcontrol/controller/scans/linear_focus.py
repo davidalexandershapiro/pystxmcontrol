@@ -1,7 +1,7 @@
 """
-Refactored derived line image scan using BaseScan abstract class.
+Refactored derived line focus scan using BaseScan abstract class.
 
-This is a continuous flyscan image scan that uses the linear trajectory
+This is a continuous flyscan focus scan that uses the linear trajectory
 function on the controller. It moves coarse motors to the center of the
 scan range and executes a fine scan smaller than the max piezo scan range.
 """
@@ -11,10 +11,9 @@ from pystxmcontrol.controller.scans.scan_utils import doFlyscanLine, terminateFl
 from numpy import ones
 from time import sleep
 
-
-class LinearImageScan(BaseScan):
+class LinearFocusScan(BaseScan):
     """
-    Continuous flyscan line image scan implementation.
+    Continuous flyscan line focus scan implementation.
 
     Features:
     - Multi-region scanning
@@ -39,7 +38,7 @@ class LinearImageScan(BaseScan):
 
     async def execute_scan(self) -> bool:
         """
-        Execute the line image scan.
+        Execute the line focus scan.
 
         Loops through:
         1. Energies
@@ -129,7 +128,12 @@ class LinearImageScan(BaseScan):
             "yStep": geometry["yStep"],
             "yStart": geometry["yStart"],
             "yCenter": geometry["yCenter"],
-            "yRange": geometry["yRange"]
+            "yRange": geometry["yRange"],
+            "zPoints": geometry["zPoints"],
+            "zStep": geometry["zStep"],
+            "zStart": geometry["zStart"],
+            "zCenter": geometry["zCenter"],
+            "zRange": geometry["zRange"]
         })
 
         # Setup motors and trajectory for this region
@@ -161,7 +165,7 @@ class LinearImageScan(BaseScan):
         self.scanInfo["trigger_axis"] = trigger_axis
 
         # Scan all Y lines
-        success = await self.scan_y_lines(geometry, num_line_motor_points, region_index)
+        success = await self.scan_focus_lines(geometry, num_line_motor_points, region_index)
 
         return success
 
@@ -245,6 +249,7 @@ class LinearImageScan(BaseScan):
         coarse_only = self.scanInfo["coarse_only"]
         x_motor_name = self.scan["x_motor"]
         y_motor_name = self.scan["y_motor"]
+        z_motor_name = self.scan["z_motor"]
         motor = self.controller.motors[x_motor_name]["motor"]
 
         # Calculate start position with padding
@@ -252,6 +257,7 @@ class LinearImageScan(BaseScan):
         start_y = motor.trajectory_start[1] - motor.ypad
 
         self.scanInfo["start_position_x"] = start_x
+        self.scanInfo["start_position_y"] = start_y
         self.scanInfo["xpad"] = motor.xpad
         self.scanInfo["ypad"] = motor.ypad
 
@@ -262,10 +268,11 @@ class LinearImageScan(BaseScan):
         # Force both moves to use coarse motors to reset both piezos for large scans
         self.controller.moveMotor(x_motor_name, x_coarse + start_x, coarse_only = coarse_only)
         self.controller.moveMotor(y_motor_name, y_coarse + start_y, coarse_only = coarse_only)
+        self.controller.moveMotor(z_motor_name, geometry["zStart"])
 
         sleep(0.1)  # Allow settling
 
-    async def scan_y_lines(self, geometry: dict, num_line_motor_points: int,
+    async def scan_focus_lines(self, geometry: dict, num_line_motor_points: int,
                           region_index: int) -> bool:
         """
         Scan all Y lines in the region.
@@ -278,11 +285,13 @@ class LinearImageScan(BaseScan):
         coarse_only = self.scanInfo["coarse_only"]
         x_motor_name = self.scan["x_motor"]
         y_motor_name = self.scan["y_motor"]
-        x_coarse, _ = self.scanInfo["offset"]
+        z_motor_name = self.scan["z_motor"]
+        x_coarse, y_coarse = self.scanInfo["offset"]
         start_x = self.scanInfo["start_position_x"]
+        start_y = self.scanInfo["start_position_y"]
         wait_time = 0.005 + geometry["xPoints"] * 0.0001
 
-        for line_index, y_pos in enumerate(geometry["yPos"]):
+        for line_index, z_pos in enumerate(geometry["zPos"]):
             # Check for abort
             if await self.check_abort():
                 return await self.handle_abort(region_index, "x_motor", "Flyscan aborted.")
@@ -290,7 +299,8 @@ class LinearImageScan(BaseScan):
             # Move to line position
             #Force the vertical move to use coarse motors for large scans
             self.controller.moveMotor(x_motor_name, x_coarse + start_x)
-            self.controller.moveMotor(y_motor_name, y_pos, coarse_only = coarse_only)
+            self.controller.moveMotor(y_motor_name, y_coarse + start_y)
+            self.controller.moveMotor(z_motor_name, z_pos)
 
             # Update motor positions
             self.update_motor_positions(region_index)
@@ -300,8 +310,9 @@ class LinearImageScan(BaseScan):
                 "index": line_index * num_line_motor_points,
                 "lineIndex": line_index,
                 "zIndex": 0,
+                "zVal": geometry["zPos"],
                 "xVal": geometry["xPos"],
-                "yVal": y_pos * ones(len(geometry["xPos"]))
+                "yVal": start_y * ones(len(geometry["xPos"]))
             })
 
             # Execute flyscan line
@@ -318,9 +329,9 @@ class LinearImageScan(BaseScan):
         return True
 
 
-async def linear_image(scan, dataHandler, controller, queue):
+async def linear_focus(scan, dataHandler, controller, queue):
     """
-    Entry point for linear image scan using derived motors(v2 using BaseScan).
+    Entry point for linear focus scan using derived motors(v2 using BaseScan).
 
     :param scan: Scan parameter dictionary
     :param dataHandler: Data handler instance
@@ -328,13 +339,13 @@ async def linear_image(scan, dataHandler, controller, queue):
     :param queue: Async queue for scan control
     :return: Scan completion status
     """
-    scan_instance = LinearImageScan(scan, dataHandler, controller, queue)
+    scan_instance = LinearFocusScan(scan, dataHandler, controller, queue)
     return await scan_instance.run()
 
 
 # Maintain backward compatibility
-async def derived_line_image(scan, dataHandler, controller, queue):
+async def derived_line_focus(scan, dataHandler, controller, queue):
     """
     Legacy entry point - redirects to v2 implementation.
     """
-    return await linear_image(scan, dataHandler, controller, queue)
+    return await linear_focus(scan, dataHandler, controller, queue)

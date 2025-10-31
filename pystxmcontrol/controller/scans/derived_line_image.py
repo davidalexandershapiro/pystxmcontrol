@@ -133,8 +133,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 start_position_x = xStart - coarse_offset
                 start_position_y = yStart
                 # a "coarse_oNly" move will leave the servo off when done, otherwise will turn it back on
-                controller.moveMotor(scan["x_motor"], start_position_x, coarse_only=True)
-                controller.moveMotor(scan["y_motor"], start_position_y)
                 controller.motors[scan["x_motor"]]["motor"].trajectory_start = (xStart - coarse_offset, y[0])
                 controller.motors[scan["x_motor"]]["motor"].trajectory_stop = (xStop + coarse_offset, y[0])
                 controller.motors[scan["x_motor"]]["motor"].update_trajectory(include_return = False)
@@ -157,8 +155,9 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                                controller.motors[scan["x_motor"]]["motor"].ypad
             scanInfo["start_position_x"] = start_position_x
             # needs to be in global units but start_position is generated in piezo units so add coarse.
-            controller.moveMotor(scan["x_motor"], xcoarse + start_position_x)
-            controller.moveMotor(scan["y_motor"], ycoarse + start_position_y)
+            # Force both moves to use coarse to reset both piezos for large scans
+            controller.moveMotor(scan["x_motor"], xcoarse + start_position_x, coarse_only = coarse_only)
+            controller.moveMotor(scan["y_motor"], ycoarse + start_position_y, coarse_only = coarse_only)
             sleep(0.1)
 
             # turn on position 
@@ -172,7 +171,8 @@ async def derived_line_image(scan, dataHandler, controller, queue):
 
             for i in range(len(y)):
                 controller.moveMotor(scan["x_motor"], xcoarse + start_position_x)
-                controller.moveMotor(scan["y_motor"],y[i])
+                # Force the vertical move to use coarse motors for large scans
+                controller.moveMotor(scan["y_motor"], y[i], coarse_only = coarse_only)
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions

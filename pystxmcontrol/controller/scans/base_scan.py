@@ -303,19 +303,30 @@ class BaseScan(ABC):
         """
         xPos = self.dataHandler.data.xPos[region_index]
         yPos = self.dataHandler.data.yPos[region_index]
+        zPos = self.dataHandler.data.zPos[region_index]
 
         x_start, x_stop = xPos[0], xPos[-1]
         y_start, y_stop = yPos[0], yPos[-1]
+        z_start, z_stop = zPos[0], zPos[-1]
         x_range = x_stop - x_start
         y_range = y_stop - y_start
+        z_range = z_stop - z_start
         x_points = len(xPos)
         y_points = len(yPos)
+        z_points = len(zPos)
         x_step = x_range / (x_points - 1) if x_points > 1 else 0
         y_step = y_range / (y_points - 1) if y_points > 1 else 0
+        z_step = z_range / (z_points - 1) if z_points > 1 else 0
 
         return {
             "xPos": xPos,
             "yPos": yPos,
+            "zPos": zPos,
+            "zStart": z_start,
+            "zStop": z_stop,
+            "zPoints": z_points,
+            "zStep": z_step,
+            "zRange": z_range,
             "xStart": x_start,
             "xStop": x_stop,
             "yStart": y_start,
@@ -328,6 +339,7 @@ class BaseScan(ABC):
             "yStep": y_step,
             "xCenter": x_start + x_range / 2.0,
             "yCenter": y_start + y_range / 2.0,
+            "zCenter": z_start + z_range / 2.0,
         }
 
     @abstractmethod

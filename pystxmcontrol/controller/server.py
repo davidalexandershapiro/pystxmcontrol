@@ -408,11 +408,11 @@ class stxmServer:
                     mode="idle",
                     duration=time.time() - cmd_start_time
                 )
-            # else:
-            #     message["status"] = False
-            #     message["mode"] = "idle"
-            #     message["time"] = str(datetime.datetime.now())
-            #     self.command_sock.send_pyobj(message)
+            else:
+                message["status"] = False
+                message["mode"] = "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
             if message["command"] == "close":
                 self.command_sock.send_pyobj(message)
 

@@ -1170,7 +1170,7 @@ class OperationLogger:
                 cmd_name = cmd['command']
                 cmd_status = cmd.get('status', True)
 
-                if cmd_name in ['moveMotor', 'move_to_focus', 'getMotorPositions']:
+                if cmd_name in ['moveMotor', 'move_to_focus', 'getMotorPositions','changeMotorConfig']:
                     motor_commands.append((cmd_time, cmd_name, cmd_status, cmd.get('parameters', {})))
                 elif cmd_name in ['scan', 'cancel', 'pause']:
                     scan_commands.append((cmd_time, cmd_name, cmd_status, cmd.get('parameters', {})))
