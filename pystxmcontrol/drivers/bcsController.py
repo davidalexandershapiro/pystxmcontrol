@@ -23,7 +23,6 @@ class bcsController(hardwareController):
 
     def initialize(self, simulation = False):
         self.simulation = simulation
-        print("simulation on bcsController: ", simulation)
         if not(self.simulation):
             self.controlSocket.connect((self.address, self.port))
             self.monitorSocket.connect((self.address, self.port))

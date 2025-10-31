@@ -35,7 +35,7 @@ class mcsMotor(motor):
             else:
                 self.position = pos
         else:
-            self.logger.log("Software limits exceeded for axis %s. Requested position: %.2f" % (self.axis, pos),
+            self.logger.log(f"[mcsMotor] Software limits exceeded for axis {self.axis}. Requested position: {pos}",
                             level="info")
 
     def getPos(self):
@@ -53,6 +53,12 @@ class mcsMotor(motor):
     def stop(self):
         if not self.simulation:
             self.controller.stop(self._axis)
+
+    def setAxisParams(self, velocity):
+        self.controller.set_velocity(self._axis,velocity)
+
+    def moveLine(self):
+        pass
 
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():

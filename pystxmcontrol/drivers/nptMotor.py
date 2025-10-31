@@ -74,10 +74,12 @@ class nptMotor(motor):
     def stop(self):
         return
         
-    def setPositionTriggerOn(self, pos):
+    def setPositionTriggerOn(self, pos, debug = False):
         if not(self.simulation):
-            print("Setting position trigger on axis %i and position = %.4f" %(self.trigger_axis,pos))
-            self.controller.setPositionTrigger(pos = pos, axis = self.trigger_axis, mode = 'on')
+            #pos = round((pos - self.config["offset"]) / self.config["units"],3)
+            if debug:
+                print(f"[nptMotor] Turning position trigger on for axis {self._axis} at position {pos}")
+            self.controller.setPositionTrigger(pos = pos, axis = self._axis, mode = 'on')
         
     def setPositionTriggerOff(self):
         if not(self.simulation):
@@ -126,13 +128,14 @@ class nptMotor(motor):
     def moveTo(self, pos = None):
         if self.checkLimits(pos):
             if not(self.simulation):
+                pos = round((pos - self.config["offset"]) / self.config["units"],3)
                 self.controller.moveTo(axis = self._axis, pos = pos)
-                time.sleep(0.02) #piezo settling time of 10 ms
+                #time.sleep(0.01) #piezo settling time of 10 ms
             else:
                 self.position = pos
                 time.sleep(self.waitTime / 1000.)
         else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
+            print("[nPoint] Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
 
     def moveLine(self, direction = "forward"):
         #convert milliseconds to seconds for the controller call
@@ -149,7 +152,6 @@ class nptMotor(motor):
                 pass
         elif self.lineMode == 'continuous':
             self.update_trajectory(direction = direction)
-            #print(self.trigger_axis, self.start, self.stop,self.trajectory_trigger[self.trigger_axis-1])
             if not (self.simulation):
                 self.controller.linear_trajectory(self.start, self.stop, trigger_axis = self.trigger_axis, \
                                     trigger_position = self.trajectory_trigger[self.trigger_axis-1], \
@@ -158,7 +160,9 @@ class nptMotor(motor):
 
     def getPos(self):
         if not(self.simulation):
-            return self.controller.getPos(axis = self._axis)
+            pos = self.controller.getPos(axis = self._axis)
+            self.position = pos * self.config["units"] + self.config["offset"]
+            return self.position
         else:
             return self.position
             

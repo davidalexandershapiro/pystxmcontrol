@@ -10,7 +10,8 @@ class mmcMotor(motor):
         self.calibratedPosition = 0.
         self.moving = False
         self.idleStrings = ['8','136']
-        self.lt = '\r'
+        self._lt = '\r'
+        self._timeout = 1
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -29,6 +30,19 @@ class mmcMotor(motor):
     def moveBy(self, step):
         self.position += step
 
+    def setAxisParams(self,velocity):
+        self.velocity = round(velocity,3)
+        if not self.simulation:
+            with self.lock:
+                self.controller.serialPort.write((str(self._axis) + "VEL" + str(self.velocity) + self._lt).encode())
+
+    def get_velocity(self):
+        if not self.simulation:
+            with self.lock:
+                self.controller.serialPort.write((str(self._axis) + "VEL?" + self._lt).encode())
+                self.velocity = float(self.controller.serialPort.readline().decode().split(',')[1].rstrip())
+        return self.velocity
+
     def moveTo(self, pos):
         pos = int(pos)
         if self.checkLimits(pos):
@@ -40,19 +54,21 @@ class mmcMotor(motor):
                     self.controller.serialPort.write((str(self._axis) + "MVA" + str(pos) + "\r").encode())
                 while True:
                     self.getStatus()
-                    if self.moving:
+                    dt = time.time() - t0
+                    if self.moving and dt < self._timeout:
                         time.sleep(0.005)
                     else:
+                        self.moving = False
                         return
             else:
                 self.position = pos
         else:
-            self.logger.log("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos),level = "info")
+            self.logger.log(f"[mmcMotor] Software limits exceeded for axis {self.axis}. Requested position: {pos}",level = "info")
 
     def getPos(self):
         if not self.simulation:
             with self.lock:
-                self.controller.serialPort.write((str(self._axis) + "POS?" + self.lt).encode())
+                self.controller.serialPort.write((str(self._axis) + "POS?" + self._lt).encode())
                 pos = float(self.controller.serialPort.readline().decode().split(',')[1].rstrip())
                 self.position = pos * self.config["units"] + self.config["offset"]
                 return self.position
@@ -65,12 +81,12 @@ class mmcMotor(motor):
         else:
             servoStr = '0'
         if not self.simulation:
-            writeStr = str(self._axis) + "FBK" + servoStr + self.lt
+            writeStr = str(self._axis) + "FBK" + servoStr + self._lt
             self.controller.serialPort.write(writeStr.encode())
 
     def home(self):
         if not self.simulation:
-            writeStr = str(self._axis) + "HOM" + self.lt
+            writeStr = str(self._axis) + "HOM" + self._lt
             self.controller.serialPort.write(writeStr.encode())
 
     def configure_home(self, direction = 0):
@@ -78,7 +94,7 @@ class mmcMotor(motor):
         Direction: 0 or 1
         """
         if not self.simulation:
-            writeStr = str(self._axis) + "HCG" + str(direction) + self.lt
+            writeStr = str(self._axis) + "HCG" + str(direction) + self._lt
             self.controller.serialPort.write(writeStr.encode())
 
     def connect(self, axis=None, **kwargs):

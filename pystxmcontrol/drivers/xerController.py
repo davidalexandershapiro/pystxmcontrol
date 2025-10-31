@@ -68,6 +68,7 @@ class xerController:
         self.COM_port = address
         self.baud = baudrate
         self.lock = Lock()
+        self.position = 0. #this is just used for simulation mode
         
     def initialize(self, simulation = False):
         self.simulation = simulation
@@ -362,7 +363,6 @@ class Axis:
 
         self.__sendCommand("DPOS=" + str(DPOS))
         self.was_valid_DPOS = True # And keep it True in order to avoid an accumulating error.
-
         # Block all futher processes until position is reached.
         if DEBUG_MODE is False and DISABLE_WAITING is False:  # This check isn't nessecary in DEBUG mode or when DISABLE_WAITING is True
             send_time = getActualTime()
@@ -585,6 +585,7 @@ class Axis:
         :param tag: The tag that indicates the setting.
         :return: The value of the setting with the given tag.
         """
+        #print('{}: {}'.format(tag,self.settings.get(tag)))
         return self.settings.get(tag)
 
     def setPTOL(self, value):
@@ -815,11 +816,12 @@ class Axis:
             PTO2 = int(self.getSetting("PTOL"))
         else:
             PTO2 = 10 #TODO
-        PTO2 = 20
+        #PTO2 = 20
+        #print('PTO2: {}'.format(PTO2))
         EPOS = abs(int(self.getData("EPOS")))
         print('DPOS :{}'.format(DPOS))
         print('EPOS :{}'.format(EPOS))
-        if DPOS - PTO2 <= EPOS <= DPOS + PTO2:
+        if abs(DPOS-EPOS)<=PTO2:
             return True
 
     def __timeOutReached(self, start_time, distance):

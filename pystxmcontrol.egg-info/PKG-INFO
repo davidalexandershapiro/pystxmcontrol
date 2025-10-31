@@ -20,9 +20,6 @@ Requires-Dist: PySide6==6.8.2.1
 Requires-Dist: matplotlib
 Requires-Dist: h5py
 Requires-Dist: pyqtgraph
-Requires-Dist: griffe==0.47
-Requires-Dist: prefect==2.14.3
-Requires-Dist: pydantic==1.10.4
 Requires-Dist: python-dotenv
 Requires-Dist: opencv-python-headless
 Requires-Dist: scikit-learn

@@ -1,42 +1,47 @@
 from pystxmcontrol.utils.writeNX import stxm
-from queue import Queue
-import asyncio, prefect
-import time, os, datetime, threading, zmq
+from pystxmcontrol.controller.zmq_publisher import ZMQPublisher
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time, os, datetime, threading
 import numpy as np
-from threading import Lock
 import scipy
+import asyncio
+from copy import deepcopy
+import json
 
 class dataHandler:
-    def __init__(self, controller, logger = None):
+
+    def _ensure_queues(self):
+        """Ensure queues exist in the current event loop"""
+        if self.dataQueue is None:
+            self.dataQueue = asyncio.Queue()
+        if self.scanQueue is None:
+            self.scanQueue = self.controller._ensure_scan_queue()
+        return self.dataQueue, self.scanQueue
+
+    def __init__(self, controller, lock = None, logger = None):
         self.controller = controller
         self.daq = self.controller.daq
-        self.dataQueue = Queue()
-        self.scanQueue = self.controller.scanQueue
+        self.dataQueue = None ##will be created lazily
+        self.scanQueue = None  # Will reference controller's queue when needed
         self.main_config = self.controller.main_config
         self.lineScanModes = ["rasterLine", "continuousLine","continuousSpiral"]
         self.currentScanID = None
         self.monitorDaq = True
-        self.controller.daq["ccd"].config(10, 0, 0)
-        self.ccd_data_port = self.main_config["server"]["ccd_data_port"]
-        self.stxm_data_port = self.main_config["server"]["stxm_data_port"]
-        self.stxm_file_port = self.main_config["server"]["stxm_file_port"]
         self.pause = False
+        self._framenum = 0
         self._logger = logger
-        self._lock = Lock()
+        self._lock = lock
 
-        #publish to other listeners like RPI reconstruction for instance
-        self.ccd_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"],self.ccd_data_port)
-        self.stxm_pub_address = 'tcp://%s:%s' % (self.main_config["server"]["host"], self.stxm_data_port)
-        print("Publishing ccd frames on: %s" %self.ccd_pub_address)
-        print("Publishing stxm data on: %s" % self.stxm_pub_address)
-        context = zmq.Context()
-        #publish ccd data to the preprocessor
-        self.ccd_pub_socket = context.socket(zmq.PUB)
-        self.ccd_pub_socket.set_hwm(2000)
-        self.ccd_pub_socket.bind(self.ccd_pub_address)
-        #publish stxm data to the gui
-        self.stxm_pub_socket = context.socket(zmq.PUB)
-        self.stxm_pub_socket.bind(self.stxm_pub_address)
+        # Initialize ZMQ publisher (replaces direct socket management)
+        self.zmq_publisher = ZMQPublisher(
+            config=self.main_config["server"],
+            daq_dict=self.controller.daq,
+            logger=logger
+        )
+
+        # Configure CCD if present
+        if "CCD" in self.controller.daq.keys():
+            self.controller.daq["CCD"].config([10, 0], 0)
 
     def getScanName(self, dir = None, prefix = None, ptychography = False):
         """
@@ -91,7 +96,7 @@ class dataHandler:
         return(newim)
 
 
-    def interpolate_points(self, scanInfo):
+    def interpolate_points(self, scanInfo, daq):
         ###TODO: need to get the oversampling factor into a config file and have it used by both the MCL and the DAQ.  Currently
         ###it is only used by the MCL and is hard coded.
 
@@ -102,14 +107,25 @@ class dataHandler:
         #there is acceleration).
         #For spiral trajectories we interpolate the entire image area at once.
 
+        #It will take a while to figure out the interpolation of the XRF spectra so the easiest thing to do here is run the interpolation
+        #on the default DAQ is usual and also just the sum of the XRF spectra, so we at least get some image from the data
+        #The full spectra will still be saved in the file under nx.counts["XRF"]
+
+        if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+            raw_data = scanInfo["rawData"][daq]["data"]
+        elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            raw_data = scanInfo["rawData"][daq]["data"].sum(0)
+
         try:
             if scanInfo["coarse_only"]:
-                return scanInfo["rawData"]
+                return raw_data
         except:
             pass
 
-        if scanInfo["mode"] == "continuousLine":
+        if not scanInfo["rawData"][daq]["interpolate"]:
+            return raw_data
 
+        if scanInfo["mode"] == "continuousLine":
             xReq = scanInfo["xVal"]
             yReq = scanInfo["yVal"]
             xstart = xReq[0]
@@ -135,14 +151,14 @@ class dataHandler:
             distBins = np.insert(distBins,0,2*distReq[0]-distBins[0])
             
             try:
-                cutoff = np.where(distMeas>ddistBins[-1])[0][0]
+                cutoff = np.where(distMeas>distBins[-1])[0][0]
             except:
                 cutoff = np.where(distMeas == max(distMeas))[0][0]
                 
             
             distMeas = distMeas[:cutoff]
             
-            data = scanInfo["rawData"][:cutoff]
+            data = raw_data[:cutoff]
             
             if len(data)>len(distMeas):
                 data = data[:len(distMeas)]
@@ -179,7 +195,8 @@ class dataHandler:
         elif scanInfo["mode"] == "continuousSpiral":
             #Could do a similar method as above where we sample the spiral on an xy grid. This would use np.2dhistogram instead.
             #This would only work if there is at least 1 point per pixel.
-            
+
+
             #First the requested x and y values
             xReq = scanInfo['xVal']
             yReq = scanInfo['yVal']
@@ -194,18 +211,19 @@ class dataHandler:
             region = int(scanInfo['scanRegion'].split('Region')[-1])-1
             
             #Next, the measured x and y values. Only take the ones which have been measured so far.
-            mi = (scanInfo['index'])*scanInfo['line_positions'][0].size
+            mi = scanInfo['position_index']#*scanInfo['line_positions'][0].size
             xMeasOld = self.data.xMeasured[region][scanInfo['energyIndex'],:mi]
             yMeasOld = self.data.yMeasured[region][scanInfo['energyIndex'],:mi]
             
             xMeas = np.append(xMeasOld,scanInfo['line_positions'][0])
             yMeas = np.append(yMeasOld,scanInfo['line_positions'][1])
+
             
             
             #Also, the raw data.
-            di = (scanInfo['index'])*scanInfo['rawData'].size
-            dataOld = self.data.counts[region][scanInfo['energyIndex'],:di]
-            data = np.append(dataOld,scanInfo['rawData'])
+            di = (scanInfo['trajnum'])*raw_data.size
+            dataOld = self.data.counts["default"][region][scanInfo['energyIndex'],:di]
+            data = np.append(dataOld,raw_data)
             
             #Determine the actual motor dwell and daq dwell. Determined by testing.
             motDwellOffset = 0.0 #ms
@@ -227,18 +245,17 @@ class dataHandler:
             else:
                 #Find the times that each point was collected. Could need some work maybe.
                 xytraj = np.arange(len(scanInfo['line_positions'][0]))*actMotDwell+Motdelay
-                DAQtraj = np.arange(len(scanInfo['rawData']))*actDAQDwell+DAQdelay
+                DAQtraj = np.arange(len(raw_data))*actDAQDwell+DAQdelay
             
             endpoint = max(xytraj[-1],DAQtraj[-1])
-            xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
-            DAQ_tVals = np.array([DAQtraj+endpoint*i for i in range(scanInfo['index']+1)]).flatten()
+            xy_tVals = np.array([xytraj+endpoint*i for i in range(scanInfo['trajnum']+1)]).flatten()
+            DAQ_tVals = np.array([DAQtraj+endpoint*i for i in range(scanInfo['trajnum']+1)]).flatten()
             
             #xy_tVals = np.arange(len(xMeas))*scanInfo['motorDwell']
             #DAQ_tVals = np.arange(len(data))*scanInfo['DAQDwell']
             
             xInterp = np.interp(DAQ_tVals, xy_tVals, xMeas)
             yInterp = np.interp(DAQ_tVals, xy_tVals, yMeas)
-            
             nEvents, ybins, xbins = np.histogram2d(yInterp, xInterp, bins = [yBins,xBins])
             binCounts, ybins, xbins = np.histogram2d(yInterp, xInterp, bins = [yBins,xBins], weights = data)
             
@@ -254,7 +271,7 @@ class dataHandler:
 
         return counts
 
-    def addDataToStack(self, scanInfo):
+    def addDataToStack(self, scanInfo, daq):
         """This function puts the raw data into the data structure and returns the data that will be the "image" which the user analyzes.  This is also what is displayed
         in the GUI.  The philosophy here is that the scan driver decides what the correct indices are and this function just puts
         the data there.  So no need to calculate what "i" is here, for example.
@@ -262,51 +279,95 @@ class dataHandler:
         do the interpolation, like ptychography and single/double motor scans."""
         i = scanInfo["index"] #index along the long vector
         y = scanInfo["lineIndex"]
-        j = i + scanInfo["rawData"].size
+        j = i + scanInfo["rawData"][daq]["data"].shape[-1] #the last dimension is the number of scan points
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
-        self.data.counts[k][m,i:j] = scanInfo["rawData"]
 
+        #add the interpolated data to the structure
         if scanInfo["type"] == "Image":
-            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
-            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
-            self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
-        elif scanInfo["type"] == "Spiral Image":
-            mi = scanInfo['index']*scanInfo['line_positions'][0].size
+            self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
+            mi = scanInfo['index']
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            self.data.interp_counts[k][m,:,:] = scanInfo['data']
+
+        elif scanInfo["type"] == "Spiral Image":
+            mi = scanInfo['position_index']#*scanInfo['line_positions'][0].size
+            mj = mi + scanInfo['line_positions'][0].size
+            self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
+            self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
+            self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
+            
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
-            self.data.interp_counts[k][m,y,c] = scanInfo['rawData']
-        elif scanInfo["type"] == "Focus":
-            self.data.interp_counts[k][m,y,:] = scanInfo["data"] #this is a matrix
-            self.data.xMeasured[k][m,i:j] = scanInfo["line_positions"][0] #these are long vectors
-            self.data.yMeasured[k][m,i:j] = scanInfo["line_positions"][1]
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
+
+        elif "Focus" in scanInfo["type"]:
+            if scanInfo["mode"]=="continuousLine":
+                self.data.interp_counts["default"][k][0, y, :] = scanInfo["data"]["default"]  # this is a matrix
+                self.data.xMeasured[k][0,i:j] = scanInfo["line_positions"][0] #these are long vectors
+                self.data.yMeasured[k][0,i:j] = scanInfo["line_positions"][1]
+            else:
+                c = scanInfo["columnIndex"]
+                self.data.interp_counts["default"][k][0, y, c] = scanInfo["data"]["default"]  # this is a matrix
+
         elif scanInfo["type"] == "Line Spectrum":
-            self.data.interp_counts[k][m, 0, :] = scanInfo["data"]  # this is a matrix
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq]  # this is a matrix
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq].sum(0)
             self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]  # these are long vectors
             self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
-            return self.data.interp_counts[k][:,0,:]
+            return self.data.interp_counts[daq][k][:,0,:]
+
         elif scanInfo["type"] == "Single Motor":
-            self.data.interp_counts[k][m,0,i] = scanInfo["rawData"]
-        elif scanInfo["type"] == "Double Motor":
-            c = scanInfo["columnIndex"]
-            self.data.interp_counts[k][0, y, c] = scanInfo["rawData"]
-        return self.data.interp_counts[k][m,:,:]
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"]
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
+            return self.data.interp_counts[daq][k][m,:,:]
+
+        elif scanInfo["type"] in ["Double Motor","OSA Image","Detector XY Image"]:
+            if scanInfo["mode"] == "point":
+                c = scanInfo["columnIndex"]
+                if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"]
+                elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
+            elif scanInfo["mode"] == "continuousLine":
+                if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
+                elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
+                mi = scanInfo['index']
+                mj = mi + scanInfo['line_positions'][0].size
+                self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
+                self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
+            return self.data.interp_counts[daq][k][m,:,:]
+
+        #add the raw data to the structure
+        #this doesn't work for single/double motor scan so put it at the end
+        if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+            self.data.counts[daq][k][m,i:j] = scanInfo["rawData"][daq]["data"]
+        elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            self.data.counts[daq][k][:,i:j] = scanInfo["rawData"][daq]["data"]
+
+        return self.data.interp_counts[daq][k][m,:,:]
 
     def tiled_scan(self, scan):
-        xStart = scan["scanRegions"]["Region1"]["xStart"]
-        xStop = scan["scanRegions"]["Region1"]["xStop"]
-        yStart = scan["scanRegions"]["Region1"]["yStart"]
-        yStop = scan["scanRegions"]["Region1"]["yStop"]
-        xStep = scan["scanRegions"]["Region1"]["xStep"]
-        yStep = scan["scanRegions"]["Region1"]["yStep"]
+        xStart = scan["scan_regions"]["Region1"]["xStart"]
+        xStop = scan["scan_regions"]["Region1"]["xStop"]
+        yStart = scan["scan_regions"]["Region1"]["yStart"]
+        yStop = scan["scan_regions"]["Region1"]["yStop"]
+        xStep = scan["scan_regions"]["Region1"]["xStep"]
+        yStep = scan["scan_regions"]["Region1"]["yStep"]
         nxblocks, xcoarse, x_fine_start, x_fine_stop = \
-            self.controller.motors[scan["x"]]["motor"].decompose_range(xStart,xStop)
+            self.controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart,xStop)
         nyblocks, ycoarse, y_fine_start, y_fine_stop = \
-            self.controller.motors[scan["y"]]["motor"].decompose_range(yStart,yStop)
+            self.controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart,yStop)
         nblocks = nxblocks * nyblocks
 
         xcoarse, ycoarse = np.meshgrid(xcoarse, ycoarse)
@@ -326,9 +387,9 @@ class dataHandler:
 
         #convert from one large scan region to several small scan regions
         #extract some data (like step size) from existing scan region before overwriting
-        xstep = scan["scanRegions"]["Region1"]["xStep"]
-        ystep = scan["scanRegions"]["Region1"]["yStep"]
-        scan["scanRegions"] = {}
+        xstep = scan["scan_regions"]["Region1"]["xStep"]
+        ystep = scan["scan_regions"]["Region1"]["yStep"]
+        scan["scan_regions"] = {}
         for i in range(nblocks):
             xstart = xcoarse[i] + x_fine_start[i] ##fine_start is always negative because the fine range is centered on 0
             xstop = xcoarse[i] + x_fine_stop[i]  ##fine_stop is always positive for the same reason
@@ -340,7 +401,7 @@ class dataHandler:
             yrange = ystop - ystart
             ycenter = ystart + yrange / 2.
             ypoints = int(yrange / ystep)
-            scan["scanRegions"]["Region" + str(i+1)] = {"xStart": xstart,
+            scan["scan_regions"]["Region" + str(i+1)] = {"xStart": xstart,
                                                       "xStop": xstop,
                                                       "xPoints": xpoints,
                                                       "xStep": xstep,
@@ -357,212 +418,195 @@ class dataHandler:
                                                       "zPoints": 0}
         return scan
 
-    def startScanProcess(self, scan):
+    async def startScanProcess(self, scan):
         #allocate memory for data to be saved
+        self._ensure_queues()
         if scan["tiled"]:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
         scan["start_time"] = datetime.datetime.now().isoformat()
         self.data = stxm(scan)
-        self.dataStream = threading.Thread(target = self.sendScanData, args = ())
-        self.dataStream.start()
-        print("Started data process.")
+        #for DAQs that define the energy range, like energy dispersives, get their energy list
+        #into the data structure
+        #Also ready this detector and set the filename for data.
+        for daq in self.controller.daq.keys():
+            if self.controller.daq[daq].meta["type"] == "spectrum":
+                self.data.energies[daq] = self.controller.daq[daq].energies
+                #These are currently specific to the xrf detector and will need to be implemented
+                #in other daqs of this type. Probably a better way to do this.
+                self.controller.daq[daq].set_filename(self.currentScanID)
+                self.controller.daq[daq].ready()
+        await self.sendScanData(scan["synch_event"])
 
-    def stopScanProcess(self):
-        self.dataStream.join()
-        self.data.close()
-        print("Completed scan process.")
-
-    def get_prefect_client(self, prefect_api_url, prefect_api_key, httpx_settings=None):
-        # Same prefect client, but if you know the url and api_key
-        # httpx_settings allows you to affect the http client that the prefect client uses
-        return prefect.PrefectClient(
-            prefect_api_url,
-            api_key=prefect_api_key,
-            httpx_settings=httpx_settings)
-
-    async def prefect_start_nersc_flow(self, prefect_client, deployment_name, file_path):
-        deployment = await prefect_client.read_deployment_by_name(deployment_name)
-        flow_run = await prefect_client.create_flow_run_from_deployment(
-            deployment.id,
-            name=os.path.basename(file_path),
-            parameters={"file_path": file_path},
-        )
-        return flow_run
-
-    async def prefect_start_stxmdb_flow(self, prefect_client, deployment_name, file_path):
-        deployment = await prefect_client.read_deployment_by_name(deployment_name)
-        flow_run = await prefect_client.create_flow_run_from_deployment(
-            deployment.id,
-            name=os.path.basename(file_path),
-            parameters={"file_path": file_path},
-        )
-        return flow_run
-
-    def prefect_nersc_transfer(self, file_name):
-        print("[prefect]: Initializing data transfer to NERSC for file %s" %file_name)
-        year_2digits = file_name[3:5]
-        year_4digits = '20' + year_2digits
-        month = file_name[5:7]
-        day = file_name[7:9]
-        file_path = f"{year_4digits}/{month}/{year_2digits}{month}{day}/{file_name}"
-        print("[prefect]: Saving data in path %s" %file_path)
-
-        prefect_api_url = os.getenv('PREFECT_API_URL')
-        prefect_api_key = os.getenv('PREFECT_API_KEY')
-        prefect_deployment = "process_newfile_7012_ptycho4/process_newdata7012_ptycho4"
-        client = self.get_prefect_client(prefect_api_url, prefect_api_key)
-        asyncio.run(self.prefect_start_nersc_flow(client, prefect_deployment, file_path))
-
-    def prefect_stxmdb_transfer(self):
-        print("[prefect]: Initializing entry to stxmdb %s" %self.data.file_name)
-        prefect_api_url = os.getenv('PREFECT_API_URL')
-        prefect_api_key = os.getenv('PREFECT_API_KEY')
-        prefect_deployment = "stxmdb_add_entry/stxmdb_add_entry"
-        client = self.get_prefect_client(prefect_api_url, prefect_api_key)
-        asyncio.run(self.prefect_start_stxmdb_flow(client, prefect_deployment, self.data.file_name))
-
-    def monitor(self):
+    async def monitor(self, scanQueue):
+        #the daqs are configured for the monitor by the monitorStart/Stop methods in the controller
+        self._ensure_queues()
         scanInfo = {"type": "monitor"}
         scanInfo["mode"] = "monitor"
         scanInfo["energy"] = 500
+        scanInfo['index'] = 0
         scanInfo["energyRegion"] = "EnergyRegion1"
         scanInfo["scanRegion"] = "Region1"
+        scanInfo["scan_type"] = None
         scanInfo["dwell"] = self.controller.main_config["monitor"]["dwell"]
-        scanInfo["elapsedTime"] = time.time()
+        scanInfo["daq list"] = list(self.daq.keys())
+        scanInfo["rawData"] = {}
+        scanInfo["data"] = {}
+        for daq in scanInfo["daq list"]:
+            scanInfo["rawData"][daq]={"meta":self.daq[daq].meta,"data": None}
         chunk = []
         while True:
-            time.sleep(0.01)
+            scanInfo["elapsedTime"] = time.time()
             self.daq["default"].autoGateOpen(shutter=0)
-            self.getPoint(scanInfo)
+            t0 = time.time()
+            await self.getPoint(scanInfo)
+            #print(f"[dataHandler] getPoint time {time.time()-t0}")
             self.daq["default"].autoGateClosed()
             self.controller.getMotorPositions()
-            scanInfo = self.dataQueue.get(True)
+            scanInfo = await self.dataQueue.get()
             scanInfo['motorPositions'] = self.controller.allMotorPositions
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
             scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].offset
-            if self.scanQueue.empty():
-                chunk.append(scanInfo)
-                self.sendDataChunkToSock(chunk)
-                chunk = []
+            if "CCD" in scanInfo["daq list"]:
+                #just subtract background from the monitor data which goes to the GUI
+                scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
+            if scanQueue.empty():
+                await self.sendDataToSock(scanInfo)
             else:
+                await scanQueue.get()
                 return
                 
     def processFrame(self, frame):
         y,x = frame.shape
-        frame = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
-        return frame[frame > 1.].sum()
+        point = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
+        return point.sum()
 
     def zmq_start_event(self, scan, metadata=None):
-        self.ccd_pub_socket.send_pyobj({'event':'start','data':scan, 'metadata':metadata})
-    
-    def zmq_stop_event(self):
-        self.ccd_pub_socket.send_pyobj({'event':'stop','data':None})
-    
-    def zmq_send(self, info):
-        self.ccd_pub_socket.send_pyobj(info)
+        """Send scan start event via ZMQ publisher"""
+        self.zmq_publisher.send_scan_start_event(scan, metadata)
 
-    def sendScanData(self):
+    def zmq_stop_event(self):
+        """Send scan stop event via ZMQ publisher"""
+        self.zmq_publisher.send_scan_stop_event()
+
+    def zmq_send(self, info):
+        """Send CCD frame data via ZMQ publisher"""
+        self.zmq_publisher.publish_ccd_frame(info)
+
+    def zmq_send_string(self, info):
+        """Send STXM data as JSON string via ZMQ publisher"""
+        self.zmq_publisher.publish_stxm_string(info)
+
+    async def sendScanData(self, event):
         t0 = time.time()
-        chunk = []
         pointData = 0.
+        event.set() #asyncio.Event from the controller to synchronize with the scan routine
         while True:
-            scanInfo = self.dataQueue.get(True)
+            scanInfo = await self.dataQueue.get()
             if scanInfo == 'endOfScan':
                 self.regionComplete = True
-                if len(chunk) != 0:
-                    self.sendDataChunkToSock(chunk)
-                try:
-                    self.stxm_pub_socket.send_pyobj('scan_complete')
-                except:
-                    pass
+                self.zmq_publisher.publish_stxm_data('scan_complete')
                 return
             elif scanInfo == "endOfRegion":
-                self.data.saveRegion(region)
                 self.regionComplete = True
-                if len(chunk) != 0:
-                    self.sendDataChunkToSock(chunk)
-                chunk = []
+                self.data.saveRegion(region)
             else:
                 self.regionComplete = False
                 region = int(scanInfo['scanRegion'].split('Region')[1]) - 1
                 scanInfo["elapsedTime"] = time.time() - t0
+                scanInfo["data"] = {} #this is the data in NX coordinates for the file
+                scanInfo["image"] = {} #this is the image that goes to the gui
                 if scanInfo["mode"] == "ptychographyGrid":
-                    self.ptychodata.addFrame(scanInfo["ccd_frame"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
-                    self.zmq_send({'event':'frame','data':scanInfo})
+                    self.ptychodata.addFrame(scanInfo["rawData"]["CCD"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
+                    if self.controller.main_config["ptychography"]["streaming"]:
+                        self.zmq_send({'event':'frame','data':scanInfo})
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:
                             if scanInfo["ccd_frame_num"] % 2 == 0:
-                                pointData = self.processFrame(scanInfo["ccd_frame"])
+                                pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
                         else:
-                            pointData = self.processFrame(scanInfo["ccd_frame"])
-                        scanInfo["rawData"] = pointData
-                        scanInfo.pop("ccd_frame",None)
+                            pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
+                        # for daq in scanInfo["daq list"]:
+                        #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
+                        #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
+                        #hard coding the daqs for now, need to generalize this.
+                        scanInfo["data"]["default"] = pointData
+                        scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
+                        #scanInfo["data"]["xrf"] = scanInfo["rawData"]["xrf"]["data"]
                     else:
-                        self.darkFrame = scanInfo["ccd_frame"]
-                    scanInfo['image'] = self.addDataToStack(scanInfo)
-                    chunk.append(scanInfo)
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []
+                        self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
+                        scanInfo["data"]["default"] = 0.
+                        scanInfo["data"]["CCD"] = self.darkFrame
+                    scanInfo["image"]["default"] = self.addDataToStack(scanInfo,"default")
                 elif scanInfo["mode"] == "point":
-                    scanInfo['image'] = self.addDataToStack(scanInfo)
-                    chunk.append(scanInfo)
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []
+                    for daq in scanInfo["daq list"]:
+                        scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
+                        scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
                 else:
                     #prepare data to send onto socket (for the GUI)
-                    with self._lock:
-                        scanInfo["data"] = self.interpolate_points(scanInfo)
-                        scanInfo["image"] = self.addDataToStack(scanInfo)
-                        chunk.append(scanInfo)
+                    #interpolate_points takes scanInfo["rawData"] and converts to image coordinates
+                    # scanInfo["data"] = self.interpolate_points(scanInfo) #this is the image in user coordinates for display in the GUI
+                    for daq in scanInfo["daq list"]:
+                        scanInfo["data"][daq] = self.interpolate_points(scanInfo,daq)
+                        scanInfo["image"][daq] = self.addDataToStack(scanInfo,daq)
+                await self.sendDataToSock(scanInfo)
 
-                if scanInfo["mode"] in self.lineScanModes:
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []            
-                elif len(chunk) == 50:
-                    self.sendDataChunkToSock(chunk)
-                    chunk = []
-
-    def sendDataChunkToSock(self, chunk):
-        ##grab data from all chunks and use the first as a template for the
-        ##scanInfo dictionary to send
-        data = np.array([item["rawData"] for item in chunk])
-        scan_info = chunk[0]
-        scan_info["data"] = data
+    async def sendDataToSock(self, scan_info):
         scan_info["scanID"] = self.currentScanID
-        scan_info["elapsedTime"] = chunk[-1]["elapsedTime"]
-        self.stxm_pub_socket.send_pyobj(scan_info)
+        self.zmq_publisher.publish_stxm_data(scan_info)
 
-    def getPoint(self, scanInfo):
-        if scanInfo["mode"] == "ptychographyGrid":
-            data = self.daq["ccd"].getPoint()
-            if data is not None:
-                #frame_num, scanInfo["ccd_frame"] = self.daq["ccd"].getPoint()
-                frame_num, scanInfo["ccd_frame"] = data
-                scanInfo["rawData"] = np.array(0.)
-            else:
-                return False
-        else:
-            scanInfo["rawData"] = np.array(self.daq["default"].getPoint())
+    async def getPoint(self, scanInfo):
+        daq_tasks = []
+        for daq in scanInfo["daq list"]:
+            if self.controller.daqConfig[daq]["record"]:
+                daq_tasks.append(self.daq[daq].getPoint())
 
-        self.dataQueue.put(scanInfo)
-        #Without this sleep time, the first item in a sequence gets unsynchronized somehow.  It appears out of order and
-        #data gets mixed up.  very strange!
-        time.sleep(0.01)
+        t0 = time.time()
+        await asyncio.gather(*daq_tasks)
+        t1 = time.time()
+        for daq in scanInfo["daq list"]:
+            scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+
+        #send a copy or it gets overwritten before being sent
+        await self.dataQueue.put(deepcopy(scanInfo))
+        #print(f"[Get Point] Acquisition time: {t1-t0}")
+        if "CCD" in scanInfo["daq list"]:
+            if self._framenum == 0:
+                self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
+        self._framenum += 1
         return True
 
-    def getLine(self, scanInfo):
-        scanInfo["rawData"] = self.daq["default"].getLine()
-        #Check if scanInfo has different lengths for motor positions and daq positions. If it does, redo the line.
-        #Until sendscandata is called, the raw data is stored in 'data'
-        if len(scanInfo['rawData']) != len(scanInfo['line_positions'][0]):
-            print(len(scanInfo['rawData']),len(scanInfo['line_positions'][0]))
-            if not scanInfo['scan']['spiral']:
-                print('mismatched arrays!')
-                return False
-        self.dataQueue.put(scanInfo)
+    async def read_daq(self,daq):
+        data = await self.daq[daq].getPoint()
+        return data
+
+    async def getLine(self, scanInfo):
+        daq_tasks = []
+        for daq in scanInfo["daq list"]:
+            if self.controller.daqConfig[daq]["record"]:
+                daq_tasks.append(self.daq[daq].getLine())
+        t0 = time.time()
+        await asyncio.gather(*daq_tasks)
+        t1 = time.time()
+        for daq in scanInfo["daq list"]:
+            if scanInfo["direction"] == "backward":
+                    scanInfo["rawData"][daq]["data"] = self.daq[daq].data[::-1]
+            else:
+                scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+
+        await self.dataQueue.put(deepcopy(scanInfo))
+        #print(f"[Get Line] Acquisition time: {t1-t0}")
         return True
         
     def updateDwells(self, scanInfo):
         self.data.DAQdwell = scanInfo['DAQDwell']
         self.data.motdwell = scanInfo['motorDwell']
+
+    def cleanup(self):
+        """
+        Cleanup method to properly close ZMQ sockets.
+        Called automatically on program exit via atexit.
+        """
+        # Delegate cleanup to ZMQ publisher
+        if hasattr(self, 'zmq_publisher'):
+            self.zmq_publisher.cleanup()

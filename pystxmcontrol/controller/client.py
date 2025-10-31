@@ -25,9 +25,6 @@ class ccd_monitor(QtCore.QThread):
         self.simulation = simulation
         self.monitor = True
 
-    # def __del__(self):
-    #     self.wait()
-
     def run(self):
         if self.simulation:
             while self.monitor:
@@ -47,9 +44,6 @@ class ccd_monitor(QtCore.QThread):
             i = 0.
             while self.monitor:
                 self.number, buf = frame_socket.recv_multipart()  # blocking
-                # npbuf = np.frombuffer(buf[2304 * (975-self.roi -10) * 2: 2304 * 975 *2],'<u2')
-                # pedestal = np.frombuffer(buf[2304 * 100 * 2: 2304 * 300 *2],'<u2')
-                # print npbuf.size / 2304
                 npbuf = np.frombuffer(buf[row_bytes * 5: row_bytes * (self.roi + 15)], '<u2')
                 pedestal = np.frombuffer(buf[row_bytes * 5: row_bytes * 55], '<u2')
                 npbuf = npbuf.reshape((npbuf.size // self.CCD._nbmux, self.CCD._nbmux)).astype('float')
@@ -57,8 +51,7 @@ class ccd_monitor(QtCore.QThread):
                 if i == 0.:
                     bg = npbuf.copy()
                 assembled = self.CCD.assemble_nomask(npbuf - bg)
-                self.frame = assembled  
-                #self.frame[0:480,840:] = 0.
+                self.frame = assembled
                 self.frame[self.frame < 1] = 1.
                 self.framedata.emit(np.log10(self.frame.T/400.))
                 i += 1.
@@ -140,8 +133,6 @@ class ptycho_monitor(QtCore.QThread):
 class stxm_monitor(QtCore.QThread):
 
     scan_data  = QtCore.Signal(object) #emit message dict with data and descriptors
-    elapsed_time = QtCore.Signal(np.float16)
-    scan_done = QtCore.Signal()
 
     def __init__(self, ip, port):
         QtCore.QThread.__init__(self)
@@ -175,39 +166,47 @@ class stxm_client(QtCore.QThread):
         self.scan = None
         self.listen = False
         self.lock = threading.Lock()
-        self.main_config = json.loads(open(MAINCONFIGFILE).read())
-        self.server_address = self.main_config["server"]["host"]
-        self.command_port = self.main_config["server"]["command_port"]
-        self.data_port = self.main_config["server"]["stxm_data_port"]
+        self.client_config = json.loads(open(MAINCONFIGFILE).read())
+        self.server_address = self.client_config["server"]["host"]
+        self.command_port = self.client_config["server"]["command_port"]
+        self.data_port = self.client_config["server"]["stxm_data_port"]
+        self.monitor_threads = []
+        self.context = zmq.Context()
 
-        context = zmq.Context()
-        self.command_sock = context.socket(zmq.REQ)
-        self.command_sock.connect("tcp://%s:%s" % (self.main_config["server"]["host"], self.main_config["server"]["command_port"]))
+        self.connect_to_server(self.server_address,self.command_port,self.data_port)
+        #self.start_monitors(self.server_address,self.data_port)
 
-        self.monitor = stxm_monitor(self.server_address, self.data_port)
+    def connect_to_server(self, address, command_port = None, data_port = None):
+        self.server_address = address
+        if command_port is not None:
+            self.command_port = command_port
+        if data_port is not None:
+            self.data_port = data_port
+        try:
+            self.command_sock = self.context.socket(zmq.REQ)
+            self.command_sock.connect("tcp://%s:%s" % (address, command_port))
+            print("Connected to server")
+            self.get_config()
+            print("Got config from server")
+            self.start_monitors(address,data_port)
+        except:
+            return False
+        else:
+            return True
+
+    def close_monitors(self):
+        #check whether the monitor is running and start if needed
+        for monitor in self.monitor_threads:
+            if monitor.isRunning():
+                monitor.monitor = False
+                monitor.wait()
+
+    def start_monitors(self, address, data_port):
+        self.close_monitors()
+        self.monitor = stxm_monitor(address, data_port)
         self.monitor.start()
-        self.get_config()
         self.monitor_threads = []
         self.monitor_threads.append(self.monitor)
-
-        try:
-            self.ccd = ccd_monitor(simulation = self.daqConfig["ccd"]["simulation"])
-            self.ccd.start()
-            self.monitor_threads.append(self.ccd)
-        except:
-            print("Cannot start CCD monitor")
-        try:
-            self.rpi = rpi_monitor(simulation = self.daqConfig["ptychography"]["simulation"])
-            self.rpi.start()
-            self.monitor_threads.append(self.rpi)
-        except:
-            print("Cannot start RPI monitor")
-        try:
-            self.ptycho = ptycho_monitor(simulation = self.daqConfig["ptychography"]["simulation"])
-            self.ptycho.start()
-            self.monitor_threads.append(self.ptycho)
-        except:
-            print("Cannot start PTYCHO monitor")
 
     def get_status(self):
         message = {"command": "getStatus"}
@@ -217,11 +216,8 @@ class stxm_client(QtCore.QThread):
         self.monitor.close()
 
     def disconnect(self):
-        message = {"command": "disconnect"}
-        self.command_sock.send_pyobj(message)
-        for monitor in self.monitor_threads:
-            monitor.monitor = False
-            monitor.wait()
+        self.close_monitors()
+        self.command_sock.close()
         
     def send_message(self,message):
         with self.lock:
@@ -230,10 +226,22 @@ class stxm_client(QtCore.QThread):
             return response
 
     def get_config(self):
-        self.main_config = json.loads(open(MAINCONFIGFILE).read())
+        self.client_config = json.loads(open(MAINCONFIGFILE).read())
         message = {"command": "get_config"}
         response = self.send_message(message)
-        self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, server_main_config = response['data']
+        self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, self.main_config = response['data']
+
+    def change_motor_config(self,motor,key,value):
+        #This needs to be a blocking call for the GUI otherwise madness ensues
+        message = {"command": "changeMotorConfig"}
+        message["data"] = {"motor":motor,"config":key,"value":value}
+        response = self.send_message(message)
+        self.get_config()
+
+    def move_to_focus(self):
+        message = {"command": "move_to_focus"}
+        response = self.send_message(message)
+        return response
 
     def write_config(self):
         with open(MAINCONFIGFILE, 'w') as fp:

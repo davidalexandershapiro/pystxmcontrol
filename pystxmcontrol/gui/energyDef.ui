@@ -37,14 +37,52 @@
      <x>0</x>
      <y>0</y>
      <width>571</width>
-     <height>51</height>
+     <height>52</height>
     </rect>
    </property>
    <layout class="QGridLayout" name="gridLayout_2">
-    <item row="0" column="1" alignment="Qt::AlignHCenter|Qt::AlignBottom">
-     <widget class="QLabel" name="label_3">
+    <item row="0" column="3" alignment="Qt::AlignHCenter|Qt::AlignBottom">
+     <widget class="QLabel" name="label_19">
       <property name="text">
-       <string>Start</string>
+       <string>Step</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="3" alignment="Qt::AlignHCenter">
+     <widget class="QLineEdit" name="energyStep">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QLabel" name="regNum">
+      <property name="font">
+       <font>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Energy Region 1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="4" alignment="Qt::AlignHCenter">
+     <widget class="QLineEdit" name="nEnergies">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
       </property>
      </widget>
     </item>
@@ -55,10 +93,23 @@
       </property>
      </widget>
     </item>
-    <item row="1" column="3" alignment="Qt::AlignHCenter">
-     <widget class="QLineEdit" name="energyStep">
+    <item row="1" column="2" alignment="Qt::AlignHCenter">
+     <widget class="QLineEdit" name="energyStop">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
       <property name="alignment">
        <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="4" alignment="Qt::AlignHCenter|Qt::AlignBottom">
+     <widget class="QLabel" name="label_21">
+      <property name="text">
+       <string>N Energies</string>
       </property>
      </widget>
     </item>
@@ -69,58 +120,42 @@
       </property>
      </widget>
     </item>
-    <item row="1" column="0">
-     <widget class="QLabel" name="regNum">
-      <property name="font">
-       <font>
-        <weight>75</weight>
-        <bold>true</bold>
-       </font>
+    <item row="1" column="5" alignment="Qt::AlignHCenter">
+     <widget class="QLineEdit" name="dwellTime">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1" alignment="Qt::AlignHCenter|Qt::AlignBottom">
+     <widget class="QLabel" name="label_3">
       <property name="text">
-       <string>Energy Region 1</string>
+       <string>Start</string>
       </property>
      </widget>
     </item>
     <item row="1" column="1">
      <widget class="QLineEdit" name="energyStart">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>16777215</width>
+        <height>25</height>
+       </size>
+      </property>
       <property name="alignment">
        <set>Qt::AlignCenter</set>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="2" alignment="Qt::AlignHCenter">
-     <widget class="QLineEdit" name="energyStop">
-      <property name="alignment">
-       <set>Qt::AlignCenter</set>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="5" alignment="Qt::AlignHCenter">
-     <widget class="QLineEdit" name="dwellTime">
-      <property name="alignment">
-       <set>Qt::AlignCenter</set>
-      </property>
-     </widget>
-    </item>
-    <item row="0" column="3" alignment="Qt::AlignHCenter|Qt::AlignBottom">
-     <widget class="QLabel" name="label_19">
-      <property name="text">
-       <string>Step</string>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="4" alignment="Qt::AlignHCenter">
-     <widget class="QLineEdit" name="nEnergies">
-      <property name="alignment">
-       <set>Qt::AlignCenter</set>
-      </property>
-     </widget>
-    </item>
-    <item row="0" column="4" alignment="Qt::AlignHCenter|Qt::AlignBottom">
-     <widget class="QLabel" name="label_21">
-      <property name="text">
-       <string>N Energies</string>
       </property>
      </widget>
     </item>

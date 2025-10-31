@@ -2,6 +2,7 @@
 import usbtmc
 from numpy import array
 import time
+import asyncio
 
 
 class counter:
@@ -13,21 +14,7 @@ class counter:
     def connect(self, visa_address = None):
         if visa_address is not None:
             self.visa_address = visa_address
-        #self.resourceManager = visa.ResourceManager()
-        #self.session = self.resourceManager.open_resource(self.visa_address)
         self.session =  usbtmc.Instrument(self.visa_address)
-
-        # For Serial and TCP/IP socket connections enable the read Termination Character, or read's will timeout
-        #if self.session.resource_name.startswith('ASRL') or self.session.resource_name.endswith('SOCKET'):
-        #    self.session.read_termination = '\n'
-
-        # We can find out details of the connection
-        #print('IP: %s\nHostname: %s\nPort: %s\n' %
-        #      (self.session.get_visa_attribute(visa.constants.VI_ATTR_TCPIP_ADDR),
-        #       self.session.get_visa_attribute(visa.constants.VI_ATTR_TCPIP_HOSTNAME),
-        #       self.session.get_visa_attribute(visa.constants.VI_ATTR_TCPIP_PORT)))
-
-        # Send the *IDN? and read the response
         self.session.write("*RST")
         print(self.session.ask('*IDN?'))
 
@@ -37,22 +24,23 @@ class counter:
         #print("Configuring counter with dwell = %.2f ms, count = %i, samples = %i and trigger = %s" %(dwell, count, samples, trigger))
         self.dwell = dwell
         self.count = count
+        self.trigger = trigger
         self.session.write("*RST")
         self.session.write("DISP OFF")
-        self.session.write("CONF:TOT:TIM %.6f, (@%i)" %(dwell / 1000., channel))
-        self.session.write("TRIG:COUN %i" %count)
-        self.session.write("SAMP:COUN %i" %samples)
-        self.session.write("TRIG:DEL 0")
-        self.session.write("TRIG:SLOP POS")
-        self.session.write("OUTP:STAT %s" %output) #output the gate signal for shutter timing
-        self.session.write("TRIG:SOUR %s" %trigger)
+        self.session.write(f"CONF:TOT:TIM {dwell/1000.}, (@{channel})")
+        self.session.write(f"TRIG:COUN {count}")
+        self.session.write(f"SAMP:COUN {samples}")
+        self.session.write(f"TRIG:DEL 0")
+        self.session.write(f"TRIG:SLOP POS")
+        self.session.write(f"OUTP:STAT {output}") #output the gate signal for shutter timing
+        self.session.write(f"TRIG:SOUR {trigger}")
         self.session.ask("CONF?") #this is needed.  Blocks until config is complete I think
 
-    def getPoint(self):
+    async def getPoint(self):
         self.session.write("INIT:IMM")
         self.session.write("*TRG")
         data = self.session.ask("FETC?")
-        return float(data)
+        return array([float(data)],dtype="float")
         
     def busTrigger(self):
         self.session.write("*TRG")
@@ -60,7 +48,7 @@ class counter:
     def initLine(self):
         self.session.write("INIT:IMM")
 
-    def getLine(self):
+    async def getLine(self):
         data = self.session.ask("FETC?")
         return array(data.split(',')).astype('float')
 

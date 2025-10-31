@@ -1,14 +1,19 @@
 {
     "server": {
         "host": "127.0.0.1",
+        "name": "My STXM",
         "command_port": 9999,
         "stxm_data_port": 9998,
         "ccd_data_port": 9997,
         "stxm_file_port": 9996,
-        "data_dir": "/global/scratch/pystxmcontrolData",
-        "file_prefix": "NS",
+        "publish_zmq": false,
+        "data_dir": "/data",
+        "file_prefix": "TEST",
         "nx_file_version": "3",
-        "alshub-apikey": ""
+        "alshub-apikey": "",
+        "publish_zmq": false,
+        "log motors while scanning": true,
+        "motor log period": 10
     },
     "zonePlate": {
         "diameter": 360.0,
@@ -16,11 +21,11 @@
         "A0": 0.0,
         "A1": 11.6177,
         "type": "conventional",
-        "source": "CXRO"
+        "source": ""
     },
     "source": {
         "type": "Synchrotron X-ray Source",
-        "name": "ALS Beamline 7.0.1.2",
+        "name": "Beamline X.X.X.X",
         "probe": "x-ray"
     },
     "monitor": {
@@ -28,7 +33,8 @@
     },
     "ptychography": {
         "position_jitter": 0.25,
-        "defocus": 15.0
+        "defocus": 15.0,
+        "streaming": false
     },
     "geometry": {
         "distance": 200.0,
@@ -37,41 +43,50 @@
         "resolution": 8e-09,
         "rebin": 1,
         "oversampling_factor": 1,
-        "enable_coarse_only": false,
-        "enable_tiled_scan": false
+        "enable_coarse_only": true,
+        "enable_tiled_scan": true,
+        "A0_calibrated": true,
+        "line overhead": 0.1,
+        "energy overhead": 1,
+        "point overhead": 0.0,
+        "max line length": 100
     },
     "lastScan": {
         "Image": {
-            "driver": "line_image",
+            "driver": "derived_line_image",
             "mode": "continuousLine",
             "spiral": false,
-            "type": "Image",
+            "scan_type": "Image",
             "tiled": false,
-            "coarse_only": false,
             "proposal": "Staff Access",
             "experimenters": "",
             "sample": "",
+            "comment": "",
             "nxFileVersion": "3",
-            "x": "SampleX",
-            "y": "SampleY",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
             "defocus": true,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default"
+            ],
             "oversampling_factor": 1,
-            "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
-                    "xStart": -12.475,
-                    "xStop": 12.475,
-                    "xPoints": 500,
-                    "yStart": -12.475,
-                    "yStop": 12.475,
-                    "yPoints": 500,
-                    "xStep": 0.05,
-                    "yStep": 0.05,
-                    "xRange": 25.0,
-                    "yRange": 25.0,
+                    "xStart": -24.5,
+                    "xStop": 24.5,
+                    "xPoints": 50,
+                    "yStart": -24.5,
+                    "yStop": 24.5,
+                    "yPoints": 50,
+                    "xStep": 1.0,
+                    "yStep": 1.0,
+                    "xRange": 50.0,
+                    "yRange": 50.0,
                     "xCenter": 0.0,
-                    "yCenter": 0.0,
+                    "yCenter": -0.0,
                     "zStart": 0.0,
                     "zStop": 0.0,
                     "zPoints": 1,
@@ -80,16 +95,16 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
-                    "dwell": 0.12,
+                    "dwell": 1.0,
                     "start": 600.0,
                     "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
-            "energy": "Energy",
+            "energy_motor": "Energy",
             "doubleExposure": false,
             "n_repeats": 1
         },
@@ -109,7 +124,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -4.9,
                     "xStop": 4.9,
@@ -131,13 +146,13 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 10.0,
                     "start": 600.0,
                     "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
             "energy": "Energy",
@@ -145,88 +160,98 @@
             "n_repeats": 1
         },
         "Focus": {
-            "driver": "line_focus",
+            "driver": "derived_line_focus",
             "mode": "continuousLine",
             "spiral": false,
-            "type": "Focus",
+            "scan_type": "Focus",
             "tiled": false,
-            "coarse_only": false,
             "proposal": "Staff Access",
             "experimenters": "",
             "sample": "",
+            "comment": "",
             "nxFileVersion": "3",
-            "x": "SampleX",
-            "y": "SampleY",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
             "defocus": true,
             "oversampling_factor": 1,
-            "refocus": true,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default",
+                "xrf"
+            ],
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
-                    "xStart": -4.9,
-                    "xStop": 4.9,
+                    "xStart": -167.62800000000001,
+                    "xStop": -160.768,
                     "xPoints": 50,
-                    "yStart": 0.0,
-                    "yStop": 0.0,
+                    "yStart": 175.736,
+                    "yStop": 175.736,
                     "yPoints": 50,
-                    "xStep": 0.2,
+                    "xStep": 0.14,
                     "yStep": 0.0,
-                    "xRange": 10.0,
+                    "xRange": 7.0,
                     "yRange": 0.0,
-                    "xCenter": -0.0,
-                    "yCenter": 0.0,
-                    "zStart": -9295.58,
-                    "zStop": -9246.58,
+                    "xCenter": -164.198,
+                    "yCenter": 175.736,
+                    "zStart": -6554.96,
+                    "zStop": -6456.96,
                     "zPoints": 50,
-                    "zStep": 1.0,
-                    "zRange": 50.0,
-                    "zCenter": -9271.08
+                    "zStep": 2.0,
+                    "zRange": 100.0,
+                    "zCenter": -6505.96
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 1.0,
-                    "start": 700.0,
-                    "stop": 701.0,
+                    "start": 600.0,
+                    "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
-            "z": "ZonePlateZ",
+            "z_motor": "ZonePlateZ",
             "doubleExposure": false,
             "n_repeats": 1
         },
         "Line Spectrum": {
-            "driver": "line_spectrum",
+            "driver": "derived_line_spectrum",
             "mode": "continuousLine",
             "spiral": false,
-            "type": "Line Spectrum",
+            "scan_type": "Line Spectrum",
             "tiled": false,
-            "coarse_only": false,
             "proposal": "Staff Access",
             "experimenters": "",
             "sample": "",
+            "comment": "",
             "nxFileVersion": "3",
-            "x": "SampleX",
-            "y": "SampleY",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
             "defocus": true,
             "oversampling_factor": 1,
-            "refocus": true,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default",
+                "xrf"
+            ],
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
-                    "xStart": -4.9,
-                    "xStop": 4.9,
+                    "xStart": -188.591,
+                    "xStop": -139.591,
                     "xPoints": 50,
-                    "yStart": 0.0,
-                    "yStop": 0.0,
+                    "yStart": 187.556,
+                    "yStop": 187.556,
                     "yPoints": 1,
-                    "xStep": 0.2,
+                    "xStep": 1.0,
                     "yStep": 0.0,
-                    "xRange": 10.0,
+                    "xRange": 50.0,
                     "yRange": 0.0,
-                    "xCenter": -0.0,
-                    "yCenter": 0.0,
+                    "xCenter": -164.091,
+                    "yCenter": 187.556,
                     "zStart": 0.0,
                     "zStop": 0.0,
                     "zPoints": 1,
@@ -235,16 +260,16 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
                     "dwell": 1.0,
                     "start": 600.0,
                     "stop": 700.0,
                     "step": 1.0,
-                    "nEnergies": 101
+                    "n_energies": 101
                 }
             },
-            "energy": "Energy",
+            "energy_motor": "Energy",
             "doubleExposure": false,
             "n_repeats": 1
         },
@@ -252,24 +277,29 @@
             "driver": "single_motor_scan",
             "mode": "point",
             "spiral": false,
-            "type": "Single Motor",
+            "scan_type": "Single Motor",
             "tiled": false,
-            "coarse_only": false,
             "proposal": "Staff Access",
             "experimenters": "",
             "sample": "",
+            "comment": "",
             "nxFileVersion": "3",
-            "x": "CoarseX",
-            "y": "OSA_X",
+            "x_motor": "Energy",
+            "y_motor": "OSA_Y",
             "defocus": true,
             "oversampling_factor": 1,
-            "refocus": true,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default",
+                "xrf"
+            ],
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
                     "xStart": -39.650000000000006,
                     "xStop": -29.750000000000004,
-                    "xPoints": 100,
+                    "xPoints": 1,
                     "yStart": 0.0,
                     "yStop": 0.0,
                     "yPoints": 1,
@@ -287,16 +317,16 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
-                    "dwell": 10.0,
+                    "dwell": 100.0,
                     "start": 600.0,
-                    "stop": 601.0,
+                    "stop": 700.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 101
                 }
             },
-            "energy": "Energy",
+            "energy_motor": "Energy",
             "doubleExposure": false,
             "n_repeats": 1
         },
@@ -304,33 +334,37 @@
             "driver": "double_motor_scan",
             "mode": "point",
             "spiral": false,
-            "type": "Double Motor",
+            "scan_type": "Double Motor",
             "tiled": false,
-            "coarse_only": false,
             "proposal": "Staff Access",
             "experimenters": "",
             "sample": "",
+            "comment": "",
             "nxFileVersion": "3",
-            "x": "OSA_X",
-            "y": "OSA_X",
+            "x_motor": "OSA_X",
+            "y_motor": "OSA_Y",
             "defocus": true,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default"
+            ],
             "oversampling_factor": 1,
-            "refocus": true,
             "retract": true,
-            "scanRegions": {
+            "scan_regions": {
                 "Region1": {
-                    "xStart": -4.853,
-                    "xStop": 4.323,
-                    "xPoints": 10,
-                    "yStart": -6.6945,
-                    "yStop": 1.0325000000000004,
-                    "yPoints": 10,
-                    "xStep": 1.02,
-                    "yStep": 0.858,
-                    "xRange": 10.196,
-                    "yRange": 8.585,
-                    "xCenter": -0.265,
-                    "yCenter": -2.831,
+                    "xStart": -245.0,
+                    "xStop": 245.0,
+                    "xPoints": 50,
+                    "yStart": -245.0,
+                    "yStop": 245.0,
+                    "yPoints": 50,
+                    "xStep": 10.0,
+                    "yStep": 10.0,
+                    "xRange": 500.0,
+                    "yRange": 500.0,
+                    "xCenter": 0.0,
+                    "yCenter": -0.0,
                     "zStart": 0.0,
                     "zStop": 0.0,
                     "zPoints": 1,
@@ -339,15 +373,128 @@
                     "zCenter": 0
                 }
             },
-            "energyRegions": {
+            "energy_regions": {
                 "EnergyRegion1": {
-                    "dwell": 1.0,
-                    "start": 700.0,
-                    "stop": 701.0,
+                    "dwell": 10.0,
+                    "start": 600.0,
+                    "stop": 601.0,
                     "step": 1.0,
-                    "nEnergies": 1
+                    "n_energies": 1
                 }
             },
+            "doubleExposure": false,
+            "n_repeats": 1
+        },
+        "OSA Image": {
+            "driver": "double_motor_scan",
+            "mode": "continuousLine",
+            "spiral": false,
+            "scan_type": "OSA Image",
+            "tiled": false,
+            "proposal": "Staff Access",
+            "experimenters": "",
+            "sample": "",
+            "comment": "",
+            "nxFileVersion": "3",
+            "x_motor": "OSA_X",
+            "y_motor": "OSA_Y",
+            "defocus": true,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default"
+            ],
+            "oversampling_factor": 1,
+            "retract": true,
+            "scan_regions": {
+                "Region1": {
+                    "xStart": -245.0,
+                    "xStop": 245.0,
+                    "xPoints": 50,
+                    "yStart": -245.0,
+                    "yStop": 245.0,
+                    "yPoints": 50,
+                    "xStep": 10.0,
+                    "yStep": 10.0,
+                    "xRange": 500.0,
+                    "yRange": 500.0,
+                    "xCenter": 0.0,
+                    "yCenter": -0.0,
+                    "zStart": 0.0,
+                    "zStop": 0.0,
+                    "zPoints": 1,
+                    "zStep": 0,
+                    "zRange": 0,
+                    "zCenter": 0
+                }
+            },
+            "energy_regions": {
+                "EnergyRegion1": {
+                    "dwell": 10.0,
+                    "start": 600.0,
+                    "stop": 601.0,
+                    "step": 1.0,
+                    "n_energies": 1
+                }
+            },
+            "energy_motor": "Energy",
+            "doubleExposure": false,
+            "n_repeats": 1
+        },
+        "OSA Focus": {
+            "driver": "osa_focus_scan",
+            "mode": "point",
+            "spiral": false,
+            "scan_type": "OSA Focus",
+            "tiled": false,
+            "proposal": "Staff Access",
+            "experimenters": "",
+            "sample": "",
+            "comment": "",
+            "nxFileVersion": "3",
+            "x_motor": "OSA_X",
+            "y_motor": "OSA_Y",
+            "defocus": true,
+            "oversampling_factor": 1,
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default",
+                "xrf"
+            ],
+            "retract": true,
+            "scan_regions": {
+                "Region1": {
+                    "xStart": -3.43,
+                    "xStop": 3.43,
+                    "xPoints": 50,
+                    "yStart": 0.0,
+                    "yStop": 0.0,
+                    "yPoints": 50,
+                    "xStep": 0.14,
+                    "yStep": 0.0,
+                    "xRange": 7.0,
+                    "yRange": 0.0,
+                    "xCenter": 0.0,
+                    "yCenter": 0.0,
+                    "zStart": -6554.96,
+                    "zStop": -6456.96,
+                    "zPoints": 50,
+                    "zStep": 2.0,
+                    "zRange": 100.0,
+                    "zCenter": -6505.96
+                }
+            },
+            "energy_regions": {
+                "EnergyRegion1": {
+                    "dwell": 10.0,
+                    "start": 600.0,
+                    "stop": 601.0,
+                    "step": 1.0,
+                    "n_energies": 1
+                }
+            },
+            "z_motor": "ZonePlateZ",
             "doubleExposure": false,
             "n_repeats": 1
         }

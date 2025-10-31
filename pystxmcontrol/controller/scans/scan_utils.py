@@ -1,5 +1,7 @@
 from time import time,sleep
 import numpy as np
+import traceback
+import asyncio
 
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
@@ -9,10 +11,15 @@ def getLoopMotorPositions(scan):
     stop = center + r / 2
     return np.linspace(start, stop, points)
 
-def terminateFlyscan(controller, dataHandler, scan, axis, message):
-    dataHandler.dataQueue.put('endOfScan')
+async def terminateFlyscan(controller, dataHandler, scan, axis, message):
+    await dataHandler.dataQueue.put('endOfScan')
     controller.motors[scan[axis]]["motor"].setPositionTriggerOff()
-    controller.scanQueue.queue.clear()
+    while not controller.scanQueue.empty():
+        try:
+            controller.scanQueue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+    print(message)
     return False
 
 
@@ -29,18 +36,32 @@ def executeReturnTrajectory(self, motor, xStart, xStop, yStart, yStop):
     motor.update_trajectory()
     motor.moveLine()
 
-
-def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
+async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
     # try:
     controller.daq["default"].initLine()
     controller.daq["default"].autoGateOpen()
+    #for daq in scanInfo["daq list"]:
+    #    if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+    #        controller.daq[daq].ready()
     #Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
-    sleep(0.02)
+    if scan["spiral"]:
+        sleep(0.02)
     if "offset" not in scanInfo.keys():
         scanInfo["offset"] = 0,0
-    controller.motors[scan["x"]]["motor"].moveLine(coarse_offset = scanInfo["offset"])
-    scanInfo["line_positions"] = controller.motors[scan["x"]]["motor"].positions
+    controller.motors[scan["x_motor"]]["motor"].moveLine(coarse_offset = \
+        scanInfo["offset"], coarse_only = scan["coarse_only"],axes=axes)
+    scanInfo["line_positions"] = controller.motors[scan["x_motor"]]["motor"].positions
     controller.daq["default"].autoGateClosed()
-    if not dataHandler.getLine(scanInfo.copy()):
-        raise Exception('mismatched array lengths')
+    try: 
+        #this will timeout if there is a missed trigger.  That can happen at the start of
+        #big scans or some reason.
+        await dataHandler.getLine(scanInfo.copy())
+    except Exception as e:
+        #by default, if a trigger is missed we end up here, restart the daq and return False.  The scan routine
+        #can decide if it wants to retry.
+        print("[scan utils] DAQ timeout.  Restarting DAQ and moving on.")
+        controller.daq["default"].stop()
+        controller.daq["default"].start()
+        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT")
+        return False
     return True

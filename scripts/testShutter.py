@@ -1,7 +1,7 @@
 from pystxmcontrol.drivers.shutter import *
 import time
 
-s = shutter()
+s = shutter(address='/dev/arduino')
 s.connect()
 s.dwell1 = 10
 s.dwell2 = 0

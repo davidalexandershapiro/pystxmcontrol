@@ -10,6 +10,7 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Low scan overhead
 - Microsecond shutter timing and synchronization using an Arduino Due microcontroller
 - Full integration of ptychography scanning
+- Data logger which saves to a database all commands, motor moves and motor positions at a defined interval
 
 # Currently supported devices
 - [Mad City Labs](https://www.madcitylabs.com/nanodrive.html) Nano-Drive controller
@@ -24,6 +25,7 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Micronix MMC controller
 - PI E-712 controller
 - Quantum Detectors Xpress 3
+- Aerotech XR3
 
 # Dependencies 
 Ubuntu requires this package to be installed in some cases for PySide6 to function properly.
@@ -54,9 +56,9 @@ sudo apt install  libxcb-cursor0
 
 # Environment setup and installation using miniconda3 and pip
 - On both Windows, Mac or LInux install [miniconda3](https://docs.conda.io/en/latest/miniconda.html) and activate the base environment
-- Create a conda environment with Python version <=3.10
+- Create a conda environment with Python version <3.12
 ```
-conda create -n [my_env_name] python=3.10
+conda create -n [my_env_name] python=3.11
 conda activate [my_env_name]
 ```
 - Clone pystxmcontrol and install

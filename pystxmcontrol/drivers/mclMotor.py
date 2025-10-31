@@ -53,7 +53,7 @@ class mclMotor(motor):
             self._axis = self.controller.getAxis(self.axis)
             self.pid = self.controller.readPID(axis = self._axis)
             self.position = self.controller.read(axis = self._axis)
-            self.controller.setPositionTrigger(pos = 0, axis = 1, mode = 'on',clock = 2)
+            #self.controller.setPositionTrigger(pos = 0, axis = 1, mode = 'on',clock = 2)
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -161,6 +161,7 @@ class mclMotor(motor):
         else: 
             mode = "line"
             self.dim = 2
+        print(mode)
         if not (self.simulation):
             self.controller.setup_trajectory(self.trigger_axis, self.start, self.stop, \
                                              self.trajectory_pixel_dwell, self.trajectory_pixel_count, \
