@@ -6,7 +6,7 @@
       "y_motor": "SampleY",
       "energy_motor": "Energy",
       "type": "image",
-      "driver": "derived_line_image",
+      "driver": "linear_image",
       "include_return": false,
       "daq list": "default",
       "mode": "continuousLine",
@@ -18,7 +18,7 @@
       "y_motor": "SampleY",
       "z_motor": "ZonePlateZ",
       "type": "line",
-      "driver": "derived_line_focus",
+      "driver": "linear_focus",
       "include_return": false,
       "daq list": "default",
       "mode": "continuousLine",
@@ -30,7 +30,7 @@
       "y_motor": "SampleY",
       "energy_motor": "Energy",
       "type": "line",
-      "driver": "derived_line_spectrum",
+      "driver": "linear_spectrum",
       "include_return": false,
       "daq list": "default",
       "mode": "continuousLine",
@@ -78,7 +78,7 @@
       "type": "line",
       "driver": "osa_focus_scan",
       "daq list": "default",
-      "mode": "point",
+      "mode": "continuousLine",
       "display": true
     }
   }

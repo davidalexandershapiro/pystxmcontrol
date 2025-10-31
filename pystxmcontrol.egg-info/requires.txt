@@ -13,9 +13,6 @@ PySide6==6.8.2.1
 matplotlib
 h5py
 pyqtgraph
-griffe==0.47
-prefect==2.14.3
-pydantic==1.10.4
 python-dotenv
 opencv-python-headless
 scikit-learn

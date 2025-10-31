@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'mainwindow.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.7.3
+## Created by: Qt User Interface Compiler version 6.8.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -1301,7 +1301,7 @@ class Ui_MainWindow(object):
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 1550, 38))
+        self.menubar.setGeometry(QRect(0, 0, 1550, 30))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuOpen = QMenu(self.menuFile)
@@ -1310,8 +1310,6 @@ class Ui_MainWindow(object):
         self.menuSave.setObjectName(u"menuSave")
         self.menuHelp = QMenu(self.menubar)
         self.menuHelp.setObjectName(u"menuHelp")
-        self.menuAdditional_Help = QMenu(self.menuHelp)
-        self.menuAdditional_Help.setObjectName(u"menuAdditional_Help")
         self.menuEdit = QMenu(self.menubar)
         self.menuEdit.setObjectName(u"menuEdit")
         self.menuSettings_2 = QMenu(self.menuEdit)
@@ -1336,9 +1334,6 @@ class Ui_MainWindow(object):
         self.menuOpen.addAction(self.action_Open_Scan_Definition)
         self.menuSave.addAction(self.action_Save_Image_Data)
         self.menuSave.addAction(self.action_Save_Scan_Definition)
-        self.menuHelp.addAction(self.actionPlease_confirm_you_have_a_good_sample)
-        self.menuHelp.addAction(self.menuAdditional_Help.menuAction())
-        self.menuAdditional_Help.addAction(self.actionGood_Luck_2)
         self.menuEdit.addAction(self.menuSettings_2.menuAction())
         self.menuEdit.addAction(self.menuMain_Window.menuAction())
         self.menuSettings_2.addAction(self.menuTheme_2.menuAction())
@@ -1518,7 +1513,6 @@ class Ui_MainWindow(object):
         self.menuOpen.setTitle(QCoreApplication.translate("MainWindow", u"Open", None))
         self.menuSave.setTitle(QCoreApplication.translate("MainWindow", u"Save", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))
-        self.menuAdditional_Help.setTitle(QCoreApplication.translate("MainWindow", u"Additional Resources", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"Edit", None))
         self.menuSettings_2.setTitle(QCoreApplication.translate("MainWindow", u"Settings", None))
         self.menuTheme_2.setTitle(QCoreApplication.translate("MainWindow", u"Theme", None))
