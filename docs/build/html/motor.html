@@ -1,23 +1,21 @@
+
+
 <!DOCTYPE html>
 <html class="writer-html5" lang="en" data-content_root="./">
 <head>
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>setting up a motor device &mdash; pystxmcontrol 0.1 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+  <title>setting up a motor device &mdash; pystxmcontrol 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
   
-  <!--[if lt IE 9]>
-    <script src="_static/js/html5shiv.min.js"></script>
-  <![endif]-->
-  
-        <script src="_static/jquery.js?v=5d32c60e"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-        <script src="_static/documentation_options.js?v=2709fde1"></script>
-        <script src="_static/doctools.js?v=9a2dae69"></script>
-        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" /> 
@@ -49,6 +47,7 @@
 <li class="toctree-l1"><a class="reference internal" href="motor_link.html">Motor Device</a></li>
 <li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scripting_link.html">Scripting</a></li>
 </ul>
 
         </div>
@@ -78,38 +77,38 @@
   <section id="setting-up-a-motor-device">
 <h1>setting up a motor device<a class="headerlink" href="#setting-up-a-motor-device" title="Link to this heading"></a></h1>
 <p>A motor object is an enforced interface between the high level logic of pystxmcontrol and the hardware device functionality.  Any device which may change value on command, like a motor position or an amplifier voltage, can be designed as a motor object.  A driver designed with the abstract methods shown in the definition below can be automatically included in the graphical interface and scan routines after inclusion in the global motor config file.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">abc</span> <span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
 
-<span class="k">class</span> <span class="nc">motor</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">motor</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">simulation</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">simulation</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
         <span class="nb">super</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">simulation</span> <span class="o">=</span> <span class="n">simulation</span>
 
     <span class="nd">@abstractmethod</span>
-    <span class="k">def</span> <span class="nf">moveTo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">moveTo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">getPos</span><span class="p">()</span>
 
     <span class="nd">@abstractmethod</span>
-    <span class="k">def</span> <span class="nf">moveBy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">moveBy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">getPos</span><span class="p">()</span>
 
     <span class="nd">@abstractmethod</span>
-    <span class="k">def</span> <span class="nf">getPos</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">getPos</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">return</span> <span class="mi">1</span>
 
     <span class="nd">@abstractmethod</span>
-    <span class="k">def</span> <span class="nf">getStatus</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">getStatus</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">True</span>
 
     <span class="nd">@abstractmethod</span>
-    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">True</span>
 </pre></div>
 </div>
 <p>Here is an implementation which shows the connect and getStatus methods.  In this particular case, the controller has established the socket communication and the motor object is using it to check the status of it’s axis.  This example also demonstrates how to use the controller.lock object to render the socket communication thread safe.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">bcsMotor</span><span class="p">(</span><span class="n">motor</span><span class="p">):</span>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">controller</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">bcsMotor</span><span class="p">(</span><span class="n">motor</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">controller</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">controller</span> <span class="o">=</span> <span class="n">controller</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">axis</span> <span class="o">=</span> <span class="kc">None</span>
@@ -118,12 +117,12 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">units</span> <span class="o">=</span> <span class="mf">1.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">moving</span> <span class="o">=</span> <span class="kc">False</span>
 
-    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="s1">&#39;x&#39;</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">axis</span> <span class="o">=</span> <span class="s1">&#39;x&#39;</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">axis</span> <span class="o">=</span> <span class="n">axis</span>
         <span class="k">if</span> <span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">controller</span><span class="o">.</span><span class="n">simulation</span><span class="p">):</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">lock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">controller</span><span class="o">.</span><span class="n">lock</span>
 
-    <span class="k">def</span> <span class="nf">getStatus</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">getStatus</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">lock</span><span class="p">:</span>
             <span class="n">message</span> <span class="o">=</span> <span class="s1">&#39;getmotorstat </span><span class="si">%s</span><span class="s1"> </span><span class="se">\r\n</span><span class="s1">&#39;</span> <span class="o">%</span><span class="bp">self</span><span class="o">.</span><span class="n">axis</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">controller</span><span class="o">.</span><span class="n">monitorSocket</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">message</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span>
@@ -132,7 +131,7 @@
 </pre></div>
 </div>
 <p>This example shows the motor objects moveTo method and how it can both utilize the underlying controller to actually move a motor or produce feedback in the simulation mode.  The controllers function need not be named “moveTo” and the motor object could in fact a execute a much more complex routine as needed.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">moveTo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pos</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">moveTo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pos</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
     <span class="k">if</span> <span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">simulation</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">controller</span><span class="o">.</span><span class="n">moveTo</span><span class="p">(</span><span class="n">axis</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_axis</span><span class="p">,</span> <span class="n">pos</span> <span class="o">=</span> <span class="n">pos</span><span class="p">)</span>
         <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">waitTime</span><span class="p">)</span> <span class="c1">#piezo settling time of 10 ms</span>
@@ -285,7 +284,7 @@ by the software controller and definted in motorConfig.json.  An example configu
 <p>In this case, the type is “derived” and there is a new entry called “axes” which lists the primary motors that contribute to this derived motor.  The primary
 motors must be separately defined in the same configuration file.  These axes are then available to the motor class.  An example “moveTo” method of the motor
 class is shown below.  This shows how the axes defined in the JSON file can be accessed by the motor class.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>    <span class="k">def</span> <span class="nf">moveTo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">energy</span><span class="p">):</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>    <span class="k">def</span><span class="w"> </span><span class="nf">moveTo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">energy</span><span class="p">):</span>
         <span class="k">if</span> <span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">simulation</span><span class="p">):</span>
             <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">lock</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">moving</span> <span class="o">=</span> <span class="kc">True</span>
@@ -308,7 +307,7 @@ class is shown below.  This shows how the axes defined in the JSON file can be a
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+    <p>&#169; Copyright 2025, David Shapiro.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
