@@ -44,20 +44,20 @@ class controller:
         self._logger = logger
         self.readConfig()
         self.initialize()
-        self.startMonitor()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
         self.operation_logger.start()
+        self.startMonitor()
         self.getMotorPositions()
-        self._motor_logger_thread = threading.Thread(target=self._motor_logger, args=(), daemon=True)
-        self._motor_logger_thread.start()
+        # self._motor_logger_thread = threading.Thread(target=self._motor_logger, args=(), daemon=True)
+        # self._motor_logger_thread.start()
 
         # Register cleanup handler for graceful shutdown
         atexit.register(self.cleanup)
 
-    def _motor_logger(self):
-        while self._log_motors:
-            self.getMotorPositions()
-            time.sleep(self.main_config["server"]["motor log period"])
+    # def _motor_logger(self):
+    #     while self._log_motors:
+    #         self.getMotorPositions()
+    #         time.sleep(self.main_config["server"]["motor log period"])
 
     def _ensure_scan_queue(self):
         """Ensure scanQueue exists in the current event loop"""
