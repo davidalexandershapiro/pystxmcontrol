@@ -21,6 +21,8 @@ class nptController(hardwareController):
             Main nPoint Controller Class, initialize with the controller ID for communication with the driver.
         """
 
+        self.return_velocity = 0.5
+
         # refer to page 29 of NPoint manual for device write/read formatting info
         self.devID = address
         self.port = port
@@ -587,7 +589,7 @@ class nptController(hardwareController):
         self.trajectory["stop_y"] = stop_y
         self.trajectory["velocitySum"] = velocitySum
         self.trajectory["distance"] = distance
-        self.trajectory["return_velocity"] = 0.3
+        self.trajectory["return_velocity"] = self.return_velocity
         self.npositions = trajectory_pixel_count
 
     def acquire_xy(self,axes=[1,],**kwargs):
@@ -676,7 +678,7 @@ class nptController(hardwareController):
         #just wait the expected time (plus 10 ms) and then exit.  Assumes accurate velocity
         forward_time = self.trajectory["distance"] / self.trajectory["velocitySum"] / 1000.
         reverse_time = self.trajectory["distance"] / self.trajectory["return_velocity"] / 1000.
-        time.sleep(forward_time+reverse_time+0.0)
+        time.sleep(forward_time+reverse_time+0.01)
 
         #Stop the trajectory, just to be certain?
         self.writeToDev4B(0x1182904C,1)

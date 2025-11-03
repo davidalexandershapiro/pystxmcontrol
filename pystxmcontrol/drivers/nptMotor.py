@@ -11,7 +11,6 @@ class nptMotor(motor):
         #self.devID = ftdi_device_id
         self.controller = controller
         self.axesList = list(enumerate(['x','y']))
-        #self.simulation = False
         self.config = None
         self.axis = None
         self.position = 0.
@@ -28,7 +27,6 @@ class nptMotor(motor):
         self.pulseOffsetTime = 0.0
         self.imageLineCount = 1
         self.lineMode = "raster"
-        #self.lineMode = 0
         self.trajectory_start = 0
         self.trajectory_stop = 0.1
         self.trajectory_pixel_count = 10 #integer number of pixels in a trajectory

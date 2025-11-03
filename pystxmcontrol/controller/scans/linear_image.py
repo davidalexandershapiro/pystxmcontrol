@@ -9,7 +9,7 @@ scan range and executes a fine scan smaller than the max piezo scan range.
 from pystxmcontrol.controller.scans.base_scan import BaseScan
 from pystxmcontrol.controller.scans.scan_utils import doFlyscanLine, terminateFlyscan
 from numpy import ones
-from time import sleep
+from time import sleep,time
 
 
 class LinearImageScan(BaseScan):
