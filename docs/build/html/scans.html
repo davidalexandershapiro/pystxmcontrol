@@ -1,23 +1,21 @@
+
+
 <!DOCTYPE html>
 <html class="writer-html5" lang="en" data-content_root="./">
 <head>
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>setting up a scan &mdash; pystxmcontrol 0.1 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+  <title>Configuring a scan &mdash; pystxmcontrol 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
   
-  <!--[if lt IE 9]>
-    <script src="_static/js/html5shiv.min.js"></script>
-  <![endif]-->
-  
-        <script src="_static/jquery.js?v=5d32c60e"></script>
-        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-        <script src="_static/documentation_options.js?v=2709fde1"></script>
-        <script src="_static/doctools.js?v=9a2dae69"></script>
-        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" /> 
@@ -49,6 +47,7 @@
 <li class="toctree-l1"><a class="reference internal" href="motor_link.html">Motor Device</a></li>
 <li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scripting_link.html">Scripting</a></li>
 </ul>
 
         </div>
@@ -65,7 +64,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">setting up a scan</li>
+      <li class="breadcrumb-item active">Configuring a scan</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/scans.md.txt" rel="nofollow"> View page source</a>
       </li>
@@ -75,19 +74,60 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="setting-up-a-scan">
-<h1>setting up a scan<a class="headerlink" href="#setting-up-a-scan" title="Link to this heading"></a></h1>
-<p>Scans are defined as a python dictionary which have the following structure when saved to a JSON file</p>
+  <section id="configuring-a-scan">
+<h1>Configuring a scan<a class="headerlink" href="#configuring-a-scan" title="Link to this heading"></a></h1>
+<p>Scans are configured in the scans.json file.  A typical entry must include the following:</p>
+<ul class="simple">
+<li><p>index: used by the GUI to position the scan in the dropdown list</p></li>
+<li><p>x_motor: the motor used for the X coordinate.  This is needed by all scans.</p></li>
+<li><p>y_motor: the motor used for the Y coordinate.  This is needed by all scans.</p></li>
+<li><p>energy_motor: the motor used for the energy coordinate.  This is only needed for scans that require energy change</p></li>
+<li><p>type: options are “image”, “line” and “point”.  This defines how the data is managed by the GUI.</p></li>
+<li><p>driver: this is the name of the scan class used to execute the scan.  This is called by the controller.</p></li>
+<li><p>include_return: for trajectories, this tells the driver how to manage the end of the trajectory</p></li>
+<li><p>daq list: a comma separated list of DAQ names, for example, “default,ccd,xrf”</p></li>
+<li><p>mode: this is the scanning mode described below</p></li>
+<li><p>display: this tells the GUI whether to display the scan in its list</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>    <span class="s2">&quot;Image&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;index&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+      <span class="s2">&quot;x_motor&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleX&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;y_motor&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleY&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;energy_motor&quot;</span><span class="p">:</span> <span class="s2">&quot;Energy&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="s2">&quot;linear_image&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;include_return&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+      <span class="s2">&quot;daq list&quot;</span><span class="p">:</span> <span class="s2">&quot;default&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;continuousLine&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;display&quot;</span><span class="p">:</span> <span class="n">true</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="the-scan-definition">
+<h1>The scan definition<a class="headerlink" href="#the-scan-definition" title="Link to this heading"></a></h1>
+<p>Scans are defined as a python dictionary which have the structure below when saved to a JSON file.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s2">&quot;Image&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;Image&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;proposal&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="s2">&quot;linear_image&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;continuousLine&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;spiral&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+            <span class="s2">&quot;scan_type&quot;</span><span class="p">:</span> <span class="s2">&quot;Image&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tiled&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+            <span class="s2">&quot;proposal&quot;</span><span class="p">:</span> <span class="n">null</span><span class="p">,</span>
             <span class="s2">&quot;experimenters&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
             <span class="s2">&quot;sample&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleX&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleY&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;comment&quot;</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;nxFileVersion&quot;</span><span class="p">:</span> <span class="s2">&quot;3&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;x_motor&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleX&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;y_motor&quot;</span><span class="p">:</span> <span class="s2">&quot;SampleY&quot;</span><span class="p">,</span>
             <span class="s2">&quot;defocus&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
-            <span class="s2">&quot;serpentine&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
-            <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;continuousLine&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;autofocus&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
+            <span class="s2">&quot;coarse_only&quot;</span><span class="p">:</span> <span class="n">false</span><span class="p">,</span>
+            <span class="s2">&quot;daq list&quot;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="s2">&quot;default&quot;</span>
+            <span class="p">],</span>
+            <span class="s2">&quot;oversampling_factor&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">&quot;retract&quot;</span><span class="p">:</span> <span class="n">true</span><span class="p">,</span>
             <span class="s2">&quot;scanRegions&quot;</span><span class="p">:</span> <span class="p">{</span>
                 <span class="s2">&quot;Region1&quot;</span><span class="p">:</span> <span class="p">{</span>
                     <span class="s2">&quot;xStart&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">34.5</span><span class="p">,</span>
@@ -127,20 +167,22 @@
 <p>The means of scanning is defined largely by a scan “type” and a scan “mode”.  The mode of the scan refers largely to how
 the motors are actuated during the scan.  The possibilities are:</p>
 <ul class="simple">
-<li><p>continuousLine: linear trajectory actuated by the piezo controller.  The scan loop performs each line independently.</p></li>
-<li><p>rasterLine: a start-stop raster scan that is fully controlled by the piezo controller.  The scan loop performs each line independently.</p></li>
+<li><p>continuousLine: linear or spiral trajectory actuated by the piezo controller.  The scan loop performs each trajectory independently.</p></li>
+<li><p>point: a start-stop raster scan for which each point is executed by the scan loop</p></li>
 <li><p>ptychographyGrid: a start-stop raster scan for which each point is executed by the scan loop</p></li>
 </ul>
 <p>Meanwhile, the type of scan refers more to the collection of motors which are used.  The available types are:</p>
 <ul class="simple">
 <li><p>Image</p></li>
+<li><p>Spiral Image</p></li>
 <li><p>Ptychography Image</p></li>
 <li><p>Point Spectrum</p></li>
 <li><p>Line Spectrum</p></li>
-<li><p>Focus</p></li>
+<li><p>Line Focus</p></li>
+<li><p>Single Motor</p></li>
+<li><p>Double Motor</p></li>
 </ul>
-<p>Currently, the display in the GUI assumes that the data falls on a rectangular grid.  So, while it is entirely possible (and straight forward) to generate
-scan code that does non-rectangular patterns, the display side needs to be refactor to account for this.  Coming soon…</p>
+<p>Currently, the display in the GUI requries that the data falls on a rectangular grid.</p>
 </section>
 <section id="executing-a-scan">
 <h1>executing a scan<a class="headerlink" href="#executing-a-scan" title="Link to this heading"></a></h1>
@@ -154,7 +196,7 @@ scan code that does non-rectangular patterns, the display side needs to be refac
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2022, David Shapiro (LBNL).</p>
+    <p>&#169; Copyright 2025, David Shapiro.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
