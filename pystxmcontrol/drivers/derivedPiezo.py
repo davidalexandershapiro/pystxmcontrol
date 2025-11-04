@@ -233,20 +233,15 @@ class derivedPiezo(motor):
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
                 time.sleep(0.03)
-                fineDelta=self.axes["axis1"].getPos()
-                #print(f"[derived piezo] axis {self.axis} fineDelta = {fineDelta}")
                 self.axes["axis1"].setZero()
-            self.axes["axis2"].config["offset"]-=fineDelta
             self.axes["axis2"].moveTo(pos)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()
-                if not(coarse_only):
-                    self.axes["axis1"].servoState(True)
-            #use the piezo to clean up slop in the coarse motion
-            deltaPos = pos - self.getPos()
-            if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
-                self.axes["axis1"].moveTo(deltaPos)
-
+                self.axes["axis1"].servoState(True)
+                #use the piezo to clean up slop in the coarse motion
+                deltaPos = pos - self.getPos()
+                if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
+                    self.axes["axis1"].moveTo(deltaPos)
         self.moving = False
 
     def moveCoarse(self, pos):

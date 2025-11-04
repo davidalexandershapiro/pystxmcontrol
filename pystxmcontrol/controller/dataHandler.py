@@ -429,6 +429,7 @@ class dataHandler:
     async def startScanProcess(self, scan):
         #allocate memory for data to be saved
         self._ensure_queues()
+        print('This is a tiled scan: {}'.format(scan["tiled"]))
         if scan["tiled"]:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
@@ -486,8 +487,9 @@ class dataHandler:
                 
     def processFrame(self, frame):
         y,x = frame.shape
+        subtracted = frame-self.darkFrame
         #point = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
-        point = ((frame.astype('float64') > 10.) * frame.astype('float64')).sum()
+        point = ((subtracted>10) * subtracted).sum()
         return point
 
     def zmq_start_event(self, scan, metadata=None):

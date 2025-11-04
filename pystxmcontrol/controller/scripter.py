@@ -86,7 +86,7 @@ def ptychography_scan(meta):
             "daq list": meta["daq list"],
             "comment": meta["comment"],
             "coarse_only": False,
-            "driver": scans[scan_type]["driver"], #"ptychography_image",
+            "driver": scans["Ptychography Image"]["driver"], #"ptychography_image",
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],

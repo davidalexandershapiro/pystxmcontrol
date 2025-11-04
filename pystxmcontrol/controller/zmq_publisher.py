@@ -15,6 +15,7 @@ import atexit
 
 
 class ZMQPublisher:
+
     """
     Manages ZeroMQ publishing sockets for real-time data streaming.
 
@@ -54,6 +55,7 @@ class ZMQPublisher:
 
     def _setup_ccd_publisher(self, config):
         """Setup CCD frame publisher socket"""
+        #This is actually a misnomer because it publishes everything except the data going to the STXM GUI
         host = config.get("host", "localhost")
         port = config.get("ccd_data_port", 9997)
 
@@ -104,7 +106,6 @@ class ZMQPublisher:
         """
         if self.stxm_pub_socket is None:
             return
-
         try:
             self.stxm_pub_socket.send_pyobj(data)
         except Exception as e:
@@ -124,7 +125,9 @@ class ZMQPublisher:
 
         try:
             import json
-            self.stxm_pub_socket.send_string(json.dumps(data))
+            #Not currently using stxm socket.
+            #self.stxm_pub_socket.send_string(json.dumps(data))
+            self.ccd_pub_socket.send_string(json.dumps(data))
         except Exception as e:
             if self._logger:
                 self._logger.log(f"Error publishing STXM string: {e}", level="error")

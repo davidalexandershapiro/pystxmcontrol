@@ -14,7 +14,7 @@ async def insertSTXMDetector(controller):
     await asyncio.sleep(5)
 
 async def retractSTXMDetector(controller):
-    controller.moveMotor("Detector Y", -6500)
+    controller.moveMotor("Detector Y", -7000)
     await asyncio.sleep(5)
 
 def getLoopMotorPositions(scan):
@@ -321,7 +321,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
         energyIndex += 1
     await dataHandler.dataQueue.put('endOfScan')
     if scanInfo['retract']:
-        insertSTXMDetector(controller)
+        await insertSTXMDetector(controller)
     if scan["defocus"]:
         controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
     print("Finished Grid Scan")

@@ -66,6 +66,7 @@ class stxmServer:
 
     async def command_handler(self):
         while self.running:
+
             message={"command":None}
             message = await self.command_sock.recv_pyobj()
             #recv_pyobj is blocking so we need to check the scan thread status after getting the message

@@ -59,7 +59,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.lineLengthEdit.setText('10')
         self.ui.lineAngleEdit.setText('0')
         self.lineAngle = 0
-        self.xLineRange = 70.
+        self.xLineRange = 10.
         self.yLineRange = 0.
         self.ui.linePointsEdit.setText('50')
         self.imageScale = 1,1
@@ -794,8 +794,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 if "OSA" in self.currentImageType:
                     self.cursorFocusZ = self.cursorFocusZ - float(self.ui.A0Label.text())
                 #for the crosshairs imageScale = (1,1) and vertically it's placed according to yCenter
-                x = np.round(scenePos.x(), 3) + self.xCenter - lineRange / 2.
-                y = np.round(scenePos.y(), 3) + self.yCenter
+
+                x = np.round(scenePos.x(), 3) + self.xCenter - self.xRange / 2.
+                y = np.round(scenePos.y(), 3) + self.yCenter - self.yRange / 2.
                 self.ui.focusToCursorButton.setEnabled(True)
             elif "Line" in self.scan["scan_type"]:
                 eRange = self.stxm.energies["default"].max() - self.stxm.energies["default"].min()
@@ -1196,8 +1197,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     # elif float(dwellStr)>15.:
                     #     dwellStr = '15.'
             elif "Focus" in self.scanType or self.scanType == "Line Spectrum":
-                if float(dwellStr)<0.31:
-                    dwellStr = '0.31'
+                if float(dwellStr)<3:
+                    dwellStr = '3'
                 # elif float(dwellStr)>15.:
                 #     dwellStr = '15.'
                 
@@ -1626,7 +1627,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
             if "Focus" in self.scan["scan_type"]:
                 self.stxm.interp_counts["default"][scanRegNumber][message["energyIndex"],:,:] = message["image"]["default"]
-                xScale = 1 
+                xScale = 1
                 yScale = 1 
             elif "Line Spectrum" in self.scan["scan_type"]:
                 self.image = self.image.T
@@ -2478,7 +2479,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 reg.ui.xCenter.setEnabled(True)
                 reg.ui.yCenter.setEnabled(True)
             if refocus:
-                print('Resetting Focus Center from setScanParams: Focus')
                 self.ui.focusCenterEdit.setText(str(np.round(self.currentMotorPositions["ZonePlateZ"], 2)))
             self.ui.focusRangeEdit.setText(str(self.focusRange))
             self.ui.focusStepsEdit.setText(str(int(self.focusSteps)))
