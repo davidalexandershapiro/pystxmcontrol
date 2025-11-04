@@ -157,7 +157,11 @@ class stxm_monitor(QtCore.QThread):
         self.stxm_data_socket.connect(stxm_data_addr)
 
     def get_data(self):
-        return self.stxm_data_socket.recv_pyobj()
+        try:
+            data = self.stxm_data_socket.recv_pyobj()
+        except:
+            data = None
+        return data
         
     def run(self):
         while True:
