@@ -56,36 +56,37 @@ class xpsController(hardwareController):
         [err, retString] = self.__sendAndReceive(socketId, command)
         return [err, retString]
 
-    def moveTo(self, socketId, motor, target):
-        #An XPS can get in a state where absolute moves are inaccurate.  Use Relative.
-        err,currentPos = self.getPosition(socketId, motor)
-        [err, retString] = self.moveRelative(socketId,motor,target,target-currentPos)
-        return [err, retString]
-
-        # moveDelta = abs(target - currentPos)
-        # command = 'GroupMoveAbsolute(' + motor + ',' + str(target) + ')'
-        # self.moving = True
-        # [err, retString] = self.__sendAndReceive(socketId, command)
-        # t0 = time.time()
-        # while self.moving:
-        #     err,currentPos = self.getPosition(socketId, motor)
-        #     positionErr = target - currentPos
-        #     if abs(positionErr) > self._position_tolerance:
-        #         print(positionErr,self._position_tolerance)
-        #         if not(self.stopped):
-        #             if (time.time() - t0) > self._timeout:
-        #                 print("XPS move timeout. Aborting...")
-        #                 self.moving = False
-        #                 return self.abortMove(socketId, motor)
-        #             else:
-        #                 time.sleep(0.1)
-        #         else:
-        #             self.moving = False
-        #             self.stopped = False
-        #             return [err, retString]
-        #     else:
-        #         self.moving = False
-        #         return [err, retString]
+    def moveTo(self, socketId, motor, target, use_relative = True):
+        if use_relative:
+            #An XPS can get in a state where absolute moves are inaccurate.  Use Relative moves instead.
+            err,currentPos = self.getPosition(socketId, motor)
+            [err, retString] = self.moveRelative(socketId,motor,target,target-currentPos)
+            return [err, retString]
+        else:
+            moveDelta = abs(target - currentPos)
+            command = 'GroupMoveAbsolute(' + motor + ',' + str(target) + ')'
+            self.moving = True
+            [err, retString] = self.__sendAndReceive(socketId, command)
+            t0 = time.time()
+            while self.moving:
+                err,currentPos = self.getPosition(socketId, motor)
+                positionErr = target - currentPos
+                if abs(positionErr) > self._position_tolerance:
+                    print(positionErr,self._position_tolerance)
+                    if not(self.stopped):
+                        if (time.time() - t0) > self._timeout:
+                            print("XPS move timeout. Aborting...")
+                            self.moving = False
+                            return self.abortMove(socketId, motor)
+                        else:
+                            time.sleep(0.1)
+                    else:
+                        self.moving = False
+                        self.stopped = False
+                        return [err, retString]
+                else:
+                    self.moving = False
+                    return [err, retString]
 
     def moveRelative(self, socketId,motor,target,displacement):
         command = f"GroupMoveRelative({motor},{displacement})"

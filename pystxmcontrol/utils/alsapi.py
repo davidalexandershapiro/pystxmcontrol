@@ -17,7 +17,7 @@ ALSHUB_API_SERVERS = {
 }
 
 EXPERIMENT_API_SERVERS = {
-    "production": "https://bcgmds01.dhcp.lbl.gov/",#"https://experiment.als.lbl.gov/",  # Latest STABLE version of the API
+    "production": "http://bcgmds01.dhcp.lbl.gov:8080/beamlines",#"https://experiment.als.lbl.gov/",  # Latest STABLE version of the API
     "backup": "https://experiment2.als.lbl.gov:8083/",  # Redundant copy of the production server
     "staging": "https://experiment-staging.als.lbl.gov/",  # Latest TESTING version of the API
 }

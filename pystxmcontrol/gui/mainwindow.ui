@@ -2682,7 +2682,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <x>0</x>
      <y>0</y>
      <width>1550</width>
-     <height>38</height>
+     <height>30</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -2712,14 +2712,6 @@ font: 75 11pt &quot;Ubuntu&quot;;
     <property name="title">
      <string>Help</string>
     </property>
-    <widget class="QMenu" name="menuAdditional_Help">
-     <property name="title">
-      <string>Additional Resources</string>
-     </property>
-     <addaction name="actionGood_Luck_2"/>
-    </widget>
-    <addaction name="actionPlease_confirm_you_have_a_good_sample"/>
-    <addaction name="menuAdditional_Help"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
     <property name="title">

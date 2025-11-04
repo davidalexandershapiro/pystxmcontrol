@@ -23,8 +23,9 @@ class xpsMotor(motor):
             self.controller.getParameters(self.controller.controlSocket, self.axis)
 
     def setAxisParams(self, velocity):
-        self.controller.setParameters(self.controller.controlSocket, self.axis, velocity * 1000, \
-                                    self.acceleration, self.minimumJerkTime, self.maximumJerkTime)
+        if not self.simulation:
+            self.controller.setParameters(self.controller.controlSocket, self.axis, velocity * 1000, \
+                                        self.acceleration, self.minimumJerkTime, self.maximumJerkTime)
 
     def moveBy(self, step):
         pos = self.getPos()

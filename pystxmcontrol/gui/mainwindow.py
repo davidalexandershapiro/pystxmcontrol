@@ -233,6 +233,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setWindowTitle(f"STXM Control: {name}")
         if not self.client.main_config["geometry"]["A0_calibrated"]:
             self.ui.A0Edit.setEnabled(False)
+        self.ui.toggleSingleEnergy.setChecked(True)
+        self.setSingleEnergy()
 
     def changeServer(self):
         # address = self.ui.serverAddressEdit.text().split(':')
@@ -520,6 +522,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.mainImage.addItem(self.beamPosition)
 
         scenePos = self.ui.mainImage.getImageItem().mapFromScene(pos)
+        self.scenePos = scenePos
 
         if "Image" in self.currentImageType or self.currentImageType == "Double Motor":
             
@@ -779,10 +782,15 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.mainImage.removeItem(self.horizontalLine)
             if self.verticalLine is not None:
                 self.ui.mainImage.removeItem(self.verticalLine)
-            scenePos = self.ui.mainImage.getImageItem().mapFromScene(pos)
+
+            #IMPORTANT: there appears to be a bug in pyqtgraph such that the position returned from a mouse click
+            #differs from that returned by a mouse move when the mouse is at the edge of the image.  Thus, the
+            #determined coordinates are incorrect, crosshairs show up in the wrong place, etc.
+            #To fix this, the mouseMoved() method returns it's positions in self.scenePos and I use those here
+            scenePos = self.scenePos
 
             if "Image" in self.scan["scan_type"] or self.scan["scan_type"] == "Double Motor":
-                x = (np.round(scenePos.x(), 3) * self.imageScale[0]) + self.xCenter - self.xRange / 2.
+                x = np.round(scenePos.x(), 3) * self.imageScale[0] + self.xCenter - self.xRange / 2.
                 y = np.round(scenePos.y(), 3) * self.imageScale[1] + self.yCenter - self.yRange / 2.
                 self.cursorX, self.cursorY = x,y
                 self.ui.motors2CursorButton.setEnabled(True)
@@ -794,7 +802,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 if "OSA" in self.currentImageType:
                     self.cursorFocusZ = self.cursorFocusZ - float(self.ui.A0Label.text())
                 #for the crosshairs imageScale = (1,1) and vertically it's placed according to yCenter
-
                 x = np.round(scenePos.x(), 3) + self.xCenter - self.xRange / 2.
                 y = np.round(scenePos.y(), 3) + self.yCenter - self.yRange / 2.
                 self.ui.focusToCursorButton.setEnabled(True)
@@ -2544,9 +2551,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             #This get's called twice on startup for some reason, first time before there are any scanReg's in the list
             if len(self.scanRegList) > 0: 
                 self.setGUIfromScan(self.last_scan[scanType])
-            #self.ui.toggleSingleEnergy.setCheckState(QtCore.Qt.Checked)
             self.ui.toggleSingleEnergy.setEnabled(True)
-            #self.setSingleEnergy()
             self.ui.xMotorCombo.setEnabled(False)
             self.ui.yMotorCombo.setEnabled(False)
             if "Ptychography" in scanType:
@@ -2571,6 +2576,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.ui.showRangeFinder.isChecked():
                 if self.rangeROI is not None:
                     self.ui.mainImage.addItem(self.rangeROI)
+            self.ui.toggleSingleEnergy.setChecked(True)
+            self.setSingleEnergy()
         elif scanType == "Single Motor":
             self.ui.defocusCheckbox.setEnabled(False)
             self.ui.xMotorCombo.setEnabled(True)

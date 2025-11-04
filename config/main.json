@@ -8,11 +8,11 @@
         "stxm_file_port": 9996,
         "publish_zmq": false,
         "data_dir": "/data",
-        "file_prefix": "MES",
+        "file_prefix": "TEST",
         "nx_file_version": "3",
         "alshub-apikey": "",
         "publish_zmq": false,
-        "log motors while scanning": false,
+        "log motors while scanning": true,
         "motor log period": 10
     },
     "zonePlate": {
@@ -21,11 +21,11 @@
         "A0": 0.0,
         "A1": 11.6177,
         "type": "conventional",
-        "source": "CXRO"
+        "source": ""
     },
     "source": {
         "type": "Synchrotron X-ray Source",
-        "name": "ALS Beamline 11.0.2.2",
+        "name": "Beamline X.X.X.X",
         "probe": "x-ray"
     },
     "monitor": {
@@ -44,7 +44,7 @@
         "rebin": 1,
         "oversampling_factor": 1,
         "enable_coarse_only": true,
-        "enable_tiled_scan": false,
+        "enable_tiled_scan": true,
         "A0_calibrated": true,
         "line overhead": 0.1,
         "energy overhead": 1,

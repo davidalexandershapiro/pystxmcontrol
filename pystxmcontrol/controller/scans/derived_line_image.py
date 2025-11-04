@@ -118,21 +118,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 controller.motors[scan["x_motor"]]["motor"].decompose_range(xStart, xStop)
             nyblocks, ycoarse, yStart_fine, yStop_fine = \
                 controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)
-            # print('nyblocks {}'.format(nyblocks))
-            # print('ycoarse {}'.format(ycoarse))
-            # print('yStart_fine {}'.format(yStart_fine))
-            # print('yStop_fine {}'.format(yStop_fine))
-            # print('nxblocks {}'.format(nxblocks))
-            # print('xcoarse {}'.format(xcoarse))
-            # print('xStart_fine {}'.format(xStart_fine))
-            # print('xStop_fine {}'.format(xStop_fine))
-            #nyblocks = controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[0]
-            #ycoarse = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[1]
-            #yStart_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[2]
-            #yStop_fine = -controller.motors[scan["y_motor"]]["motor"].decompose_range(yStart, yStop)[3]
-
-            # print("[derived line image]", coarse_only,scanInfo["include_return"],xcoarse,ycoarse)
-            # print("[derived line image]", xStart_fine,xStop_fine,yStart_fine,yStop_fine)
 
             if coarse_only:
                 xcoarse,ycoarse = 0.,0.
@@ -148,8 +133,6 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 start_position_x = xStart - coarse_offset
                 start_position_y = yStart
                 # a "coarse_oNly" move will leave the servo off when done, otherwise will turn it back on
-                controller.moveMotor(scan["x_motor"], start_position_x, coarse_only=True)
-                controller.moveMotor(scan["y_motor"], start_position_y)
                 controller.motors[scan["x_motor"]]["motor"].trajectory_start = (xStart - coarse_offset, y[0])
                 controller.motors[scan["x_motor"]]["motor"].trajectory_stop = (xStop + coarse_offset, y[0])
                 controller.motors[scan["x_motor"]]["motor"].update_trajectory(include_return = False)
@@ -158,22 +141,23 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             #numMotorPoints should be the total number of motor position measurements expected
             #numDAQPoints should be equal to xPoints * oversampling
             numLineMotorPoints = controller.motors[scan["x_motor"]]["motor"].npositions #this configures the DAQ for one line
-            numLineDAQPoints = controller.motors[scan["x_motor"]]["motor"].npositions * scanInfo["oversampling_factor"]
+            scanInfo["numLineDAQPoints"] = controller.motors[scan["x_motor"]]["motor"].npositions * scanInfo["oversampling_factor"]
             scanInfo['numMotorPoints'] = numLineMotorPoints * yPoints #total number of motor points configures the full data structrure
             scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scanInfo["oversampling_factor"]
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
 
-            controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = numLineDAQPoints, trigger = "EXT")
+            controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT")
             start_position_x = controller.motors[scan["x_motor"]]["motor"].trajectory_start[0] - \
                                controller.motors[scan["x_motor"]]["motor"].xpad
             start_position_y = controller.motors[scan["x_motor"]]["motor"].trajectory_start[1] - \
                                controller.motors[scan["x_motor"]]["motor"].ypad
             scanInfo["start_position_x"] = start_position_x
             # needs to be in global units but start_position is generated in piezo units so add coarse.
-            controller.moveMotor(scan["x_motor"], xcoarse + start_position_x)
-            controller.moveMotor(scan["y_motor"], ycoarse + start_position_y)
+            # Force both moves to use coarse to reset both piezos for large scans
+            controller.moveMotor(scan["x_motor"], xcoarse + start_position_x, coarse_only = coarse_only)
+            controller.moveMotor(scan["y_motor"], ycoarse + start_position_y, coarse_only = coarse_only)
             sleep(0.1)
 
             # turn on position 
@@ -187,9 +171,8 @@ async def derived_line_image(scan, dataHandler, controller, queue):
 
             for i in range(len(y)):
                 controller.moveMotor(scan["x_motor"], xcoarse + start_position_x)
-                controller.moveMotor(scan["y_motor"],y[i])
-                #print(f"[derived line image] moving {scan['x_motor']} to {xcoarse + start_position_x}")
-                #print(f"[derived line image] moving {scan['y_motor']} to {y[i]}")
+                # Force the vertical move to use coarse motors for large scans
+                controller.moveMotor(scan["y_motor"], y[i], coarse_only = coarse_only)
                 controller.getMotorPositions()
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions
@@ -199,12 +182,10 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 ##need to also be able to request measured positions
                 scanInfo["xVal"], scanInfo["yVal"] = x, y[i] * ones(len(x))
                 if queue.empty():
-                    #await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime)
                     if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
-                        controller.daq["default"].stop()
-                        controller.daq["default"].start()
-                        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = numLineDAQPoints, trigger = "EXT")
-                        #return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
+                        #this will just skip lines with a failed trigger, putting 0's in the data file
+                        #this could instead loop through a few tries
+                        pass
                 else:
                     await queue.get()
                     dataHandler.data.saveRegion(j)

@@ -12,6 +12,6 @@
     "gate": true,
     "gate address": "/dev/arduino",
     "record": true,
-    "simulation": false
+    "simulation": true
   }
 }

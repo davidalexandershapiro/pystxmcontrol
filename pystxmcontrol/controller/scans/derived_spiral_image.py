@@ -270,6 +270,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                 scanInfo["lineIndex"] = 0
                 scanInfo['numMotorPoints'] = numTrajMotorPoints * totalSplit
                 scanInfo['numDAQPoints'] = numTrajDAQPoints * totalSplit
+                scanInfo['numLineDAQPoints'] = scanInfo['numDAQPoints']
                 dataHandler.data.updateArrays(j, scanInfo)
                 # params = {}
                 # params['numTrajMotorPoints'] = numTrajMotorPoints
@@ -317,7 +318,9 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                     # controller.motors[scan["x_motor"]]["motor"].setPositionTriggerOn(pos = trigger_position)
 
                     if not await doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime):
-                        return await terminateFlyscan(controller, dataHandler, scan, "x_motor", "Data acquisition failed for flyscan line!")
+                        #this will just skip lines with a failed trigger, putting 0's in the data file
+                        #this could instead loop through a few tries
+                        pass
                 else:
                     queue.get()
                     dataHandler.data.saveRegion(j, nt=totalSplit)

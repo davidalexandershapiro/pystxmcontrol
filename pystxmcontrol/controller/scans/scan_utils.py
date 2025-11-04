@@ -57,6 +57,11 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         #big scans or some reason.
         await dataHandler.getLine(scanInfo.copy())
     except Exception as e:
-        traceback.print_exc()
+        #by default, if a trigger is missed we end up here, restart the daq and return False.  The scan routine
+        #can decide if it wants to retry.
+        print("[scan utils] DAQ timeout.  Restarting DAQ and moving on.")
+        controller.daq["default"].stop()
+        controller.daq["default"].start()
+        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT")
         return False
     return True

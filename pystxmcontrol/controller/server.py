@@ -69,6 +69,11 @@ class stxmServer:
 
             message={"command":None}
             message = await self.command_sock.recv_pyobj()
+
+            # Record start time for command logging
+            cmd_start_time = time.time()
+            command_name = message.get("command")
+
             #recv_pyobj is blocking so we need to check the scan thread status after getting the message
             scanning = self.controller.scanThread.is_alive()
             if message["command"] == "get_config":
@@ -80,6 +85,15 @@ class stxmServer:
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "move_to_focus":
                 self.controller.move_to_focus()
                 message["status"] = True
@@ -87,33 +101,78 @@ class stxmServer:
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "moveMotor":
                 message["status"] = True
+                error_msg = None
                 try:
                     message["data"] = self.controller.moveMotor(message["axis"], message["pos"])
-                except:
+                except Exception as e:
                     message['data'] = None
+                    error_msg = str(e)
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"axis": message.get("axis"), "pos": message.get("pos")},
+                    status=message["status"],
+                    mode=message["mode"],
+                    error_message=error_msg,
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "stop_monitor":
                 message["status"] = True
+                error_msg = None
                 try:
                     self.controller.stopMonitor()
-                except:
+                except Exception as e:
                     message["status"] = False
+                    error_msg = str(e)
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    error_message=error_msg,
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "start_monitor":
                 message["status"] = True
+                error_msg = None
                 try:
                     self.controller.startMonitor()
-                except:
+                except Exception as e:
                     message["status"] = False
+                    error_msg = str(e)
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    error_message=error_msg,
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getData":
                 if not(scanning):
                     message["status"] = True
@@ -125,6 +184,15 @@ class stxmServer:
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"daq": message.get("daq"), "dwell": message.get("dwell"), "shutter": message.get("shutter")},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getMotorPositions":
                 message["status"] = True
                 self.controller.getMotorPositions()
@@ -132,6 +200,15 @@ class stxmServer:
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getStatus":
                 if scanning:
                     message["status"] = False
@@ -142,12 +219,30 @@ class stxmServer:
                     message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getMotorStatus":
                 message["status"] = False
                 message["mode"] = "scanning"
                 message["data"] = self.controller.motors[message["axis"]]["motor"].getStatus()
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"axis": message.get("axis")},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "scan":
                 if not(scanning):
                     message["status"] = True
@@ -165,30 +260,76 @@ class stxmServer:
                     message["mode"] = "scanning"
                     message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                scan_params = message.get("scan", {})
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"scan_type": scan_params.get("scan_type"), "scan_id": message.get("data")},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getZonePlateCalibration":
                 message["status"] = True
                 message["data"] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "changeMotorConfig":
                 message["status"] = True
                 message["data"] = self.controller.changeMotorConfig(message["data"])
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"config_data": message.get("data")},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getMotorConfig":
                 message["status"] = True
                 message["data"] = self.controller.getMotorConfig(message["data"])
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"config_data": message.get("data")},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getScanID":
                 message["status"] = True
                 message["data"] = self.controller.getScanID()
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "cancel":
                 if self.controller.scanning:
                     message["status"] = True
@@ -199,6 +340,15 @@ class stxmServer:
                     message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "pause":
                 if self.controller.scanning:
                     message["status"] = True
@@ -209,6 +359,15 @@ class stxmServer:
                     message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"pause_state": self.controller.pause if self.controller.scanning else None},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "getStatus":
                 if self.controller.scanning:
                     message["status"] = True
@@ -219,6 +378,15 @@ class stxmServer:
                     message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
+
+                # Log command (second getStatus handler)
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=message["status"],
+                    mode=message["mode"],
+                    duration=time.time() - cmd_start_time
+                )
             elif message["command"] == "setGate":
                 if message["mode"] == "open":
                     status = True
@@ -232,13 +400,31 @@ class stxmServer:
                 message["time"] = str(datetime.datetime.now())
                 self.controller.daq["default"].gate.setStatus()
                 self.command_sock.send_pyobj(message)
-            # else:
-            #     message["status"] = False
-            #     message["mode"] = "idle"
-            #     message["time"] = str(datetime.datetime.now())
-            #     self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"gate_mode": message.get("mode")},
+                    status=True,
+                    mode="idle",
+                    duration=time.time() - cmd_start_time
+                )
+            else:
+                message["status"] = False
+                message["mode"] = "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
             if message["command"] == "close":
                 self.command_sock.send_pyobj(message)
+
+                # Log command
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={},
+                    status=True,
+                    mode="idle",
+                    duration=time.time() - cmd_start_time
+                )
         else:
             print("Controller is not initialized.  Killing script socket.")
             message["status"] = False
