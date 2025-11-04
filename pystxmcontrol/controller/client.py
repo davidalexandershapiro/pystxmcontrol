@@ -3,6 +3,7 @@ import numpy as np
 import threading, os
 from pystxmcontrol.drivers.fccd import FCCD
 import sys, time, zmq, json
+import zmq.asyncio
 
 CCDPRESENT = True
 BASEPATH = sys.prefix

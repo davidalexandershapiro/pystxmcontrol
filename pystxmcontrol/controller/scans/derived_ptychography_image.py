@@ -5,17 +5,17 @@ import time, datetime
 import asyncio, os
 
 # Define this parameter if you're setting the sample angle to something
-SAMPLE_ANGLE = 45
+SAMPLE_ANGLE = 0
 
 # All dated notes were modifications made by Dayne and Damian
 
-def insertSTXMDetector(controller):
+async def insertSTXMDetector(controller):
     controller.moveMotor("Detector Y", 0)
-    #time.sleep(10)
+    await asyncio.sleep(5)
 
-def retractSTXMDetector(controller):
-    controller.moveMotor("Detector Y", -6500)
-    #time.sleep(10)
+async def retractSTXMDetector(controller):
+    controller.moveMotor("Detector Y", -7000)
+    await asyncio.sleep(5)
 
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
@@ -153,7 +153,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
 
     print("starting ptychography scan: ", scanID)
     if scanInfo['retract']:
-        retractSTXMDetector(controller)
+        await retractSTXMDetector(controller)
     print('Done retracting STXM diode')
 
     if scan["doubleExposure"]:
@@ -283,9 +283,9 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             else:
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
                 if scanInfo['retract']:
-                    insertSTXMDetector(controller)
-                if scan["defocus"]:
-                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
+                    await insertSTXMDetector(controller)
+                #if scan["defocus"]:
+                #    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
                 return
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
@@ -300,9 +300,9 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 print("Aborting scan...")
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
                 if scanInfo['retract']:
-                    insertSTXMDetector(controller)
-                if scan["defocus"]:
-                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
+                    await insertSTXMDetector(controller)
+                #if scan["defocus"]:
+                #    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
                 return
             while not dataHandler.regionComplete:
                 print("Waiting...")
@@ -321,7 +321,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
         energyIndex += 1
     await dataHandler.dataQueue.put('endOfScan')
     if scanInfo['retract']:
-        insertSTXMDetector(controller)
+        await insertSTXMDetector(controller)
     if scan["defocus"]:
         controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
     print("Finished Grid Scan")

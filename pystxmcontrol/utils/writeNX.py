@@ -257,7 +257,8 @@ class stxm:
             nPixels_r = nxPos * nyPos #total number of requested pixels, shown for clarity
 
             if "Focus" in scan["scan_type"]:
-                #hack because out data structure doesn't have the Z positions needed for a focus scan
+                #this is a hack to deal with the reality that the GUI puts in Z positions for a focus scan
+                #but our data structure doesn't have a Z dimension for simplicity.
                 nyPos = nzPos
 
             self.xMeasured.append(np.zeros(nPixels_m))
