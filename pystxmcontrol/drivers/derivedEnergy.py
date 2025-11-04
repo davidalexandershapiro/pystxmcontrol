@@ -22,8 +22,8 @@ class derivedEnergy(motor):
         ##I don't trust the beamline numbers
         A0 = self.config["A0"]
         A1 = self.config["A1"]
-        energy = self.getPos()
-        self.calibratedPosition = -(A0 + A1 * energy)
+        energy = self.position #getPos()
+        self.calibratedPosition = A0 - A1 * energy
         return self.calibratedPosition
 
     def moveBy(self, energy_step):
@@ -43,7 +43,7 @@ class derivedEnergy(motor):
                 self.axes["axis1"].moveTo(energy)
             else:
                 self.axes["axis1"].moveTo(energy)
-            self.calibratedPosition = self.getZonePlateCalibration()
+            self.getPos()
             self.axes["axis2"].moveTo(self.calibratedPosition)
             self.axes["axis2"].calibratedPosition = self.calibratedPosition
             self.moving = False
@@ -54,6 +54,7 @@ class derivedEnergy(motor):
     def getPos(self):
         if not(self.simulation):
             self.position = self.axes["axis1"].getPos()
+            self.getZonePlateCalibration()
             return self.position
         else:
             return self.position

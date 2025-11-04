@@ -184,10 +184,10 @@ class mclController():
         which returns the position data.  That is called by trigger_line below.
         """
         if mode == "on":
-            error_code = self.bindISSClock(c_int(clock), c_int(2), c_int(5), c_int(self.handle))
+            error_code = self.bindISSClock(c_int(clock), c_int(2), c_int(1), c_int(self.handle))
             print("Clock bind error code: %i" %error_code)
         elif mode == "off":
-            error_code = self.bindISSClock(c_int(clock), c_int(4), c_int(5), c_int(self.handle))
+            error_code = self.bindISSClock(c_int(clock), c_int(4), c_int(1), c_int(self.handle))
             print("Clock unbind error code: %i" %error_code)
         else:
             return
@@ -214,7 +214,7 @@ class mclController():
 	        print("MCL write error code = ", error_code)
         return error_code
 		
-    def setup_trajectory(self, axis, start, stop, dwell, points, mode = "line"):
+    def setup_trajectory(self, axis, start, stop, dwell, points, mode = "line",pad = None):
         """
         Need to convert distance (stop - start) and velocity into a number of points and a sampling interval
         The sample interval should be between 0.033 and 5 ms.  This will determine the number of points to
@@ -431,7 +431,7 @@ class mclController():
                 np.savetxt(savearg+'Succeeded_MCL_WfmaSetup_wfDacY.txt',self.ax2pos)
                 np.savetxt(savearg+'Succeeded_MCL_WfmaSetup_Others.txt',[0,len(ax1pos),dwell,1,self.handle])
                 
-            print("setup_xy error_code: %i" %error_code)
+            #print("setup_xy error_code: %i" %error_code)
 
         else:
             print("mismatch of x and y lengths")
@@ -466,7 +466,7 @@ class mclController():
         return error_code
 	    
 	    
-    def acquire_xy(self):
+    def acquire_xy(self,**kwargs):
         """
         Triggers and reads the positions for an xy waveform.
         Will throw an error if setup_xy has not been run first.
@@ -480,7 +480,7 @@ class mclController():
         #savearg = '/global/scratch/pystxmcontrolData/2023/11/231103/SpiralTest/'
 	    
         error_code = self.trigger_read_xy_waveform(ax1pos_measured, ax2pos_measured, c_void_p(None), c_int(self.handle))
-        print("acquire_xy error_code: %i" %error_code)
+        #print("acquire_xy error_code: %i" %error_code)
         if savearg is not None:
             np.savetxt(savearg+'Succeeded_MCL_WfmaTriggerAndRead_wfDacX.txt',ax1pos_measured)
             np.savetxt(savearg+'Succeeded_MCL_WfmaTriggerAndRead_wfDacY.txt',ax2pos_measured)

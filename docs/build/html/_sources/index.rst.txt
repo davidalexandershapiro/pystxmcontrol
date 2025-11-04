@@ -15,6 +15,7 @@ Welcome to pystxmcontrol's documentation!
    Motor Device <motor_link>
    Daq Device <daq_link>
    Scans <scan_link>
+   Scripting <scripting_link>
 
 Indices and tables
 ==================

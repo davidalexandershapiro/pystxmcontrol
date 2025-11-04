@@ -15,6 +15,8 @@ class xerMotor(motor):
         self.config['maxValue'] = 15000.0
         self.config["offset"] = -10000
         self.config["units"] = 1000.
+        self._controller_position = 0. #used for simulation mode
+        self.moving = False
     
     def connect(self, axis = 'X'):
         self.simulation = self.controller.simulation
@@ -30,7 +32,7 @@ class xerMotor(motor):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
 
     def getStatus(self, **kwargs):
-        pass
+        return self.moving
 
     def moveBy(self, step = None):
         pos = self.getPos()
@@ -41,35 +43,37 @@ class xerMotor(motor):
             else:
                 self.position = self.position + step
         else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos+step))
+            print(f"[xerMotor] Software limits exceeded for axis {self.axis}. Requested position: {pos+step}")
 
     def stop(self):
         return
         
     def moveTo(self, pos):
-        print("Moving motor to %.4f in Xeryon units" %pos)
         if self.checkLimits(pos):
+            self.moving = True
             if not(self.simulation):
-                with self.lock:
-                    self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
-                    self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
-                    self._axis.sendCommand('STOP=0')
-                    count = 1
+                #with self.lock:
+                self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
+                self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
+                #self._axis.sendCommand('STOP=0')
+                count = 1
+                #print('position requested: {}, position reached: {}'.format(pos,self.position))
+                #while abs(pos - self.position) > 0.1 and count < 30:
                     #print('position requested: {}, position reached: {}'.format(pos,self.position))
-                    while abs(pos - self.position) > 0.05 and count < 30:
-                        #print('position requested: {}, position reached: {}'.format(pos,self.position))
-                        #print("Tolerance not reached. Position error: %.4f" %abs(pos - self.position))
-                        self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
-                        self._axis.sendCommand('STOP=0')
-                        self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
-                        time.sleep(0.01)
-                        count += 1
-                    if count == 6:
-                        print("ZonePlateZ motor giving up.  Just couldn't get there. Sorry y'all.")
+                    #print("Tolerance not reached. Position error: %.4f" %abs(pos - self.position))
+                #    self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
+                    #self._axis.sendCommand('STOP=0')
+                #    self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
+                #    time.sleep(0.01)
+                #    count += 1
+                #if count == 6:
+                #    print("ZonePlateZ motor giving up.  Just couldn't get there. Sorry y'all.")
             else:
-                self.position = pos
+                self._controller_position = (pos - self.config["offset"]) / self.config["units"]
+                self.position = self.getPos()
+            self.moving = False
         else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
+            print(f"[xerMotor] Software limits exceeded for axis {self.axis}. Requested position: {pos}")
         
     def getPos(self):
         if not(self.simulation):
@@ -77,7 +81,7 @@ class xerMotor(motor):
                 self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
             return self.position
         else:
-            return self.position
+            return self._controller_position * self.config["units"] + self.config["offset"]
         
     def home(self):
         if not(self.simulation):

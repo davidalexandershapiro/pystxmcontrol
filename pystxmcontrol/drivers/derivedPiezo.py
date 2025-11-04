@@ -35,7 +35,6 @@ class derivedPiezo(motor):
         self._padMaximum = 5.0
         self._padMinimum = 0.2
         self.units = 1.
-        self.include_return = True
 
     def getStatus(self, **kwargs):
         return self.moving
@@ -54,7 +53,9 @@ class derivedPiezo(motor):
         if not (self.simulation):
             self.axes["axis1"].controller.pidWrite(pid, axis=self._piezoAxis)
 
-    def setPositionTriggerOn(self, pos):
+    def setPositionTriggerOn(self, pos, debug = False):
+        if debug:
+            print(f"[derivedPiezo] Setting position trigger for piezo axis {self.axis} (controller axes {self._piezoAxis}) at position {pos}")
         self.axes["axis1"].setPositionTriggerOn(pos = pos)
 
     def setPositionTriggerOff(self):
@@ -81,7 +82,7 @@ class derivedPiezo(motor):
         """
         return value * self.axes["axis%i" %axis].config["units"] + self.axes["axis%i" %axis].config["offset"]
 
-    def update_trajectory(self, direction="forward"):
+    def update_trajectory(self, direction="forward", include_return = False):
         """
 
         """
@@ -114,14 +115,11 @@ class derivedPiezo(motor):
         # select the trigger axis based on which dimension travels further.  This accounts for 1D trajectories
         # 2D trajectories could trigger off of either axis
         if x_range < y_range:
-            self.trigger_axis = 1
-            # self.xpad = 0
-        else:
             self.trigger_axis = 2
-            # self.ypad = 0
+        else:
+            self.trigger_axis = 1
 
         if direction == "forward":
-            # self.start = x0 - self.xpad, y0 - self.ypad
             self.start = x0 - self.xpad, y0 - self.ypad
             self.stop = x1 + self.xpad, y1 + self.ypad
             self.trajectory_trigger = x0, y0
@@ -131,7 +129,7 @@ class derivedPiezo(motor):
             self.trajectory_trigger = x1, y1
         self.start = self.scale2controller(self.start[0]), self.scale2controller(self.start[1])
         self.stop = self.scale2controller(self.stop[0]), self.scale2controller(self.stop[1])
-        if self.include_return:
+        if include_return:
             if y_range < 0.001:
                 mode = "1d_line_with_return"
                 self.dim = 1
@@ -144,33 +142,37 @@ class derivedPiezo(motor):
         if not (self.simulation):
             self.axes["axis1"].controller.setup_trajectory(self.trigger_axis, self.start, self.stop, \
                                              self.trajectory_pixel_dwell, self.trajectory_pixel_count, \
-                                             mode=mode)
+                                             mode=mode,pad=(self.xpad,self.ypad))
             self.npositions = self.axes["axis1"].controller.npositions
         else:
             self.npositions = self.trajectory_pixel_count
-        #print(self.axes["axis1"].controller.xpositions)
-        #print(self.axes["axis1"].controller.ypositions)
 
     def moveLine(self, **kwargs):
         #convert milliseconds to seconds for the controller call
         """
         Currently not protected by limits
         """
-        if "coarseOnly" in kwargs.keys():
-            coarseOnly = kwargs["coarseOnly"]
+        if "coarse_only" in kwargs.keys():
+            coarse_only = kwargs["coarse_only"]
         else:
-            coarseOnly = False
+            coarse_only = False
         if "coarse_offset" in kwargs.keys():
             offset = kwargs["coarse_offset"]
         else:
             offset = [0,0]
+        if "axes" in kwargs.keys():
+            axes = kwargs["axes"]
+        else:
+            axes = [1,]
+
         if self.lineMode == 'continuous':
-            if not(coarseOnly):
+            if not(coarse_only):
                 if not (self.simulation):
                     if self.dim == 1:
                         self.positions = self.axes["axis1"].controller.trigger_1d_waveform()
                     else:
-                        self.positions = self.axes["axis1"].controller.acquire_xy()
+                        self.positions = self.axes["axis1"].controller.acquire_xy(axes=axes)
+
                     self.positions = self.scale2gui(self.positions[0]) + offset[0], self.scale2gui(self.positions[1]) + offset[1]
                 else:
                     xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],
@@ -178,16 +180,25 @@ class derivedPiezo(motor):
                     ypositions = np.linspace(self.trajectory_start[1], self.trajectory_stop[1],
                                              self.trajectory_pixel_count)
                     self.positions = xpositions + offset[0], ypositions + offset[1]
-            elif not(self.simulation):
-                #this hack just applies to the XPS which stupidly uses microns/second for velocity.  Need to generalize units in config
+            #commenting this so I can test the coarse stage scan without the piezo talking
+            #elif not(self.simulation):
+            else:
+                #this hack just applies to the XPS which  uses microns/second for velocity.  Need to generalize units in config
                 #self.velocity is calculated above with reasonable units of microns/millisecond
-                velocity = self.velocity * 1000.
+                xpositions = np.linspace(self.trajectory_start[0], self.trajectory_stop[0],
+                                         self.trajectory_pixel_count)
+                ypositions = np.linspace(self.trajectory_start[1], self.trajectory_stop[1],
+                                         self.trajectory_pixel_count)
+                self.positions = xpositions + offset[0], ypositions + offset[1]
+                x_range = abs(self.trajectory_start[0] - self.trajectory_stop[0])
+                velocity = x_range / (self.trajectory_pixel_dwell * self.trajectory_pixel_count)
                 if velocity > self.axes["axis2"].config["max velocity"]:
-                    self.logger.log("Using maximum velocity of %.4f rather than requested velocity of %.4f" \
-                                    %(self.axes["axis2"].config["max velocity"],velocity),level="debug")
                     velocity = self.axes["axis2"].config["max velocity"]
                 self.axes["axis2"].setAxisParams(velocity = velocity)
-                self.moveTo(self.stop[0], coarseOnly = True)
+                t0 = time.time()
+                self.moveTo(self.stop[0], coarse_only = True)
+                #print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
+                self.axes["axis2"].setAxisParams(velocity = 2.0)
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
                 self.positions = self.axes["axis1"].controller.acquire_xy()
@@ -208,26 +219,31 @@ class derivedPiezo(motor):
 
     def moveTo(self, pos = None, sleep = True, **kwargs):
         pos = (pos - self.config["offset"]) / self.config["units"]
-        if "coarseOnly" in kwargs.keys():
-            coarseOnly = kwargs["coarseOnly"]
+        if "coarse_only" in kwargs.keys():
+            coarse_only = kwargs["coarse_only"]
         else:
-            coarseOnly = False
+            coarse_only = False
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
-        if self.axes["axis1"].checkLimits(newFinePos) and not(coarseOnly):
+        if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
             self.axes["axis1"].moveTo(newFinePos)
         else:
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
+                time.sleep(0.03)
                 self.axes["axis1"].setZero()
             self.axes["axis2"].moveTo(pos)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()
-                if not(coarseOnly):
-                    self.axes["axis1"].servoState(True)
-        #self.getPos()
+                # if not(coarse_only):
+                self.axes["axis1"].servoState(True)
+            #use the piezo to clean up slop in the coarse motion
+            deltaPos = pos - self.getPos()
+            if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
+                self.axes["axis1"].moveTo(deltaPos)
+
         self.moving = False
 
     def moveCoarse(self, pos):
@@ -266,7 +282,7 @@ class derivedPiezo(motor):
         """
         ##calculate the number of blocks in each dimension
         prange = round(pmax - pmin,2)
-        piezo_range = self.config["maxRange"]
+        piezo_range = self.axes["axis1"].config["maxScanRange"] #axis1 is the piezo
         nblocks = int(1 + (prange // piezo_range) * (prange > piezo_range))
 
         ###start with the simple case of a single block, the fine range is less than or equal to its maximum allowed

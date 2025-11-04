@@ -10,22 +10,24 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Low scan overhead
 - Microsecond shutter timing and synchronization using an Arduino Due microcontroller
 - Full integration of ptychography scanning
+- Data logger which saves to a database all commands, motor moves and motor positions at a defined interval
 
 # Currently supported devices
 - [Mad City Labs](https://www.madcitylabs.com/nanodrive.html) Nano-Drive controller
 - [nPoint](https://npoint.com/) LC.400 piezo controller
 - [Newport XPS](https://www.newport.com/c/xps-universal-multi-axis-motion-controller) motor controller
-- Keysight 53230A timer/counter
+- Keysight 53230A frequency counter
 - Keysight A33500B arbitrary waveform generator
 - Keysight U2356A multi-channel ADC
-- SmarAct MCS/MCS2 controlled stages (via EPICS)
+- SmarAct MCS/MCS2 controlled stages
 - Xeryon controlled stages
 - Arduino Due
 - Micronix MMC controller
+- PI E-712 controller
+- Quantum Detectors Xpress 3
+- Aerotech XR3
 
 # Dependencies 
-pystxmcontrol also depends upon the pystxm data structure and analysis package called pystxm_core.  This must be separately downloaded and installed as described below.
-
 Ubuntu requires this package to be installed in some cases for PySide6 to function properly.
 ```
 sudo apt install  libxcb-cursor0
@@ -43,19 +45,20 @@ sudo apt install  libxcb-cursor0
 - pyserial
 - pyzmq
 - matplotlib
-- qdarkstyle
-- pyside6
+- pyside6 = 6.8.2
 - pyqtgraph
+- pyqtdarktheme
 - griffe = 0.47
 - prefect = 2.14.3
 - pydantic = 1.10.4
 - python-dotenv
+- PIPython
 
 # Environment setup and installation using miniconda3 and pip
 - On both Windows, Mac or LInux install [miniconda3](https://docs.conda.io/en/latest/miniconda.html) and activate the base environment
-- Create a conda environment with Python version <=3.10
+- Create a conda environment with Python version <3.12
 ```
-conda create -n [my_env_name] python=3.10
+conda create -n [my_env_name] python=3.11
 conda activate [my_env_name]
 ```
 - Clone pystxmcontrol and install
@@ -67,8 +70,8 @@ pip install .
 
 # Running pystxmcontrol
 - edit [path_to_conda_env]/pystxmcontrol_cfg/main.json
-- change "server/ip" to localhost for local operation or the IP of the machine on which the server will run
-- change "dataDir" to an appropriate location for saving data on the server.  On Windows double rather than single backslashes must be used in the path
+  - change "server/host" to localhost for local operation or the IP of the machine on which the server will run
+  - change "server/data_dir" to an existing location for saving data on the server.  On Windows double rather than single backslashes must be used in the path
 - edit [path_to_conda_env]/pystxmcontrol_cfg/motorConfig.json.  This is described further in the documentation.
 - In one terminal (or Anaconda Powershell on Windows):
 ```

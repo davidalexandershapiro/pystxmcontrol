@@ -5,9 +5,8 @@ import time
 
 class shutter(gate):
 
-    def __init__(self, controller = None):
-        self._port = '/dev/ttyACM0'
-        self.controller = controller
+    def __init__(self, address):
+        self._port = address
         self.status = False
         self.mode = "auto"
         self.dwell1 = 0
@@ -19,7 +18,7 @@ class shutter(gate):
         self.simulation = simulation
         if not(self.simulation):
             self.ser = serial.Serial(self._port, 115200)
-            time.sleep(2)
+            time.sleep(0.1)
             print(self.ser.readline().decode())
 
     def setStatus(self,softGATE = None, shutterMASK = None):

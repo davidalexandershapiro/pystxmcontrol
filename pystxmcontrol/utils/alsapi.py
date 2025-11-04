@@ -2,20 +2,13 @@ import json
 import logging
 import os
 import time
-
 from dotenv import load_dotenv
 from httpx import Client as HttpClient, ConnectTimeout, Response
-from numpy import array, mean
-
-# In[2]:
 
 beamline = "7.0.1.2"
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
-
-# In[3]:
-
 
 ALSHUB_API_SERVERS = {
     "production": "https://api1-prd.als.lbl.gov:8083/alshub/",  # Latest STABLE version of the API
@@ -23,21 +16,14 @@ ALSHUB_API_SERVERS = {
     "staging": "https://api1-stg.als.lbl.gov:8083/alshub/",  # Latest TESTING version of the API
 }
 
-# In[4]:
-
-
 EXPERIMENT_API_SERVERS = {
-    "production": "https://experiment.als.lbl.gov/",  # Latest STABLE version of the API
+    "production": "http://bcgmds01.dhcp.lbl.gov:8080/beamlines",#"https://experiment.als.lbl.gov/",  # Latest STABLE version of the API
     "backup": "https://experiment2.als.lbl.gov:8083/",  # Redundant copy of the production server
     "staging": "https://experiment-staging.als.lbl.gov/",  # Latest TESTING version of the API
 }
+ALSHUB_API_BASE_URL = ALSHUB_API_SERVERS["production"]
+EXPERIMENT_API_BASE_URL = EXPERIMENT_API_SERVERS["production"]
 
-# In[5]:
-
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Configure environment
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 load_dotenv("./.env")  # import environment variables from .env
 
 try:
@@ -49,18 +35,9 @@ except KeyError:
     error_message += "ALSHUB_API_KEY='your-api-key-goes-here-inside-the-quotes'\n"
     error_message += "\n\nFix this before running any more cells in this notebook."
     logger.error(error_message)
-ALSHUB_API_BASE_URL = ALSHUB_API_SERVERS["staging"]
-EXPERIMENT_API_BASE_URL = EXPERIMENT_API_SERVERS["production"]
-
-
-# ## Helper functions
-
-# In[6]:
-
 
 def connection_guard(func):
     """Decorator to log a user-friendly message when the server does not respond"""
-
     def decorator(*args, **kwargs):
         try:
             response = func(*args, **kwargs)
@@ -70,18 +47,11 @@ def connection_guard(func):
             error_message += "\nTry another API server in the meantime."
             logger.error(error_message)
             response = None
-
         return response
-
     return decorator
-
-
-# In[7]:
-
 
 def authorization_guard(func):
     """Decorator to log a user-friendly message when the server rejects a request"""
-
     def decorator(*args, **kwargs):
         response = func(*args, **kwargs)
         if response.status_code == 403:
@@ -92,67 +62,49 @@ def authorization_guard(func):
             error_message += "\nIf that does not work, ask Padraic to add your IP address to the firewall settings."
             error_message += "\nTry another API server in the meantime."
             logger.error(error_message)
-
         return response
-
     return decorator
-
-
-# In[8]:
-
 
 @connection_guard
 @authorization_guard
 def api_response(
         query: str,
         *,
-        base_url: str = ALSHUB_API_BASE_URL,
+        base_url: str = EXPERIMENT_API_BASE_URL,
         headers: dict = ALSHUB_API_HEADERS,
         timeout: float = 2.0,
 ) -> Response:
     """Fetch the response to an API query"""
     response = None
-
     with HttpClient(
             base_url=base_url,
-            # verify=context,
             headers=headers,
             timeout=timeout,
     ) as api_client:
         response = api_client.get(query)
-
     return response
-
-
-# In[9]:
-
 
 def api_streaming_response(
         query: str,
         *,
-        base_url: str = ALSHUB_API_BASE_URL,
+        base_url: str = EXPERIMENT_API_BASE_URL,
         headers: dict = ALSHUB_API_HEADERS,
         timeout: float = 2.0,
 ) -> Response:
     """Fetch the response to an API query"""
     responses = list()
-
     with HttpClient(
             base_url=base_url,
-            # verify=context,
             headers=headers,
             timeout=timeout,
     ) as api_client:
         content = ''
         _start_time = time.monotonic()
-
         with api_client.stream("GET", query) as response:
             for (idx, chunk) in enumerate(response.iter_text()):
                 content += chunk
                 responses.append((time.monotonic() - _start_time, f"Received chunk# {idx}"))
-
     return {"responses": responses, "status_code": response.status_code, "content": content}
-
 
 def setupQuery():
     query = "/als-cycles/relative"
@@ -166,6 +118,7 @@ def setupQuery():
     start_time = user_cycle_times[user_cycle]["start"]
     global stop_time
     stop_time = user_cycle_times[user_cycle]["stop"]
+
 def getCurrentProposalList():
     setupQuery()
     query = f"/{beamline}?start={start_time}&stop={stop_time}"
@@ -173,7 +126,7 @@ def getCurrentProposalList():
     active_experiments = response.json()
     return [b["ProposalFriendlyId"] for b in active_experiments]
 
-def getCurrentEsafList():
+def getCurrentEsafList(beamline = beamline):
     setupQuery()
     query = f"/{beamline}?start={start_time}&stop={stop_time}"
     response = api_response(query, base_url=EXPERIMENT_API_BASE_URL)

@@ -1,44 +1,68 @@
 from pystxmcontrol.controller.scripter import *
-import time
-    
-# ##set up and execute basic STXM scan
-# meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":2.1, "Sample": "Dong Hyun: R1"}
-# meta["xcenter"] = 0
-# meta["xrange"] = 5
-# meta["xpoints"] = 50
-# meta["ycenter"] = 0
-# meta["yrange"] = 5
-# meta["ypoints"] = 50
-# meta["energyStart"] = 605
-# meta["energyStop"] = 700
-# meta["energyPoints"] = 20
-# meta["dwell"] = 0.2
-# meta["spiral"] = False
+
+# ##set up and execute basic metadata required of all scans
+meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":3.0, "Sample": "Dong Hyun: R1"}
+meta["xcenter"] = 0
+meta["xrange"] = 5
+meta["xpoints"] = 10
+meta["ycenter"] = 0
+meta["yrange"] = 5
+meta["ypoints"] = 15
+meta["energyStart"] = 700
+meta["energyStop"] = 700
+meta["energyPoints"] = 1
+meta["dwell"] = 10
+meta["spiral"] = False
+meta["autofocus"] = True
+meta["cmap"] = "viridis" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Greys',
+meta["daq list"] = ["default"]
+meta["comment"] = "test scan"
+print(meta)
+
+#################################################################################################
+##Get Server Config##############################################################################
+MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = get_config()
+
+#################################################################################################
+##Single Motor Scan##############################################################################
+##This only looks at the X motor points and range
+# meta["xmotor"] = "Dummy Motor" #choose the motor to scan
+# meta["daq"] = "default" #choose the detector to measure
+# filename = single_motor_scan(meta)
+# print(filename)
+
+#################################################################################################
+# ##Two Motor Scan##############################################################################
+# meta["xmotor"] = "OSA_X"
+# meta["ymotor"] = "OSA_Y"
+# meta["daq"] = "default"
+# filename = two_motor_scan(meta)
+# print(filename)
 
 #################################################################################################
 ##basic stxm scan################################################################################
-#print(stxmScan(meta))
+# print(stxm_scan(meta))
 
 #################################################################################################
 ##Move Motor#####################################################################################
-moveMotor("Energy", 1100.)
+# move_motor("Energy", 1100.)
 
 #################################################################################################
 ##Get Data from DAQ##############################################################################
-#data1 = getData("diode", 1)
-#data2 = getData("ccd", 100)
+# print(read_daq("default", 100))
+#data2 = read_daq("ccd", 100)
 
 #################################################################################################
 ##spiral stxm scan###############################################################################
 #meta["spiral"] = True
-#print(stxmScan(meta))
+#print(stxm_scan(meta))
 
 #################################################################################################
 ##stxm tomography scan###########################################################################
 #coarseR = np.linspace(-40,40,10)
 #for r in coarseR:
-#    moveMotor("CoarseR",r)
-#    stxmScan(meta)
+#    move_motor("CoarseR",r)
+#    stxm_scan(meta)
     
 #################################################################################################
 ##XMCD and 2 energies############################################################################
@@ -48,8 +72,8 @@ moveMotor("Energy", 1100.)
 #polarizations = [-1,1]
 #for p in polarizations:
 #    print("Moving polarization to %s" %p)
-#    moveMotor("POLARIZATION",p)
-#    print(stxmScan(meta))
+#    move_motor("POLARIZATION",p)
+#    print(stxm_scan(meta))
     
 #################################################################################################
 ##Ptychography###################################################################################
@@ -71,10 +95,10 @@ moveMotor("Energy", 1100.)
 # meta["spiral"] = False
 # meta["defocus"] = True
 # meta["doubleExposure"] = False
-# meta["refocus"] = False #setting False prevents moving to calibrated focus position at scan start
-# meta["type"] = "Ptychography Image"
+# meta["autofocus"] = False #setting False prevents moving to calibrated focus position at scan start
+# meta["scan_type"] = "Ptychography Image"
 # meta["mode"] = "ptychographyGrid"
-# print(ptychographyScan(meta))
+# print(ptychography_scan(meta))
 
 #################################################################################################
 ##Point Spectrum#################################################################################
@@ -83,8 +107,8 @@ moveMotor("Energy", 1100.)
 #i = 0
 #t0 = time.time()
 #for energy in en:
-#    moveMotor("Energy",energy)
-#    spec[i] = getData("diode",100)
+#    move_motor("Energy",energy)
+#    spec[i] = read_daq("default",100)
 #    i += 1
 #print("Point spectrum took %.2f ms" %((time.time() - t0)*1000.))
 
@@ -99,23 +123,23 @@ moveMotor("Energy", 1100.)
 # meta["energyPoints"] = 2
 # meta["dwell"] = 0.1
 # meta["spiral"] = True
-# meta["refocus"] = True
+# meta["autofocus"] = True
 #
 # scan_list = decimate(overview_scan)
-# meta["type"] = "Image"
+# meta["scan_type"] = "Image"
 # meta["mode"] = "continuousLine"
 # print(len(scan_list))
-# multiRegionSTXMScan(meta,scan_list)
+# multi_region_stxm_scan(meta,scan_list)
 
 #meta["xstep"] = 0.1
 #meta["ystep"] = 0.1
 #meta["spiral"] = False
-#meta["type"] = "Ptychography Image"
+#meta["scan_type"] = "Ptychography Image"
 #meta["mode"] = "ptychographyGrid"
 #meta["dwell"]=10.
 #meta["defocus"]=True
 #meta["doubleExposure"]=False
-#multiRegionSTXMScan(meta,scan_list[10:12])
+#multi_region_stxm_scan(meta,scan_list[10:12])
 
 #################################################################################################
 ##CoarseY Adjust Tomography Scan#################################################################
@@ -138,8 +162,8 @@ moveMotor("Energy", 1100.)
 #meta["spiral"] = True
 #meta["defocus"] = True
 #meta["doubleExposure"] = False
-#meta["refocus"] = False #setting False prevents moving to calibrated focus position at scan start
-#meta["type"] = "Image" #"Ptychography Image"
+#meta["autofocus"] = False #setting False prevents moving to calibrated focus position at scan start
+#meta["scan_type"] = "Image" #"Ptychography Image"
 #meta["mode"] = "continuousLine" #"ptychographyGrid"
 
 #n_angles = 100
@@ -185,31 +209,9 @@ moveMotor("Energy", 1100.)
 #    if not moveMotor("ZonePlateZ",zf(angles[i])):
 #        print("Failed to move ZonePlateZ.  Continuing...")
 #    time.sleep(5.)
-#    print(stxmScan(meta))
-#    #print(ptychographyScan(meta))
+#    print(stxm_scan(meta))
+#    #print(ptychography_scan(meta))
 
-
-
-#################################################################################################
-##Single Motor Scan##############################################################################
-##Beamline slit scan#############################################################################
-#motor = "DISPERSIVE_SLIT"
-#daq = "diode"
-#npoints = 100
-#dwell = 10
-#start = 0
-#stop = 200
-#data,ssize = singleMotorScan(motor,daq,dwell,start,stop,npoints)
-
-#################################################################################################
-##Two Motor Scan - OSA XY########################################################################
-#motors = "OSA_X","OSA_Y"
-#daq = "diode"
-#npoints = 50,50
-#dwell = 10
-#start = 0,-500
-#stop = 1000,500
-#data = twoMotorScan(motors,daq,dwell,start,stop,npoints)
 
 
 

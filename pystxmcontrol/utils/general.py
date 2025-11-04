@@ -23,6 +23,69 @@ def getCXIPath(base,scan):
     if os.path.isfile(os.path.join(base,'20'+yr,mo,yr+mo+dy,cxiStr)):
         return os.path.join(base,'20'+yr,mo,yr+mo+dy,cxiStr)
 
+def rebinLine(self, xReq, yReq, xMeas, yMeas, rawCounts):
+
+    # Returns a rebinning of the rawCounts into bins defined by xReq and yReq
+    # For a single line only. rawCounts, xMeas and yMeas are all the same shape.
+    xstart = xReq[0]
+    xstop = xReq[-1]
+    ystart = yReq[0]
+    ystop = yReq[-1]
+
+    # Define the oversampling factor for averaging later.
+    oversampling_factor = len(xMeas) / len(xReq)
+
+    # direction here is a unit vector in the direction of the scan.
+    direction = np.array([xstop - xstart, ystop - ystart])
+    direction = direction / np.linalg.norm(direction)
+    # We need to convert the requested and measured positions to distances along this direction.
+    distReq = np.array(
+        [(xReq[i] - xstart) * direction[0] + (yReq[i] - ystart) * direction[1] for i in range(len(xReq))])
+    # TODO: FIX THIS
+    distMeas = np.array(
+        [(xMeas[i] - xstart) * direction[0] + (yMeas[i] - ystart) * direction[1] for i in range(len(xMeas))])
+
+    # This doesn't assume even spacing of positions which is probably overkill.
+    # Generate bins for np.histogram function.
+    distBins = (distReq[1:] + distReq[:-1]) / 2
+    distBins = np.append(distBins, 2 * distReq[-1] - distBins[-1])
+    distBins = np.insert(distBins, 0, 2 * distReq[0] - distBins[0])
+
+    try:
+        cutoff = np.where(distMeas > ddistBins[-1])[0][0]
+    except:
+        cutoff = np.where(distMeas == max(distMeas))[0][0]
+
+    distMeas = distMeas[:cutoff]
+
+    rawCounts = rawCounts[:cutoff]
+
+    # nEvents is just the number of times we had an x value in each of the bins. May be useful to track.
+    nEvents, edges = np.histogram(distMeas, bins=distBins)
+    # This is the total counts in each bin.
+    binCounts, edges = np.histogram(distMeas, bins=distBins, weights=rawCounts)
+    # Final counts are the counts per bin divided by the events.
+    # The oversampling factor is put in here so that the count rate is independent of the oversampling factor.
+    # For zero events in a bin, we replace the inf values with zero (and ignore error messages).
+    with np.errstate(divide='ignore', invalid='ignore'):
+        counts = binCounts / nEvents * oversampling_factor
+    counts[np.isinf(counts)] = 0
+    counts[np.isnan(counts)] = 0
+
+    # Interpolate if the pixel is zero.
+    for i in range(len(counts)):
+        if counts[i] == 0:
+            if i != 0 and i != len(counts) - 1:
+                if counts[i + 1] != 0 and counts[i - 1] != 0:
+                    counts[i] = (counts[i + 1] + counts[i - 1]) / 2
+            elif i == 0:
+                if counts[1] != 0:
+                    counts[0] = counts[1]
+            else:
+                if counts[-2] != 0:
+                    counts[-1] = counts[-2]
+    return (counts)
+
 def find_nearest(array,value):
     idx = np.searchsorted(array, value, side="left")
     if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):

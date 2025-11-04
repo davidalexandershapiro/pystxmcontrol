@@ -1,16 +1,54 @@
-# setting up a scan
-Scans are defined as a python dictionary which have the following structure when saved to a JSON file
+# Configuring a scan
+Scans are configured in the scans.json file.  A typical entry must include the following:
+- index: used by the GUI to position the scan in the dropdown list
+- x_motor: the motor used for the X coordinate.  This is needed by all scans.
+- y_motor: the motor used for the Y coordinate.  This is needed by all scans.
+- energy_motor: the motor used for the energy coordinate.  This is only needed for scans that require energy change
+- type: options are "image", "line" and "point".  This defines how the data is managed by the GUI.
+- driver: this is the name of the scan class used to execute the scan.  This is called by the controller.
+- include_return: for trajectories, this tells the driver how to manage the end of the trajectory
+- daq list: a comma separated list of DAQ names, for example, "default,ccd,xrf"
+- mode: this is the scanning mode described below
+- display: this tells the GUI whether to display the scan in its list
+```
+    "Image": {
+      "index": 0,
+      "x_motor": "SampleX",
+      "y_motor": "SampleY",
+      "energy_motor": "Energy",
+      "type": "image",
+      "driver": "linear_image",
+      "include_return": false,
+      "daq list": "default",
+      "mode": "continuousLine",
+      "display": true
+    }
+```
+
+# The scan definition
+Scans are defined as a python dictionary which have the structure below when saved to a JSON file.
 ```
 "Image": {
-            "type": "Image",
-            "proposal": "",
+            "driver": "linear_image",
+            "mode": "continuousLine",
+            "spiral": false,
+            "scan_type": "Image",
+            "tiled": false,
+            "proposal": null,
             "experimenters": "",
             "sample": "",
-            "x": "SampleX",
-            "y": "SampleY",
+            "comment": "",
+            "nxFileVersion": "3",
+            "x_motor": "SampleX",
+            "y_motor": "SampleY",
             "defocus": false,
-            "serpentine": false,
-            "mode": "continuousLine",
+            "autofocus": true,
+            "coarse_only": false,
+            "daq list": [
+                "default"
+            ],
+            "oversampling_factor": 1,
+            "retract": true,
             "scanRegions": {
                 "Region1": {
                     "xStart": -34.5,
@@ -48,19 +86,21 @@ Scans are defined as a python dictionary which have the following structure when
 ```
 The means of scanning is defined largely by a scan "type" and a scan "mode".  The mode of the scan refers largely to how
 the motors are actuated during the scan.  The possibilities are:
-- continuousLine: linear trajectory actuated by the piezo controller.  The scan loop performs each line independently.
-- rasterLine: a start-stop raster scan that is fully controlled by the piezo controller.  The scan loop performs each line independently.
+- continuousLine: linear or spiral trajectory actuated by the piezo controller.  The scan loop performs each trajectory independently.
+- point: a start-stop raster scan for which each point is executed by the scan loop
 - ptychographyGrid: a start-stop raster scan for which each point is executed by the scan loop
 
 Meanwhile, the type of scan refers more to the collection of motors which are used.  The available types are:
 - Image
+- Spiral Image
 - Ptychography Image
 - Point Spectrum
 - Line Spectrum
-- Focus
+- Line Focus
+- Single Motor
+- Double Motor
 
-Currently, the display in the GUI assumes that the data falls on a rectangular grid.  So, while it is entirely possible (and straight forward) to generate
-scan code that does non-rectangular patterns, the display side needs to be refactor to account for this.  Coming soon...
+Currently, the display in the GUI requries that the data falls on a rectangular grid.  
 
 # executing a scan
 

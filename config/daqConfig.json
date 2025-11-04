@@ -1,28 +1,17 @@
 {
   "default": {
     "index": 0,
-    "name": "Diode",
+    "name": "Counter1",
+    "type": "point",
     "driver": "keysight53230A",
-    "visa": "USB::0x0957::0x1907::INSTR",
-    "address": "169.254.2.30",
+    "address": "USB::0x0957::0x1907::INSTR",
     "port": 5025,
-    "simulation": true
-  },
-  "adc": {
-    "index": 1,
-    "name": "ADC",
-    "driver": "keysightU2356A",
-    "visa": "USB::0x0957::0x1418::INSTR",
-    "channel": 101,
-    "name": "dummy",
-    "simulation": true
-  },
-  "ccd": {
-    "index": 2,
-    "name": "CCD",
-    "driver": "fccd_control",
-    "address": "131.243.73.179",
-    "port": 49206,
+    "channel": 1,
+    "oversampling_factor": 1,
+    "ndim": 0,
+    "gate": true,
+    "gate address": "/dev/arduino",
+    "record": true,
     "simulation": true
   }
 }
