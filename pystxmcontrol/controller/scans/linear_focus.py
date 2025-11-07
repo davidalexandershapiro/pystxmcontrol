@@ -160,9 +160,9 @@ class LinearFocusScan(BaseScan):
         # Move to start position
         await self.move_to_start_position(geometry, region_index)
 
-        # Setup position trigger
-        trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
-        self.scanInfo["trigger_axis"] = trigger_axis
+        # # Setup position trigger
+        # trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
+        # self.scanInfo["trigger_axis"] = trigger_axis
 
         # Scan all Y lines
         success = await self.scan_focus_lines(geometry, num_line_motor_points, region_index)
@@ -199,7 +199,7 @@ class LinearFocusScan(BaseScan):
             self.controller.motors[x_motor_name]["motor"].decompose_range(
                 geometry["xStart"], geometry["xStop"]
             )
-        _, _, y_start_fine, _ = \
+        _, _, y_start_fine, y_stop_fine = \
             self.controller.motors[y_motor_name]["motor"].decompose_range(
                 geometry["yStart"], geometry["yStop"]
             )
@@ -215,7 +215,16 @@ class LinearFocusScan(BaseScan):
             self.setup_motor_trajectory(
                 x_motor_name,
                 start_pos=(x_start_fine, y_start_fine),
-                stop_pos=(x_stop_fine, y_start_fine),
+                stop_pos=(x_stop_fine, y_stop_fine),
+                pixel_count=geometry["xPoints"],
+                pixel_dwell=pixel_dwell,
+                line_mode="continuous",
+                include_return=self.scanInfo["include_return"]
+            )
+            self.setup_motor_trajectory(
+                y_motor_name,
+                start_pos=(x_start_fine, y_start_fine),
+                stop_pos=(x_stop_fine, y_stop_fine),
                 pixel_count=geometry["xPoints"],
                 pixel_dwell=pixel_dwell,
                 line_mode="continuous",
@@ -231,13 +240,22 @@ class LinearFocusScan(BaseScan):
             self.controller.moveMotor(y_motor_name, start_y)
 
             # Setup trajectory with trigger offsets
-            motor.trajectory_start = (geometry["xStart"] - coarse_offset, geometry["yPos"][0])
-            motor.trajectory_stop = (geometry["xStop"] + coarse_offset, geometry["yPos"][0])
+            motor.trajectory_start = (geometry["xStart"] - coarse_offset, geometry["yStart"] - coarse_offset)
+            motor.trajectory_stop = (geometry["xStop"] + coarse_offset, geometry["yStop"] - coarse_offset)
             motor.trajectory_pixel_count = geometry["xPoints"]
             motor.trajectory_pixel_dwell = pixel_dwell
             motor.lineMode = "continuous"
             motor.update_trajectory(include_return=False)
             motor.trajectory_trigger = (coarse_offset, coarse_offset)
+
+        # Setup position trigger
+        trigger_axis = motor.trigger_axis
+        if trigger_axis == 1:
+            trigger_motor = "x_motor"
+        else:
+            trigger_motor = "y_motor"
+        trigger_axis, _ = self.setup_position_trigger(self.scan[trigger_motor])
+        self.scanInfo["trigger_axis"] = trigger_axis
 
     async def move_to_start_position(self, geometry: dict, region_index: int):  # noqa: ARG002
         """
