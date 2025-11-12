@@ -113,6 +113,7 @@ def ptychography_scan(meta):
         scan["dwell"] = meta["dwell"]
     message = {"command": "scan", "scan": scan}
     sock.send_pyobj(message)
+    sleep(1)
     response = sock.recv_pyobj()
     if not response["status"]:
         return False

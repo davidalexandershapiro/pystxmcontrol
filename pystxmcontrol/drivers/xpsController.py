@@ -11,7 +11,7 @@ class xpsController(hardwareController):
         self.position = 0. #used for simulation mode
         self._nSockets = 0
         self._sockets = []
-        self._timeout = 0.5
+        self._timeout = 30.
         self._position_tolerance = 2.0
         self._lock = threading.Lock()
 

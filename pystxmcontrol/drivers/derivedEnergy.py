@@ -17,12 +17,13 @@ class derivedEnergy(motor):
     def stop(self):
         return
         
-    def getZonePlateCalibration(self):
+    def getZonePlateCalibration(self, energy = None):
         ##should this use the position provided by the beamline or the theoretical value?
         ##I don't trust the beamline numbers
         A0 = self.config["A0"]
         A1 = self.config["A1"]
-        energy = self.position #getPos()
+        if energy is None:
+            energy = self.position
         self.calibratedPosition = A0 - A1 * energy
         return self.calibratedPosition
 
@@ -44,7 +45,8 @@ class derivedEnergy(motor):
             else:
                 self.axes["axis1"].moveTo(energy)
             self.getPos()
-            self.axes["axis2"].moveTo(self.calibratedPosition)
+            print(f"[derived energy] calibrated ZP position {self.calibratedPosition}")
+            self.axes["axis2"].moveTo(self.getZonePlateCalibration(energy))
             self.axes["axis2"].calibratedPosition = self.calibratedPosition
             self.moving = False
             self.getPos()

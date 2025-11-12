@@ -48,16 +48,9 @@ class controller:
         self.operation_logger.start()
         self.startMonitor()
         self.getMotorPositions()
-        # self._motor_logger_thread = threading.Thread(target=self._motor_logger, args=(), daemon=True)
-        # self._motor_logger_thread.start()
 
         # Register cleanup handler for graceful shutdown
         atexit.register(self.cleanup)
-
-    # def _motor_logger(self):
-    #     while self._log_motors:
-    #         self.getMotorPositions()
-    #         time.sleep(self.main_config["server"]["motor log period"])
 
     def _ensure_scan_queue(self):
         """Ensure scanQueue exists in the current event loop"""

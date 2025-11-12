@@ -211,7 +211,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                                               scanInfo['refocus_offset'])
 
             if scan["defocus"]:
-                step = energies[0] / 700. * 15.
+                step = energies[0] / 700. * 50.
                 print("Defocusing zone plate by %.4f microns" % step)
                 controller.motors["ZonePlateZ"]["motor"].moveBy(step=step)
             scanMeta = {"header": dataHandler.currentScanID}

@@ -2,7 +2,7 @@ from pystxmcontrol.controller.motor import motor
 import time
 import numpy as np
 
-class derivedPiezo(motor):
+class inclinedDerivedPiezo(motor):
     def __init__(self, controller=None, simulation=False):
         """
         axis1 = FineX/Y
@@ -234,7 +234,8 @@ class derivedPiezo(motor):
                 self.axes["axis1"].servoState(False)
                 time.sleep(0.03)
                 self.axes["axis1"].setZero()
-            self.axes["axis2"].moveTo(pos)
+            #for an inclined sample CoarseY is projected
+            self.axes["axis2"].moveTo(pos/np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.))
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
@@ -260,7 +261,8 @@ class derivedPiezo(motor):
 
     def getPos(self, setPointOnly = True):
         self._finePos = self.axes["axis1"].getPos()
-        self._coarsePos = self.axes["axis2"].getPos()
+        #for an inclined sample CoarseY is projected
+        self._coarsePos = self.axes["axis2"].getPos()*np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.)
         self.position = self._coarsePos + self._finePos
         return self.position * self.config["units"] + self.config["offset"]
 
