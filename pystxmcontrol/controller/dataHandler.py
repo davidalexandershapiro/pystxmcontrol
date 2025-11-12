@@ -65,7 +65,8 @@ class dataHandler:
         if not os.path.exists(os.path.join(baseDir, yr, mo, dayStr)):
             os.mkdir(os.path.join(baseDir, yr, mo, dayStr))
         scanDir = os.path.join(baseDir, yr, mo, dayStr)
-        scanList = np.sort([x for x in os.listdir(scanDir) if filePrefix in x])
+        scanList = np.sort([x for x in os.listdir(scanDir) if '.stxm' in x])
+
         if len(scanList) == 0:
             fileName = filePrefix + "_" + dayStr + "000.stxm"
         else:
@@ -460,9 +461,8 @@ class dataHandler:
             self.daq["default"].autoGateOpen(shutter=0)
             t0 = time.time()
             await self.getPoint(scanInfo)
-            #print(f"[dataHandler] getPoint time {time.time()-t0}")
             self.daq["default"].autoGateClosed()
-            self.controller.getMotorPositions()
+            self.controller.getMotorPositions(log = False) #this happens too frequently for logging
             scanInfo = await self.dataQueue.get()
             scanInfo['motorPositions'] = self.controller.allMotorPositions
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()

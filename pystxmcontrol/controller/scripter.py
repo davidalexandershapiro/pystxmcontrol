@@ -85,7 +85,7 @@ def ptychography_scan(meta):
             "daq list": meta["daq list"],
             "comment": meta["comment"],
             "coarse_only": False,
-            "driver": scans[scan_type]["driver"], #"ptychography_image",
+            "driver": scans["Ptychography Image"]["driver"], #"ptychography_image",
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
@@ -100,7 +100,7 @@ def ptychography_scan(meta):
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
-                                        "zPoints": 0}},
+                                        "zPoints": 1}},
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -125,7 +125,6 @@ def ptychography_scan(meta):
     return file_name
 
 def stxm_scan(meta):
-    # s = connect(ADDRESS, PORT)
     xstart = meta['xcenter'] - meta['xrange'] / 2.
     xstop = meta['xcenter'] + meta['xrange'] / 2.
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
@@ -167,7 +166,7 @@ def stxm_scan(meta):
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
-                                        "zPoints": 0}},
+                                        "zPoints": 1}},
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -214,6 +213,7 @@ def multi_region_ptychography_scan(meta, scanRegList):
             "daq list": meta["daq list"],
             "comment": meta["comment"],
             "coarse_only": False,
+            "driver": scans["Ptychography Image"]["driver"],
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -310,6 +310,14 @@ def multi_region_stxm_scan(meta, scanRegList):
                                     "zStop": 0,
                                     "zPoints": 0}
         i += 1
+    if "energyList" in meta.keys():
+        scan["energy_list"] = meta["energyList"]
+        scan["dwell"] = meta["dwell"]
+    if meta["spiral"]:
+        scan["driver"] = scans["Spiral Image"]["driver"] #"spiral_image"
+        scan["scan_type"] = 'Spiral Image'
+    else:
+        scan["driver"] = scans["Image"]["driver"] #"line_image"
     message = {"command": "doScan", "scan": scan}
     sock.send_pyobj(message)
     response = sock.recv_pyobj()
@@ -634,7 +642,7 @@ def andor_ptychography_scan(meta):
             "tiled": False,
             "daq list": meta["daq list"],
             "comment": meta["comment"],
-            "driver": scans[scan_type]["driver"], #"ptychography_image",
+            "driver": scans["Ptychography Image"]["driver"],
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],

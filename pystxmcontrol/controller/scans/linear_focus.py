@@ -117,6 +117,8 @@ class LinearFocusScan(BaseScan):
         geometry = self.get_scan_region_geometry(region_index)
 
         # Update scanInfo with region geometry
+        #For a focus scan, set yPoints = zPoints because the data structure doesn't have a Z coordinate
+        #and xPoints already equals yPoints because it's along a line.
         self.scanInfo.update({
             "scanRegion": f"Region{region_index + 1}",
             "xPoints": geometry["xPoints"],
@@ -124,7 +126,7 @@ class LinearFocusScan(BaseScan):
             "xStart": geometry["xStart"],
             "xCenter": geometry["xCenter"],
             "xRange": geometry["xRange"],
-            "yPoints": geometry["yPoints"],
+            "yPoints": geometry["zPoints"], #NOTED above
             "yStep": geometry["yStep"],
             "yStart": geometry["yStart"],
             "yCenter": geometry["yCenter"],
@@ -142,7 +144,7 @@ class LinearFocusScan(BaseScan):
         # Calculate number of points
         num_line_motor_points = self.controller.motors[self.scan["x_motor"]]["motor"].npositions
         self.scanInfo["numLineDAQPoints"] = num_line_motor_points * self.scanInfo["oversampling_factor"]
-        self.scanInfo["numMotorPoints"] = num_line_motor_points * geometry["yPoints"]
+        self.scanInfo["numMotorPoints"] = num_line_motor_points * geometry["zPoints"]
         self.scanInfo["numDAQPoints"] = self.scanInfo["numMotorPoints"] * self.scanInfo["oversampling_factor"]
 
         # Update data arrays on first energy

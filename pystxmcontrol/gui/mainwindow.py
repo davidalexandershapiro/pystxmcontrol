@@ -9,7 +9,9 @@ import numpy as np
 import time, json, atexit, sys, os
 from queue import Queue
 import qdarktheme
-
+import warnings
+warnings.filterwarnings("ignore", message="Failed to disconnect")
+warnings.filterwarnings("ignore", message="is different from this scene")
 BASEPATH = sys.prefix
 
 class controlThread(QtCore.QThread):
@@ -1077,6 +1079,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if self.scan["mode"] == "continuousSpiral":
             self.scan["spiral"] = True
         self.scan['retract'] = True
+        self.scan['A0'] = self.ui.A0Label.text()
         self.scan["scan_regions"] = {}
         self.scan["energy_regions"] = {}
         for index, region in enumerate(self.scanRegList):
@@ -1600,13 +1603,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.currentScanRegionIndex = scanRegNumber
             self.image = message["image"]["default"]
 
-            # xCenters,yCenters = [],[]
-            # for region in self.scan["scan_regions"].keys():
-            #     xCenters.append(self.scan["scan_regions"][region]["xCenter"])
-            #     yCenters.append(self.scan["scan_regions"][region]["xCenter"])
-            # self.xCenter = (max(xCenters)+min(xCenters))/2.
-            # self.yCenter = (max(yCenters)+min(yCenters))/2.
-
             self.xCenter = self.scan["scan_regions"][message["scanRegion"]]["xCenter"]
             self.yCenter = self.scan["scan_regions"][message["scanRegion"]]["yCenter"]
             self.zCenter = self.scan["scan_regions"][message["scanRegion"]]["zCenter"]
@@ -1889,6 +1885,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                                                          symbol='o', symbolPen='g', symbolSize=3, \
                                                          symbolBrush=(255, 255, 255))
                 self.ui.mainPlot.setLabel("bottom", motor)
+            else:
+                self.warningPopup(f"File {self.currentLoadFile} is {self.nx.meta['scan_type']} scan. Please open an Image scan.")
         except:
             self.warningPopup(f"Failed to open file: {self.currentLoadFile}")
             return
@@ -2614,10 +2612,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.ui.toggleSingleEnergy.setEnabled(False)
             self.ui.energyRegSpinbox.setEnabled(False)
             self.ui.scanRegSpinbox.setEnabled(False)
-            x_motor = self.client.scanConfig["scans"]["Double Motor"]["x_motor"]
-            y_motor = self.client.scanConfig["scans"]["Double Motor"]["y_motor"]
-            self.ui.xMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(x_motor))
-            self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(y_motor))
+            # x_motor = self.client.scanConfig["scans"]["Double Motor"]["x_motor"]
+            # y_motor = self.client.scanConfig["scans"]["Double Motor"]["y_motor"]
+            # self.ui.xMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(x_motor))
+            # self.ui.yMotorCombo.setCurrentIndex(self.ui.yMotorCombo.findText(y_motor))
             self.setGUIfromScan(self.last_scan[scanType])
             self.setEnergyScan()
         elif scanType == "OSA Image" or scanType == "Detector XY Image":

@@ -113,7 +113,7 @@ class FCCD:
         msktoffset = msktoffset1 & (self._tadc > (400 * self._nbcol)) & (
                     self._tadc < ((self._nrows - 80) * self._nbcol))
         VS = vanderX[:, msktoffset[0]]
-        vanderfilterX = np.dot(vanderX.T, np.linalg.lstsq(np.dot(VS, VS.T), VS)[0])
+        vanderfilterX = np.dot(vanderX.T, np.linalg.lstsq(np.dot(VS, VS.T), VS,rcond=None)[0])
         # vanderfilterX = np.dot(msktoffset.T, np.linalg.lstsq(np.dot(VS,VS.T), VS)[0])
         self.vanderfilter = lambda data: np.dot(vanderfilterX, data[msktoffset[0], :])
 

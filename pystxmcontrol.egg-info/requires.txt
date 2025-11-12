@@ -17,3 +17,15 @@ python-dotenv
 opencv-python-headless
 scikit-learn
 PIPython
+
+[dev]
+pytest>=7.0
+pytest-cov
+black>=23.0
+isort>=5.12
+flake8>=6.0
+mypy>=1.0
+
+[docs]
+sphinx>=6.0
+sphinx-rtd-theme>=1.2

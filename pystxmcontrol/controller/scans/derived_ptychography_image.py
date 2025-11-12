@@ -180,6 +180,8 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
         scanInfo["energy"] = energy
         scanInfo['energyIndex'] = energyIndex
         for j in range(nScanRegions):
+            scanInfo["xPoints"]=len(xPos[j])
+            scanInfo["yPoints"]=len(yPos[j])
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)

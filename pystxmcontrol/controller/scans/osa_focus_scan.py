@@ -47,7 +47,7 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
     xStart, xStop = x[0], x[-1]
     yStart, yStop = y[0], y[-1]
     xRange, yRange = xStop - xStart, yStop - yStart
-    xPoints, yPoints = len(x), len(y)
+    xPoints, yPoints, zPoints = len(x), len(y), len(z)
     xStep, yStep = xRange / (xPoints - 1), yRange / (yPoints - 1)
 
     #these into scanINfo so the GUI knows where to put the data for a script scan
@@ -56,11 +56,12 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
     scanInfo["xStart"] = xStart
     scanInfo["xCenter"] = xStart + xRange / 2.
     scanInfo["xRange"] = xRange
-    scanInfo["yPoints"] = 1
-    scanInfo["yStep"] = 0
+    scanInfo["yPoints"] = zPoints #because this is a focus scan
+    scanInfo["yStep"] = yStep
     scanInfo["yStart"] = yStart
     scanInfo["yCenter"] = yStart
-    scanInfo["yRange"] = 0
+    scanInfo["yRange"] = yRange
+    
     if mode == "point":
         samples = 1
     elif mode == "continuousLine":
@@ -68,15 +69,16 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
         velocity = scanInfo["xStep"] / scanInfo["dwell"]
         controller.motors[scan["x_motor"]]["motor"].setAxisParams(velocity)
         # Update arrays for continuous line mode to ensure proper dimensionality
-        scanInfo['numMotorPoints'] = samples * len(yPos[0])
-        scanInfo['numDAQPoints'] = samples * len(yPos[0])
+        scanInfo['numMotorPoints'] = samples * len(zPos[0])
+        scanInfo['numDAQPoints'] = samples * len(zPos[0])
         for daq in controller.daq.keys():
             if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
             else:
                 scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-        dataHandler.data.updateArrays(0, scanInfo)
+    dataHandler.data.updateArrays(0, scanInfo)
     controller.config_daqs(dwell=scanInfo["dwell"], count=1, samples=samples, trigger="BUS")
+    scanInfo["line_positions"] = [np.linspace(xStart,xStop,samples),np.ones(samples)*yStart] #requested positions
 
     #Since this is a line scan, we don't want to loop over all X-Y positions, but rather just one move each.
     controller.moveMotor(scan["y_motor"], yPos[0][0])
@@ -110,7 +112,6 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
                 controller.daq["default"].bus_trigger()
                 controller.moveMotor(scan["x_motor"],xStop)
                 controller.daq["default"].autoGateClosed()
-                scanInfo["line_positions"] = [np.linspace(xStart,xStop,samples),np.ones(samples)*yPos[0][i]]
                 try:
                     await dataHandler.getLine(scanInfo.copy())
                 except:
