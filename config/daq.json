@@ -1,0 +1,17 @@
+{
+  "default": {
+    "index": 0,
+    "name": "Counter1",
+    "type": "point",
+    "driver": "keysight53230A",
+    "address": "USB::0x0957::0x1907::INSTR",
+    "port": 5025,
+    "channel": 1,
+    "oversampling_factor": 1,
+    "ndim": 0,
+    "gate": true,
+    "gate address": "/dev/arduino",
+    "record": true,
+    "simulation": true
+  }
+}
