@@ -61,7 +61,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.lineLengthEdit.setText('10')
         self.ui.lineAngleEdit.setText('0')
         self.lineAngle = 0
-        self.xLineRange = 70.
+        self.xLineRange = 10.
         self.yLineRange = 0.
         self.ui.linePointsEdit.setText('50')
         self.imageScale = 1,1
@@ -1207,8 +1207,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     # elif float(dwellStr)>15.:
                     #     dwellStr = '15.'
             elif "Focus" in self.scanType or self.scanType == "Line Spectrum":
-                if float(dwellStr)<0.31:
-                    dwellStr = '0.31'
+                if float(dwellStr)<3:
+                    dwellStr = '3'
                 # elif float(dwellStr)>15.:
                 #     dwellStr = '15.'
                 
@@ -1548,7 +1548,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def updateImageFromCCD(self, ccdData):
         self.currentCCDData = ccdData
         if self.ui.channelSelect.currentText() == "CCD":
-            self.ui.mainImage.setImage(self.currentCCDData.T, autoRange=self.ui.autorangeCheckbox.isChecked(),
+            modified_CCD = self.currentCCDData.T+10
+            modified_CCD[modified_CCD<1] = 1
+            modified_CCD = np.log(modified_CCD)
+            self.ui.mainImage.setImage(modified_CCD, autoRange=self.ui.autorangeCheckbox.isChecked(),
                                                autoLevels=self.ui.autoscaleCheckbox.isChecked(), \
                                                autoHistogramRange=self.ui.autorangeCheckbox.isChecked(), pos=(0,0),
                                                scale=(1,1))
@@ -1602,6 +1605,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.currentEnergyIndex = message["energyIndex"]
             self.currentScanRegionIndex = scanRegNumber
             self.image = message["image"]["default"]
+            #prnt(message)
 
             self.xCenter = self.scan["scan_regions"][message["scanRegion"]]["xCenter"]
             self.yCenter = self.scan["scan_regions"][message["scanRegion"]]["yCenter"]
@@ -1625,7 +1629,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pos = (self.xCenter - float(self.xRange) / 2., self.yCenter - float(self.yRange) / 2.)
             if "Focus" in self.scan["scan_type"]:
                 self.stxm.interp_counts["default"][scanRegNumber][message["energyIndex"],:,:] = message["image"]["default"]
-                xScale = 1 
+                xScale = 1
                 yScale = 1 
             elif "Line Spectrum" in self.scan["scan_type"]:
                 self.image = self.image.T
@@ -2479,7 +2483,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 reg.ui.xCenter.setEnabled(True)
                 reg.ui.yCenter.setEnabled(True)
             if refocus:
-                print('Resetting Focus Center from setScanParams: Focus')
                 self.ui.focusCenterEdit.setText(str(np.round(self.currentMotorPositions["ZonePlateZ"], 2)))
             self.ui.focusRangeEdit.setText(str(self.focusRange))
             self.ui.focusStepsEdit.setText(str(int(self.focusSteps)))

@@ -25,7 +25,7 @@ class xerMotor(motor):
             self.lock = self.controller.lock
             self._axis = self.controller.addAxis(Stage.XLS_5, axis)
             self.controller.start()
-            #self.home()
+            self.home()
             self.getPos()
 
     def checkLimits(self, pos):
@@ -52,9 +52,11 @@ class xerMotor(motor):
         if self.checkLimits(pos):
             self.moving = True
             if not(self.simulation):
+                print(f"[xerMotor] moving to {pos}")
                 #with self.lock:
                 self._axis.setDPOS((pos - self.config["offset"]) / self.config["units"])
                 self.position = self._axis.getEPOS() * self.config["units"] + self.config["offset"]
+                print(f"[xerMotor] moved to {self.position}")
                 #self._axis.sendCommand('STOP=0')
                 count = 1
                 #print('position requested: {}, position reached: {}'.format(pos,self.position))

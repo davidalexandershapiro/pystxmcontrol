@@ -11,7 +11,7 @@ class xpsController(hardwareController):
         self.position = 0. #used for simulation mode
         self._nSockets = 0
         self._sockets = []
-        self._timeout = 0.5
+        self._timeout = 5.
         self._position_tolerance = 2.0
         self._lock = threading.Lock()
 
@@ -24,11 +24,11 @@ class xpsController(hardwareController):
 
     def __sendAndReceive(self, socketId, command):
         try:
-            with self._lock:
-                self._sockets[socketId].send(command.encode())
-                response = self._sockets[socketId].recv(1024).decode()
-                while (response.find(',EndOfAPI') == -1):
-                    response += self._sockets[socketId].recv(1024)
+            # with self._lock:
+            self._sockets[socketId].send(command.encode())
+            response = self._sockets[socketId].recv(1024).decode()
+            while (response.find(',EndOfAPI') == -1):
+                response += self._sockets[socketId].recv(1024)
         except socket.timeout:
             return [-2, '']
         except socket.error as errString:
@@ -52,19 +52,19 @@ class xpsController(hardwareController):
         return socketId
 
     def abortMove(self, socketId, motor):
-        command = 'GroupMoveAbort(' + motor + ')'
-        [err, retString] = self.__sendAndReceive(socketId, command)
-        return [err, retString]
+        self.disable_axis(socketId, motor)
+        time.sleep(1)
+        self.enable_axis(socketId, motor)
+        time.sleep(1)
 
-    def moveTo(self, socketId, motor, target, use_relative = True):
+    def moveTo(self, socketId, motor, target, use_relative = False):
+        err, currentPos = self.getPosition(socketId, motor)
         if use_relative:
             #An XPS can get in a state where absolute moves are inaccurate.  Use Relative moves instead.
-            err,currentPos = self.getPosition(socketId, motor)
             [err, retString] = self.moveRelative(socketId,motor,target,target-currentPos)
             return [err, retString]
         else:
-            moveDelta = abs(target - currentPos)
-            command = 'GroupMoveAbsolute(' + motor + ',' + str(target) + ')'
+            command = f"GroupMoveAbsolute({motor},{target})"
             self.moving = True
             [err, retString] = self.__sendAndReceive(socketId, command)
             t0 = time.time()
@@ -72,12 +72,12 @@ class xpsController(hardwareController):
                 err,currentPos = self.getPosition(socketId, motor)
                 positionErr = target - currentPos
                 if abs(positionErr) > self._position_tolerance:
-                    print(positionErr,self._position_tolerance)
                     if not(self.stopped):
                         if (time.time() - t0) > self._timeout:
                             print("XPS move timeout. Aborting...")
                             self.moving = False
-                            return self.abortMove(socketId, motor)
+                            self.abortMove(socketId, motor)
+                            return [err, retString]
                         else:
                             time.sleep(0.1)
                     else:
@@ -135,6 +135,19 @@ class xpsController(hardwareController):
             retList.append(eval(retStr[i:i+j]))
             i, j = i+j+1, 0
         return retList
+
+    # GroupMotionDisable :  Set Motion disable on selected group
+    def disable_axis(self, socketId, axis):
+        command = f"GroupMotionDisable({axis})"
+        [error, returnedString] = self.__sendAndReceive(socketId, command)
+        return [error, returnedString]
+
+
+    # GroupMotionEnable :  Set Motion enable on selected group
+    def enable_axis(self, socketId, axis):
+        command = f"GroupMotionEnable({axis})"
+        [error, returnedString] = self.__sendAndReceive(socketId, command)
+        return [error, returnedString]
 
 
 

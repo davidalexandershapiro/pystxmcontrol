@@ -183,14 +183,15 @@ class mclController():
         pulse.  Mode = 4 turns off the clock.  The third argument (axis) is hard coded to 5 which pulses on a waveform read,
         which returns the position data.  That is called by trigger_line below.
         """
-        if mode == "on":
-            error_code = self.bindISSClock(c_int(clock), c_int(2), c_int(1), c_int(self.handle))
-            print("Clock bind error code: %i" %error_code)
-        elif mode == "off":
-            error_code = self.bindISSClock(c_int(clock), c_int(4), c_int(1), c_int(self.handle))
-            print("Clock unbind error code: %i" %error_code)
-        else:
-            return
+        pass
+        # if mode == "on":
+        #     error_code = self.bindISSClock(c_int(clock), c_int(2), c_int(1), c_int(self.handle))
+        #     print("Clock bind error code: %i" %error_code)
+        # elif mode == "off":
+        #     error_code = self.bindISSClock(c_int(clock), c_int(4), c_int(1), c_int(self.handle))
+        #     print("Clock unbind error code: %i" %error_code)
+        # else:
+        #     return
             
     def setClock(self, clock = 2, mode = 0):
         error_code = self.setISSClock(c_int(clock), c_int(mode), c_int(self.handle))

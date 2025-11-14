@@ -66,6 +66,7 @@ class stxmServer:
 
     async def command_handler(self):
         while self.running:
+
             message={"command":None}
             message = await self.command_sock.recv_pyobj()
 

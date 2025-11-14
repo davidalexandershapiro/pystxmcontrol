@@ -48,12 +48,12 @@ class controller:
         self.operation_logger.start()
         self.startMonitor()
         self.getMotorPositions()
+
         self._motor_logger_thread = threading.Thread(target=self._motor_logger, args=(), daemon=True)
         self._motor_logger_thread.start()
 
         # Register cleanup handler for graceful shutdown
         atexit.register(self.cleanup)
-
     def _motor_logger(self):
         while self._log_motors:
             self.getMotorPositions()
@@ -172,7 +172,6 @@ class controller:
                 if log:
                     self.operation_logger.log_motor_position(motor,self.allMotorPositions[motor],
                                                          motor_offset = self.motors[motor]["motor"].config["offset"])
-        
 
     def moveMotor(self, axis, pos, log=None, **kwargs):
 
@@ -271,6 +270,7 @@ class controller:
                     self.scanQueue.get_nowait()
                 except asyncio.QueueEmpty:
                     break #stopMonitor adds to the queue so that needs to be cleared
+        time.sleep(1) #it seems to take a while for the monitor to start and passing too soon affects the scripts
 
     def stopMonitor(self):
         if self.scanQueue is not None:
@@ -379,7 +379,6 @@ class controller:
         if not self.scanThread.is_alive():
             self.scanThread = threading.Thread(target=run_scan, args=())
             self.scanThread.start()
-
 
     def end_scan(self):
         if self.scanQueue is not None:

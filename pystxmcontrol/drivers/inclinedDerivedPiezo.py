@@ -2,7 +2,7 @@ from pystxmcontrol.controller.motor import motor
 import time
 import numpy as np
 
-class derivedPiezo(motor):
+class inclinedDerivedPiezo(motor):
     def __init__(self, controller=None, simulation=False):
         """
         axis1 = FineX/Y
@@ -127,7 +127,6 @@ class derivedPiezo(motor):
             self.start = x1 + self.xpad, y1 + self.ypad
             self.stop = x0 - self.xpad, y0 - self.ypad
             self.trajectory_trigger = x1, y1
-
         self.start = self.scale2controller(self.start[0]), self.scale2controller(self.start[1])
         self.stop = self.scale2controller(self.stop[0]), self.scale2controller(self.stop[1])
         if include_return:
@@ -235,7 +234,8 @@ class derivedPiezo(motor):
                 self.axes["axis1"].servoState(False)
                 time.sleep(0.03)
                 self.axes["axis1"].setZero()
-            self.axes["axis2"].moveTo(pos)
+            #for an inclined sample CoarseY is projected
+            self.axes["axis2"].moveTo(pos/np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.))
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
@@ -261,7 +261,8 @@ class derivedPiezo(motor):
 
     def getPos(self, setPointOnly = True):
         self._finePos = self.axes["axis1"].getPos()
-        self._coarsePos = self.axes["axis2"].getPos()
+        #for an inclined sample CoarseY is projected
+        self._coarsePos = self.axes["axis2"].getPos()*np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.)
         self.position = self._coarsePos + self._finePos
         return self.position * self.config["units"] + self.config["offset"]
 
@@ -283,7 +284,6 @@ class derivedPiezo(motor):
         prange = round(pmax - pmin,2)
         piezo_range = self.axes["axis1"].config["maxScanRange"] #axis1 is the piezo
         nblocks = int(1 + (prange // piezo_range) * (prange > piezo_range))
-        #print(nblocks,piezo_range,prange)
 
         ###start with the simple case of a single block, the fine range is less than or equal to its maximum allowed
         if nblocks == 1:
@@ -308,7 +308,7 @@ class derivedPiezo(motor):
                 pcoarse.append((pmax + pmin) / 2.)
                 fine_start.append(-prange / 2.)
                 fine_stop.append(prange / 2.)
-        #print(fine_start)
+
         return nblocks,pcoarse,fine_start,fine_stop
 
     def move_coarse_to_fine_range(self,pmin,pmax):

@@ -4,46 +4,33 @@ import matplotlib.pyplot as plt
 
 mcl = mclController()
 mcl.initialize()
-#mcl.setClock(mode = 0)
-#mcl.setPositionTrigger(pos = 0., axis = 1, mode = "off", clock = 2)
-#mcl.write(1,0)
-#mcl.write(1,0)
-#mcl.write(1,40.0)
-#mcl.write(2,40.0)
-#time.sleep(1)
-#mcl.setup_line(1,50,52,0.05)
-#mcl.trigger_line(1)
 
-#Assumes config offset is zero, drives from one end to the other.
-start = (10,10)
-stop = (20,20)
-repeats = 1
-tot_time = 2.01#keep less than 2.5
+#move to the center of the range
+mcl.write(axis = 1, pos = 50)
+mcl.write(axis = 2, pos = 50)
 
-#Circular test
-Freq = 1 #Hz
-ang_freq = Freq*(np.pi*2)
-nPoints = 1000
-dwell = tot_time/nPoints*1000
-trajx = 50+40*np.sin(np.linspace(0,tot_time,nPoints)*ang_freq)
-trajy = 50+40*np.cos(np.linspace(0,tot_time,nPoints)*ang_freq)
+#set up a linear trajectory
+start = 45,50 #x,y
+stop = 55,50
+dwell = 1
+count = 100
+pad = 1,0
+trigger_axis = 1
+mcl.setup_trajectory(trigger_axis, start, stop, dwell, count, mode = "line", pad = pad)
 
-#plt.plot(np.linspace(0,tot_time,4000),trajx)
-#plt.show()
+#set waveform trigger
+mcl.setPositionTrigger(mode="off")
+mcl.setPositionTrigger(mode = "on", clock = 2)
 
-for i in range(repeats):
-    #mcl.setup_trajectory(1,start,stop,dwell,100)
-    #xpos, ypos = mcl.acquire_xy()
-    #time.sleep(0.2)
-    #mcl.setup_trajectory(1,stop,start,dwell,100)
-    #xpos, ypos = mcl.acquire_xy()
-    mcl.setup_xy(trajx, trajy,dwell)
-    mcl.acquire_xy()
-    time.sleep(0.2)
-    print('iteration {}'.format(i))
+for i in range(20):
+    #move to start 
+    mcl.write(axis = 1, pos = start[0])
+    mcl.write(axis = 2, pos = start[1])
 
-#mcl.write(1,11)
-#mcl.write(2,11)
+    #execute the trajectory with position read
+    positions = mcl.acquire_xy(axes=[1,])
+    print(positions)
+    time.sleep(1)
 
 print("---------------------------------------")
 print("Mad City Labs Nanodrive Positions...")
