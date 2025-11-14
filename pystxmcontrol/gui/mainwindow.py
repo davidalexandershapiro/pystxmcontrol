@@ -381,6 +381,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 pstring += ',' + plist[i]
             self.ui.experimentersLineEdit.setText(pstring)
             self.setWarningBanner(None)
+            self.activateGUI()
         else:
             self.ui.experimentersLineEdit.setText('')
             self.setWarningBanner("Select a proposal to activate the GUI")
