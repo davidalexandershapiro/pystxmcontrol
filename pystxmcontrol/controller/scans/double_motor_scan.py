@@ -66,17 +66,17 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
         xRange, yRange = xStop - xStart, yStop - yStart
         xPoints, yPoints = len(x), len(y)
         xStep, yStep = xRange / (xPoints - 1), yRange / (yPoints - 1)
-        # I'm putting all of these into scanINfo so the GUI knows where to put the data for a script scan
+        # I'm putting all of these into scanInfo so the GUI knows where to put the data for a script scan
         scanInfo["xPoints"] = xPoints
         scanInfo["xStep"] = xStep
         scanInfo["xStart"] = xStart
         scanInfo["xCenter"] = xStart + xRange / 2.
         scanInfo["xRange"] = xRange
-        scanInfo["yPoints"] = 1
-        scanInfo["yStep"] = 0
+        scanInfo["yPoints"] = yPoints
+        scanInfo["yStep"] = yStep
         scanInfo["yStart"] = yStart
         scanInfo["yCenter"] = yStart
-        scanInfo["yRange"] = 0
+        scanInfo["yRange"] = yRange
         if mode == "point":
             samples = 1
         elif mode == "continuousLine":

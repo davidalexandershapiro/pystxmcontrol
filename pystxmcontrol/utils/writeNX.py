@@ -39,6 +39,7 @@ class stxm:
             self.motorPositions = []
             self.DAQdwell = None
             self.motdwell = None
+            self.A0 = self.scan_dict.get("A0",0)
             for i in range(self.nScanRegions):
                 self.motorPositions.append({})
             if "file_name" in self.scan_dict.keys():
@@ -250,15 +251,9 @@ class stxm:
             nxPos = self.xPos[-1].size
             nyPos = self.yPos[-1].size
             nzPos = self.zPos[-1].size
-            nxPixels = nxPos
-            nyPixels = nyPos
-            nzPixels = nzPos
-            nPixels_m = nxPixels * nyPixels #total number of measured pixels
-            nPixels_r = nxPos * nyPos #total number of requested pixels, shown for clarity
+            nPixels_m = nxPos * nyPos #total number of measured pixels
 
-            if "Focus" in scan["scan_type"]:
-                #this is a hack to deal with the reality that the GUI puts in Z positions for a focus scan
-                #but our data structure doesn't have a Z dimension for simplicity.
+            if "Focus" in self.scan_dict["scan_type"]:
                 nyPos = nzPos
 
             self.xMeasured.append(np.zeros(nPixels_m))
@@ -268,7 +263,6 @@ class stxm:
                 self.counts[daq].append(np.zeros((self.energies["default"].size,nPixels_m))) #this is a long vector of measured positions
                 self.interp_counts[daq].append(np.zeros((self.energies["default"].size,nyPos,nxPos))) #this is a matrix of requested positions
   
-            
     def updateArrays(self,region,scanInfo):
         #doing things this way requires the scan driver to correctly provide the number of points for each line and image
         #but this is much much cleaner
@@ -276,9 +270,12 @@ class stxm:
         #self.interp_counts does not need to be updated here because its shape doesn't depend on the calculated trajectories
         motorLength = scanInfo['numMotorPoints']
         DAQLength = scanInfo['numDAQPoints']
+        x_points = scanInfo["xPoints"]
+        y_points = scanInfo["yPoints"]
         for daq in self.daq_list:
             n_energies = scanInfo["rawData"][daq]["meta"]["n_energies"]
             self.counts[daq][region] = np.zeros((n_energies,DAQLength))
+            self.interp_counts[daq][region] = np.zeros((n_energies, y_points, x_points))
         self.xMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
         self.yMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
         self.zMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
@@ -396,6 +393,7 @@ class stxm:
         sample.create_dataset("rotation_angle", data='')
         sample.create_dataset("description", data=self.scan_dict["sample"])
         sample.create_dataset("comment", data=self.scan_dict["comment"])
+        sample.create_dataset("A0", data = self.scan_dict.get("A0",0))
         for daq in self.daq_list:
             d = nxentry.create_group(daq)
             d.attrs["NX_class"] = np.bytes_("NXdata")

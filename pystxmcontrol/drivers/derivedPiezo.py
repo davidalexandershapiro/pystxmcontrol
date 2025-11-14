@@ -127,6 +127,7 @@ class derivedPiezo(motor):
             self.start = x1 + self.xpad, y1 + self.ypad
             self.stop = x0 - self.xpad, y0 - self.ypad
             self.trajectory_trigger = x1, y1
+
         self.start = self.scale2controller(self.start[0]), self.scale2controller(self.start[1])
         self.stop = self.scale2controller(self.stop[0]), self.scale2controller(self.stop[1])
         if include_return:
@@ -282,6 +283,7 @@ class derivedPiezo(motor):
         prange = round(pmax - pmin,2)
         piezo_range = self.axes["axis1"].config["maxScanRange"] #axis1 is the piezo
         nblocks = int(1 + (prange // piezo_range) * (prange > piezo_range))
+        #print(nblocks,piezo_range,prange)
 
         ###start with the simple case of a single block, the fine range is less than or equal to its maximum allowed
         if nblocks == 1:
@@ -306,7 +308,7 @@ class derivedPiezo(motor):
                 pcoarse.append((pmax + pmin) / 2.)
                 fine_start.append(-prange / 2.)
                 fine_stop.append(prange / 2.)
-
+        #print(fine_start)
         return nblocks,pcoarse,fine_start,fine_stop
 
     def move_coarse_to_fine_range(self,pmin,pmax):

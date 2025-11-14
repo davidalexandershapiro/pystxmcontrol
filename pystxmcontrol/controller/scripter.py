@@ -1,22 +1,23 @@
 from pystxmcontrol.utils.writeNX import stxm
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import sys, zmq, os, json, traceback, datetime
+import sys, zmq, os, json, traceback, datetime, asyncio
 import numpy as np
 from matplotlib.widgets import Button
 from time import time, sleep
+import zmq.asyncio
 
 
 BASEPATH = sys.prefix
 MAINCONFIGFILE = os.path.join(BASEPATH,'pystxmcontrol_cfg/main.json')
+SCANCONFIGFILE = os.path.join(BASEPATH,'pystxmcontrol_cfg/scan.json')
 config = json.loads(open(MAINCONFIGFILE).read())
-SCANCONFIGFILE = os.path.join(BASEPATH,'pystxmcontrol_cfg/scans.json')
 scans = json.loads(open(SCANCONFIGFILE).read())["scans"]
-context = zmq.Context()
+context = zmq.asyncio.Context()
 sock = context.socket(zmq.REQ)
 sock.connect("tcp://%s:%s" %(config["server"]["host"],config["server"]["command_port"]))
 
-def move_motor(axis=None, pos=None):
+async def move_motor(axis=None, pos=None):
     if axis not in list(MOTORS.keys()):
         print("Bad motor name. Available motors are:")
         for m in list(MOTORS.keys()):
@@ -24,39 +25,39 @@ def move_motor(axis=None, pos=None):
         return
     message = {"command": "moveMotor", "axis": axis, "pos": pos}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if response is not None: return response["status"]
     else: return False
 
-def get_config():
+async def get_config():
     message = {"command": "get_config"}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if response is not None: return response["data"]
     else: return False
 
-def read_daq(daq,dwell, shutter = True):
+async def read_daq(daq,dwell, shutter = True):
     message = {"command":"getData","daq":daq,"dwell":dwell, "shutter":shutter}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if response is not None: return response["data"]
     else: return False
 
-def stop_monitor():
+async def stop_monitor():
     message = {"command": "stop_monitor"}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if response is not None: return response["status"]
     else: return False
 
-def start_monitor():
+async def start_monitor():
     message = {"command": "start_monitor"}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if response is not None: return response["status"]
     else: return False
 
-def ptychography_scan(meta):
+async def ptychography_scan(meta):
     xstart = meta['xcenter'] - meta['xrange'] / 2.
     xstop = meta['xcenter'] + meta['xrange'] / 2.
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
@@ -68,7 +69,7 @@ def ptychography_scan(meta):
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -101,7 +102,7 @@ def ptychography_scan(meta):
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
-                                        "zPoints": 0}},
+                                        "zPoints": 1}},
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -112,22 +113,20 @@ def ptychography_scan(meta):
         scan["energy_list"] = meta["energyList"]
         scan["dwell"] = meta["dwell"]
     message = {"command": "scan", "scan": scan}
-    sock.send_pyobj(message)
-    sleep(1)
-    response = sock.recv_pyobj()
+    await sock.send_pyobj(message)
+    response = await sock.recv_pyobj()
     if not response["status"]:
         return False
     file_name = response["data"]
     status = False
     while not status:
-        sleep(1)
-        sock.send_pyobj({"command":"getStatus"})
-        response = sock.recv_pyobj()
+        await asyncio.sleep(1)
+        await sock.send_pyobj({"command":"getStatus"})
+        response = await sock.recv_pyobj()
         status = response["status"]
     return file_name
 
-def stxm_scan(meta):
-    # s = connect(ADDRESS, PORT)
+async def stxm_scan(meta):
     xstart = meta['xcenter'] - meta['xrange'] / 2.
     xstop = meta['xcenter'] + meta['xrange'] / 2.
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
@@ -139,7 +138,7 @@ def stxm_scan(meta):
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -170,7 +169,7 @@ def stxm_scan(meta):
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
-                                        "zPoints": 0}},
+                                        "zPoints": 1}},
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -186,22 +185,22 @@ def stxm_scan(meta):
     else:
         scan["driver"] = scans["Image"]["driver"] #"line_image"
     message = {"command": "scan", "scan": scan}
-    sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    await sock.send_pyobj(message)
+    response = await sock.recv_pyobj()
     if not response["status"]:
         return False
     file_name = response["data"]
     status = False
     while not status:
-        sleep(1)
-        sock.send_pyobj({"command":"getStatus"})
-        response = sock.recv_pyobj()
+        await asyncio.sleep(1)
+        await sock.send_pyobj({"command":"getStatus"})
+        response = await sock.recv_pyobj()
         status = response["status"]
     return file_name
 
-def multi_region_ptychography_scan(meta, scanRegList):
+async def multi_region_ptychography_scan(meta, scanRegList):
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -218,6 +217,7 @@ def multi_region_ptychography_scan(meta, scanRegList):
             "daq list": meta["daq list"],
             "comment": meta["comment"],
             "coarse_only": False,
+            "driver": scans["Ptychography Image"]["driver"],
             "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
                                                 "start": meta["energyStart"],
                                                 "stop": meta["energyStop"],
@@ -252,7 +252,7 @@ def multi_region_ptychography_scan(meta, scanRegList):
         i += 1
     message = {"command": "doScan", "scan": scan}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if not response["status"]:
         return False
     file_name = response["data"]
@@ -260,14 +260,14 @@ def multi_region_ptychography_scan(meta, scanRegList):
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
-        response = sock.recv_pyobj()
+        response = await sock.recv_pyobj()
         status = response["status"]
     return file_name
 
-def multi_region_stxm_scan(meta, scanRegList):
+async def multi_region_stxm_scan(meta, scanRegList):
     # s = connect(ADDRESS, PORT)
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": meta["scan_type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": meta["scan_type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -315,9 +315,17 @@ def multi_region_stxm_scan(meta, scanRegList):
                                     "zStop": 0,
                                     "zPoints": 0}
         i += 1
+    if "energyList" in meta.keys():
+        scan["energy_list"] = meta["energyList"]
+        scan["dwell"] = meta["dwell"]
+    if meta["spiral"]:
+        scan["driver"] = scans["Spiral Image"]["driver"] #"spiral_image"
+        scan["scan_type"] = 'Spiral Image'
+    else:
+        scan["driver"] = scans["Image"]["driver"] #"line_image"
     message = {"command": "doScan", "scan": scan}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if not response["status"]:
         return False
     file_name = response["data"]
@@ -325,11 +333,11 @@ def multi_region_stxm_scan(meta, scanRegList):
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
-        response = sock.recv_pyobj()
+        response = await sock.recv_pyobj()
         status = response["status"]
     return file_name
 
-def decimate(stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0):
+async def decimate(stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0):
     """
     This is a particle finding routine.  It takes as input a large overview scan and then
     attempts to locate the particles.  It also defines a bounding box around each particle
@@ -375,12 +383,12 @@ def decimate(stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0)
             scanList.append([xstart, xstop, ystart, ystop])
     return scanList
 
-def get_motor_position(motor):
+async def get_motor_position(motor):
     sock.send_pyobj({"command": "getMotorPositions"})
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     return response['data'][motor]
 
-def single_motor_scan(meta):
+async def single_motor_scan(meta):
     running = {'value': True}
 
     def exit_function(event):
@@ -406,7 +414,7 @@ def single_motor_scan(meta):
     y_range = 0
     ycenter = 0
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": meta["xmotor"],
             "y_motor": None,
@@ -445,12 +453,12 @@ def single_motor_scan(meta):
     scan["main_config"] = MAIN_CONFIG
     data = stxm(scan) #create the data structure
     sock.send_pyobj({"command": "getScanID"}) #get the next file name from the server
-    data.file_name = sock.recv_pyobj()["data"]
+    data.file_name = await sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
     move_motor("Energy",data.energies["default"][0])
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motorPositions = [sock.recv_pyobj()["data"]]
+    data.motorPositions = [await sock.recv_pyobj()["data"]]
 
     plt.ion()
     # here we are creating sub plots
@@ -492,7 +500,7 @@ def single_motor_scan(meta):
         figure.canvas.flush_events()
     return data.file_name
 
-def two_motor_scan(meta):
+async def two_motor_scan(meta):
     running = {'value': True}
 
     def exit_function(event):
@@ -520,7 +528,7 @@ def two_motor_scan(meta):
     ycenter = y_range / 2. + ystart
     ypoints = meta['ypoints']
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": meta["xmotor"],
             "y_motor": meta["ymotor"],
@@ -559,11 +567,11 @@ def two_motor_scan(meta):
     scan["main_config"] = MAIN_CONFIG
     data = stxm(scan) #create the data structure
     sock.send_pyobj({"command": "getScanID"}) #get the next file name from the server
-    data.file_name = sock.recv_pyobj()["data"]
+    data.file_name = await sock.recv_pyobj()["data"]
     data.start_time = str(datetime.datetime.now())
     data.startOutput() #allocate the data in the file
     sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-    data.motorPositions = [sock.recv_pyobj()["data"]]
+    data.motorPositions = [await sock.recv_pyobj()["data"]]
 
     plt.ion()
     # here we are creating sub plots
@@ -613,7 +621,7 @@ def two_motor_scan(meta):
         figure.canvas.flush_events()
     return data.file_name
 
-def andor_ptychography_scan(meta):
+async def andor_ptychography_scan(meta):
     xstart = meta['xcenter'] - meta['xrange'] / 2.
     xstop = meta['xcenter'] + meta['xrange'] / 2.
     xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
@@ -625,7 +633,7 @@ def andor_ptychography_scan(meta):
     y_range = ystop - ystart
     ycenter = y_range / 2. + ystart
     energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-    scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": meta["nxFileVersion"],
+    scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
             "sample": meta["Sample"],
             "x_motor": "SampleX",
             "y_motor": "SampleY",
@@ -642,7 +650,7 @@ def andor_ptychography_scan(meta):
             "coarse_only": False,
             "daq list": meta["daq list"],
             "comment": meta["comment"],
-            "driver": scans[scan_type]["driver"], #"ptychography_image",
+            "driver": scans["Ptychography Image"]["driver"],
             "scan_regions": {"Region1": {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": meta['xpoints'],
@@ -669,14 +677,14 @@ def andor_ptychography_scan(meta):
         scan["dwell"] = meta["dwell"]
     message = {"command": "scan", "scan": scan}
     sock.send_pyobj(message)
-    response = sock.recv_pyobj()
+    response = await sock.recv_pyobj()
     if not response["status"]:
         return False
     status = False
     while not status:
         sleep(1)
         sock.send_pyobj({"command":"getStatus"})
-        response = sock.recv_pyobj()
+        response = await sock.recv_pyobj()
         status = response["status"]
     return status
 
@@ -699,5 +707,5 @@ meta["spiral"] = False
 meta["autofocus"] = True
 meta["daq list"] = ["default"]
 meta["comment"] = ""
-MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = get_config()
+MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = asyncio.run(get_config())
 

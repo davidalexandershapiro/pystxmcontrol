@@ -1,4 +1,5 @@
 from pystxmcontrol.controller.scripter import *
+import asyncio
 
 # ##set up and execute basic metadata required of all scans
 meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":3.0, "Sample": "Dong Hyun: R1"}
@@ -21,7 +22,8 @@ print(meta)
 
 #################################################################################################
 ##Get Server Config##############################################################################
-MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = get_config()
+MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = asyncio.run(get_config())
+print(asyncio.run(get_motor_position('CoarseY')))
 
 #################################################################################################
 ##Single Motor Scan##############################################################################

@@ -67,14 +67,13 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         scanInfo['xPos'] = xPos[i]
         scanInfo['yPos'] = yPos[i]
         scanInfo['isDoubleExposure'] = scan['doubleExposure']
-
         if queue.empty():
             if scan["doubleExposure"]:
                 scanInfo['dwell'] = dwell2
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell2, 0)
                 controller.daq["default"].autoGateOpen()
-                time.sleep((dwell2 + 10.) / 1000.)
+                await asyncio.sleep((dwell2 + 10.) / 1000.)
                 await dataHandler.getPoint(scanInfo.copy())
                 frame_num += 1
                 scanInfo["ccd_frame_num"] = frame_num
@@ -82,7 +81,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen()
-                time.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
                     # dataHandler.data.saveRegion(0)
@@ -95,7 +94,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             else:
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
-                time.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 #now get the data
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
@@ -180,6 +179,8 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
         scanInfo["energy"] = energy
         scanInfo['energyIndex'] = energyIndex
         for j in range(nScanRegions):
+            scanInfo["xPoints"]=len(xPos[j])
+            scanInfo["yPoints"]=len(yPos[j])
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
@@ -269,9 +270,9 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             # scanInfo["ptychoMeta"] = scanMeta # ABE - I remove this, and only send it with the start event
             # I also moved the start event to here, so that we can have the full scan metadata dictionary to send
             # dataHandler.zmq_start_event(scan, metadata=scanMeta)
-            dataHandler.zmq_send({'event': 'start', 'data': scan, 'metadata': scanMeta})
+            # dataHandler.zmq_send({'event': 'start', 'data': scan, 'metadata': scanMeta})
 
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
             scanInfo["scanRegion"] = scanRegion
             xp_dark = np.linspace(xp.min(), xp.max(), 5)
             yp_dark = np.linspace(yp.min(), yp.max(), 5)
@@ -306,7 +307,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 return
             while not dataHandler.regionComplete:
                 print("Waiting...")
-                time.sleep(1)
+                await asyncio.sleep(1)
                 # need to wait here until all the data has gone through the pipe
                 pass
             print("Scan region complete, saving data...")

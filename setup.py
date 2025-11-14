@@ -11,8 +11,8 @@ setup(  name = 'pystxmcontrol',
         author_email = 'dashapiro@lbl.gov',
         packages = ['pystxmcontrol','pystxmcontrol.gui','pystxmcontrol.controller',\
             'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans'],
-        data_files = [('pystxmcontrol_cfg',['config/daqConfig.json','config/main.json',\
-                                 'config/motorConfig.json','config/scans.json','config/stxmLog.txt',\
+        data_files = [('pystxmcontrol_cfg',['config/daq.json','config/main.json',\
+                                 'config/motor.json','config/scan.json','config/log.txt',\
                                  'config/xeryon_default.txt'])],
         install_requires = ['numpy<2.0','pyusb','python-usbtmc','pylibftdi','pyvisa-py',\
                              'scipy','scikit-image','pyqtdarktheme', 'pyepics', 'pyserial',\

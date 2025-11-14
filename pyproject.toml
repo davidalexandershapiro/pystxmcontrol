@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pystxmcontrol"
+version = "1.0"
+description = "Basic GUI for ALS STXM Control"
+readme = "README.md"
+requires-python = ">=3.9,<3.13"
+license = "BSD-3-Clause"
+license-files = ["LICENSE.txt"]
+authors = [
+    {name = "David Shapiro", email = "dashapiro@lbl.gov"}
+]
+keywords = ["stxm", "scanning", "microscopy", "gui", "hardware-control"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "numpy<2.0",
+    "pyusb",
+    "python-usbtmc",
+    "pylibftdi",
+    "pyvisa-py",
+    "scipy",
+    "scikit-image",
+    "pyqtdarktheme",
+    "pyepics",
+    "pyserial",
+    "pyzmq",
+    "PySide6==6.8.2.1",
+    "matplotlib",
+    "h5py",
+    "pyqtgraph",
+    "python-dotenv",
+    "opencv-python-headless",
+    "scikit-learn",
+    "PIPython",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black>=23.0",
+    "isort>=5.12",
+    "flake8>=6.0",
+    "mypy>=1.0",
+]
+docs = [
+    "sphinx>=6.0",
+    "sphinx-rtd-theme>=1.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/davidalexandershapiro/pystxmcontrol"
+Documentation = "https://github.com/davidalexandershapiro/pystxmcontrol"
+Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
+"Bug Tracker" = "https://github.com/davidalexandershapiro/pystxmcontrol/issues"
+
+[project.scripts]
+stxmcontrol = "pystxmcontrol.stxmcontrol:main"
+stxmserver = "pystxmcontrol.controller.server:main"
+
+[tool.setuptools]
+packages = ["pystxmcontrol"]
+
+[tool.setuptools.package-data]
+pystxmcontrol = []
+
+[tool.setuptools.data-files]
+"pystxmcontrol_cfg" = [
+    "config/daq.json",
+    "config/main.json",
+    "config/motor.json",
+    "config/scan.json",
+    "config/log.txt",
+    "config/xeryon_default.txt",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+

@@ -24,7 +24,7 @@ class stxmServer:
         self.controller = None
         self.listening = True
         self.running = True
-        self._logger = logger(name = self.__class__.__name__, outfile = os.path.join(sys.prefix,'pystxmcontrol_cfg/stxmLog.txt'))
+        self._logger = logger(name = self.__class__.__name__, outfile = os.path.join(sys.prefix,'pystxmcontrol_cfg/log.txt'))
         self.controller = controller(self.simulation, self._logger)
         self.command_sock.bind("tcp://%s:%s" %(self.controller.main_config["server"]["host"],\
                                                        self.controller.main_config["server"]["command_port"]))

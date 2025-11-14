@@ -560,6 +560,7 @@ class nptController(hardwareController):
         stop_x = x1 - pad[0]
         start_y = y0 + pad[1]
         stop_y = y1 - pad[1]
+ 
         self.positions = np.linspace(start_x, stop_x, trajectory_pixel_count), np.linspace(start_y, stop_y, trajectory_pixel_count)
         xvelocity = (stop_x - start_x) / (trajectory_pixel_count * trajectory_pixel_dwell)
         yvelocity = (stop_y - start_y) / (trajectory_pixel_count * trajectory_pixel_dwell)
