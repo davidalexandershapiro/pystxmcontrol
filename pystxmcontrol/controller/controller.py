@@ -229,16 +229,16 @@ class controller:
     def backupConfig(self):
         basedir = os.path.join(self.main_config["server"]["data_dir"],"pystxmcontrol_data")
         os.makedirs(basedir, exist_ok=True)
-        motorConfigFile = os.path.join(basedir,"motorConfig.json")
+        motorConfigFile = os.path.join(basedir,os.path.split(self.motorConfigFile)[1])
         with open(motorConfigFile,'w') as fp:
             json.dump(self.motorConfig,fp,indent=4)       
-        mainConfigFile = os.path.join(basedir,"main.json")
+        mainConfigFile = os.path.join(basedir,os.path.split(self.mainConfigFile)[1])
         with open(mainConfigFile,'w') as fp:
             json.dump(self.main_config,fp,indent=4)  
-        daqConfigFile = os.path.join(basedir,"daqConfig.json")
+        daqConfigFile = os.path.join(basedir,os.path.split(self.daqConfigFile)[1])
         with open(daqConfigFile,'w') as fp:
             json.dump(self.daqConfigFromFile,fp,indent=4)
-        scanConfigFile = os.path.join(basedir,"scans.json")
+        scanConfigFile = os.path.join(basedir,os.path.split(self.scanConfigFile)[1])
         with open(scanConfigFile,'w') as fp:
             json.dump(self.scanConfig,fp,indent=4)  
 
