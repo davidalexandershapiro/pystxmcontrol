@@ -1,4 +1,4 @@
-from pystxmcontrol.controller.motor import motor
+from pystxmcontrol.controller.motor import motor, SoftwareLimitError
 import time
 
 class xpsMotor(motor):
@@ -16,7 +16,18 @@ class xpsMotor(motor):
         return self.moving
 
     def checkLimits(self, pos):
-        return self.config["minValue"] <= pos <= self.config["maxValue"]
+        if pos < self.config["minValue"]:
+            limit_type = "lower"
+            limit = self.config["minValue"]
+        elif pos > self.config["maxValue"]:
+            limit_type = "upper"
+            limit = self.config["maxValue"]
+        limit_check = self.config["minValue"] <= pos <= self.config["maxValue"]
+        if limit_check:
+            return limit_check
+        else:
+            self.moving = False
+            raise SoftwareLimitError(self.axis, pos, limit, limit_type=limit_type)
 
     def getAxisParams(self):
         dummy,self.velocity, self.acceleration, self.minimumJerkTime, self.maximumJerkTime = \
@@ -51,8 +62,6 @@ class xpsMotor(motor):
                 self._controller_position = (pos - self.config["offset"]) / self.config["units"]
                 self.position = self.getPos()
                 self.controller.moving = False
-        else:
-            print("Software limits exceeded for axis %s. Requested position: %.2f" %(self.axis,pos))
 
     def getPos(self):
         if not(self.simulation):

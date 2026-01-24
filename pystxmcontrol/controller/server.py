@@ -116,8 +116,8 @@ class stxmServer:
                 try:
                     message["data"] = self.controller.moveMotor(message["axis"], message["pos"])
                 except Exception as e:
-                    message['data'] = None
-                    error_msg = str(e)
+                    message['data'] = str(e)
+                    message['status'] = False
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)

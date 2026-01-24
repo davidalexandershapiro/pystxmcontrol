@@ -28,7 +28,7 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
     scanInfo["energyIndex"] = 0
     scanInfo["energy"] = energies[energyIndex]
     scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
-    scanInfo['daq list'] = scan['daq list']
+    scanInfo['daq_list'] = scan['daq_list']
     scanInfo["rawData"] = {}
     for daq in controller.daq.keys():
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}

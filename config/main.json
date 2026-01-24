@@ -67,8 +67,9 @@
             "y_motor": "SampleY",
             "defocus": true,
             "autofocus": true,
+            "energy_list": null,
             "coarse_only": false,
-            "daq list": [
+            "daq_list": [
                 "default"
             ],
             "oversampling_factor": 1,
@@ -124,6 +125,7 @@
             "oversampling_factor": 1,
             "refocus": true,
             "retract": true,
+            "energy_list": null,
             "scan_regions": {
                 "Region1": {
                     "xStart": -4.9,
@@ -176,7 +178,8 @@
             "oversampling_factor": 1,
             "autofocus": true,
             "coarse_only": false,
-            "daq list": [
+            "energy_list": null,
+            "daq_list": [
                 "default",
                 "xrf"
             ],
@@ -233,7 +236,8 @@
             "oversampling_factor": 1,
             "autofocus": true,
             "coarse_only": false,
-            "daq list": [
+            "energy_list": null,
+            "daq_list": [
                 "default",
                 "xrf"
             ],
@@ -290,7 +294,8 @@
             "oversampling_factor": 1,
             "autofocus": true,
             "coarse_only": false,
-            "daq list": [
+            "energy_list": null,
+            "daq_list": [
                 "default",
                 "xrf"
             ],
@@ -346,7 +351,8 @@
             "defocus": true,
             "autofocus": true,
             "coarse_only": false,
-            "daq list": [
+            "energy_list": null,
+            "daq_list": [
                 "default"
             ],
             "oversampling_factor": 1,
@@ -401,7 +407,8 @@
             "defocus": true,
             "autofocus": true,
             "coarse_only": false,
-            "daq list": [
+            "energy_list": null,
+            "daq_list": [
                 "default"
             ],
             "oversampling_factor": 1,
@@ -458,7 +465,8 @@
             "oversampling_factor": 1,
             "autofocus": true,
             "coarse_only": false,
-            "daq list": [
+            "energy_list": null,
+            "daq_list": [
                 "default",
                 "xrf"
             ],

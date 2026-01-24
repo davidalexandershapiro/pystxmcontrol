@@ -183,8 +183,8 @@ class stxm:
                 self.data[entryStr]["xstepsize"] = (xpos.max() - xpos.min())/(xpos.size - 1)
                 self.data[entryStr]["ystepsize"] = (ypos.max() - ypos.min())/(ypos.size - 1)
                 try:
-                    self.meta["x_motor"] = self._nx_reader[entryStr + "/data/motor_name_x"][()].decode()
-                    self.meta["y_motor"] = self._nx_reader[entryStr + "/data/motor_name_y"][()].decode()
+                    self.meta["x_motor"] = self._nx_reader[entryStr + "/default/motor_name_x"][()].decode()
+                    self.meta["y_motor"] = self._nx_reader[entryStr + "/default/motor_name_y"][()].decode()
                 except:
                     pass
 
@@ -210,7 +210,7 @@ class stxm:
 
     def _extractEnergies(self, scan):
         ##get energies
-        self.daq_list = scan["daq list"]
+        self.daq_list = scan["daq_list"]
         self.dwells = np.array(())
         self.energies = {daq: [] for daq in self.daq_list}
         if scan.get("energy_list") is None:
@@ -229,7 +229,7 @@ class stxm:
         self.xMeasured, self.yMeasured, self.zMeasured = [], [], []
         self.xstepsize = []
         self.ystepsize = []
-        self.daq_list = scan["daq list"]
+        self.daq_list = scan["daq_list"]
         self.counts = {daq: [] for daq in self.daq_list}
         self.interp_counts = {daq: [] for daq in self.daq_list} 
 
@@ -259,7 +259,7 @@ class stxm:
             self.xMeasured.append(np.zeros(nPixels_m))
             self.yMeasured.append(np.zeros(nPixels_m))
             self.zMeasured.append(np.zeros(nPixels_m))
-            for daq in scan["daq list"]:
+            for daq in scan["daq_list"]:
                 self.counts[daq].append(np.zeros((self.energies["default"].size,nPixels_m))) #this is a long vector of measured positions
                 self.interp_counts[daq].append(np.zeros((self.energies["default"].size,nyPos,nxPos))) #this is a matrix of requested positions
   
@@ -313,7 +313,6 @@ class stxm:
                 self.updateEntry(i)
             self.end_time = datetime.datetime.now().isoformat()
             self._nx_writer[f'entry{i}/end_time'][...] = str(self.end_time).encode("UTF_8")
-
         except Exception:
             # File is closed or invalid - silently skip save
             pass
@@ -401,7 +400,7 @@ class stxm:
             d.attrs["signal"] = "data"
             d.create_dataset("stxm_scan_type",data=[self.scan_dict["scan_type"]])
             d.create_dataset("data",data=np.zeros_like(self.interp_counts[daq][i]))
-            energy = d.create_dataset("energy",data=self.energies["default"])
+            energy = d.create_dataset("energy",data=self.energies[daq])
             energy.attrs["axis"] = 1
             d.create_dataset("count_time",data=self.dwells)
             sample_y = d.create_dataset("sample_y",data=self.yPos[i])

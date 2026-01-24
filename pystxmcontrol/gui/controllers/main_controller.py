@@ -295,7 +295,7 @@ class MainController(QObject):
             self.scan_model.set('proposal', view.ui.proposalComboBox.currentText() if view.ui.proposalComboBox.count() > 0 else '')
             self.scan_model.set('experimenters', view.ui.experimentersLineEdit.text())
             self.scan_model.set('sample', view.ui.sampleLineEdit.text())
-            self.scan_model.set('driver',self.client.scanConfig["scans"][scan_type]['driver'])
+            self.scan_model.set('driver',self.client.scanConfig[scan_type]['driver'])
             
             # Collect scan regions from widgets
             for i, region_widget in enumerate(view.scan_region_widgets):

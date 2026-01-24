@@ -22,7 +22,7 @@ Classifier: Topic :: Scientific/Engineering
 Requires-Python: <3.13,>=3.9
 Description-Content-Type: text/markdown
 License-File: LICENSE.txt
-Requires-Dist: numpy<2.0
+Requires-Dist: numpy
 Requires-Dist: pyusb
 Requires-Dist: python-usbtmc
 Requires-Dist: pylibftdi
@@ -66,7 +66,7 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Low scan overhead
 - Microsecond shutter timing and synchronization using an Arduino Due microcontroller
 - Full integration of ptychography scanning
-- Data logger which saves to a database all commands, motor moves and motor positions at a defined interval
+- Logging of motor positions, moves and scans
 
 # Currently supported devices
 - [Mad City Labs](https://www.madcitylabs.com/nanodrive.html) Nano-Drive controller
@@ -89,7 +89,7 @@ Ubuntu requires this package to be installed in some cases for PySide6 to functi
 sudo apt install  libxcb-cursor0
 ```
 
-#### automatically installed by pip
+### Automatically installed by pip
 
 - Numpy
 - Scipy
@@ -104,17 +104,14 @@ sudo apt install  libxcb-cursor0
 - pyside6 = 6.8.2
 - pyqtgraph
 - pyqtdarktheme
-- griffe = 0.47
-- prefect = 2.14.3
-- pydantic = 1.10.4
 - python-dotenv
 - PIPython
 
 # Environment setup and installation using miniconda3 and pip
 - On both Windows, Mac or LInux install [miniconda3](https://docs.conda.io/en/latest/miniconda.html) and activate the base environment
-- Create a conda environment with Python version <3.12
+- Create a conda environment with Python version <=3.12
 ```
-conda create -n [my_env_name] python=3.11
+conda create -n [my_env_name] python=3.12
 conda activate [my_env_name]
 ```
 - Clone pystxmcontrol and install
@@ -126,19 +123,11 @@ pip install .
 
 # Running pystxmcontrol
 - edit [path_to_conda_env]/pystxmcontrol_cfg/main.json
-  - change "server/host" to localhost for local operation or the IP of the machine on which the server will run
+  - change "server/host" to localhost for local operation or the IP of the machine on which the server will run (if you wish to use a remote GUI)
   - change "server/data_dir" to an existing location for saving data on the server.  On Windows double rather than single backslashes must be used in the path
-- edit [path_to_conda_env]/pystxmcontrol_cfg/motorConfig.json.  This is described further in the documentation.
-- In one terminal (or Anaconda Powershell on Windows):
-```
-cd pystxmcontrol
-python pystxmcontrol/controller/server.py
-```
-- In another terminal:
-```
-cd pystxmcontrol
-python pystxmcontrol/stxmcontrol.py
-```
+- edit [path_to_conda_env]/pystxmcontrol_cfg/motor.json as needed for your motor system.  This is described further in the documentation.
+- In one terminal (or Anaconda Powershell on Windows) enter: stxmserver
+- In another terminal enter: stxmcontrol
 
 # Contact us
 

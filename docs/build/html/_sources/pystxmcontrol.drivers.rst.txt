@@ -20,14 +20,6 @@ pystxmcontrol.drivers.U2356A module
    :undoc-members:
    :show-inheritance:
 
-pystxmcontrol.drivers.Xeryon module
------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.Xeryon
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pystxmcontrol.drivers.bcsController module
 ------------------------------------------
 
@@ -52,22 +44,6 @@ pystxmcontrol.drivers.bcsServer module
    :undoc-members:
    :show-inheritance:
 
-pystxmcontrol.drivers.cin module
---------------------------------
-
-.. automodule:: pystxmcontrol.drivers.cin
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.cin\_register\_map module
------------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.cin_register_map
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pystxmcontrol.drivers.epicsController module
 --------------------------------------------
 
@@ -84,34 +60,10 @@ pystxmcontrol.drivers.epicsMotor module
    :undoc-members:
    :show-inheritance:
 
-pystxmcontrol.drivers.fccd module
----------------------------------
-
-.. automodule:: pystxmcontrol.drivers.fccd
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.fccd\_control module
-------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.fccd_control
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pystxmcontrol.drivers.keysight53230A module
 -------------------------------------------
 
 .. automodule:: pystxmcontrol.drivers.keysight53230A
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.keysight53230A\_IOC module
-------------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.keysight53230A_IOC
    :members:
    :undoc-members:
    :show-inheritance:
@@ -136,22 +88,6 @@ pystxmcontrol.drivers.keysightU2356A module
 -------------------------------------------
 
 .. automodule:: pystxmcontrol.drivers.keysightU2356A
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.mcc module
---------------------------------
-
-.. automodule:: pystxmcontrol.drivers.mcc
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.mccCounter module
----------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.mccCounter
    :members:
    :undoc-members:
    :show-inheritance:
@@ -188,46 +124,6 @@ pystxmcontrol.drivers.nptMotor module
    :undoc-members:
    :show-inheritance:
 
-pystxmcontrol.drivers.nptMotor\_jr2 module
-------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.nptMotor_jr2
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.nptMotor\_jrtest module
----------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.nptMotor_jrtest
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.npt\_IOC module
--------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.npt_IOC
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.npt\_IOC\_jrtest module
----------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.npt_IOC_jrtest
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.npt\_ioc\_clean module
---------------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.npt_ioc_clean
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pystxmcontrol.drivers.shutter module
 ------------------------------------
 
@@ -256,14 +152,6 @@ pystxmcontrol.drivers.xpsMotor module
 -------------------------------------
 
 .. automodule:: pystxmcontrol.drivers.xpsMotor
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pystxmcontrol.drivers.zpScanner module
---------------------------------------
-
-.. automodule:: pystxmcontrol.drivers.zpScanner
    :members:
    :undoc-members:
    :show-inheritance:

@@ -49,6 +49,8 @@
 <li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripting_link.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_link.html">Data</a></li>
+<li class="toctree-l1"><a class="reference internal" href="logging_link.html">Logging</a></li>
 </ul>
 
         </div>
@@ -226,10 +228,89 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol-controller-scan-module">pystxmcontrol.controller.scan module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.scans.base_scan">pystxmcontrol.controller.scans.base_scan module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan"><code class="docutils literal notranslate"><span class="pre">BaseScan</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.__init__"><code class="docutils literal notranslate"><span class="pre">BaseScan.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.calculate_actual_dwell"><code class="docutils literal notranslate"><span class="pre">BaseScan.calculate_actual_dwell()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.check_abort"><code class="docutils literal notranslate"><span class="pre">BaseScan.check_abort()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.configure_daqs"><code class="docutils literal notranslate"><span class="pre">BaseScan.configure_daqs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.disable_position_trigger"><code class="docutils literal notranslate"><span class="pre">BaseScan.disable_position_trigger()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.execute_scan"><code class="docutils literal notranslate"><span class="pre">BaseScan.execute_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.get_daq_timing_parameters"><code class="docutils literal notranslate"><span class="pre">BaseScan.get_daq_timing_parameters()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.get_scan_region_geometry"><code class="docutils literal notranslate"><span class="pre">BaseScan.get_scan_region_geometry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.handle_abort"><code class="docutils literal notranslate"><span class="pre">BaseScan.handle_abort()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.handle_energy_and_focus"><code class="docutils literal notranslate"><span class="pre">BaseScan.handle_energy_and_focus()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.initialize_scan_info"><code class="docutils literal notranslate"><span class="pre">BaseScan.initialize_scan_info()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.move_coarse_to_range"><code class="docutils literal notranslate"><span class="pre">BaseScan.move_coarse_to_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.run"><code class="docutils literal notranslate"><span class="pre">BaseScan.run()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_daqs"><code class="docutils literal notranslate"><span class="pre">BaseScan.setup_daqs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_motor_trajectory"><code class="docutils literal notranslate"><span class="pre">BaseScan.setup_motor_trajectory()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_position_trigger"><code class="docutils literal notranslate"><span class="pre">BaseScan.setup_position_trigger()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_scan_geometry"><code class="docutils literal notranslate"><span class="pre">BaseScan.setup_scan_geometry()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.update_motor_positions"><code class="docutils literal notranslate"><span class="pre">BaseScan.update_motor_positions()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.spiral">pystxmcontrol.controller.spiral module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.spiral.parameterize_spiral"><code class="docutils literal notranslate"><span class="pre">parameterize_spiral()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.spiral.spiralcreator"><code class="docutils literal notranslate"><span class="pre">spiralcreator()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.scripter">pystxmcontrol.controller.scripter module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter"><code class="docutils literal notranslate"><span class="pre">scripter</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.__init__"><code class="docutils literal notranslate"><span class="pre">scripter.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.andor_ptychography_scan"><code class="docutils literal notranslate"><span class="pre">scripter.andor_ptychography_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.decimate"><code class="docutils literal notranslate"><span class="pre">scripter.decimate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.get_config"><code class="docutils literal notranslate"><span class="pre">scripter.get_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.get_motor_position"><code class="docutils literal notranslate"><span class="pre">scripter.get_motor_position()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.move_motor"><code class="docutils literal notranslate"><span class="pre">scripter.move_motor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.multi_region_ptychography_scan"><code class="docutils literal notranslate"><span class="pre">scripter.multi_region_ptychography_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.multi_region_stxm_scan"><code class="docutils literal notranslate"><span class="pre">scripter.multi_region_stxm_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.ptychography_scan"><code class="docutils literal notranslate"><span class="pre">scripter.ptychography_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.read_daq"><code class="docutils literal notranslate"><span class="pre">scripter.read_daq()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.single_motor_scan"><code class="docutils literal notranslate"><span class="pre">scripter.single_motor_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.start_monitor"><code class="docutils literal notranslate"><span class="pre">scripter.start_monitor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.stop_monitor"><code class="docutils literal notranslate"><span class="pre">scripter.stop_monitor()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.stxm_scan"><code class="docutils literal notranslate"><span class="pre">scripter.stxm_scan()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.two_motor_scan"><code class="docutils literal notranslate"><span class="pre">scripter.two_motor_scan()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.operation_logger">pystxmcontrol.controller.operation_logger module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger"><code class="docutils literal notranslate"><span class="pre">OperationLogger</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.__init__"><code class="docutils literal notranslate"><span class="pre">OperationLogger.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_command"><code class="docutils literal notranslate"><span class="pre">OperationLogger.log_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_motor_move"><code class="docutils literal notranslate"><span class="pre">OperationLogger.log_motor_move()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_motor_position"><code class="docutils literal notranslate"><span class="pre">OperationLogger.log_motor_position()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_scan_end"><code class="docutils literal notranslate"><span class="pre">OperationLogger.log_scan_end()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_scan_start"><code class="docutils literal notranslate"><span class="pre">OperationLogger.log_scan_start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_commands"><code class="docutils literal notranslate"><span class="pre">OperationLogger.plot_commands()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_motor_moves"><code class="docutils literal notranslate"><span class="pre">OperationLogger.plot_motor_moves()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_motor_positions"><code class="docutils literal notranslate"><span class="pre">OperationLogger.plot_motor_positions()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_motor_with_commands"><code class="docutils literal notranslate"><span class="pre">OperationLogger.plot_motor_with_commands()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_commands"><code class="docutils literal notranslate"><span class="pre">OperationLogger.query_commands()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_motor_moves"><code class="docutils literal notranslate"><span class="pre">OperationLogger.query_motor_moves()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_motor_positions"><code class="docutils literal notranslate"><span class="pre">OperationLogger.query_motor_positions()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_scans"><code class="docutils literal notranslate"><span class="pre">OperationLogger.query_scans()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.start"><code class="docutils literal notranslate"><span class="pre">OperationLogger.start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.stop"><code class="docutils literal notranslate"><span class="pre">OperationLogger.stop()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.zmq_publisher">pystxmcontrol.controller.zmq_publisher module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.__init__"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.cleanup"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.cleanup()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.publish_ccd_frame"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.publish_ccd_frame()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.publish_stxm_data"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.publish_stxm_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.publish_stxm_string"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.publish_stxm_string()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.send_scan_start_event"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.send_scan_start_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.send_scan_stop_event"><code class="docutils literal notranslate"><span class="pre">ZMQPublisher.send_scan_stop_event()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.controller.html#module-pystxmcontrol.controller">Module contents</a></li>
@@ -263,7 +344,6 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-xeryon-module">pystxmcontrol.drivers.Xeryon module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.bcsController">pystxmcontrol.drivers.bcsController module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsController.bcsController"><code class="docutils literal notranslate"><span class="pre">bcsController</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsController.bcsController.__init__"><code class="docutils literal notranslate"><span class="pre">bcsController.__init__()</span></code></a></li>
@@ -300,56 +380,6 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.cin">pystxmcontrol.drivers.cin module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.ByteToHex"><code class="docutils literal notranslate"><span class="pre">ByteToHex()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN"><code class="docutils literal notranslate"><span class="pre">CIN</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CINPowerDown"><code class="docutils literal notranslate"><span class="pre">CIN.CINPowerDown()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CINPowerUp"><code class="docutils literal notranslate"><span class="pre">CIN.CINPowerUp()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CIN_FP_PowerDown"><code class="docutils literal notranslate"><span class="pre">CIN.CIN_FP_PowerDown()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CIN_FP_PowerUp"><code class="docutils literal notranslate"><span class="pre">CIN.CIN_FP_PowerUp()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.__init__"><code class="docutils literal notranslate"><span class="pre">CIN.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.allPowerDown"><code class="docutils literal notranslate"><span class="pre">CIN.allPowerDown()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.allPowerUp"><code class="docutils literal notranslate"><span class="pre">CIN.allPowerUp()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.clearFocusBit"><code class="docutils literal notranslate"><span class="pre">CIN.clearFocusBit()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.flashFpCfgLeds"><code class="docutils literal notranslate"><span class="pre">CIN.flashFpCfgLeds()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.flashFpFrmLeds"><code class="docutils literal notranslate"><span class="pre">CIN.flashFpFrmLeds()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getAltExpTime"><code class="docutils literal notranslate"><span class="pre">CIN.getAltExpTime()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getCfgFPGAStatus"><code class="docutils literal notranslate"><span class="pre">CIN.getCfgFPGAStatus()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getExpTime"><code class="docutils literal notranslate"><span class="pre">CIN.getExpTime()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getFrmDone"><code class="docutils literal notranslate"><span class="pre">CIN.getFrmDone()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getPowerStatus"><code class="docutils literal notranslate"><span class="pre">CIN.getPowerStatus()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getTriggerMask"><code class="docutils literal notranslate"><span class="pre">CIN.getTriggerMask()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.get_FOPS_Status"><code class="docutils literal notranslate"><span class="pre">CIN.get_FOPS_Status()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.get_register"><code class="docutils literal notranslate"><span class="pre">CIN.get_register()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.loadCameraConfigFile"><code class="docutils literal notranslate"><span class="pre">CIN.loadCameraConfigFile()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.loadFrmFirmware"><code class="docutils literal notranslate"><span class="pre">CIN.loadFrmFirmware()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.resetCounter"><code class="docutils literal notranslate"><span class="pre">CIN.resetCounter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setAltExpTime"><code class="docutils literal notranslate"><span class="pre">CIN.setAltExpTime()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setCameraOff"><code class="docutils literal notranslate"><span class="pre">CIN.setCameraOff()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setCameraOn"><code class="docutils literal notranslate"><span class="pre">CIN.setCameraOn()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setContTrig"><code class="docutils literal notranslate"><span class="pre">CIN.setContTrig()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setExpMode"><code class="docutils literal notranslate"><span class="pre">CIN.setExpMode()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setExpTime"><code class="docutils literal notranslate"><span class="pre">CIN.setExpTime()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFClk125M"><code class="docutils literal notranslate"><span class="pre">CIN.setFClk125M()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFOtestpattern"><code class="docutils literal notranslate"><span class="pre">CIN.setFOtestpattern()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFPPowerOn"><code class="docutils literal notranslate"><span class="pre">CIN.setFPPowerOn()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFocusBit"><code class="docutils literal notranslate"><span class="pre">CIN.setFocusBit()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setTriggerExt"><code class="docutils literal notranslate"><span class="pre">CIN.setTriggerExt()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setTriggerMask"><code class="docutils literal notranslate"><span class="pre">CIN.setTriggerMask()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setTriggerSW"><code class="docutils literal notranslate"><span class="pre">CIN.setTriggerSW()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setVClamp"><code class="docutils literal notranslate"><span class="pre">CIN.setVClamp()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.set_FOPS_Off"><code class="docutils literal notranslate"><span class="pre">CIN.set_FOPS_Off()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.set_FOPS_On"><code class="docutils literal notranslate"><span class="pre">CIN.set_FOPS_On()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.set_register"><code class="docutils literal notranslate"><span class="pre">CIN.set_register()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.stopTrigger"><code class="docutils literal notranslate"><span class="pre">CIN.stopTrigger()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.HexToByte"><code class="docutils literal notranslate"><span class="pre">HexToByte()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.connect2daq"><code class="docutils literal notranslate"><span class="pre">connect2daq()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.current_calc"><code class="docutils literal notranslate"><span class="pre">current_calc()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.cin_register_map">pystxmcontrol.drivers.cin_register_map module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.epicsController">pystxmcontrol.drivers.epicsController module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsController.epicsController"><code class="docutils literal notranslate"><span class="pre">epicsController</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsController.epicsController.__init__"><code class="docutils literal notranslate"><span class="pre">epicsController.__init__()</span></code></a></li>
@@ -372,43 +402,6 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.fccd">pystxmcontrol.drivers.fccd module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD"><code class="docutils literal notranslate"><span class="pre">FCCD</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.__init__"><code class="docutils literal notranslate"><span class="pre">FCCD.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.adcmask"><code class="docutils literal notranslate"><span class="pre">FCCD.adcmask()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.assemble"><code class="docutils literal notranslate"><span class="pre">FCCD.assemble()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.assemble2"><code class="docutils literal notranslate"><span class="pre">FCCD.assemble2()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.assemble_nomask"><code class="docutils literal notranslate"><span class="pre">FCCD.assemble_nomask()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.attenuate"><code class="docutils literal notranslate"><span class="pre">FCCD.attenuate()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.deattenuate"><code class="docutils literal notranslate"><span class="pre">FCCD.deattenuate()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.descramble"><code class="docutils literal notranslate"><span class="pre">FCCD.descramble()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.downsample"><code class="docutils literal notranslate"><span class="pre">FCCD.downsample()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.lowpass"><code class="docutils literal notranslate"><span class="pre">FCCD.lowpass()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.preprocessing"><code class="docutils literal notranslate"><span class="pre">FCCD.preprocessing()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.scramble"><code class="docutils literal notranslate"><span class="pre">FCCD.scramble()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.tif2raw"><code class="docutils literal notranslate"><span class="pre">FCCD.tif2raw()</span></code></a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.fccd_control">pystxmcontrol.drivers.fccd_control module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control"><code class="docutils literal notranslate"><span class="pre">fccd_control</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.__init__"><code class="docutils literal notranslate"><span class="pre">fccd_control.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.config"><code class="docutils literal notranslate"><span class="pre">fccd_control.config()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.frame_to_image"><code class="docutils literal notranslate"><span class="pre">fccd_control.frame_to_image()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.getLine"><code class="docutils literal notranslate"><span class="pre">fccd_control.getLine()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.getPoint"><code class="docutils literal notranslate"><span class="pre">fccd_control.getPoint()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.init"><code class="docutils literal notranslate"><span class="pre">fccd_control.init()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.process_frame"><code class="docutils literal notranslate"><span class="pre">fccd_control.process_frame()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.set_dwell"><code class="docutils literal notranslate"><span class="pre">fccd_control.set_dwell()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.start"><code class="docutils literal notranslate"><span class="pre">fccd_control.start()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.stop"><code class="docutils literal notranslate"><span class="pre">fccd_control.stop()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.zmq_receive"><code class="docutils literal notranslate"><span class="pre">fccd_control.zmq_receive()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.poisson"><code class="docutils literal notranslate"><span class="pre">poisson()</span></code></a></li>
-</ul>
-</li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.keysight53230A">pystxmcontrol.drivers.keysight53230A module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.keysight53230A"><code class="docutils literal notranslate"><span class="pre">keysight53230A</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.keysight53230A.__init__"><code class="docutils literal notranslate"><span class="pre">keysight53230A.__init__()</span></code></a></li>
@@ -429,7 +422,6 @@
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.poisson"><code class="docutils literal notranslate"><span class="pre">poisson()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-keysight53230a-ioc-module">pystxmcontrol.drivers.keysight53230A_IOC module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.keysightA33500B">pystxmcontrol.drivers.keysightA33500B module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B"><code class="docutils literal notranslate"><span class="pre">keysightA33500B</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B.__init__"><code class="docutils literal notranslate"><span class="pre">keysightA33500B.__init__()</span></code></a></li>
@@ -476,8 +468,6 @@
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightU2356A.poisson"><code class="docutils literal notranslate"><span class="pre">poisson()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-mcc-module">pystxmcontrol.drivers.mcc module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-mcccounter-module">pystxmcontrol.drivers.mccCounter module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.mmcController">pystxmcontrol.drivers.mmcController module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mmcController.mmcController"><code class="docutils literal notranslate"><span class="pre">mmcController</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mmcController.mmcController.__init__"><code class="docutils literal notranslate"><span class="pre">mmcController.__init__()</span></code></a></li>
@@ -592,11 +582,6 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-nptmotor-jr2-module">pystxmcontrol.drivers.nptMotor_jr2 module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-nptmotor-jrtest-module">pystxmcontrol.drivers.nptMotor_jrtest module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-npt-ioc-module">pystxmcontrol.drivers.npt_IOC module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-npt-ioc-jrtest-module">pystxmcontrol.drivers.npt_IOC_jrtest module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-npt-ioc-clean-module">pystxmcontrol.drivers.npt_ioc_clean module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.shutter">pystxmcontrol.drivers.shutter module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.shutter.shutter"><code class="docutils literal notranslate"><span class="pre">shutter</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.shutter.shutter.__init__"><code class="docutils literal notranslate"><span class="pre">shutter.__init__()</span></code></a></li>
@@ -627,6 +612,8 @@
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.__init__"><code class="docutils literal notranslate"><span class="pre">xpsController.__init__()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.abortMove"><code class="docutils literal notranslate"><span class="pre">xpsController.abortMove()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.connect"><code class="docutils literal notranslate"><span class="pre">xpsController.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.disable_axis"><code class="docutils literal notranslate"><span class="pre">xpsController.disable_axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.enable_axis"><code class="docutils literal notranslate"><span class="pre">xpsController.enable_axis()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.getParameters"><code class="docutils literal notranslate"><span class="pre">xpsController.getParameters()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.getPosition"><code class="docutils literal notranslate"><span class="pre">xpsController.getPosition()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.initialize"><code class="docutils literal notranslate"><span class="pre">xpsController.initialize()</span></code></a></li>
@@ -653,7 +640,6 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol-drivers-zpscanner-module">pystxmcontrol.drivers.zpScanner module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers">Module contents</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.E712Controller"><code class="docutils literal notranslate"><span class="pre">E712Controller</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.E712Controller.__init__"><code class="docutils literal notranslate"><span class="pre">E712Controller.__init__()</span></code></a></li>
@@ -787,6 +773,30 @@
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.start"><code class="docutils literal notranslate"><span class="pre">fccd_control.start()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.stop"><code class="docutils literal notranslate"><span class="pre">fccd_control.stop()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.zmq_receive"><code class="docutils literal notranslate"><span class="pre">fccd_control.zmq_receive()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.__init__"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.checkLimits"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.checkLimits()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.checkRange"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.checkRange()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.connect"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.decompose"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.decompose()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.decompose_range"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.decompose_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.getPID"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.getPID()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.getPos"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.getPos()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.getStatus"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.getStatus()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveBy"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.moveBy()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveCoarse"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.moveCoarse()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveLine"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.moveLine()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveTo"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.moveTo()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.move_coarse_to_fine_range"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.move_coarse_to_fine_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.scale2controller"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.scale2controller()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.scale2gui"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.scale2gui()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.setPID"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.setPID()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.setPositionTriggerOff"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.setPositionTriggerOff()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.setPositionTriggerOn"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.setPositionTriggerOn()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.stop"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.stop()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.update_trajectory"><code class="docutils literal notranslate"><span class="pre">inclinedDerivedPiezo.update_trajectory()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A"><code class="docutils literal notranslate"><span class="pre">keysight53230A</span></code></a><ul>
@@ -1013,6 +1023,8 @@
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.__init__"><code class="docutils literal notranslate"><span class="pre">xpsController.__init__()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.abortMove"><code class="docutils literal notranslate"><span class="pre">xpsController.abortMove()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.connect"><code class="docutils literal notranslate"><span class="pre">xpsController.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.disable_axis"><code class="docutils literal notranslate"><span class="pre">xpsController.disable_axis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.enable_axis"><code class="docutils literal notranslate"><span class="pre">xpsController.enable_axis()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.getParameters"><code class="docutils literal notranslate"><span class="pre">xpsController.getParameters()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.getPosition"><code class="docutils literal notranslate"><span class="pre">xpsController.getPosition()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.initialize"><code class="docutils literal notranslate"><span class="pre">xpsController.initialize()</span></code></a></li>

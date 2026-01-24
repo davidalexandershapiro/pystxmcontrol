@@ -63,7 +63,7 @@ class BaseScan(ABC):
         self.scanInfo = {
             "scan": self.scan,
             "type": self.scan["scan_type"],
-            "daq list": self.scan.get("daq list", ["default"]),
+            "daq_list": self.scan.get("daq_list", ["default"]),
             "direction": "forward",
             "rawData": {}
         }
@@ -78,7 +78,7 @@ class BaseScan(ABC):
         energies = self.dataHandler.data.energies.get("default", [])
 
         # Initialize rawData structure for each DAQ
-        for daq in self.scanInfo["daq list"]:
+        for daq in self.scanInfo["daq_list"]:
             daq_meta = self.controller.daq[daq].meta
             self.scanInfo["rawData"][daq] = {
                 "meta": daq_meta,
@@ -102,7 +102,7 @@ class BaseScan(ABC):
 
         :return: (min_dwell, dwell_pad, time_resolution) tuple
         """
-        daq_list = self.scanInfo["daq list"]
+        daq_list = self.scanInfo["daq_list"]
 
         # Find minimum dwell from non-simulation DAQs
         min_dwell = max([

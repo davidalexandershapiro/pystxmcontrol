@@ -33,7 +33,7 @@ class LinearSpectrumScan(BaseScan):
             "oversampling_factor": self.controller.daq["default"].meta["oversampling_factor"],
             "totalSplit": None,
             "coarse_only": self.scan.get("coarse_only", False),
-            "include_return": self.controller.scanConfig["scans"][self.scan["scan_type"]]["include_return"]
+            "include_return": self.controller.scanConfig[self.scan["scan_type"]]["include_return"]
         })
 
     async def execute_scan(self) -> bool:

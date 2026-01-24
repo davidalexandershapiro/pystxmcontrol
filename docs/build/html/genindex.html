@@ -47,6 +47,8 @@
 <li class="toctree-l1"><a class="reference internal" href="daq_link.html">Daq Device</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scan_link.html">Scans</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripting_link.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_link.html">Data</a></li>
+<li class="toctree-l1"><a class="reference internal" href="logging_link.html">Logging</a></li>
 </ul>
 
         </div>
@@ -90,7 +92,9 @@
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
+ | <a href="#O"><strong>O</strong></a>
  | <a href="#P"><strong>P</strong></a>
+ | <a href="#Q"><strong>Q</strong></a>
  | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
@@ -128,6 +132,14 @@
 </li>
         <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.motor.motor.__init__">(pystxmcontrol.controller.motor.motor method)</a>
 </li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.__init__">(pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.__init__">(pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.__init__">(pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.__init__">(pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.__init__">(pystxmcontrol.drivers.A33500B.A33500B method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector.__init__">(pystxmcontrol.drivers.areaDetector method)</a>
@@ -141,8 +153,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsMotor.bcsMotor.__init__">(pystxmcontrol.drivers.bcsMotor.bcsMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsServer.bcsServer.__init__">(pystxmcontrol.drivers.bcsServer.bcsServer method)</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.__init__">(pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedEnergy.__init__">(pystxmcontrol.drivers.derivedEnergy method)</a>
 </li>
@@ -162,11 +172,9 @@
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.__init__">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
 </li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.__init__">(pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.__init__">(pystxmcontrol.drivers.fccd_control method)</a>
 </li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.__init__">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.__init__">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.__init__">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
@@ -253,31 +261,19 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.acquire_xy">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.adcmask">adcmask() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.addAxis">addAxis() (pystxmcontrol.drivers.xerController method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.addController">addController() (pystxmcontrol.controller.controller.controller method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.addDataToStack">addDataToStack() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.customwidget.customWidget.addWidget">addWidget() (pystxmcontrol.gui.customwidget.customWidget method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.allPowerDown">allPowerDown() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.allPowerUp">allPowerUp() (pystxmcontrol.drivers.cin.CIN method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.andor_ptychography_scan">andor_ptychography_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector">areaDetector (class in pystxmcontrol.drivers)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.assemble">assemble() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.assemble2">assemble2() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.assemble_nomask">assemble_nomask() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.attenuate">attenuate() (pystxmcontrol.drivers.fccd.FCCD method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.autoGateClosed">autoGateClosed() (pystxmcontrol.drivers.keysight53230A method)</a>
 
@@ -303,6 +299,8 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.backupConfig">backupConfig() (pystxmcontrol.controller.controller.controller method)</a>
 </li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan">BaseScan (class in pystxmcontrol.controller.scans.base_scan)</a>
+</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsController">bcsController (class in pystxmcontrol.drivers)</a>
 
       <ul>
@@ -327,19 +325,21 @@
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightCounter.counter.busTrigger">busTrigger() (pystxmcontrol.drivers.keysightCounter.counter method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.ByteToHex">ByteToHex() (in module pystxmcontrol.drivers.cin)</a>
-</li>
   </ul></td>
 </tr></table>
 
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.calculate_actual_dwell">calculate_actual_dwell() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.ccd_monitor">ccd_monitor (class in pystxmcontrol.controller.client)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.change_motor_config">change_motor_config() (pystxmcontrol.controller.client.stxm_client method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.changeMotorConfig">changeMotorConfig() (pystxmcontrol.controller.controller.controller method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.check_abort">check_abort() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsMotor.checkLimits">checkLimits() (pystxmcontrol.drivers.bcsMotor method)</a>
 
@@ -353,6 +353,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.checkLimits">(pystxmcontrol.drivers.epicsMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.checkLimits">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
+</li>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.checkLimits">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.checkLimits">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
@@ -374,26 +376,20 @@
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.checkRange">checkRange() (pystxmcontrol.drivers.derivedPiezo method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.checkRange">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN">CIN (class in pystxmcontrol.drivers.cin)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CIN_FP_PowerDown">CIN_FP_PowerDown() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CIN_FP_PowerUp">CIN_FP_PowerUp() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CINPowerDown">CINPowerDown() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.CINPowerUp">CINPowerUp() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
+      </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.cleanup">cleanup() (pystxmcontrol.controller.controller.controller method)</a>
 
       <ul>
         <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.cleanup">(pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.cleanup">(pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
+</li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.clearAllErrors">clearAllErrors() (pystxmcontrol.drivers.A33500B.A33500B method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.clearFocusBit">clearFocusBit() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.close">close() (pystxmcontrol.drivers.mclController method)</a>
 </li>
@@ -422,8 +418,6 @@
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.config">(pystxmcontrol.drivers.fccd_control method)</a>
 </li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.config">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
-</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.config">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.keysight53230A.config">(pystxmcontrol.drivers.keysight53230A.keysight53230A method)</a>
@@ -444,6 +438,8 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.config_daqs">config_daqs() (pystxmcontrol.controller.controller.controller method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.configure_daqs">configure_daqs() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mmcMotor.configure_home">configure_home() (pystxmcontrol.drivers.mmcMotor method)</a>
 
@@ -478,6 +474,8 @@
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.connect">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
 </li>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.connect">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B.connect">(pystxmcontrol.drivers.keysightA33500B.keysightA33500B method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightCounter.counter.connect">(pystxmcontrol.drivers.keysightCounter.counter method)</a>
@@ -511,15 +509,11 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsMotor.xpsMotor.connect">(pystxmcontrol.drivers.xpsMotor.xpsMotor method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.connect2daq">connect2daq() (in module pystxmcontrol.drivers.cin)</a>
-</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.connect_to_server">connect_to_server() (pystxmcontrol.controller.client.stxm_client method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller">controller (class in pystxmcontrol.controller.controller)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightCounter.counter">counter (class in pystxmcontrol.drivers.keysightCounter)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.current_calc">current_calc() (in module pystxmcontrol.drivers.cin)</a>
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.customwidget.customWidget">customWidget (class in pystxmcontrol.gui.customwidget)</a>
 </li>
@@ -545,19 +539,25 @@
       </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler">dataHandler (class in pystxmcontrol.controller.dataHandler)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.deattenuate">deattenuate() (pystxmcontrol.drivers.fccd.FCCD method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.decimate">decimate() (pystxmcontrol.controller.scripter.scripter method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.decompose">decompose() (pystxmcontrol.drivers.derivedPiezo method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.decompose">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
+      </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.decompose_range">decompose_range() (pystxmcontrol.drivers.derivedPiezo method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.decompose_range">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
+      </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedEnergy">derivedEnergy (class in pystxmcontrol.drivers)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedEnergy_SGM">derivedEnergy_SGM (class in pystxmcontrol.drivers)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo">derivedPiezo (class in pystxmcontrol.drivers)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.descramble">descramble() (pystxmcontrol.drivers.fccd.FCCD method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.devlist">devlist() (pystxmcontrol.drivers.nptController method)</a>
 
@@ -565,6 +565,16 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.devlist">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.disable_axis">disable_axis() (pystxmcontrol.drivers.xpsController method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.disable_axis">(pystxmcontrol.drivers.xpsController.xpsController method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.disable_position_trigger">disable_position_trigger() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.E712Controller.disableTrigger">disableTrigger() (pystxmcontrol.drivers.E712Controller method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.disconnect">disconnect() (pystxmcontrol.controller.client.stxm_client method)</a>
@@ -583,16 +593,12 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.U2356A.U2356A.disconnect">(pystxmcontrol.drivers.U2356A.U2356A method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.disToPID">disToPID() (pystxmcontrol.drivers.nptController method)</a>
 
       <ul>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.disToPID">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.downsample">downsample() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.dRead">dRead() (pystxmcontrol.drivers.nptController method)</a>
 
       <ul>
@@ -627,6 +633,12 @@
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.E712Motor">E712Motor (class in pystxmcontrol.drivers)</a>
 </li>
+      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.enable_axis">enable_axis() (pystxmcontrol.drivers.xpsController method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.enable_axis">(pystxmcontrol.drivers.xpsController.xpsController method)</a>
+</li>
+      </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.end_scan">end_scan() (pystxmcontrol.controller.controller.controller method)</a>
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.energyDef.energyDefWidget">energyDefWidget (class in pystxmcontrol.gui.energyDef)</a>
@@ -647,36 +659,28 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor">(class in pystxmcontrol.drivers.epicsMotor)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.execute_scan">execute_scan() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
   </ul></td>
 </tr></table>
 
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD">FCCD (class in pystxmcontrol.drivers.fccd)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control">fccd_control (class in pystxmcontrol.drivers)</a>
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control">(class in pystxmcontrol.drivers.fccd_control)</a>
 </li>
-      </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.fill2d">fill2d() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.findCOMPort">findCOMPort() (pystxmcontrol.drivers.xerController method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.flashFpCfgLeds">flashFpCfgLeds() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.flashFpFrmLeds">flashFpFrmLeds() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.float32Tohex">float32Tohex() (pystxmcontrol.drivers.nptController method)</a>
 
       <ul>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.float32Tohex">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.float64ToHex">float64ToHex() (pystxmcontrol.drivers.nptController method)</a>
 
       <ul>
@@ -684,11 +688,7 @@
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.frame_to_image">frame_to_image() (pystxmcontrol.drivers.fccd_control method)</a>
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.frame_to_image">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
-      </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.ccd_monitor.framedata">framedata (pystxmcontrol.controller.client.ccd_monitor attribute)</a>
 </li>
   </ul></td>
@@ -700,12 +700,18 @@
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.gate.gate">gate (class in pystxmcontrol.controller.gate)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.get_config">get_config() (pystxmcontrol.controller.client.stxm_client method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.get_config">(pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
+      </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.get_daq_timing_parameters">get_daq_timing_parameters() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_monitor.get_data">get_data() (pystxmcontrol.controller.client.stxm_monitor method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.get_FOPS_Status">get_FOPS_Status() (pystxmcontrol.drivers.cin.CIN method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.get_motor_position">get_motor_position() (pystxmcontrol.controller.scripter.scripter method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.get_register">get_register() (pystxmcontrol.drivers.cin.CIN method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.get_scan_region_geometry">get_scan_region_geometry() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.get_status">get_status() (pystxmcontrol.controller.client.stxm_client method)</a>
 
@@ -734,8 +740,6 @@
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.getAllAxis">getAllAxis() (pystxmcontrol.drivers.xerController method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getAltExpTime">getAltExpTime() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.getAxis">getAxis() (pystxmcontrol.drivers.mclController method)</a>
 
@@ -771,13 +775,7 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsMotor.bcsMotor.getBCSStatus">(pystxmcontrol.drivers.bcsMotor.bcsMotor method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getCfgFPGAStatus">getCfgFPGAStatus() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.getCommunication">getCommunication() (pystxmcontrol.drivers.xerController method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getExpTime">getExpTime() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getFrmDone">getFrmDone() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.daq.daq.getLine">getLine() (pystxmcontrol.controller.daq.daq method)</a>
 
@@ -787,8 +785,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector.getLine">(pystxmcontrol.drivers.areaDetector method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.getLine">(pystxmcontrol.drivers.fccd_control method)</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.getLine">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.getLine">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
@@ -818,6 +814,8 @@
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.getPID">getPID() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.getPID">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.getPID">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptMotor.getPID">(pystxmcontrol.drivers.nptMotor method)</a>
@@ -833,8 +831,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector.getPoint">(pystxmcontrol.drivers.areaDetector method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.getPoint">(pystxmcontrol.drivers.fccd_control method)</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.getPoint">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.getPoint">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
@@ -876,6 +872,8 @@
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.getPos">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
 </li>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.getPos">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B.getPos">(pystxmcontrol.drivers.keysightA33500B.keysightA33500B method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.getPos">(pystxmcontrol.drivers.mclMotor method)</a>
@@ -907,8 +905,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsController.xpsController.getPosition">(pystxmcontrol.drivers.xpsController.xpsController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getPowerStatus">getPowerStatus() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.getScanID">getScanID() (pystxmcontrol.controller.controller.controller method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.getScanName">getScanName() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
@@ -935,6 +931,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.getStatus">(pystxmcontrol.drivers.epicsMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.getStatus">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
+</li>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.getStatus">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B.getStatus">(pystxmcontrol.drivers.keysightA33500B.keysightA33500B method)</a>
 </li>
@@ -963,8 +961,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsMotor.xpsMotor.getStatus">(pystxmcontrol.drivers.xpsMotor.xpsMotor method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.getTriggerMask">getTriggerMask() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsMotor.getVar">getVar() (pystxmcontrol.drivers.bcsMotor method)</a>
 
       <ul>
@@ -985,9 +981,11 @@
 <h2 id="H">H</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.hardwareController.hardwareController">hardwareController (class in pystxmcontrol.controller.hardwareController)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.handle_abort">handle_abort() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.HexToByte">HexToByte() (in module pystxmcontrol.drivers.cin)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.handle_energy_and_focus">handle_energy_and_focus() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.hardwareController.hardwareController">hardwareController (class in pystxmcontrol.controller.hardwareController)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.hexToFloat64">hexToFloat64() (pystxmcontrol.drivers.nptController method)</a>
 
@@ -1029,12 +1027,12 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.iAddress">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo">inclinedDerivedPiezo (class in pystxmcontrol.drivers)</a>
+</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector.init">init() (pystxmcontrol.drivers.areaDetector method)</a>
 
       <ul>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.init">(pystxmcontrol.drivers.fccd_control method)</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.init">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.initialize">initialize() (pystxmcontrol.controller.controller.controller method)</a>
@@ -1071,6 +1069,8 @@
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.initialize_scan_info">initialize_scan_info() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.initLine">initLine() (pystxmcontrol.drivers.keysight53230A method)</a>
 
       <ul>
@@ -1133,13 +1133,17 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.linear_trajectory">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_command">log_command() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.loadCameraConfigFile">loadCameraConfigFile() (pystxmcontrol.drivers.cin.CIN method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_motor_move">log_motor_move() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.loadFrmFirmware">loadFrmFirmware() (pystxmcontrol.drivers.cin.CIN method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_motor_position">log_motor_position() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.lowpass">lowpass() (pystxmcontrol.drivers.fccd.FCCD method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_scan_end">log_scan_end() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.log_scan_start">log_scan_start() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1187,7 +1191,15 @@
 </li>
         <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.motor">pystxmcontrol.controller.motor</a>
 </li>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.operation_logger">pystxmcontrol.controller.operation_logger</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.scans.base_scan">pystxmcontrol.controller.scans.base_scan</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.scripter">pystxmcontrol.controller.scripter</a>
+</li>
         <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.spiral">pystxmcontrol.controller.spiral</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.zmq_publisher">pystxmcontrol.controller.zmq_publisher</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers">pystxmcontrol.drivers</a>
 </li>
@@ -1199,17 +1211,9 @@
 </li>
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.bcsServer">pystxmcontrol.drivers.bcsServer</a>
 </li>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.cin">pystxmcontrol.drivers.cin</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.cin_register_map">pystxmcontrol.drivers.cin_register_map</a>
-</li>
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.epicsController">pystxmcontrol.drivers.epicsController</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.epicsMotor">pystxmcontrol.drivers.epicsMotor</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.fccd">pystxmcontrol.drivers.fccd</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.fccd_control">pystxmcontrol.drivers.fccd_control</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.keysight53230A">pystxmcontrol.drivers.keysight53230A</a>
 </li>
@@ -1261,15 +1265,23 @@
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.move2">move2() (pystxmcontrol.drivers.mclMotor method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.move_coarse_to_fine_range">move_coarse_to_fine_range() (pystxmcontrol.drivers.derivedPiezo method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.move_coarse_to_fine_range">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
+      </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.move_coarse_to_range">move_coarse_to_range() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.move_motor">move_motor() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.move_to_focus">move_to_focus() (pystxmcontrol.controller.client.stxm_client method)</a>
 
       <ul>
         <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.move_to_focus">(pystxmcontrol.controller.controller.controller method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.motor.motor.moveBy">moveBy() (pystxmcontrol.controller.motor.motor method)</a>
 
       <ul>
@@ -1288,6 +1300,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.moveBy">(pystxmcontrol.drivers.epicsMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.moveBy">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
+</li>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveBy">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B.moveBy">(pystxmcontrol.drivers.keysightA33500B.keysightA33500B method)</a>
 </li>
@@ -1311,10 +1325,16 @@
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.moveCoarse">moveCoarse() (pystxmcontrol.drivers.derivedPiezo method)</a>
+
+      <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveCoarse">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
+      </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.moveLine">moveLine() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveLine">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.moveLine">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptMotor.moveLine">(pystxmcontrol.drivers.nptMotor method)</a>
@@ -1348,6 +1368,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.moveTo">(pystxmcontrol.drivers.epicsMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.epicsMotor.epicsMotor.moveTo">(pystxmcontrol.drivers.epicsMotor.epicsMotor method)</a>
+</li>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.moveTo">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.keysightA33500B.moveTo">(pystxmcontrol.drivers.keysightA33500B.keysightA33500B method)</a>
 </li>
@@ -1384,6 +1406,10 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.moveTo2">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.multi_region_ptychography_scan">multi_region_ptychography_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.multi_region_stxm_scan">multi_region_stxm_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1415,6 +1441,14 @@
   </ul></td>
 </tr></table>
 
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger">OperationLogger (class in pystxmcontrol.controller.operation_logger)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -1438,11 +1472,17 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.pidWrite">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.poisson">poisson() (in module pystxmcontrol.drivers.fccd_control)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_commands">plot_commands() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_motor_moves">plot_motor_moves() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_motor_positions">plot_motor_positions() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.plot_motor_with_commands">plot_motor_with_commands() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.poisson">poisson() (in module pystxmcontrol.drivers.keysight53230A)</a>
 
       <ul>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.poisson">(in module pystxmcontrol.drivers.keysight53230A)</a>
-</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightA33500B.poisson">(in module pystxmcontrol.drivers.keysightA33500B)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysightU2356A.poisson">(in module pystxmcontrol.drivers.keysightU2356A)</a>
@@ -1460,19 +1500,21 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.pRead">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.preprocessing">preprocessing() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.process_frame">process_frame() (pystxmcontrol.drivers.fccd_control method)</a>
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.process_frame">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
-      </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.processFrame">processFrame() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.ptycho_monitor">ptycho_monitor (class in pystxmcontrol.controller.client)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.ptycho_monitor.ptychoData">ptychoData (pystxmcontrol.controller.client.ptycho_monitor attribute)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.ptychography_scan">ptychography_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.publish_ccd_frame">publish_ccd_frame() (pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.publish_stxm_data">publish_stxm_data() (pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.publish_stxm_string">publish_stxm_string() (pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.pWrite">pWrite() (pystxmcontrol.drivers.nptController method)</a>
 
@@ -1544,12 +1586,42 @@
 </li>
       </ul></li>
       <li>
+    pystxmcontrol.controller.operation_logger
+
+      <ul>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.operation_logger">module</a>
+</li>
+      </ul></li>
+      <li>
+    pystxmcontrol.controller.scans.base_scan
+
+      <ul>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.scans.base_scan">module</a>
+</li>
+      </ul></li>
+      <li>
+    pystxmcontrol.controller.scripter
+
+      <ul>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.scripter">module</a>
+</li>
+      </ul></li>
+      <li>
     pystxmcontrol.controller.spiral
 
       <ul>
         <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.spiral">module</a>
 </li>
       </ul></li>
+      <li>
+    pystxmcontrol.controller.zmq_publisher
+
+      <ul>
+        <li><a href="pystxmcontrol.controller.html#module-pystxmcontrol.controller.zmq_publisher">module</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     pystxmcontrol.drivers
 
@@ -1585,22 +1657,6 @@
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.bcsServer">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li>
-    pystxmcontrol.drivers.cin
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.cin">module</a>
-</li>
-      </ul></li>
-      <li>
-    pystxmcontrol.drivers.cin_register_map
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.cin_register_map">module</a>
-</li>
-      </ul></li>
       <li>
     pystxmcontrol.drivers.epicsController
 
@@ -1613,20 +1669,6 @@
 
       <ul>
         <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.epicsMotor">module</a>
-</li>
-      </ul></li>
-      <li>
-    pystxmcontrol.drivers.fccd
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.fccd">module</a>
-</li>
-      </ul></li>
-      <li>
-    pystxmcontrol.drivers.fccd_control
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#module-pystxmcontrol.drivers.fccd_control">module</a>
 </li>
       </ul></li>
       <li>
@@ -1772,6 +1814,22 @@
   </ul></td>
 </tr></table>
 
+<h2 id="Q">Q</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_commands">query_commands() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_motor_moves">query_motor_moves() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_motor_positions">query_motor_positions() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.query_scans">query_scans() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -1787,6 +1845,8 @@
 
       <ul>
         <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.read_daq">(pystxmcontrol.controller.dataHandler.dataHandler method)</a>
+</li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.read_daq">(pystxmcontrol.controller.scripter.scripter method)</a>
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.read_line">read_line() (pystxmcontrol.drivers.mclController method)</a>
@@ -1811,10 +1871,10 @@
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.readSettings">readSettings() (pystxmcontrol.drivers.xerController method)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xspress3.ready">ready() (pystxmcontrol.drivers.xspress3 method)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xspress3.ready">ready() (pystxmcontrol.drivers.xspress3 method)</a>
+</li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.energyDef.energyDefWidget.regionChanged">regionChanged (pystxmcontrol.gui.energyDef.energyDefWidget attribute)</a>
 
       <ul>
@@ -1824,8 +1884,6 @@
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.customwidget.customWidget.removeWidget">removeWidget() (pystxmcontrol.gui.customwidget.customWidget method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.reset">reset() (pystxmcontrol.drivers.xerController method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.resetCounter">resetCounter() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.resetInterferometer">resetInterferometer() (pystxmcontrol.drivers.nptController method)</a>
 
@@ -1852,6 +1910,8 @@
 </li>
         <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_monitor.run">(pystxmcontrol.controller.client.stxm_monitor method)</a>
 </li>
+        <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.run">(pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
       </ul></li>
   </ul></td>
 </tr></table>
@@ -1870,12 +1930,16 @@
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.scale2controller">scale2controller() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.scale2controller">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.scale2controller">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.scale2gui">scale2gui() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.scale2gui">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.scale2gui">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
       </ul></li>
@@ -1887,9 +1951,13 @@
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.scanDef.scanRegionDef">scanRegionDef (class in pystxmcontrol.gui.scanDef)</a>
 </li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.scramble">scramble() (pystxmcontrol.drivers.fccd.FCCD method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter">scripter (class in pystxmcontrol.controller.scripter)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.send_message">send_message() (pystxmcontrol.controller.client.stxm_client method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.send_scan_start_event">send_scan_start_event() (pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher.send_scan_stop_event">send_scan_stop_event() (pystxmcontrol.controller.zmq_publisher.ZMQPublisher method)</a>
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.energyDef.energyDefWidget.sendChangedSignal">sendChangedSignal() (pystxmcontrol.gui.energyDef.energyDefWidget method)</a>
 
@@ -1918,8 +1986,6 @@
       <ul>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.set_dwell">(pystxmcontrol.drivers.fccd_control method)</a>
 </li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.set_dwell">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
-</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.set_dwell">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.keysight53230A.set_dwell">(pystxmcontrol.drivers.keysight53230A.keysight53230A method)</a>
@@ -1930,14 +1996,6 @@
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xspress3.set_filename">set_filename() (pystxmcontrol.drivers.xspress3 method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.set_FOPS_Off">set_FOPS_Off() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.set_FOPS_On">set_FOPS_On() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.set_register">set_register() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setAltExpTime">setAltExpTime() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.E712Motor.setAxisParams">setAxisParams() (pystxmcontrol.drivers.E712Motor method)</a>
 
@@ -1951,15 +2009,9 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xpsMotor.xpsMotor.setAxisParams">(pystxmcontrol.drivers.xpsMotor.xpsMotor method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setCameraOff">setCameraOff() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setCameraOn">setCameraOn() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.setClock">setClock() (pystxmcontrol.drivers.mclController method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.setCOMPort">setCOMPort() (pystxmcontrol.drivers.xerController method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setContTrig">setContTrig() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.energyDef.energyDefWidget.setDefaultScanParams">setDefaultScanParams() (pystxmcontrol.gui.energyDef.energyDefWidget method)</a>
 
@@ -1968,18 +2020,6 @@
 </li>
       </ul></li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.scanDef.scanRegionDef.setEnabled">setEnabled() (pystxmcontrol.gui.scanDef.scanRegionDef method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setExpMode">setExpMode() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setExpTime">setExpTime() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFClk125M">setFClk125M() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFocusBit">setFocusBit() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFOtestpattern">setFOtestpattern() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setFPPowerOn">setFPPowerOn() (pystxmcontrol.drivers.cin.CIN method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.setGate">setGate() (pystxmcontrol.drivers.keysight53230A method)</a>
 
@@ -2008,6 +2048,8 @@
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.setPID">setPID() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.setPID">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.setPID">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptMotor.setPID">(pystxmcontrol.drivers.nptMotor method)</a>
@@ -2026,6 +2068,8 @@
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.setPositionTriggerOff">setPositionTriggerOff() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.setPositionTriggerOff">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.setPositionTriggerOff">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptMotor.setPositionTriggerOff">(pystxmcontrol.drivers.nptMotor method)</a>
@@ -2036,6 +2080,8 @@
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.setPositionTriggerOn">setPositionTriggerOn() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.setPositionTriggerOn">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.setPositionTriggerOn">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptMotor.setPositionTriggerOn">(pystxmcontrol.drivers.nptMotor method)</a>
@@ -2061,15 +2107,15 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.shutter.shutter.setStatus">(pystxmcontrol.drivers.shutter.shutter method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setTriggerExt">setTriggerExt() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setTriggerMask">setTriggerMask() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setTriggerSW">setTriggerSW() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.setup_1d_waveform">setup_1d_waveform() (pystxmcontrol.drivers.mclController method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_daqs">setup_daqs() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_motor_trajectory">setup_motor_trajectory() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_position_trigger">setup_position_trigger() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.setup_scan_geometry">setup_scan_geometry() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.setup_trajectory">setup_trajectory() (pystxmcontrol.drivers.mclController method)</a>
 
@@ -2081,6 +2127,8 @@
       </ul></li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.setup_xy">setup_xy() (pystxmcontrol.drivers.mclController method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.energyDef_UI.Ui_energyDef.setupUi">setupUi() (pystxmcontrol.gui.energyDef_UI.Ui_energyDef method)</a>
 
       <ul>
@@ -2093,8 +2141,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsMotor.bcsMotor.setVar">(pystxmcontrol.drivers.bcsMotor.bcsMotor method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.setVClamp">setVClamp() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.E712Controller.setVelocity">setVelocity() (pystxmcontrol.drivers.E712Controller method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.setWaveform">setWaveform() (pystxmcontrol.drivers.A33500B.A33500B method)</a>
@@ -2121,6 +2167,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.signedIntToHex">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.single_motor_scan">single_motor_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.speedToLoopCycle">speedToLoopCycle() (pystxmcontrol.drivers.nptController method)</a>
 
       <ul>
@@ -2135,14 +2183,14 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.sRead">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.start">start() (pystxmcontrol.drivers.A33500B.A33500B method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.start">start() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.start">(pystxmcontrol.drivers.A33500B.A33500B method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector.start">(pystxmcontrol.drivers.areaDetector method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.start">(pystxmcontrol.drivers.fccd_control method)</a>
-</li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.start">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.start">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
@@ -2159,6 +2207,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xspress3.start">(pystxmcontrol.drivers.xspress3 method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.start_monitor">start_monitor() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client.start_monitors">start_monitors() (pystxmcontrol.controller.client.stxm_client method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.startFlyscan">startFlyscan() (pystxmcontrol.drivers.nptController method)</a>
@@ -2195,9 +2245,11 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.stepsToNM">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.stop">stop() (pystxmcontrol.drivers.A33500B.A33500B method)</a>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.operation_logger.OperationLogger.stop">stop() (pystxmcontrol.controller.operation_logger.OperationLogger method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.A33500B.A33500B.stop">(pystxmcontrol.drivers.A33500B.A33500B method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.areaDetector.stop">(pystxmcontrol.drivers.areaDetector method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.bcsMotor.stop">(pystxmcontrol.drivers.bcsMotor method)</a>
@@ -2218,7 +2270,7 @@
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.stop">(pystxmcontrol.drivers.fccd_control method)</a>
 </li>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.stop">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.stop">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.keysight53230A.stop">(pystxmcontrol.drivers.keysight53230A method)</a>
 </li>
@@ -2249,6 +2301,8 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xspress3.stop">(pystxmcontrol.drivers.xspress3 method)</a>
 </li>
       </ul></li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.stop_monitor">stop_monitor() (pystxmcontrol.controller.scripter.scripter method)</a>
+</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.controller.controller.stopMonitor">stopMonitor() (pystxmcontrol.controller.controller.controller method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.xerController.stopMovements">stopMovements() (pystxmcontrol.drivers.xerController method)</a>
@@ -2259,8 +2313,6 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.stopRasterScan">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.cin.CIN.stopTrigger">stopTrigger() (pystxmcontrol.drivers.cin.CIN method)</a>
-</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.stratSpiral">stratSpiral() (pystxmcontrol.drivers.nptController method)</a>
 
       <ul>
@@ -2270,6 +2322,8 @@
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_client">stxm_client (class in pystxmcontrol.controller.client)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.client.stxm_monitor">stxm_monitor (class in pystxmcontrol.controller.client)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.stxm_scan">stxm_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.sWrite">sWrite() (pystxmcontrol.drivers.nptController method)</a>
 
@@ -2283,8 +2337,6 @@
 <h2 id="T">T</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd.FCCD.tif2raw">tif2raw() (pystxmcontrol.drivers.fccd.FCCD method)</a>
-</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.tiled_scan">tiled_scan() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.timeToCounts">timeToCounts() (pystxmcontrol.drivers.nptController method)</a>
@@ -2293,15 +2345,17 @@
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptController.nptController.timeToCounts">(pystxmcontrol.drivers.nptController.nptController method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.trigger_1d_waveform">trigger_1d_waveform() (pystxmcontrol.drivers.mclController method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.trigger_1d_waveform_new">trigger_1d_waveform_new() (pystxmcontrol.drivers.mclController method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.trigger_line">trigger_line() (pystxmcontrol.drivers.mclController method)</a>
 </li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclController.trigger_xy">trigger_xy() (pystxmcontrol.drivers.mclController method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scripter.scripter.two_motor_scan">two_motor_scan() (pystxmcontrol.controller.scripter.scripter method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -2315,9 +2369,13 @@
 </li>
       <li><a href="pystxmcontrol.gui.html#pystxmcontrol.gui.regionDef_UI.Ui_regionDef">Ui_regionDef (class in pystxmcontrol.gui.regionDef_UI)</a>
 </li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.scans.base_scan.BaseScan.update_motor_positions">update_motor_positions() (pystxmcontrol.controller.scans.base_scan.BaseScan method)</a>
+</li>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.derivedPiezo.update_trajectory">update_trajectory() (pystxmcontrol.drivers.derivedPiezo method)</a>
 
       <ul>
+        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.inclinedDerivedPiezo.update_trajectory">(pystxmcontrol.drivers.inclinedDerivedPiezo method)</a>
+</li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.mclMotor.update_trajectory">(pystxmcontrol.drivers.mclMotor method)</a>
 </li>
         <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.nptMotor.update_trajectory">(pystxmcontrol.drivers.nptMotor method)</a>
@@ -2466,20 +2524,18 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.zmq_receive">zmq_receive() (pystxmcontrol.drivers.fccd_control method)</a>
-
-      <ul>
-        <li><a href="pystxmcontrol.drivers.html#pystxmcontrol.drivers.fccd_control.fccd_control.zmq_receive">(pystxmcontrol.drivers.fccd_control.fccd_control method)</a>
 </li>
-      </ul></li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.zmq_send">zmq_send() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.zmq_send_string">zmq_send_string() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.zmq_send_string">zmq_send_string() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
-</li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.zmq_start_event">zmq_start_event() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
 </li>
       <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.dataHandler.dataHandler.zmq_stop_event">zmq_stop_event() (pystxmcontrol.controller.dataHandler.dataHandler method)</a>
+</li>
+      <li><a href="pystxmcontrol.controller.html#pystxmcontrol.controller.zmq_publisher.ZMQPublisher">ZMQPublisher (class in pystxmcontrol.controller.zmq_publisher)</a>
 </li>
   </ul></td>
 </tr></table>

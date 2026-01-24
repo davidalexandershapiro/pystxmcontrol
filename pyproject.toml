@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy<2.0",
+    "numpy",
     "pyusb",
     "python-usbtmc",
     "pylibftdi",
@@ -72,8 +72,9 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 stxmcontrol = "pystxmcontrol.stxmcontrol:main"
 stxmserver = "pystxmcontrol.controller.server:main"
 
-[tool.setuptools]
-packages = ["pystxmcontrol"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pystxmcontrol*"]
 
 [tool.setuptools.package-data]
 pystxmcontrol = []
@@ -90,14 +91,14 @@ pystxmcontrol = []
 
 [tool.black]
 line-length = 100
-target-version = ['py39', 'py310', 'py311']
+target-version = ['py39', 'py310', 'py311', 'py312']
 
 [tool.isort]
 profile = "black"
 line_length = 100
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

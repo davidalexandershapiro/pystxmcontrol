@@ -29,9 +29,9 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
     energyIndex = 0
     nScanRegions = len(xPos)
     coarse_only = False #this needs to be set properly if a coarse scan is possible
-    scanInfo['daq list'] = scan['daq list']
+    scanInfo['daq_list'] = scan['daq_list']
     scanInfo["rawData"] = {}
-    for daq in scanInfo["daq list"]:
+    for daq in scanInfo["daq_list"]:
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
@@ -39,13 +39,13 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
         scanInfo["rawData"][daq]["interpolate"] = True
     # Find minimum dwell, dwell padding, and worst time resolution for attached daqs.
-    minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum dwell"]) for daq in scanInfo["daq list"] if not \
+    minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum dwell"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
-    DAQDwellPad = max([float(scanInfo["rawData"][daq]["meta"]["dwell pad"]) for daq in scanInfo["daq list"] if not \
+    DAQDwellPad = max([float(scanInfo["rawData"][daq]["meta"]["dwell pad"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.0])
 
-    DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq list"] if not \
+    DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
     if "outerLoop" in scan.keys():

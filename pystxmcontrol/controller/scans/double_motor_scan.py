@@ -24,11 +24,10 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
     scanInfo["mode"] = mode
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
-    scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
     scanInfo["direction"] = "forward"
-    scanInfo['daq list'] = scan['daq list']
+    scanInfo['daq_list'] = scan['daq_list']
     scanInfo["rawData"] = {}
     for daq in controller.daq.keys():
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}

@@ -31,11 +31,11 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     nScanRegions = len(xPos)
     scanInfo["coarse_only"] = scan["coarse_only"]
     coarse_only = scan["coarse_only"] #this needs to be set properly if a coarse scan is possible
-    scanInfo["include_return"] = controller.scanConfig["scans"][scan["scan_type"]]["include_return"]
+    scanInfo["include_return"] = controller.scanConfig[scan["scan_type"]]["include_return"]
     coarse_offset = 20
-    scanInfo['daq list'] = scan['daq list']
+    scanInfo['daq_list'] = scan['daq_list']
     scanInfo["rawData"] = {}
-    for daq in scanInfo["daq list"]:
+    for daq in scanInfo["daq_list"]:
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
@@ -47,13 +47,13 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             scanInfo["rawData"][daq]["interpolate"] = False
 
     # Find minimum dwell, dwell padding, and worst time resolution for attached daqs.
-    minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum dwell"]) for daq in scanInfo["daq list"] if not \
+    minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum dwell"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
-    DAQDwellPad = max([float(scanInfo["rawData"][daq]["meta"]["dwell pad"]) for daq in scanInfo["daq list"] if not \
+    DAQDwellPad = max([float(scanInfo["rawData"][daq]["meta"]["dwell pad"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.0])
 
-    DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq list"] if not \
+    DAQTimeResolution = max([float(scanInfo["rawData"][daq]["meta"]["time resolution"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])
 
     for energy in energies:

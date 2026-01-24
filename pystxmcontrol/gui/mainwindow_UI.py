@@ -16,12 +16,11 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QIcon, QImage, QKeySequence, QLinearGradient,
     QPainter, QPalette, QPixmap, QRadialGradient,
     QTransform)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDial,
-    QFrame, QGridLayout, QHBoxLayout, QLabel,
-    QLineEdit, QMainWindow, QMenu, QMenuBar,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox,
-    QStatusBar, QTabWidget, QTextEdit, QVBoxLayout,
-    QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMenu, QMenuBar, QPushButton,
+    QScrollArea, QSizePolicy, QSpinBox, QStatusBar,
+    QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from pyqtgraph import (ImageView, PlotWidget)
 from pystxmcontrol.gui.customwidget import customWidget
@@ -75,8 +74,8 @@ class Ui_MainWindow(object):
         self.tabWidget_3 = QTabWidget(self.centralwidget)
         self.tabWidget_3.setObjectName(u"tabWidget_3")
         self.tabWidget_3.setGeometry(QRect(0, 0, 1521, 1031))
-        self.tabWidget_3.setTabPosition(QTabWidget.TabPosition.North)
-        self.tabWidget_3.setTabShape(QTabWidget.TabShape.Rounded)
+        self.tabWidget_3.setTabPosition(QTabWidget.North)
+        self.tabWidget_3.setTabShape(QTabWidget.Rounded)
         self.tabWidget_3.setDocumentMode(False)
         self.tab_9 = QWidget()
         self.tab_9.setObjectName(u"tab_9")
@@ -347,11 +346,88 @@ class Ui_MainWindow(object):
 
         self.gridLayout_4.addWidget(self.lineLengthEdit, 1, 0, 1, 1)
 
-        self.scan_angle = QDial(self.tab)
-        self.scan_angle.setObjectName(u"scan_angle")
-        self.scan_angle.setGeometry(QRect(429, 0, 111, 111))
-        self.scan_angle.setMaximum(360)
         self.tabWidget.addTab(self.tab, "")
+        self.tab_11 = QWidget()
+        self.tab_11.setObjectName(u"tab_11")
+        self.gridLayoutWidget_8 = QWidget(self.tab_11)
+        self.gridLayoutWidget_8.setObjectName(u"gridLayoutWidget_8")
+        self.gridLayoutWidget_8.setGeometry(QRect(10, 10, 531, 82))
+        self.gridLayout_10 = QGridLayout(self.gridLayoutWidget_8)
+        self.gridLayout_10.setObjectName(u"gridLayout_10")
+        self.gridLayout_10.setContentsMargins(0, 0, 0, 0)
+        self.focusStepSizeLabel_5 = QLabel(self.gridLayoutWidget_8)
+        self.focusStepSizeLabel_5.setObjectName(u"focusStepSizeLabel_5")
+        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        sizePolicy4.setHorizontalStretch(0)
+        sizePolicy4.setVerticalStretch(0)
+        sizePolicy4.setHeightForWidth(self.focusStepSizeLabel_5.sizePolicy().hasHeightForWidth())
+        self.focusStepSizeLabel_5.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_10.addWidget(self.focusStepSizeLabel_5, 0, 3, 1, 1)
+
+        self.focusStepSizeLabel_6 = QLabel(self.gridLayoutWidget_8)
+        self.focusStepSizeLabel_6.setObjectName(u"focusStepSizeLabel_6")
+
+        self.gridLayout_10.addWidget(self.focusStepSizeLabel_6, 0, 4, 1, 1)
+
+        self.loopCenter = QLineEdit(self.gridLayoutWidget_8)
+        self.loopCenter.setObjectName(u"loopCenter")
+        self.loopCenter.setMaximumSize(QSize(80, 16777215))
+
+        self.gridLayout_10.addWidget(self.loopCenter, 1, 1, 1, 1, Qt.AlignVCenter)
+
+        self.loopPoints = QLineEdit(self.gridLayoutWidget_8)
+        self.loopPoints.setObjectName(u"loopPoints")
+        self.loopPoints.setMaximumSize(QSize(80, 16777215))
+
+        self.gridLayout_10.addWidget(self.loopPoints, 1, 3, 1, 1, Qt.AlignVCenter)
+
+        self.loopMotor = QComboBox(self.gridLayoutWidget_8)
+        self.loopMotor.setObjectName(u"loopMotor")
+        self.loopMotor.setMinimumSize(QSize(150, 0))
+        self.loopMotor.setMaximumSize(QSize(200, 16777215))
+
+        self.gridLayout_10.addWidget(self.loopMotor, 1, 0, 1, 1, Qt.AlignVCenter)
+
+        self.loopRange = QLineEdit(self.gridLayoutWidget_8)
+        self.loopRange.setObjectName(u"loopRange")
+        self.loopRange.setMaximumSize(QSize(80, 16777215))
+
+        self.gridLayout_10.addWidget(self.loopRange, 1, 2, 1, 1, Qt.AlignVCenter)
+
+        self.focusStepSizeLabel_3 = QLabel(self.gridLayoutWidget_8)
+        self.focusStepSizeLabel_3.setObjectName(u"focusStepSizeLabel_3")
+        sizePolicy4.setHeightForWidth(self.focusStepSizeLabel_3.sizePolicy().hasHeightForWidth())
+        self.focusStepSizeLabel_3.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_10.addWidget(self.focusStepSizeLabel_3, 0, 1, 1, 1)
+
+        self.focusStepSizeLabel_7 = QLabel(self.gridLayoutWidget_8)
+        self.focusStepSizeLabel_7.setObjectName(u"focusStepSizeLabel_7")
+        sizePolicy4.setHeightForWidth(self.focusStepSizeLabel_7.sizePolicy().hasHeightForWidth())
+        self.focusStepSizeLabel_7.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_10.addWidget(self.focusStepSizeLabel_7, 0, 0, 1, 1)
+
+        self.loopStepSize = QLabel(self.gridLayoutWidget_8)
+        self.loopStepSize.setObjectName(u"loopStepSize")
+        self.loopStepSize.setMaximumSize(QSize(80, 16777215))
+
+        self.gridLayout_10.addWidget(self.loopStepSize, 1, 4, 1, 1, Qt.AlignVCenter)
+
+        self.focusStepSizeLabel_4 = QLabel(self.gridLayoutWidget_8)
+        self.focusStepSizeLabel_4.setObjectName(u"focusStepSizeLabel_4")
+        sizePolicy4.setHeightForWidth(self.focusStepSizeLabel_4.sizePolicy().hasHeightForWidth())
+        self.focusStepSizeLabel_4.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_10.addWidget(self.focusStepSizeLabel_4, 0, 2, 1, 1)
+
+        self.loopCheckbox = QCheckBox(self.gridLayoutWidget_8)
+        self.loopCheckbox.setObjectName(u"loopCheckbox")
+
+        self.gridLayout_10.addWidget(self.loopCheckbox, 2, 0, 1, 1)
+
+        self.tabWidget.addTab(self.tab_11, "")
         self.layoutWidget_2 = QWidget(self.tab_9)
         self.layoutWidget_2.setObjectName(u"layoutWidget_2")
         self.layoutWidget_2.setGeometry(QRect(190, 40, 231, 31))
@@ -501,7 +577,6 @@ class Ui_MainWindow(object):
         self.warningLabel.setStyleSheet(u"color: rgb(224, 27, 36);\n"
 "font: 75 11pt \"Ubuntu\";\n"
 "")
-        self.warningLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_6 = QLabel(self.tab_9)
         self.label_6.setObjectName(u"label_6")
         self.label_6.setGeometry(QRect(10, 10, 171, 34))
@@ -597,15 +672,15 @@ class Ui_MainWindow(object):
         self.daqCurrentValue = QLabel(self.tab_9)
         self.daqCurrentValue.setObjectName(u"daqCurrentValue")
         self.daqCurrentValue.setGeometry(QRect(710, 20, 331, 41))
-        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        sizePolicy4.setHorizontalStretch(0)
-        sizePolicy4.setVerticalStretch(0)
-        sizePolicy4.setHeightForWidth(self.daqCurrentValue.sizePolicy().hasHeightForWidth())
-        self.daqCurrentValue.setSizePolicy(sizePolicy4)
+        sizePolicy5 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        sizePolicy5.setHorizontalStretch(0)
+        sizePolicy5.setVerticalStretch(0)
+        sizePolicy5.setHeightForWidth(self.daqCurrentValue.sizePolicy().hasHeightForWidth())
+        self.daqCurrentValue.setSizePolicy(sizePolicy5)
         font4 = QFont()
         font4.setPointSize(22)
         self.daqCurrentValue.setFont(font4)
-        self.daqCurrentValue.setTextFormat(Qt.TextFormat.PlainText)
+        self.daqCurrentValue.setTextFormat(Qt.PlainText)
         self.layoutWidget3 = QWidget(self.tab_9)
         self.layoutWidget3.setObjectName(u"layoutWidget3")
         self.layoutWidget3.setGeometry(QRect(1100, 16, 377, 41))
@@ -624,11 +699,11 @@ class Ui_MainWindow(object):
         self.plotType.addItem("")
         self.plotType.addItem("")
         self.plotType.setObjectName(u"plotType")
-        sizePolicy5 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        sizePolicy5.setHorizontalStretch(0)
-        sizePolicy5.setVerticalStretch(0)
-        sizePolicy5.setHeightForWidth(self.plotType.sizePolicy().hasHeightForWidth())
-        self.plotType.setSizePolicy(sizePolicy5)
+        sizePolicy6 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        sizePolicy6.setHorizontalStretch(0)
+        sizePolicy6.setVerticalStretch(0)
+        sizePolicy6.setHeightForWidth(self.plotType.sizePolicy().hasHeightForWidth())
+        self.plotType.setSizePolicy(sizePolicy6)
 
         self.horizontalLayout_6.addWidget(self.plotType)
 
@@ -642,8 +717,8 @@ class Ui_MainWindow(object):
         self.channelSelect.addItem("")
         self.channelSelect.addItem("")
         self.channelSelect.setObjectName(u"channelSelect")
-        sizePolicy5.setHeightForWidth(self.channelSelect.sizePolicy().hasHeightForWidth())
-        self.channelSelect.setSizePolicy(sizePolicy5)
+        sizePolicy6.setHeightForWidth(self.channelSelect.sizePolicy().hasHeightForWidth())
+        self.channelSelect.setSizePolicy(sizePolicy6)
 
         self.horizontalLayout_6.addWidget(self.channelSelect)
 
@@ -1143,8 +1218,8 @@ class Ui_MainWindow(object):
         self.energyRegSpinbox.setObjectName(u"energyRegSpinbox")
         sizePolicy.setHeightForWidth(self.energyRegSpinbox.sizePolicy().hasHeightForWidth())
         self.energyRegSpinbox.setSizePolicy(sizePolicy)
-        self.energyRegSpinbox.setMinimumSize(QSize(80, 0))
-        self.energyRegSpinbox.setMaximumSize(QSize(80, 16777215))
+        self.energyRegSpinbox.setMinimumSize(QSize(50, 0))
+        self.energyRegSpinbox.setMaximumSize(QSize(50, 16777215))
         self.energyRegSpinbox.setMinimum(1)
         self.energyRegSpinbox.setMaximum(10)
 
@@ -1178,11 +1253,11 @@ class Ui_MainWindow(object):
 
         self.firstEnergyButton = QPushButton(self.horizontalLayoutWidget_2)
         self.firstEnergyButton.setObjectName(u"firstEnergyButton")
-        sizePolicy6 = QSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        sizePolicy6.setHorizontalStretch(0)
-        sizePolicy6.setVerticalStretch(0)
-        sizePolicy6.setHeightForWidth(self.firstEnergyButton.sizePolicy().hasHeightForWidth())
-        self.firstEnergyButton.setSizePolicy(sizePolicy6)
+        sizePolicy7 = QSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        sizePolicy7.setHorizontalStretch(0)
+        sizePolicy7.setVerticalStretch(0)
+        sizePolicy7.setHeightForWidth(self.firstEnergyButton.sizePolicy().hasHeightForWidth())
+        self.firstEnergyButton.setSizePolicy(sizePolicy7)
         self.firstEnergyButton.setMinimumSize(QSize(100, 30))
         self.firstEnergyButton.setMaximumSize(QSize(160, 16777215))
 
@@ -1301,7 +1376,7 @@ class Ui_MainWindow(object):
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 1550, 30))
+        self.menubar.setGeometry(QRect(0, 0, 1550, 23))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuOpen = QMenu(self.menuFile)
@@ -1402,6 +1477,14 @@ class Ui_MainWindow(object):
         self.label_39.setText(QCoreApplication.translate("MainWindow", u"Length", None))
         self.label_40.setText(QCoreApplication.translate("MainWindow", u"Step Size", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab), QCoreApplication.translate("MainWindow", u"Line", None))
+        self.focusStepSizeLabel_5.setText(QCoreApplication.translate("MainWindow", u"Points", None))
+        self.focusStepSizeLabel_6.setText(QCoreApplication.translate("MainWindow", u"Step Size", None))
+        self.focusStepSizeLabel_3.setText(QCoreApplication.translate("MainWindow", u"Center", None))
+        self.focusStepSizeLabel_7.setText(QCoreApplication.translate("MainWindow", u"Motor", None))
+        self.loopStepSize.setText("")
+        self.focusStepSizeLabel_4.setText(QCoreApplication.translate("MainWindow", u"Range", None))
+        self.loopCheckbox.setText(QCoreApplication.translate("MainWindow", u"Use Loop", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_11), QCoreApplication.translate("MainWindow", u"Scan Loop", None))
         self.label.setText(QCoreApplication.translate("MainWindow", u"Current Energy:", None))
         self.energyLabel.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" color:#73d216;\">Energy</span></p></body></html>", None))
         self.label_7.setText(QCoreApplication.translate("MainWindow", u"Scan Velocity", None))

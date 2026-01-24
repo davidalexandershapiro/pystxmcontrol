@@ -75,6 +75,7 @@ pystxmcontrol/drivers/epicsController.py
 pystxmcontrol/drivers/epicsMotor.py
 pystxmcontrol/drivers/fccd.py
 pystxmcontrol/drivers/fccd_control.py
+pystxmcontrol/drivers/inclinedDerivedPiezo.py
 pystxmcontrol/drivers/keysight53230A.py
 pystxmcontrol/drivers/keysightA33500B.py
 pystxmcontrol/drivers/keysightCounter.py
@@ -116,6 +117,13 @@ pystxmcontrol/gui/stackImportwindowwidget.py
 pystxmcontrol/gui/stack_mainwindow.py
 pystxmcontrol/gui/stackimport_mainwindow.py
 pystxmcontrol/gui/stackviewerwidget.py
+pystxmcontrol/gui/controllers/__init__.py
+pystxmcontrol/gui/controllers/main_controller.py
+pystxmcontrol/gui/models/__init__.py
+pystxmcontrol/gui/models/base_model.py
+pystxmcontrol/gui/models/image_model.py
+pystxmcontrol/gui/models/motor_model.py
+pystxmcontrol/gui/models/scan_model.py
 pystxmcontrol/utils/alsapi.py
 pystxmcontrol/utils/constants.py
 pystxmcontrol/utils/general.py

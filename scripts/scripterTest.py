@@ -1,8 +1,16 @@
-from pystxmcontrol.controller.scripter import *
+#from pystxmcontrol.controller.scripter import *
+from pystxmcontrol_mcp.scripter import *
 import asyncio
+from copy import deepcopy
+
+s = scripter()
 
 # ##set up and execute basic metadata required of all scans
-meta = {"proposal": "BLS-000625", "experimenters":"Ditter, Shapiro", "nxFileVersion":3.0, "Sample": "Dong Hyun: R1"}
+meta = deepcopy(s.scan)
+meta["proposal"] = "BLS-000625"
+meta["experimenters"] = "Ditter, Shapiro"
+meta["nxFileVersion"] = 3.0 
+meta["sample_description"] = "Dong Hyun: R1"
 meta["xcenter"] = 0
 meta["xrange"] = 5
 meta["xpoints"] = 10
@@ -16,14 +24,14 @@ meta["dwell"] = 10
 meta["spiral"] = False
 meta["autofocus"] = True
 meta["cmap"] = "viridis" #viridis', 'plasma', 'inferno', 'magma', 'cividis', 'Greys',
-meta["daq list"] = ["default"]
+meta["daq_list"] = ["default"]
 meta["comment"] = "test scan"
 print(meta)
 
 #################################################################################################
 ##Get Server Config##############################################################################
-MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = asyncio.run(get_config())
-print(asyncio.run(get_motor_position('CoarseY')))
+# MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = asyncio.run(s.get_config())
+# print(asyncio.run(s.get_motor_position('CoarseY')))
 
 #################################################################################################
 ##Single Motor Scan##############################################################################
@@ -43,7 +51,10 @@ print(asyncio.run(get_motor_position('CoarseY')))
 
 #################################################################################################
 ##basic stxm scan################################################################################
-# print(stxm_scan(meta))
+#print(asyncio.run(s.stxm_scan(meta)))
+MOTORS,SCANS,POSITIONS,DAQS,MAIN_CONFIG = s.get_config()
+print(MOTORS)
+print(s.stxm_scan(meta))
 
 #################################################################################################
 ##Move Motor#####################################################################################

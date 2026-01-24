@@ -16,6 +16,8 @@ Welcome to pystxmcontrol's documentation!
    Daq Device <daq_link>
    Scans <scan_link>
    Scripting <scripting_link>
+   Data <data_link>
+   Logging <logging_link>
 
 Indices and tables
 ==================

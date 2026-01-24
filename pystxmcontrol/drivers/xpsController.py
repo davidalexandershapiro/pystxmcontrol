@@ -148,6 +148,26 @@ class xpsController(hardwareController):
         command = f"GroupMotionEnable({axis})"
         [error, returnedString] = self.__sendAndReceive(socketId, command)
         return [error, returnedString]
+    
+    # GPIOAnalogGet :  Read analog input or analog output for one or few input
+    def GPIOAnalogGet (self, socketId, GPIOName):
+        command = 'GPIOAnalogGet('
+        for i in range(len(GPIOName)):
+            if (i > 0):
+                command += ','
+            command += GPIOName[i] + ',' + 'double *'
+        command += ')'
+        return self._sendAndReceive(socketId, command)
+
+    # GPIOAnalogSet :  Set analog output for one or few output
+    def GPIOAnalogSet (self, socketId, GPIOName, AnalogOutputValue):
+        command = 'GPIOAnalogSet('
+        for i in range(len(GPIOName)):
+            if (i > 0):
+                command += ','
+            command += GPIOName[i] + ',' + str(AnalogOutputValue[i])
+        command += ')'
+        return self._sendAndReceive(socketId, command)
 
 
 

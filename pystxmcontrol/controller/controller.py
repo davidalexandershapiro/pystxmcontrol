@@ -9,6 +9,7 @@ from pystxmcontrol.controller.scans import *
 from pystxmcontrol.controller.operation_logger import OperationLogger
 import asyncio
 import atexit
+import numpy as np
 
 BASEPATH = sys.prefix
 
@@ -173,12 +174,12 @@ class controller:
                     self.operation_logger.log_motor_position(motor,self.allMotorPositions[motor],
                                                          motor_offset = self.motors[motor]["motor"].config["offset"])
 
-    def moveMotor(self, axis, pos, log=None, **kwargs):
+    def moveMotor(self, axis, pos, log=True, **kwargs):
 
         # Determine if we should log this move
         # If log is explicitly set, use that. Otherwise, auto-detect: log if NOT scanning
         should_log = log if log is not None else not self.scanning or self.main_config["server"]["log motors while scanning"]
-
+ 
         # Log the move start
         if should_log:
             self.operation_logger.log_motor_move(axis, pos)
@@ -203,8 +204,13 @@ class controller:
                     axis, pos, actual_position=actual_pos,
                     duration=duration, success=True
                 )
+                self.operation_logger.log_motor_position(
+                    axis, actual_position=actual_pos,
+                    motor_offset = self.motors[axis]["motor"].config.get("offset",0)
+                )
         except Exception as e:
             # Log failed move
+            print(e)
             if should_log:
                 duration = time.time() - start_time
                 self.operation_logger.log_motor_move(
@@ -309,7 +315,7 @@ class controller:
             "sample": scan.get("sample"),
             "comment": scan.get("comment"),
             "nxFileVersion": scan.get("nxFileVersion"),
-            "daq list": scan.get("daq list"),
+            "daq_list": scan.get("daq_list"),
         }
 
         try:
@@ -323,29 +329,50 @@ class controller:
             for daq in self.daq.keys():
                 self.daq[daq].start()
             self.scanDef = scan
-            scan["synch_event"] = asyncio.Event()
 
-            # Get scan ID after data file is created
-            scan_id = getattr(self, 'currentScanID', None)
-            self.operation_logger.log_scan_start(
-                scan_id=scan_id,
-                scan_type=scan.get("scan_type", "unknown"),
-                parameters=scan_params
-            )
+            ##start scan loop here
+            if scan["loop_scan"]:
+                loop_points = scan["loop_points"]
+                motor = scan["loop_motor"]
+                c = scan["loop_center"]
+                r = scan["loop_range"]
+                p = scan["loop_points"]
+                s = scan["loop_step"]
+                positions = np.linspace(c-r/2,c+r/2,p)
+            else:
+                loop_points = 1
+            for i in range(loop_points):
+                if not self.scanning:
+                    break
+                if scan["loop_scan"]:
+                    #move loop_scan motor
+                    self.moveMotor(motor,positions[i])
+                scan["synch_event"] = asyncio.Event()
 
-            scan_tasks = []
-            scan_tasks.append(self.dataHandler.startScanProcess(scan))
-            scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
-            await asyncio.gather(*scan_tasks)
+                # Get scan ID after data file is created
+                self.getScanID()
+                scan_id = getattr(self, 'currentScanID', None)
+                self.operation_logger.log_scan_start(
+                    scan_id=scan_id,
+                    scan_type=scan.get("scan_type", "unknown"),
+                    parameters=scan_params
+                )
 
-            #close the data file and send the zmq event to downstream processing
-            self.dataHandler.data.close()
-            file_path = self.dataHandler.data.file_name
-            self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(file_path)}})
+                scan_tasks = []
+                scan_tasks.append(self.dataHandler.startScanProcess(scan))
+                scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))
+                await asyncio.gather(*scan_tasks)
+
+                #close the data file and send the zmq event to downstream processing
+                self.dataHandler.data.close()
+                file_path = self.dataHandler.data.file_name
+                self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(file_path)}})
+                #end scan loop here
 
             scan_status = "completed"
 
         except Exception as e:
+            print(e)
             scan_status = "failed"
             scan_error = str(e)
             raise
@@ -388,11 +415,9 @@ class controller:
     def config_daqs(self, dwell, count, samples, trigger):
         for daq in self.daq.keys():
             if self.daqConfig[daq]["record"]:
-                try:
-                    dwell / self.daqConfig[daq]["oversampling_factor"]
-                except:
-                    pass
-                self.daq[daq].config(dwell, count = count, samples = samples, trigger = trigger)
+                d = dwell / self.daqConfig[daq].get("oversampling_factor",1)
+                s = samples * self.daqConfig[daq].get("oversampling_factor",1)
+                self.daq[daq].config(d, count = count, samples = s, trigger = trigger)
 
     async def read_daq(self, daq, dwell, shutter = True):
         try:

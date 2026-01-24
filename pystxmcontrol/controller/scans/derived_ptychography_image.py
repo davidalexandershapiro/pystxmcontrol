@@ -137,9 +137,9 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
     scanInfo["oversampling_factor"] = 1
     scanInfo['totalSplit'] = None
     scanInfo['retract'] = scan['retract']
-    scanInfo['daq list'] = scan['daq list']
+    scanInfo['daq_list'] = scan['daq_list']
     scanInfo["rawData"] = {}
-    for daq in scanInfo["daq list"]:
+    for daq in scanInfo["daq_list"]:
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])

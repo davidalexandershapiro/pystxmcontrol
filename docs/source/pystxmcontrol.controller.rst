@@ -60,10 +60,10 @@ pystxmcontrol.controller.motor module
    :undoc-members:
    :show-inheritance:
 
-pystxmcontrol.controller.scan module
-------------------------------------
+pystxmcontrol.controller.scans.base_scan module
+-----------------------------------------------
 
-.. automodule:: pystxmcontrol.controller.scan
+.. automodule:: pystxmcontrol.controller.scans.base_scan
    :members:
    :undoc-members:
    :show-inheritance:
@@ -72,6 +72,30 @@ pystxmcontrol.controller.spiral module
 --------------------------------------
 
 .. automodule:: pystxmcontrol.controller.spiral
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pystxmcontrol.controller.scripter module
+----------------------------------------
+
+.. automodule:: pystxmcontrol.controller.scripter
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pystxmcontrol.controller.operation\_logger module
+-------------------------------------------------
+
+.. automodule:: pystxmcontrol.controller.operation_logger
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pystxmcontrol.controller.zmq\_publisher module
+----------------------------------------------
+
+.. automodule:: pystxmcontrol.controller.zmq_publisher
    :members:
    :undoc-members:
    :show-inheritance:

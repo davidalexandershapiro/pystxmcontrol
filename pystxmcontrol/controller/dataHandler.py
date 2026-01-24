@@ -66,20 +66,20 @@ class dataHandler:
             os.mkdir(os.path.join(baseDir, yr, mo, dayStr))
         scanDir = os.path.join(baseDir, yr, mo, dayStr)
         scanList = np.sort([x for x in os.listdir(scanDir) if '.stxm' in x])
+        scanNumList = np.sort([int(os.path.splitext(x)[0].split('_')[1].split(dayStr)[1]) for x in scanList if 'ccdframes' not in x])
 
         if len(scanList) == 0:
             fileName = filePrefix + "_" + dayStr + "000.stxm"
         else:
             #lastScan = int(scanList[-1].split(filePrefix + '_')[1][6:9])
-            lastScan = int(os.path.splitext(scanList[-1])[0].split(filePrefix + "_")[1].split(dayStr)[1].split("_")[0])
+            #lastScan = int(os.path.splitext(scanList[-1])[0].split(filePrefix + "_")[1].split(dayStr)[1].split("_")[0])
+            lastScan = scanNumList[-1]
             if (lastScan + 1) < 10:
                 nextScan = "00" + str(lastScan + 1)
             elif (lastScan + 1) < 100:
                 nextScan = "0" + str(lastScan + 1)
-            #elif (lastScan + 1) < 1000:
             else:
                 nextScan = str(lastScan + 1)
-
             fileName = filePrefix + "_" + dayStr + nextScan + '.stxm'
         self.ptychoDir = os.path.join(scanDir,fileName.split('.')[0])
         self.currentScanID = os.path.join(scanDir, fileName)
@@ -422,7 +422,6 @@ class dataHandler:
     async def startScanProcess(self, scan):
         #allocate memory for data to be saved
         self._ensure_queues()
-        print('This is a tiled scan: {}'.format(scan["tiled"]))
         if scan["tiled"]:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
@@ -451,10 +450,10 @@ class dataHandler:
         scanInfo["scanRegion"] = "Region1"
         scanInfo["scan_type"] = None
         scanInfo["dwell"] = self.controller.main_config["monitor"]["dwell"]
-        scanInfo["daq list"] = list(self.daq.keys())
+        scanInfo["daq_list"] = list(self.daq.keys())
         scanInfo["rawData"] = {}
         scanInfo["data"] = {}
-        for daq in scanInfo["daq list"]:
+        for daq in scanInfo["daq_list"]:
             scanInfo["rawData"][daq]={"meta":self.daq[daq].meta,"data": None}
         chunk = []
         while True:
@@ -468,7 +467,7 @@ class dataHandler:
             scanInfo['motorPositions'] = self.controller.allMotorPositions
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
             scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].offset
-            if "CCD" in scanInfo["daq list"]:
+            if "CCD" in scanInfo["daq_list"]:
                 #just subtract background from the monitor data which goes to the GUI
                 scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
             if scanQueue.empty():
@@ -529,7 +528,7 @@ class dataHandler:
                                 pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
                         else:
                             pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
-                        # for daq in scanInfo["daq list"]:
+                        # for daq in scanInfo["daq_list"]:
                         #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
                         #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
                         #hard coding the daqs for now, need to generalize this.
@@ -542,14 +541,14 @@ class dataHandler:
                         scanInfo["data"]["CCD"] = self.darkFrame
                     scanInfo["image"]["default"] = self.addDataToStack(scanInfo,"default")
                 elif scanInfo["mode"] == "point":
-                    for daq in scanInfo["daq list"]:
+                    for daq in scanInfo["daq_list"]:
                         scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
                         scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
                 else:
                     #prepare data to send onto socket (for the GUI)
                     #interpolate_points takes scanInfo["rawData"] and converts to image coordinates
                     # scanInfo["data"] = self.interpolate_points(scanInfo) #this is the image in user coordinates for display in the GUI
-                    for daq in scanInfo["daq list"]:
+                    for daq in scanInfo["daq_list"]:
                         scanInfo["data"][daq] = self.interpolate_points(scanInfo,daq)
                         scanInfo["image"][daq] = self.addDataToStack(scanInfo,daq)
                 await self.sendDataToSock(scanInfo)
@@ -560,20 +559,20 @@ class dataHandler:
 
     async def getPoint(self, scanInfo):
         daq_tasks = []
-        for daq in scanInfo["daq list"]:
+        for daq in scanInfo["daq_list"]:
             if self.controller.daqConfig[daq]["record"]:
                 daq_tasks.append(self.daq[daq].getPoint())
 
         t0 = time.time()
         await asyncio.gather(*daq_tasks)
         t1 = time.time()
-        for daq in scanInfo["daq list"]:
+        for daq in scanInfo["daq_list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
 
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Point] Acquisition time: {t1-t0}")
-        if "CCD" in scanInfo["daq list"]:
+        if "CCD" in scanInfo["daq_list"]:
             if self._framenum == 0:
                 self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
         self._framenum += 1
@@ -585,13 +584,13 @@ class dataHandler:
 
     async def getLine(self, scanInfo):
         daq_tasks = []
-        for daq in scanInfo["daq list"]:
+        for daq in scanInfo["daq_list"]:
             if self.controller.daqConfig[daq]["record"]:
                 daq_tasks.append(self.daq[daq].getLine())
         t0 = time.time()
         await asyncio.gather(*daq_tasks)
         t1 = time.time()
-        for daq in scanInfo["daq list"]:
+        for daq in scanInfo["daq_list"]:
             if scanInfo["direction"] == "backward":
                     scanInfo["rawData"][daq]["data"] = self.daq[daq].data[::-1]
             else:

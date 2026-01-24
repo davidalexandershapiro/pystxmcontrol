@@ -49,7 +49,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#main-features">Main features</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#currently-supported-devices">Currently supported devices</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#dependencies">Dependencies</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#automatically-installed-by-pip">automatically installed by pip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#automatically-installed-by-pip">Automatically installed by pip</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#environment-setup-and-installation-using-miniconda3-and-pip">Environment setup and installation using miniconda3 and pip</a></li>
@@ -105,7 +105,7 @@
 <li><p>Low scan overhead</p></li>
 <li><p>Microsecond shutter timing and synchronization using an Arduino Due microcontroller</p></li>
 <li><p>Full integration of ptychography scanning</p></li>
-<li><p>Data logger which saves to a database all commands, motor moves and motor positions at a defined interval</p></li>
+<li><p>Logging of motor positions, moves and scans</p></li>
 </ul>
 </section>
 <section id="currently-supported-devices">
@@ -133,7 +133,7 @@
 </pre></div>
 </div>
 <section id="automatically-installed-by-pip">
-<h3>automatically installed by pip<a class="headerlink" href="#automatically-installed-by-pip" title="Link to this heading"></a></h3>
+<h3>Automatically installed by pip<a class="headerlink" href="#automatically-installed-by-pip" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p>Numpy</p></li>
 <li><p>Scipy</p></li>
@@ -148,9 +148,6 @@
 <li><p>pyside6 = 6.8.2</p></li>
 <li><p>pyqtgraph</p></li>
 <li><p>pyqtdarktheme</p></li>
-<li><p>griffe = 0.47</p></li>
-<li><p>prefect = 2.14.3</p></li>
-<li><p>pydantic = 1.10.4</p></li>
 <li><p>python-dotenv</p></li>
 <li><p>PIPython</p></li>
 </ul>
@@ -160,9 +157,9 @@
 <h2>Environment setup and installation using miniconda3 and pip<a class="headerlink" href="#environment-setup-and-installation-using-miniconda3-and-pip" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p>On both Windows, Mac or LInux install <a class="reference external" href="https://docs.conda.io/en/latest/miniconda.html">miniconda3</a> and activate the base environment</p></li>
-<li><p>Create a conda environment with Python version &lt;3.12</p></li>
+<li><p>Create a conda environment with Python version &lt;=3.12</p></li>
 </ul>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conda</span> <span class="n">create</span> <span class="o">-</span><span class="n">n</span> <span class="p">[</span><span class="n">my_env_name</span><span class="p">]</span> <span class="n">python</span><span class="o">=</span><span class="mf">3.11</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conda</span> <span class="n">create</span> <span class="o">-</span><span class="n">n</span> <span class="p">[</span><span class="n">my_env_name</span><span class="p">]</span> <span class="n">python</span><span class="o">=</span><span class="mf">3.12</span>
 <span class="n">conda</span> <span class="n">activate</span> <span class="p">[</span><span class="n">my_env_name</span><span class="p">]</span>
 </pre></div>
 </div>
@@ -180,24 +177,14 @@
 <ul class="simple">
 <li><p>edit [path_to_conda_env]/pystxmcontrol_cfg/main.json</p>
 <ul>
-<li><p>change “server/host” to localhost for local operation or the IP of the machine on which the server will run</p></li>
+<li><p>change “server/host” to localhost for local operation or the IP of the machine on which the server will run (if you wish to use a remote GUI)</p></li>
 <li><p>change “server/data_dir” to an existing location for saving data on the server.  On Windows double rather than single backslashes must be used in the path</p></li>
 </ul>
 </li>
-<li><p>edit [path_to_conda_env]/pystxmcontrol_cfg/motorConfig.json.  This is described further in the documentation.</p></li>
-<li><p>In one terminal (or Anaconda Powershell on Windows):</p></li>
+<li><p>edit [path_to_conda_env]/pystxmcontrol_cfg/motor.json as needed for your motor system.  This is described further in the documentation.</p></li>
+<li><p>In one terminal (or Anaconda Powershell on Windows) enter: stxmserver</p></li>
+<li><p>In another terminal enter: stxmcontrol</p></li>
 </ul>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="n">pystxmcontrol</span>
-<span class="n">python</span> <span class="n">pystxmcontrol</span><span class="o">/</span><span class="n">controller</span><span class="o">/</span><span class="n">server</span><span class="o">.</span><span class="n">py</span>
-</pre></div>
-</div>
-<ul class="simple">
-<li><p>In another terminal:</p></li>
-</ul>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="n">pystxmcontrol</span>
-<span class="n">python</span> <span class="n">pystxmcontrol</span><span class="o">/</span><span class="n">stxmcontrol</span><span class="o">.</span><span class="n">py</span>
-</pre></div>
-</div>
 </section>
 <section id="contact-us">
 <h2>Contact us<a class="headerlink" href="#contact-us" title="Link to this heading"></a></h2>

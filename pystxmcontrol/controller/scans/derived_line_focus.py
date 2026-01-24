@@ -34,9 +34,9 @@ async def derived_line_focus(scan, dataHandler, controller, queue):
     controller.motors[scan["x_motor"]]["motor"].include_return = scanInfo["include_return"]
     coarse_only = scan["coarse_only"]  # this needs to be set properly if a coarse scan is possible
     coarse_offset = 20.
-    scanInfo['daq list'] = scan['daq list']
+    scanInfo['daq_list'] = scan['daq_list']
     scanInfo["rawData"] = {}
-    for daq in scanInfo["daq list"]:
+    for daq in scanInfo["daq_list"]:
         scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])

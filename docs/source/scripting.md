@@ -1,7 +1,7 @@
-# Scripting
-
 ```
 from pystxmcontrol.controller.scripter import *
+
+s = scripter()
 
 # ##set up and execute basic metadata required of all scans
 meta = {"proposal": "", "experimenters":"", "nxFileVersion":3.0, "Sample": ""}
@@ -31,6 +31,6 @@ meta["energyPoints"] = 2
 polarizations = [-1,1]
 for p in polarizations:
     print("Moving polarization to %s" %p)
-    move_motor("POLARIZATION",p)
-    stxm_scan(meta)
+    s.move_motor("POLARIZATION",p)
+    s.stxm_scan(meta)
 ```

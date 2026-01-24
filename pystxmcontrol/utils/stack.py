@@ -473,7 +473,7 @@ class stack():
                                                     moving_mask = b > threshold)#upsample_factor=100)
             else:
                 #shifts,a,b = register_translation(dst_image, src_image, upsample_factor=100)
-                shifts,c,d = register_translation(dst_image, src_image, \
+                shifts = register_translation(dst_image, src_image, \
                                                     reference_mask = dst_image > threshold, \
                                                     moving_mask = src_image > threshold)#upsample_factor=100)
                 #shifts = register_translation(dst_image, src_image, \
@@ -709,11 +709,10 @@ class stack():
                 idx = np.where(np.abs(df-d)>15.*(df-d).std())
                 d[idx] = df[idx]
                 self.odFrames[i] = d
-                
             else:
                 d = self.processedFrames[i].copy()
-                df = medfilt(d, kernel_size=5)
-                idx = np.where(np.abs(df - d) > 3. * (df - d).std())
+                df = medfilt(d, kernel_size=3)
+                idx = np.where(np.abs(df - d) > 5. * (df - d).std())
                 d[idx] = df[idx]
                 self.processedFrames[i] = d
             # peakIndices = np.where(np.abs(filteredFrames[i] - self.processedFrames[i]) > \

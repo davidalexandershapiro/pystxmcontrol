@@ -62,7 +62,8 @@ class inclinedDerivedPiezo(motor):
         self.axes["axis1"].setPositionTriggerOff()
 
     def checkLimits(self,pos,axis = 1):
-        return self.axes["axis"+str(axis)].checkLimits(pos - self._coarsePos)
+        #Probably wrong
+        return self.axes["axis"+str(axis)].checkLimits(pos - self.coarsePos)
 
     def checkRange(self,positionTuple,axis=1):
         pos1,pos2 = positionTuple
@@ -140,6 +141,7 @@ class inclinedDerivedPiezo(motor):
             mode = "line"
             self.dim = 2
         if not (self.simulation):
+            print(self.start,self.stop)
             self.axes["axis1"].controller.setup_trajectory(self.trigger_axis, self.start, self.stop, \
                                              self.trajectory_pixel_dwell, self.trajectory_pixel_count, \
                                              mode=mode,pad=(self.xpad,self.ypad))
@@ -223,19 +225,40 @@ class inclinedDerivedPiezo(motor):
             coarse_only = kwargs["coarse_only"]
         else:
             coarse_only = False
+        if "fine_only" in kwargs.keys():
+            fine_only = kwargs["fine_only"]
+        else:
+            fine_only = False
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
-        if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
+        #print(f"[inclined piezo] {self.axis} {kwargs}")
+        if fine_only:
+            #print(f"[inclined piezo] fine_only {self.axis} move to {pos}")
+            self.axes["axis1"].moveTo(pos)
+        elif self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
+            #print(f"[inclined piezo] moving fine {self.axis} motor to {newFinePos}. Coarse {self.axis} position: {self.coarsePos}")
             self.axes["axis1"].moveTo(newFinePos)
         else:
+            #print(f"[inclined piezo] {self._finePos},{self.coarsePos},{deltaPos},{newFinePos},{pos}")
+            #print(f"[inclined piezo] check limit failed for fine {self.axis} position {newFinePos} at coarse position {pos}")
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
                 time.sleep(0.03)
                 self.axes["axis1"].setZero()
             #for an inclined sample CoarseY is projected
-            self.axes["axis2"].moveTo(pos/np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.))
+            #pos is the vertical position in the piezo coordinate system
+            #y is the required CoarseY position in the rotated coordinate system to get to pos
+            y = pos/np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.)
+            self.axes["axis2"].moveTo(y)
+            #moving the CoarseY stage at an inclined angle changes the focus by dZ
+            dZ = y * np.sin(self.axes["axis3"].getPos()*0.89*np.pi/180.)
+            #implement this as a change in offset to ZonePlateZ
+            self.axes["axis4"].config["offset"] = dZ + self.axes["axis4"].config["base offset"]
+            #move to current calibrated position
+            self.axes["axis4"].moveTo(self.axes["axis4"].calibratedPosition)
+
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
@@ -260,10 +283,15 @@ class inclinedDerivedPiezo(motor):
         self.moving = False
 
     def getPos(self, setPointOnly = True):
+        #print(f"[inclined piezo] Getting position")
         self._finePos = self.axes["axis1"].getPos()
+        #print(f"[inclined piezo] Fine position {self._finePos}")
         #for an inclined sample CoarseY is projected
-        self._coarsePos = self.axes["axis2"].getPos()*np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.)
-        self.position = self._coarsePos + self._finePos
+        self.coarsePos = self.axes["axis2"].getPos()*np.cos(self.axes["axis3"].getPos()*0.89*np.pi/180.)
+        #print(f"[inclined piezo] Coarse position {self.coarsePos}")
+        self.position = self.coarsePos + self._finePos
+        #print(f"[inclined piezo] Total position {self.position*self.config['units']+self.config['offset']}")
+        self._zposition = self.axes["axis4"].getPos()
         return self.position * self.config["units"] + self.config["offset"]
 
     def decompose(self, pos):
@@ -288,9 +316,9 @@ class inclinedDerivedPiezo(motor):
         ###start with the simple case of a single block, the fine range is less than or equal to its maximum allowed
         if nblocks == 1:
             if (self.checkLimits(pmin, 1) and self.checkLimits(pmax, 1)):
-                pcoarse = self._coarsePos
-                fine_start = pmin - self._coarsePos
-                fine_stop = pmax - self._coarsePos
+                pcoarse = self.coarsePos
+                fine_start = pmin - self.coarsePos
+                fine_stop = pmax - self.coarsePos
             else:
                 pcoarse = (pmax + pmin) / 2.
                 fine_start = -prange / 2.
