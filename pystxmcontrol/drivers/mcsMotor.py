@@ -55,7 +55,8 @@ class mcsMotor(motor):
             self.controller.stop(self._axis)
 
     def setAxisParams(self, velocity):
-        self.controller.set_velocity(self._axis,velocity)
+        if not self.simulation:
+            self.controller.set_velocity(self._axis,velocity)
 
     def moveLine(self):
         pass

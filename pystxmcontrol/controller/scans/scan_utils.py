@@ -37,7 +37,8 @@ def executeReturnTrajectory(self, motor, xStart, xStop, yStart, yStop):
     motor.moveLine()
 
 async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
-    controller.daq["default"].initLine()
+    for daq in scanInfo["daq_list"]:
+        controller.daq[daq].initLine()
     controller.daq["default"].autoGateOpen()
     #Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
     if scan["spiral"]:
@@ -58,6 +59,6 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         print("[scan utils] DAQ timeout.  Restarting DAQ and moving on.")
         controller.daq["default"].stop()
         controller.daq["default"].start()
-        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT")
+        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT", daq_list=scanInfo["daq_list"])
         return False
     return True

@@ -137,9 +137,9 @@ class LinearImageScan(BaseScan):
 
         # Calculate number of points
         num_line_motor_points = self.controller.motors[self.scan["x_motor"]]["motor"].npositions
-        self.scanInfo["numLineDAQPoints"] = num_line_motor_points * self.scanInfo["oversampling_factor"]
+        self.scanInfo["numLineDAQPoints"] = num_line_motor_points
         self.scanInfo["numMotorPoints"] = num_line_motor_points * geometry["yPoints"]
-        self.scanInfo["numDAQPoints"] = self.scanInfo["numMotorPoints"] * self.scanInfo["oversampling_factor"]
+        self.scanInfo["numDAQPoints"] = self.scanInfo["numMotorPoints"]
 
         # Update data arrays on first energy
         if energy == energies[0]:
@@ -148,8 +148,8 @@ class LinearImageScan(BaseScan):
         # Configure DAQs
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
-            count=1,
-            samples=self.scanInfo["numLineDAQPoints"],
+            count=self.scanInfo["numLineDAQPoints"],
+            samples= self.scanInfo["oversampling_factor"],
             trigger="EXT"
         )
 
@@ -204,7 +204,7 @@ class LinearImageScan(BaseScan):
         motor = self.controller.motors[x_motor_name]["motor"]
 
         # Calculate pixel dwell from motor dwell
-        pixel_dwell = self.scanInfo["_motor_dwell"] / self.scanInfo["oversampling_factor"]
+        pixel_dwell = self.scanInfo["_motor_dwell"]
 
         if not coarse_only:
             # Fine motor trajectory

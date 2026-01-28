@@ -268,14 +268,21 @@ class stxm:
         #but this is much much cleaner
         #self.counts should the long vector of (I,Z,Y,X) points whereas self.interp_counts will be (Z,Y,X) matrix
         #self.interp_counts does not need to be updated here because its shape doesn't depend on the calculated trajectories
+        #we do things a bit weird for dispersive detectors that produce a spectrum at each point, interp_counts will only have
+        #the summed fluorescence yield so the energy dimension only has the size of the incident energy array.  The raw data
+        #in counts will have both energy dimensions for later processing
         motorLength = scanInfo['numMotorPoints']
         DAQLength = scanInfo['numDAQPoints']
         x_points = scanInfo["xPoints"]
         y_points = scanInfo["yPoints"]
+        incident_energies = scanInfo["rawData"]["default"]["meta"]["n_energies"]
         for daq in self.daq_list:
-            n_energies = scanInfo["rawData"][daq]["meta"]["n_energies"]
-            self.counts[daq][region] = np.zeros((n_energies,DAQLength))
-            self.interp_counts[daq][region] = np.zeros((n_energies, y_points, x_points))
+            measured_energies = scanInfo["rawData"][daq]["meta"]["n_energies"]
+            if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.counts[daq][region] = np.zeros((incident_energies,measured_energies,DAQLength))
+            else:
+                self.counts[daq][region] = np.zeros((incident_energies,DAQLength))
+            self.interp_counts[daq][region] = np.zeros((incident_energies, y_points, x_points))
         self.xMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
         self.yMeasured[region] = np.zeros((self.energies["default"].size,motorLength))
         self.zMeasured[region] = np.zeros((self.energies["default"].size,motorLength))

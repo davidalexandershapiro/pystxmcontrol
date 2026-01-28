@@ -27,7 +27,7 @@ class xspress3(daq):
         self._bottom_bin = 0.0 #this is just a place holder
         self.all_energies = np.linspace(self._bottom_bin, self._bottom_bin + self.nbins * self._bin_ev_delta, self.nbins)
         self.meta = {"ndim": 1, "type": "spectrum", "name": "XSPRESS3", "x label": "Energy", "max energy": 3000}
-        self.xrf_filename = None
+        self.set_filename('/cosmic-dtn/groups/cosmic/XRF-Data/temp.stxm')
 
     def start(self):
         pass
@@ -47,32 +47,28 @@ class xspress3(daq):
         self.count = count
         self.samples = samples
         if not self.simulation:
+            # Stop any existing data collection.
+            print(f'Xspress3 configured dwell {self.dwell}')
+            caput(self.address+self.det_prefix+'Acquire', 0,wait = True)
+
             # Assign dwell in seconds. Only matters if trigger is bus.
-            caput(self.address+self.det_prefix+'AcquireTime', dwell/1000)
-            caput(self.address+self.det_prefix+'NumImages',self.count*self.samples)
-            #caput(self.address+self.det_prefix+'Acquire', 1)
-            # Assign total number of images as count*samples
-            #caput(self.address+self.det_prefix+'NumImages',count*samples)
+            caput(self.address+self.det_prefix+'AcquireTime', self.dwell/1000,wait = True)
+            caput(self.address+self.det_prefix+'NumImages',self.count*self.samples,wait = True)
+            print(f'Xspress3 configured frames {self.samples*self.count}')
+
             # Assign the trigger state: BUS is internal. EXT is external (probably not correct there is another option)
             if trigger == 'BUS':
-                caput(self.address+self.det_prefix+'TriggerMode', 1) #Internal trigger
+                caput(self.address+self.det_prefix+'TriggerMode', 1,wait = True) #Internal trigger
+                caput(self.address+self.hdf_prefix+'Capture', 0,wait = True, timeout = 0.1)
             elif trigger == 'EXT':
-                caput(self.address+self.det_prefix+'TriggerMode', 8) #External trigger
-                #This triggers on the pulse
-            self.ready()
-
-            pass
-        #Not using output there yet but keeping it so the arguments are the same.
+                caput(self.address+self.det_prefix+'TriggerMode', 8,wait = True) #External trigger
+                caput(self.address+self.hdf_prefix+'Capture', 1,wait = True, timeout = 0.1)
 
     async def getPoint(self):
         if self.simulation:
-            #but this is a spectrum so we need to return some energy information.  I assume that is done below
-            #but I don't yet know the format of the data.  For now I"ll return it as two lists
-
-            #1e7 total counts/second across nbins
             await asyncio.sleep(self.dwell/1000)
             self.data = poisson(1e7/self.nbins*self.dwell/1000,(self.nbins,))[:self._idx]
-            self.data = np.reshape(self.data,(self.data.size,1))
+            #self.data = np.reshape(self.data,(self.data.size,1))
             return self.data
         else:
             #this just polls the detector and collects data. Should be automatically collecting after configured.
@@ -83,7 +79,6 @@ class xspress3(daq):
             #Configure to take a point
             #There may be a better way to do this by using the acquire time.
             #Will have to consider dead time.
-            #caput(self.address+self.det_prefix+'Acquire', 1)
             #status = True
             #while status:
             #    array_counter = caget(self.address+self.det_prefix+'ArrayCounter_RBV')
@@ -92,32 +87,58 @@ class xspress3(daq):
             #    time.sleep(self.dwell/1000.)
             #caput(self.address+self.det_prefix+'Acquire',0)
             #How to read????
-            self.data = caget(self.address+self.MCA_prefix+'ArrayData')[:self._idx]
-            #set back to old trigger mode
-            if caget(self.address+self.det_prefix+'ArrayCounter_RBV')>self.samples*self.count-100:
-                self.ready()
-            #caput(self.address+self.det_prefix+'TriggerMode',oldTrigger)
-            return self.data
-    def ready(self):
-        if not self.simulation:
-            # Stop saving data to file (unnecessary?)
+
             caput(self.address+self.hdf_prefix+'Capture', 0)
-            time.sleep(0.1)
+            #If the monitor is running, then we are looking for more than one image. If not, we should wait for the readout.
+            if caget(self.address+self.det_prefix+'NumImages_RBV') == 1:
+                t0 = time.time()
+                #caput(self.address + self.det_prefix + 'ERASE', 1, wait=True)
+                #this section of code doesn't seem to do anything, nothing is printing
+                # while caget(self.address+self.det_prefix+'ArrayCounter_RBV') != 0:
+                #     print("sleeping 1")
+                #     await asyncio.sleep(0.1)
+                #print(bytes(caget(self.address+self.det_prefix+'StatusMessage_RBV')).decode('ascii'))
+                caput(self.address + self.det_prefix + 'Acquire', 1, wait=True)
+                #this section of code doesn't seem to do anything, nothing is printing
+                # while caget(self.address+self.det_prefix+'ArrayCounter_RBV') != 1:
+                #     print("sleeping 2")
+                #     # print(caget(self.address+self.det_prefix+'DetectorState_RBV'),
+                #     #       caget(self.address+self.det_prefix+'ArrayCounter_RBV'))
+                #     await asyncio.sleep(0.1)
+                #this line is overwritten so I don't know why it's here.  The caget below is outside the else statement
+                #self.data = caget(self.address+':MCASUM1:'+'ArrayData')[:self._idx]
+                await asyncio.sleep(self.dwell/1000)
+            else:
+                caput(self.address + self.det_prefix + 'Acquire', 1)
+                #this line conflicts with the caget in the if statement, which is now commented
+            self.data = caget(self.address+self.MCA_prefix+'ArrayData')[:self._idx]
+            return self.data
+    def initLine(self):
+        if not self.simulation:
+            #print('starting initline')
+            t0 = time.time()
+            #self.set_filename('/cosmic-dtn/groups/cosmic/XRF-Data/temp.stxm')
+            # Stop saving data to file (unnecessary?)
+            #print(f'Stopping capture: {time.time()-t0}')
+            #caput(self.address+self.hdf_prefix+'Capture', 0,wait = True, timeout = 0.1)
             # Stop any previous acquisition
-            caput(self.address+self.det_prefix+'Acquire',0)
-            time.sleep(0.1)
+            #print(f'Stopping acquisition: {time.time()-t0}')
+            #caput(self.address+self.det_prefix+'Acquire',0,wait = True, timeout = 0.1)
             # Erase previous data (should be saved to file)
-            caput(self.address+self.det_prefix+'ERASE',1)
-            time.sleep(0.1)
+            #print(f'Erasing data: {time.time()-t0}')
+            #caput(self.address+self.det_prefix+'ERASE',1,wait = True, timeout = 0.1)
             # Start saving data to file (will overwrite previous unless set_filename has been run)
-            caput(self.address+self.hdf_prefix+'Capture', 1)
-            time.sleep(0.1)
+            if not caget(self.address+self.hdf_prefix+'Capture_RBV'):
+                print(f'Starting capture: {time.time()-t0}')
+                caput(self.address+self.hdf_prefix+'Capture', 1,wait = True, timeout = 0.5)
             # Start acquisition
-            caput(self.address+self.det_prefix+'Acquire',1)
-            time.sleep(0.1)
+            print(f'Starting acquisition: {time.time()-t0}')
+            caput(self.address+self.det_prefix+'Acquire',1,wait = True,timeout = 0.5)
+            print(f'Checking detector state: {time.time()-t0}')
             # To do: make this better. Check we are in the right state.
             while caget(self.address+self.det_prefix+'DetectorState_RBV') != 1:
-                time.sleep(0.1)
+                time.sleep(0.05)
+            print(f"Line init'd: {time.time()-t0}")
 
     def set_filename(self, stxm_filename):
         if not self.simulation:
@@ -133,7 +154,7 @@ class xspress3(daq):
             caput(self.address+self.hdf_prefix+'AutoIncrement', 0)
             caput(self.address+self.hdf_prefix+'FileTemplate', '%s%s.stxm')
 
-
+            print('saving file as {}/{}.stxm'.format(directory,xrf_filename))
 
     async def getLine(self):
         if self.simulation:
@@ -154,7 +175,7 @@ class xspress3(daq):
             #print('attempting to open {}'.format(self.xrf_file))
             while True:
                 try:
-                    #print('attempting to open file')
+                    print('attempting to open file')
                     with h5py.File(self.xrf_file, 'r') as xrf_h5:
                         all_data = xrf_h5['entry/data/data'][()][:, 0].T  # indexing for only detector 1.
                     break

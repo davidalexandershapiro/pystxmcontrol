@@ -110,5 +110,6 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
                     await dataHandler.dataQueue.put('endOfScan')
                     return
         energyIndex += 1
-    dataHandler.data.saveRegion(0)
     await dataHandler.dataQueue.put('endOfScan')
+    await asyncio.sleep(0.1)
+    dataHandler.data.saveRegion(0)

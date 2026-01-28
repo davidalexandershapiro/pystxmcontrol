@@ -182,6 +182,8 @@ class mclController():
         The second argument to setISSClock is the mode.  This is hard coded to mode 2 which sets the polarity as low to high
         pulse.  Mode = 4 turns off the clock.  The third argument (axis) is hard coded to 5 which pulses on a waveform read,
         which returns the position data.  That is called by trigger_line below.
+
+        Setting any of these seems to disable the pixel clock and the line trigger is not reliable so we don't use this
         """
         pass
         # if mode == "on":
@@ -226,6 +228,7 @@ class mclController():
         dwell [ms] = trajectory dwell / oversampling factor.
         axis should be in the motor class space.  In the motor class it is self.axis
         """
+        print(f'[mclController.controller.setup_trajectory] dwell time is {dwell}')
         if mode == "line":
             xstart,ystart = start
             xstop,ystop = stop

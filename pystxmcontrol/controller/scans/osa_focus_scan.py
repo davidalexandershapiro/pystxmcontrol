@@ -121,5 +121,6 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
                 dataHandler.data.saveRegion(0)
                 await dataHandler.dataQueue.put('endOfScan')
                 return
-    dataHandler.data.saveRegion(0)
     await dataHandler.dataQueue.put('endOfScan')
+    await asyncio.sleep(0.1)
+    dataHandler.data.saveRegion(0)

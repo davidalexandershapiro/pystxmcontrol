@@ -14,6 +14,8 @@ class E712Motor(motor):
         self.axis = None
         self.trigger_axis = 1 #1 for X and 2 for Y
         self.include_return = True
+        self.position = 0
+        self.moving = False
         self.config = {"minValue":-5000,"maxValue":5000,"offset":0,"units":1.}
 
     def checkLimits(self, pos):

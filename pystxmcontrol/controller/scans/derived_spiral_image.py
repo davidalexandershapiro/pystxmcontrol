@@ -257,8 +257,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
 
 
             #print('Configuring DAQ: {} ms dwell, {} count, {} samples, "EXT" trigger'.format(actDAQDwell,DAQcount,DAQsamples))
-            # controller.daq["default"].config(actDAQDwell, count=DAQcount, samples=DAQsamples, trigger="EXT")
-            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = "EXT")
+            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = "EXT", daq_list = scanInfo["daq_list"])
 
             # Move to first position
             controller.moveMotor(scan["x_motor"], xcoarse + scanInfo['xFineCenter'])

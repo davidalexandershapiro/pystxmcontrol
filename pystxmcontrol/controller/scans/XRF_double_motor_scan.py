@@ -2,13 +2,12 @@ import time
 import asyncio
 import numpy as np
 
-async def double_motor_scan(scan, dataHandler, controller, queue):
+async def XRF_double_motor_scan(scan, dataHandler, controller, queue):
     """
     Double motor point scan
     :param scan:
     :return:
     """
-
     xhome = controller.allMotorPositions[scan["x_motor"]]
     yhome = controller.allMotorPositions[scan["y_motor"]]
     def move_home():
@@ -75,23 +74,20 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yStep"] = yStep
         scanInfo["yStart"] = yStart
         scanInfo["yCenter"] = yStart
+
+        for daq in controller.daq.keys():
+            if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
+            else:
+                scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
+
         scanInfo["yRange"] = yRange
-        if mode == "point":
-            samples = 1
-        elif mode == "continuousLine":
-            samples = scanInfo["xPoints"]
-            velocity = scanInfo["xStep"]/scanInfo["dwell"]
-            controller.motors[scan["x_motor"]]["motor"].setAxisParams(velocity)
-            # Update arrays for continuous line mode to ensure proper dimensionality
-            scanInfo['numMotorPoints'] = samples * len(yPos[0])
-            scanInfo['numDAQPoints'] = samples * len(yPos[0])
-            for daq in controller.daq.keys():
-                if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                    scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
-                else:
-                    scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-            dataHandler.data.updateArrays(0, scanInfo)
-        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = samples, trigger = "BUS", daq_list=scanInfo["daq_list"])
+        samples = scanInfo["xPoints"]
+        # Update arrays for continuous line mode to ensure proper dimensionality
+        scanInfo['numMotorPoints'] = samples * len(yPos[0])
+        scanInfo['numDAQPoints'] = samples * len(yPos[0])
+        dataHandler.data.updateArrays(0, scanInfo)
+        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = samples, trigger = "EXT", daq_list = scanInfo["daq_list"])
 
         for i in range(len(yPos[0])):
             controller.moveMotor(scan["y_motor"], yPos[0][i])
@@ -100,47 +96,24 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
             dataHandler.data.motorPositions[0] = controller.allMotorPositions
             scanInfo["motorPositions"] = controller.allMotorPositions
             scanInfo["lineIndex"] = i
-            if mode == "point":
-                for j in range(len(xPos[0])):
-                    scanInfo["columnIndex"] = j
-                    scanInfo["index"] = i * len(yPos[0]) + j
-                    controller.moveMotor(scan["x_motor"], xPos[0][j])
-                    if queue.empty():
-                        controller.daq["default"].autoGateOpen()
-                        await dataHandler.getPoint(scanInfo)
-                        controller.daq["default"].autoGateClosed()
-                    else:
-                        await queue.get()
-                        dataHandler.data.saveRegion(0)
-                        move_home()
-                        await dataHandler.dataQueue.put('endOfScan')
-                        return
-            elif mode == "continuousLine":
+            # arm the daqs for a line of external triggers
+            for daq in scanInfo["daq_list"]:
+                controller.daq[daq].initLine()
+            for j in range(len(xPos[0])):
                 scanInfo["index"] = i * len(yPos[0])
-                try:
-                    backlash = controller.motors[scan['x_motor']]['motor'].config['backlash']
-                except:
-                    backlash = 0.
-                scanInfo["direction"] = "forward"
-                controller.moveMotor(scan["x_motor"],xStart)
-                target = xStop
+                controller.moveMotor(scan["x_motor"], xPos[0][j])
                 if queue.empty():
-                    controller.daq["default"].initLine()
-                    controller.daq["default"].autoGateOpen()
-                    controller.daq["default"].bus_trigger()
-                    controller.moveMotor(scan["x_motor"],target)
+                    #autoGateOpen() sends a trigger to the shutter.  We need to connect that to all daqs
+                    controller.daq["default"].autoGateOpen(shutter = 1)
+                    await asyncio.sleep(scanInfo["dwell"]/1000.)
                     controller.daq["default"].autoGateClosed()
-                    scanInfo["line_positions"] = [np.linspace(xStart,xStop,samples),np.ones(samples)*yPos[0][i]]
-                    try: 
-                        await dataHandler.getLine(scanInfo.copy())
-                    except:
-                        pass
                 else:
                     await queue.get()
                     dataHandler.data.saveRegion(0)
                     move_home()
                     await dataHandler.dataQueue.put('endOfScan')
                     return
+            await dataHandler.getLine(scanInfo.copy())
         energyIndex += 1
     await dataHandler.dataQueue.put('endOfScan')
     await asyncio.sleep(0.1)

@@ -278,6 +278,7 @@ class dataHandler:
         the data there.  So no need to calculate what "i" is here, for example.
         scanInfo["rawData"] is the uninterpolated data where as scanInfo["data"] is interpolated.  Not all scans need
         do the interpolation, like ptychography and single/double motor scans."""
+
         i = scanInfo["index"] #index along the long vector
         y = scanInfo["lineIndex"]
         j = i + scanInfo["rawData"][daq]["data"].shape[-1] #the last dimension is the number of scan points
@@ -291,6 +292,7 @@ class dataHandler:
             mj = mi + scanInfo['line_positions'][0].size
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
+            image = self.data.interp_counts[daq][k][m,:,:]
 
         elif scanInfo["type"] == "Spiral Image":
             mi = scanInfo['position_index']#*scanInfo['line_positions'][0].size
@@ -298,6 +300,7 @@ class dataHandler:
             self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
             self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
             self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
+            image = self.data.interp_counts[daq][k][m,:,:]
             
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
@@ -305,6 +308,7 @@ class dataHandler:
                 self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
+            image = self.data.interp_counts[daq][k][m,:,:]
 
         elif "Focus" in scanInfo["type"]:
             if scanInfo["mode"]=="continuousLine":
@@ -314,6 +318,7 @@ class dataHandler:
             else:
                 c = scanInfo["columnIndex"]
                 self.data.interp_counts["default"][k][0, y, c] = scanInfo["data"]["default"]  # this is a matrix
+            image = self.data.interp_counts[daq][k][m,:,:]
 
         elif scanInfo["type"] == "Line Spectrum":
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
@@ -322,14 +327,14 @@ class dataHandler:
                 self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq].sum(0)
             self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]  # these are long vectors
             self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
-            return self.data.interp_counts[daq][k][:,0,:]
+            image = self.data.interp_counts[daq][k][:,0,:]
 
         elif scanInfo["type"] == "Single Motor":
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"]
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
-            return self.data.interp_counts[daq][k][m,:,:]
+            image = self.data.interp_counts[daq][k][m,:,:]
 
         elif scanInfo["type"] in ["Double Motor","OSA Image","Detector XY Image"]:
             if scanInfo["mode"] == "point":
@@ -347,16 +352,23 @@ class dataHandler:
                 mj = mi + scanInfo['line_positions'][0].size
                 self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
                 self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            return self.data.interp_counts[daq][k][m,:,:]
+            image = self.data.interp_counts[daq][k][m,:,:]
+        
+        elif scanInfo["type"] == "XRF Image":
+            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
+                self.data.interp_counts[daq][k][m,y,:] = scanInfo["rawData"][daq]["data"]
+            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+                self.data.interp_counts[daq][k][m,y,:] = scanInfo["rawData"][daq]["data"].sum(0)
+            image = self.data.interp_counts[daq][k][m,:,:]
 
         #add the raw data to the structure
         #this doesn't work for single/double motor scan so put it at the end
         if scanInfo["rawData"][daq]["meta"]["type"] == "point":
             self.data.counts[daq][k][m,i:j] = scanInfo["rawData"][daq]["data"]
         elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            self.data.counts[daq][k][:,i:j] = scanInfo["rawData"][daq]["data"]
+            self.data.counts[daq][k][m,:,i:j] = scanInfo["rawData"][daq]["data"]
 
-        return self.data.interp_counts[daq][k][m,:,:]
+        return image
 
     def tiled_scan(self, scan):
         xStart = scan["scan_regions"]["Region1"]["xStart"]
@@ -416,7 +428,7 @@ class dataHandler:
                                                       "yCenter": ycenter,
                                                       "zStart": 0,
                                                       "zStop": 0,
-                                                      "zPoints": 0}
+                                                      "zPoints": 1}
         return scan
 
     async def startScanProcess(self, scan):
@@ -435,8 +447,8 @@ class dataHandler:
                 self.data.energies[daq] = self.controller.daq[daq].energies
                 #These are currently specific to the xrf detector and will need to be implemented
                 #in other daqs of this type. Probably a better way to do this.
-                self.controller.daq[daq].set_filename(self.currentScanID)
-                self.controller.daq[daq].ready()
+                # self.controller.daq[daq].set_filename(self.currentScanID)
+                # self.controller.daq[daq].ready()
         await self.sendScanData(scan["synch_event"])
 
     async def monitor(self, scanQueue):
@@ -455,7 +467,7 @@ class dataHandler:
         scanInfo["data"] = {}
         for daq in scanInfo["daq_list"]:
             scanInfo["rawData"][daq]={"meta":self.daq[daq].meta,"data": None}
-        chunk = []
+
         while True:
             scanInfo["elapsedTime"] = time.time()
             self.daq["default"].autoGateOpen(shutter=0)
@@ -595,7 +607,6 @@ class dataHandler:
                     scanInfo["rawData"][daq]["data"] = self.daq[daq].data[::-1]
             else:
                 scanInfo["rawData"][daq]["data"] = self.daq[daq].data
-
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Line] Acquisition time: {t1-t0}")
         return True

@@ -46,7 +46,9 @@ class controller:
         self.readConfig()
         self.initialize()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
-        self.operation_logger.start()
+        self.operation_logger.start() 
+        time.sleep(1)
+        self._confirm_motor_positions()
         self.startMonitor()
         self.getMotorPositions()
 
@@ -55,6 +57,7 @@ class controller:
 
         # Register cleanup handler for graceful shutdown
         atexit.register(self.cleanup)
+
     def _motor_logger(self):
         while self._log_motors:
             self.getMotorPositions()
@@ -412,12 +415,15 @@ class controller:
             self.scanQueue.put_nowait('end')
         self.scanning = False
 
-    def config_daqs(self, dwell, count, samples, trigger):
-        for daq in self.daq.keys():
-            if self.daqConfig[daq]["record"]:
-                d = dwell / self.daqConfig[daq].get("oversampling_factor",1)
-                s = samples * self.daqConfig[daq].get("oversampling_factor",1)
-                self.daq[daq].config(d, count = count, samples = s, trigger = trigger)
+    def config_daqs(self, dwell, count, samples, trigger,daq_list):
+        for daq in daq_list:
+            if isinstance(dwell, list):
+                d = dwell
+                s = samples
+            else:
+                d = dwell / self.daqConfig[daq].get("oversamling_factor",1)
+                s = samples * self.daqConfig[daq].get("oversamling_factor",1)
+            self.daq[daq].config(d, count = count, samples = s, trigger = trigger)
 
     async def read_daq(self, daq, dwell, shutter = True):
         try:
@@ -438,6 +444,65 @@ class controller:
         self.motors["Energy"]["motor"].getZonePlateCalibration()
         #move the zone plate to the calibrated position
         self.moveMotor("ZonePlateZ",pos = self.motors["Energy"]["motor"].calibratedPosition)
+
+    def _confirm_motor_positions(self):
+        for motor in self.motors.keys():
+            if self.motors[motor]["motor"].config.get("use_last_position", False):
+                try:
+                    print(f"[controller] Checking last position for {motor}...")
+                    last_pos = self.getLastMotorPosition(motor)
+                    self.motors[motor]["motor"].setPosition(last_pos['actual_position'])
+                    if last_pos:
+                        print(f"[controller] {motor}: {last_pos['actual_position']} at {last_pos['datetime']}")
+                    else:
+                        print(f"[controller] {motor}: No logged position found")
+                except Exception as e:
+                    print(f"[controller] Error getting last position for {motor}: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+    def getLastMotorPosition(self, motor_name):
+        """
+        Get the last logged position of a motor from the operation_logger.
+
+        :param motor_name: Name of the motor
+        :type motor_name: str
+        :return: Dictionary containing the last position data, or None if not found
+        :rtype: dict or None
+
+        Returns a dictionary with keys:
+        - 'timestamp': Unix timestamp of the position reading
+        - 'datetime': ISO format datetime string
+        - 'motor_name': Name of the motor
+        - 'actual_position': The position value
+        - 'motor_offset': Motor offset value (if available)
+        - 'error_message': Error message if any
+        """
+        if not hasattr(self, 'operation_logger'):
+            if self._logger:
+                self._logger.log(f"Operation logger not available", level="warning")
+            return None
+
+        try:
+            # Query the last position (limit=1)
+            # Note: This creates a new database connection for the query,
+            # which is safe even while the writer thread is running due to WAL mode
+            results = self.operation_logger.query_motor_positions(
+                motor_name=motor_name,
+                limit=1
+            )
+
+            if results and len(results) > 0:
+                return results[0]
+            else:
+                return None
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error querying motor position for '{motor_name}': {e}", level="error")
+            else:
+                print(f"Error querying motor position for '{motor_name}': {e}")
+            return None
+
 
     def cleanup(self):
         """

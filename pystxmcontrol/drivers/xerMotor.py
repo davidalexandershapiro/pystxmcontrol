@@ -28,6 +28,10 @@ class xerMotor(motor):
             self.home()
             self.getPos()
 
+    def setPosition(self,pos):
+        delta = pos - self.getPos()
+        self.config["offset"] += delta
+
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
 

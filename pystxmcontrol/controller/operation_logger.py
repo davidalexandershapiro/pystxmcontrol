@@ -625,28 +625,37 @@ class OperationLogger:
 
         # Get relevant database files
         db_files = self._get_db_files_for_range(start_time, end_time)
+        # If no database files exist, return empty list
+        if not db_files:
+            return []
+
         all_results = []
         for db_path, db_start, db_end in db_files:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+            try:
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
 
-            query = "SELECT * FROM motor_positions WHERE 1=1"
-            params = []
+                query = "SELECT * FROM motor_positions WHERE 1=1"
+                params = []
 
-            if motor_name:
-                query += " AND motor_name = ?"
-                params.append(motor_name)
+                if motor_name:
+                    query += " AND motor_name = ?"
+                    params.append(motor_name)
 
-            query += " AND timestamp >= ? AND timestamp <= ?"
-            params.append(db_start)
-            params.append(db_end)
+                query += " AND timestamp >= ? AND timestamp <= ?"
+                params.append(db_start)
+                params.append(db_end)
 
-            query += " ORDER BY timestamp DESC"
+                query += " ORDER BY timestamp DESC"
 
-            cursor.execute(query, params)
-            all_results.extend([dict(row) for row in cursor.fetchall()])
-            conn.close()
+                cursor.execute(query, params)
+                all_results.extend([dict(row) for row in cursor.fetchall()])
+                conn.close()
+            except sqlite3.Error as e:
+                if self._logger:
+                    self._logger.log(f"Error querying database {db_path}: {e}", level="warning")
+                continue
 
         # Sort combined results and apply limit
         all_results.sort(key=lambda x: x['timestamp'], reverse=True)

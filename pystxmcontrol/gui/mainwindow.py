@@ -1103,7 +1103,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.scan["loop_step"] = float(self.ui.loopStepSize.text())
         if self.scan["mode"] == "continuousSpiral":
             self.scan["spiral"] = True
-        self.scan['retract'] = True
+        self.scan['retract'] = self.client.scanConfig[self.scanType].get('retract', True)
         self.scan['A0'] = self.ui.A0Label.text()
         self.scan["scan_regions"] = {}
         self.scan["energy_regions"] = {}
@@ -1741,7 +1741,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     self.singleMotorScanXData.append(xdata)
                     self.ui.plotType.setCurrentText("Motor Scan")
                     self.updatePlot(message)
-                elif self.scan["scan_type"] == "Double Motor":
+                elif self.scan["scan_type"] in ["Double Motor", "XRF Image"]:
                     self.image = message["image"]["default"]
                     xScale = float(self.xRange) / float(self.xPts)
                     yScale = float(self.yRange) / float(self.yPts)

@@ -11,11 +11,11 @@ SAMPLE_ANGLE = 45
 
 def insertSTXMDetector(controller):
     controller.moveMotor("Detector Y", 0)
-    #time.sleep(10)
+    #await asyncio.sleep(10)
 
 def retractSTXMDetector(controller):
     controller.moveMotor("Detector Y", -6500)
-    #time.sleep(10)
+    #await asyncio.sleep(10)
 
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
@@ -70,7 +70,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
 
         # NOTE DAYNE EDIT 20251014: The following line corrects ZonePlateZ motion for sample surface tilt angle
 
-        #controller.moveMotor("ZonePlateZ", zPos[i])
+        controller.moveMotor("ZonePlateZ", zPos[i])
 
         # END DAYNE EDIT
 
@@ -88,8 +88,11 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
 
         # NOTE DAYNE EDIT 20251014: Add scanInfo for ZonePlateZ
 
-        #scanInfo['zPos'] = zPos[i]
-        #print(f'SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[i]}')
+        scanInfo['zPos'] = zPos[i]
+        await asyncio.sleep(1)
+        print(f'{i} | Time: {time.time()}, SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[i]}')
+        await asyncio.sleep(18)
+
 
         # END DAYNE EDIT
 
@@ -102,7 +105,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell2, 0)
                 controller.daq["default"].autoGateOpen()
-                time.sleep((dwell2 + 10.) / 1000.)
+                await asyncio.sleep((dwell2 + 10.) / 1000.)
                 await dataHandler.getPoint(scanInfo.copy())
                 frame_num += 1
                 scanInfo["ccd_frame_num"] = frame_num
@@ -110,7 +113,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen()
-                time.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
                     # dataHandler.data.saveRegion(0)
@@ -123,7 +126,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             else:
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
-                time.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 #now get the data
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
@@ -142,7 +145,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             return False
     return True
 
-async def derived_ptychography_image(scan, dataHandler, controller, queue):
+async def inclined_ptychography_image(scan, dataHandler, controller, queue):
     """
     Ptychography image scan
     :param scan:
@@ -218,6 +221,8 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
         scanInfo["energy"] = energy
         scanInfo['energyIndex'] = energyIndex
         for j in range(nScanRegions):
+            scanInfo["xPoints"]=len(xPos[j])
+            scanInfo["yPoints"]=len(yPos[j])
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
@@ -271,8 +276,8 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             scanMeta["energy"] = energy
             scanMeta["energyIndex"] = energyIndex  # ABE - I added this and the following line
             scanMeta["scanRegion"] = j
-            scanMeta["dark_num_x"] = 5
-            scanMeta["dark_num_y"] = 5
+            scanMeta["dark_num_x"] = 0 #assumes external software triggered for acquisition and bg subtraction
+            scanMeta["dark_num_y"] = 0
             scanMeta["exp_num_x"] = scanMeta["num_pixels_x"]
             scanMeta["exp_num_y"] = scanMeta["num_pixels_y"]
             scanMeta["exp_step_x"] = scanMeta["step_size_x"]
@@ -312,27 +317,24 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             # NOTE EDIT 20251014: Inserting the function for calcCorrectedZPTilt from scan_utils since the last
             #                     set of scan files we used dissappeared somewhere
             # Convert the sample angle to radian
-            #sample_tilt = np.deg2rad(SAMPLE_ANGLE)
+            sample_tilt = np.deg2rad(SAMPLE_ANGLE)
 
             # Grab the current ZonePlateZ and SampleY positions
 
             # Set the position to the center of the scan
-            #y_initial = np.mean(yPos)
-            # y_initial = controller.motors['SampleY']['motor'].getPos()
-            #z_initial = controller.motors['ZonePlateZ']['motor'].getPos()
+            y_initial = controller.motors['SampleY']['motor'].getPos()
+            z_initial = controller.motors['ZonePlateZ']['motor'].getPos()
 
             # Calculate the tilt-corrected ZonePlateZ positions
-            #zPos = z_initial - (np.array(yPos) - y_initial) / np.tan(sample_tilt)
+            zPos = z_initial - (np.array(yPos) - y_initial) / np.tan(sample_tilt)
 
-            #zp = zPos.tolist()
-            #print('zPos')
-            #print(zp[0])
-            #print(f"Length of zp: {len(zp)}")
-            #print(f"Length of yp: {len(yp)}")
+            zp = zPos.tolist()
             # Run a test to make sure that zp has the correct positions
-            #print('Printing corrected ZonePlateZ positions')
-            #print(zp)
-            #print('Ok nothing broke (yet)')
+            print('Printing corrected ZonePlateZ positions')
+            print(f'yPos values: {yPos}')
+            print(f'zPos values: {zPos}')
+            print(f'zp values: {zp}')
+            print('Ok nothing broke (yet)')
             ## END DAYNE EDIT
 
             scanMeta["n_repeats"] = scan["n_repeats"]
@@ -346,27 +348,27 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             # dataHandler.zmq_start_event(scan, metadata=scanMeta)
             dataHandler.zmq_send({'event': 'start', 'data': scan, 'metadata': scanMeta})
 
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
             scanInfo["scanRegion"] = scanRegion
-            xp_dark = np.linspace(xp.min(), xp.max(), 5)
-            yp_dark = np.linspace(yp.min(), yp.max(), 5)
+            # xp_dark = np.linspace(xp.min(), xp.max(), 5)
+            # yp_dark = np.linspace(yp.min(), yp.max(), 5)
 
             # 20251013: THIS IS A DAYNE EDIT; REMOVE AFTER REFLECTION BEAM TIME
             #zp_dark = np.ones((5,)) * controller.motors['ZonePlateZ']['motor'].getPos()
             # END DAYNE EDIT
 
-            scanInfo["ccd_mode"] = "dark"
-            print("acquiring background")
-            # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement
-            if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
-                await dataHandler.dataQueue.put('endOfRegion')
-            else:
-                dataHandler.zmq_send({'event': 'abort', 'data': None})
-                if scanInfo['retract']:
-                    insertSTXMDetector(controller)
-                if scan["defocus"]:
-                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
-                return
+            # scanInfo["ccd_mode"] = "dark"
+            # print("acquiring background")
+            # # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement
+            # if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
+            #     await dataHandler.dataQueue.put('endOfRegion')
+            # else:
+            #     dataHandler.zmq_send({'event': 'abort', 'data': None})
+            #     if scanInfo['retract']:
+            #         insertSTXMDetector(controller)
+            #     if scan["defocus"]:
+            #         controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
+            #     return
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
             # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement
@@ -387,7 +389,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 return
             while not dataHandler.regionComplete:
                 print("Waiting...")
-                time.sleep(1)
+                await asyncio.sleep(1)
                 # need to wait here until all the data has gone through the pipe
                 pass
             print("Scan region complete, saving data...")

@@ -293,7 +293,7 @@ class BaseScan(ABC):
         :param trigger: Trigger type ('EXT', 'BUS', etc.)
         """
         self.controller.config_daqs(dwell=dwell, count=count,
-                                   samples=samples, trigger=trigger)
+                                   samples=samples, trigger=trigger, daq_list = self.scan.get("daq_list", ["default"]))
 
     def get_scan_region_geometry(self, region_index: int = 0) -> Dict[str, Any]:
         """

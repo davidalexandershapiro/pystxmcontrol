@@ -52,13 +52,31 @@ class areaDetector(daq):
             pass
         else:
             #set exposure times
-            caput(self.address + self.camera_prefix + ":TriggerMode", "External", wait = True)
-            caput(self.address + self.camera_prefix + ":ImageMode", "Continuous", wait=True)
-            caput(self.address + self.camera_prefix + ":AcquireTime.VAL", self.dwell / 1000., wait = True)
-            #self.readout_time is the total time including exposure.  This is in seconds
-            self.readout_time_seconds = caget(self.address + self.camera_prefix + ":AcquirePeriod_RBV")
-            #reset counter
-            self.framenum = 0
+            #These might vary with detector.
+            if self.address == "BL7ANDOR1":
+                #set exposure times
+                caput(self.address + self.camera_prefix + ":TriggerMode", "External", wait = True)
+                caput(self.address + self.camera_prefix + ":ImageMode", "Continuous", wait=True)
+                caput(self.address + self.camera_prefix + ":AcquireTime.VAL", self.dwell / 1000., wait = True)
+                #self.readout_time is the total time including exposure.  This is in seconds
+                self.readout_time_seconds = caget(self.address + self.camera_prefix + ":AcquirePeriod_RBV")
+                #reset counter
+                self.framenum = 0
+            elif self.address == "13PICAM2":
+                #set exposure times
+                # Value 1 here is "Readout per Trigger"
+                # PICAMBase.adl will claim something else. Don't listen to it
+                caput(self.address + self.camera_prefix + ":TriggerMode", 1, wait = True)
+                caput(self.address + self.camera_prefix + ":TriggerDetermination", "Positive Polarity", wait = True)
+
+                #print(caget(self.address + self.camera_prefix + ":TriggerMode_RBV"))
+                caput(self.address + self.camera_prefix + ":ImageMode", "Continuous", wait=True)
+                caput(self.address + self.camera_prefix + ":AcquireTime.VAL", self.dwell, wait = True)
+                #self.readout_time is the total time including exposure.  This is in seconds
+                self.readout_time_seconds = caget(self.address + self.camera_prefix + ":ReadoutTimeCalc")/1000
+                #print(self.readout_time_seconds)
+                #reset counter
+                self.framenum = 0
 
     def init(self):
         caput(self.address + self.camera_prefix + ":Acquire", 1)
@@ -69,21 +87,24 @@ class areaDetector(daq):
         if self.simulation:
             #time.sleep(self.dwell / 1000.)
             self.data =  2. * np.random.random((1040,1152))
+            self.display_data = self.data.copy()
             return self.framenum - 1, self.data
         else:
-            time.sleep(self.readout_time_seconds)
+            await asyncio.sleep(self.readout_time_seconds)
             #print("Readout time seconds: %.4f" %self.readout_time_seconds)
-            current_dim = caget(self.address + self.camera_prefix+":ArraySizeX_RBV")
+            current_dim = (caget(self.address + self.camera_prefix+":ArraySizeX_RBV"),
+                           caget(self.address + self.camera_prefix + ":ArraySizeY_RBV"))
             frame = caget(self.address + self.image_prefix + ":ArrayData")
             if current_dim != self.old_dim:
                 try:
-                    self.data = np.reshape(frame, (self.old_dim, self.old_dim))
+                    self.data = np.reshape(frame, self.old_dim)
                 except ValueError:
-                    self.data = np.reshape(frame, (current_dim,current_dim))
+                    self.data = np.reshape(frame, current_dim)
                     self.old_dim = current_dim
             else:
                 self.data = np.reshape(frame, (current_dim, current_dim))
 
+            self.display_data = self.data.copy()
             #publish each frame to ZMQ to it can be received by GUI
             return self.framenum - 1, self.data
 
