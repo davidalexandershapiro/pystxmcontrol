@@ -52,8 +52,9 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             controller.getMotorPositions()
             dataHandler.data.motorPositions[0] = controller.allMotorPositions
         scanInfo["motorPositions"] = controller.allMotorPositions
-        controller.moveMotor(scan["y_motor"], yPos[i])
-        controller.moveMotor(scan["x_motor"], xPos[i])
+        controller.moveMotor(scan["y_motor"], yPos[i], fine_only = True)
+        controller.moveMotor(scan["x_motor"], xPos[i], fine_only = True)
+        await asyncio.sleep(0.005) #not sure why this is needed
 
         xpts = scan["scan_regions"][scanRegion]["xPoints"]
         ypts = scan["scan_regions"][scanRegion]["yPoints"]
@@ -70,7 +71,6 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         if queue.empty():
             if scan["doubleExposure"]:
                 scanInfo['dwell'] = dwell2
-                controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell2, 0)
                 controller.daq["default"].autoGateOpen()
                 await asyncio.sleep((dwell2 + 10.) / 1000.)
@@ -78,7 +78,6 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 frame_num += 1
                 scanInfo["ccd_frame_num"] = frame_num
                 scanInfo['dwell'] = dwell1
-                controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen()
                 await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
@@ -95,10 +94,6 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
                 await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
-                #now get the data
-                #Needed for MTE detector
-                controller.daq["CCD"].init()
-
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
                     # dataHandler.data.saveRegion(0)
@@ -168,10 +163,10 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
     #numMotorPoints should be the total number of motor position measurements expected
     #numDAQPoints should be equal to xPoints * oversampling
     numLineMotorPoints = len(xPos) #this configures the DAQ for one line
-    numLineDAQPoints = numLineMotorPoints * scan["oversampling_factor"]
+    numLineDAQPoints = numLineMotorPoints
     scanInfo['numMotorPoints'] = numLineMotorPoints * len(yPos) #total number of motor points configures the full data structrure
-    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
-    controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "BUS")
+    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints']
+    controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "BUS", daq_list=scanInfo["daq_list"])
 
     if "outerLoop" in scan.keys():
         loopMotorPos = getLoopMotorPositions(scan)
@@ -215,12 +210,10 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                                               scanInfo['refocus_offset'])
 
             if scan["defocus"]:
-                step = energies[0] / 700. * 50.
+                step = energies[0] / 700. * controller.main_config["ptychography"]["defocus"]
                 print("Defocusing zone plate by %.4f microns" % step)
                 controller.motors["ZonePlateZ"]["motor"].moveBy(step=step)
             scanMeta = {"header": dataHandler.currentScanID}
-            for key in controller.main_config.keys():
-                scanMeta[key] = controller.main_config[key]
             scanMeta["repetition"] = 1
             scanMeta["defocus"] = scan["defocus"]
             scanMeta["isDoubleExp"] = int(scan["doubleExposure"])
@@ -246,6 +239,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             scanMeta["double_exposure"] = bool(scanMeta["isDoubleExp"])
             scanMeta["exp_num_total"] = scanMeta["exp_num_x"] * scanMeta["exp_num_y"] * (
                         2 - int(not (scanMeta["double_exposure"])))
+            scanMeta["geometry"] = controller.main_config["geometry"]
             xp, yp = np.meshgrid(xPos[j], yPos[j])
             xp, yp = xp.flatten(), yp.flatten()
             xStart,xStop = xp.min(),xp.max()
@@ -258,6 +252,13 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             #this function only moves the coarse motors if needed
             controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
+
+            #we are just gonna move the fine motors during the scan so get the coarse positions and subtract
+            #from here below all moveTo commands require "fine_only = True"
+            xcoarse = controller.motors[scan["x_motor"]]["motor"].coarsePos
+            ycoarse = controller.motors[scan["y_motor"]]["motor"].coarsePos
+            xp -= xcoarse
+            yp -= ycoarse
 
             if scan["randomize"]:
                 xp = xp + (np.random.rand(len(xp)) - 0.5) * scanMeta["step_size_x"] / 2.
@@ -288,8 +289,6 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
                 if scanInfo['retract']:
                     await insertSTXMDetector(controller)
-                #if scan["defocus"]:
-                #    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
                 return
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
@@ -305,8 +304,6 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
                 if scanInfo['retract']:
                     await insertSTXMDetector(controller)
-                #if scan["defocus"]:
-                #    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
                 return
             while not dataHandler.regionComplete:
                 print("Waiting...")

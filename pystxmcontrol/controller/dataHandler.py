@@ -305,7 +305,7 @@ class dataHandler:
         elif scanInfo["type"] == "Ptychography Image":
             c = scanInfo["columnIndex"]
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,y,c] = scanInfo['rawData'][daq]["data"]
+                self.data.interp_counts[daq][k][m,y,c] = scanInfo["data"]["default"]
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
             image = self.data.interp_counts[daq][k][m,:,:]
@@ -489,10 +489,7 @@ class dataHandler:
                 return
                 
     def processFrame(self, frame):
-        y,x = frame.shape
-        subtracted = frame-self.darkFrame
-        #point = (frame.astype('float64') - self.darkFrame.astype('float64'))[y//2-100:y//2+100,x//2-100:x//2+100]
-        point = ((subtracted>10) * subtracted).sum()
+        point = ((frame>10) * frame).sum()
         return point
 
     def zmq_start_event(self, scan, metadata=None):
@@ -537,9 +534,9 @@ class dataHandler:
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:
                             if scanInfo["ccd_frame_num"] % 2 == 0:
-                                pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
+                                pointData = self.processFrame(self.daq["CCD"].display_data)
                         else:
-                            pointData = self.processFrame(scanInfo["rawData"]["CCD"]["data"])
+                            pointData = self.processFrame(self.daq["CCD"].display_data)
                         # for daq in scanInfo["daq_list"]:
                         #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
                         #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)

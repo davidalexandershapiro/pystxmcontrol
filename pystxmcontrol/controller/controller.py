@@ -10,6 +10,7 @@ from pystxmcontrol.controller.operation_logger import OperationLogger
 import asyncio
 import atexit
 import numpy as np
+import pprint
 
 BASEPATH = sys.prefix
 
@@ -228,12 +229,14 @@ class controller:
             self.motors[c["motor"]]["motor"].offset = c["value"]
         self.motorConfig[c["motor"]][key] = round(c["value"],3)
         self.motors[c["motor"]]["motor"].config[key] = c["value"]
-        self.writeConfig()
+        self.write_config()
         return c
 
-    def writeConfig(self):
+    def write_config(self):
         with open(self.motorConfigFile,'w') as fp:
             json.dump(self.motorConfig,fp,indent=4)
+        with open(self.mainConfigFile,'w') as fp:
+            json.dump(self.main_config,fp,indent=4)
 
     def backupConfig(self):
         basedir = os.path.join(self.main_config["server"]["data_dir"],"pystxmcontrol_data")
@@ -403,7 +406,9 @@ class controller:
             self.scanning = False
 
     def scan(self, scan):
-        scan["main_config"] = self.main_config
+        #scan["main_config"] = self.main_config
+        self.main_config["lastScan"][scan["scan_type"]] = scan
+        self.write_config()
         def run_scan():
             asyncio.run(self.scan_helper(scan))
         if not self.scanThread.is_alive():

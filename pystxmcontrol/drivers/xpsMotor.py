@@ -66,8 +66,8 @@ class xpsMotor(motor):
     def getPos(self):
         if not(self.simulation):
             self.err,self.position = self.controller.getPosition(self.controller.monitorSocket, self.group)
-            #print(self.config["units"],self.config["offset"],self.position)
-            return self.position * self.config["units"] + self.config["offset"]
+            self.position = self.position * self.config["units"] + self.config["offset"]
+            return self.position
         else:
             return self._controller_position * self.config["units"] + self.config["offset"]
             

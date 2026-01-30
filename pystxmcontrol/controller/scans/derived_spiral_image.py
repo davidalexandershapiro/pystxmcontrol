@@ -23,7 +23,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
     scanInfo = {"mode": "continuousSpiral"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
-    scanInfo["oversampling_factor"] = scan["oversampling_factor"]
+    scanInfo["oversampling_factor"] = controller.daq["default"].meta["oversampling_factor"]
     scanInfo['totalSplit'] = None
     scanInfo['multiTrigger'] = True
     energyIndex = 0
@@ -102,10 +102,8 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
 
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints #* scan["oversampling_factor"]
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[
-                                                                                    energyIndex] / scan[
-                                                                                    "oversampling_factor"]
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = dataHandler.data.dwells[energyIndex]
             controller.motors[scan["x_motor"]]["motor"].lineMode = "arbitrary"
 
             # The spiral scan makes a circular spiral. We need to scale it to get an oval if the y and x range are different
@@ -113,7 +111,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             aspectRatio = xRange / yRange
 
             # The dwell time plus the number of pixels sets the overall scan time.
-            # This is multiplied by the DAQ oversampling factor.
+            # This is multiplied by the DAQ oversampling factor in the controller.
             # Because this time is treated as a minimum, physical constraints can cause this time to increase.
             # Setting dwell to 0 will run the scan as fast as possible.
             DAQOversample = 2.  # Average number of DAQ measurements per pixel. Doesn't affect scan time.

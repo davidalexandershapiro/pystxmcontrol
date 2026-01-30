@@ -1076,6 +1076,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan = {}
         self.scanType = str(self.ui.scanType.currentText())
         scanMotorList = self.client.scanConfig[self.scanType]
+        self.scan["nx_file_version"] = float(self.client.main_config["server"]["nx_file_version"])
+        self.scan["source_type"] = self.client.main_config['source']['type']
+        self.scan["source_name"] = self.client.main_config['source']['name']
+        self.scan["source_probe"] = self.client.main_config['source']['probe']
         self.scan["driver"] = self.client.scanConfig[self.scanType]["driver"]
         self.scan["mode"] = self.client.scanConfig[self.scanType]["mode"]
         self.scan["spiral"] = False
@@ -1271,7 +1275,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         if not(nowrite):
             self.client.main_config["lastScan"][self.scan["scan_type"]] = self.scan
-            self.client.write_config()
 
     def updateEstimatedTime(self):
         if not self.ui.energyListCheckbox.isChecked():

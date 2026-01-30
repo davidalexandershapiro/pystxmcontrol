@@ -358,22 +358,21 @@ class stxm:
 
     def createEntry(self,i):
         nz_m,ny_m,nx_m = len(self.zMeasured[i]),len(self.yMeasured[i]),len(self.xMeasured[i])
-
         nxentry = self._nx_writer.create_group(f'entry{i}')
         nxentry.attrs["NX_class"] = np.bytes_("NXentry")
         nxentry.create_dataset("start_time", data=str(self.start_time).encode("UTF_8"))
         nxentry.create_dataset("end_time", data=str(self.end_time).encode("UTF_8"))
         nxentry.create_dataset("title", data=self.scan_dict["proposal"].encode("UTF_8"))
-        nxentry.create_dataset("version", data=float(self.scan_dict["main_config"]["server"]["nx_file_version"]))
+        nxentry.create_dataset("version", data=float(self.scan_dict["nx_file_version"]))
         nxentry.create_dataset("definition", data=["NXstxm".encode("UTF_8")])
         nxentry.create_dataset("experimenters", data=self.scan_dict["experimenters"].encode("UTF_8"))
         nxinstrument = nxentry.create_group("instrument")
         nxinstrument.attrs["NX_class"] = np.bytes_("NXinstrument")
         nxsource = nxinstrument.create_group("source")
         nxsource.attrs["NX_class"] = np.bytes_("NXsource")
-        nxsource.create_dataset("type",data=self.scan_dict['main_config']['source']['type'])
-        nxsource.create_dataset("name", data=self.scan_dict['main_config']['source']['name'])
-        nxsource.create_dataset("probe", data=self.scan_dict['main_config']['source']['probe'])
+        nxsource.create_dataset("type",data=self.scan_dict['source_type'])
+        nxsource.create_dataset("name", data=self.scan_dict['source_name'])
+        nxsource.create_dataset("probe", data=self.scan_dict['source_probe'])
         nxmono = nxinstrument.create_group("monochromator")
         nxmono.attrs["NX_class"] = np.bytes_("NXmonochromator")
         nxmono.create_dataset("energy",data=self.energies["default"]) #this is the incident energy of the beamline

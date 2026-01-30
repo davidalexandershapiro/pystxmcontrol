@@ -62,7 +62,7 @@ class derivedPiezo(motor):
         self.axes["axis1"].setPositionTriggerOff()
 
     def checkLimits(self,pos,axis = 1):
-        return self.axes["axis"+str(axis)].checkLimits(pos - self._coarsePos)
+        return self.axes["axis"+str(axis)].checkLimits(pos - self.coarsePos)
 
     def checkRange(self,positionTuple,axis=1):
         pos1,pos2 = positionTuple
@@ -224,19 +224,29 @@ class derivedPiezo(motor):
             coarse_only = kwargs["coarse_only"]
         else:
             coarse_only = False
+        if "fine_only" in kwargs.keys():
+            fine_only = kwargs["fine_only"]
+        else:
+            fine_only = False
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
-        if self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
+        print(f"[inclined piezo] {self.axis} {kwargs}")
+        if fine_only:
+            print(f"[inclined piezo] fine_only {self.axis} move to {pos}")
+            self.axes["axis1"].moveTo(pos)
+        elif self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
+            print(f"[inclined piezo] moving fine {self.axis} motor to {newFinePos}. Coarse {self.axis} position: {self.coarsePos}")
             self.axes["axis1"].moveTo(newFinePos)
         else:
+            print(f"[inclined piezo] {self._finePos},{self.coarsePos},{deltaPos},{newFinePos},{pos}")
+            print(f"[inclined piezo] check limit failed for fine {self.axis} position {newFinePos} at coarse position {pos}")
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
-                time.sleep(0.03)
-                self.axes["axis1"].setZero()
             self.axes["axis2"].moveTo(pos)
             if self.config["reset_after_move"]:
+                time.sleep(0.03)
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
                 #use the piezo to clean up slop in the coarse motion
@@ -261,8 +271,8 @@ class derivedPiezo(motor):
 
     def getPos(self, setPointOnly = True):
         self._finePos = self.axes["axis1"].getPos()
-        self._coarsePos = self.axes["axis2"].getPos()
-        self.position = self._coarsePos + self._finePos
+        self.coarsePos = self.axes["axis2"].getPos()
+        self.position = self.coarsePos + self._finePos
         return self.position * self.config["units"] + self.config["offset"]
 
     def decompose(self, pos):
@@ -288,9 +298,9 @@ class derivedPiezo(motor):
         ###start with the simple case of a single block, the fine range is less than or equal to its maximum allowed
         if nblocks == 1:
             if (self.checkLimits(pmin, 1) and self.checkLimits(pmax, 1)):
-                pcoarse = self._coarsePos
-                fine_start = pmin - self._coarsePos
-                fine_stop = pmax - self._coarsePos
+                pcoarse = self.coarsePos
+                fine_start = pmin - self.coarsePos
+                fine_stop = pmax - self.coarsePos
             else:
                 pcoarse = (pmax + pmin) / 2.
                 fine_start = -prange / 2.

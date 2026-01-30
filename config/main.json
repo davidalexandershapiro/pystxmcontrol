@@ -10,7 +10,6 @@
         "data_dir": "/data",
         "file_prefix": "TEST",
         "nx_file_version": "3",
-        "alshub-apikey": "",
         "publish_zmq": false,
         "log motors while scanning": true,
         "motor log period": 10

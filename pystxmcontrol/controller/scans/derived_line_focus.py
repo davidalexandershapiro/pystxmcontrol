@@ -24,6 +24,7 @@ async def derived_line_focus(scan, dataHandler, controller, queue):
     xPoints = scan["scan_regions"][scanRegion]["xPoints"]
     zPoints = scan["scan_regions"][scanRegion]["zPoints"]
     scanInfo["xPoints"] = xPoints
+    scanInfo["yPoints"] = zPoints
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["xVal"] = xPos
     scanInfo["yVal"] = yPos
@@ -83,7 +84,7 @@ async def derived_line_focus(scan, dataHandler, controller, queue):
         start_position_y = yStart
         # a "coarse_only" move will leave the servo off when done, otherwise will turn it back on
         controller.moveMotor(scan["x_motor"], xcoarse + start_position_x, coarse_only=True)
-        controller.moveMotor(scan["y_motor"], xcoarse + start_position_y)
+        controller.moveMotor(scan["y_motor"], ycoarse + start_position_y)
         controller.motors[scan["x_motor"]]["motor"].trajectory_start = (xStart, yPos_fine)
         controller.motors[scan["x_motor"]]["motor"].trajectory_stop = (xStop, yPos_fine)
         controller.motors[scan["x_motor"]]["motor"].update_trajectory()

@@ -45,6 +45,7 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         sleep(0.02)
     if "offset" not in scanInfo.keys():
         scanInfo["offset"] = 0,0
+    await asyncio.sleep(waitTime)
     controller.motors[scan["x_motor"]]["motor"].moveLine(coarse_offset = \
         scanInfo["offset"], coarse_only = scan["coarse_only"],axes=axes)
     scanInfo["line_positions"] = controller.motors[scan["x_motor"]]["motor"].positions

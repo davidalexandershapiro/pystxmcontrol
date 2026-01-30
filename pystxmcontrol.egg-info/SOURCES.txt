@@ -11,6 +11,13 @@ config/scan.json
 config/xeryon_default.txt
 pystxmcontrol/__init__.py
 pystxmcontrol/stxmcontrol.py
+pystxmcontrol.egg-info/._PKG-INFO
+pystxmcontrol.egg-info/._SOURCES.txt
+pystxmcontrol.egg-info/._dependency_links.txt
+pystxmcontrol.egg-info/._entry_points.txt
+pystxmcontrol.egg-info/._not-zip-safe
+pystxmcontrol.egg-info/._requires.txt
+pystxmcontrol.egg-info/._top_level.txt
 pystxmcontrol.egg-info/PKG-INFO
 pystxmcontrol.egg-info/SOURCES.txt
 pystxmcontrol.egg-info/dependency_links.txt
@@ -32,6 +39,7 @@ pystxmcontrol/controller/server.py
 pystxmcontrol/controller/spiral.py
 pystxmcontrol/controller/zmqFrameMonitor.py
 pystxmcontrol/controller/zmq_publisher.py
+pystxmcontrol/controller/scans/XRF_double_motor_scan.py
 pystxmcontrol/controller/scans/__init__.py
 pystxmcontrol/controller/scans/base_scan.py
 pystxmcontrol/controller/scans/derived_line_focus.py
@@ -41,6 +49,7 @@ pystxmcontrol/controller/scans/derived_ptychography_image.py
 pystxmcontrol/controller/scans/derived_spiral_image.py
 pystxmcontrol/controller/scans/double_motor_scan.py
 pystxmcontrol/controller/scans/inclined_ptychography_image.py
+pystxmcontrol/controller/scans/inclined_ptychography_image_2.py
 pystxmcontrol/controller/scans/line_focus.py
 pystxmcontrol/controller/scans/line_image.py
 pystxmcontrol/controller/scans/line_spectrum.py
@@ -76,6 +85,7 @@ pystxmcontrol/drivers/epicsMotor.py
 pystxmcontrol/drivers/fccd.py
 pystxmcontrol/drivers/fccd_control.py
 pystxmcontrol/drivers/inclinedDerivedPiezo.py
+pystxmcontrol/drivers/inclinedSampleDerivedPiezo.py
 pystxmcontrol/drivers/keysight53230A.py
 pystxmcontrol/drivers/keysightA33500B.py
 pystxmcontrol/drivers/keysightCounter.py

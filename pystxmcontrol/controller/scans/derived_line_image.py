@@ -109,9 +109,8 @@ async def derived_line_image(scan, dataHandler, controller, queue):
             #this function only moves the coarse motors if needed
             controller.motors[scan["x_motor"]]["motor"].move_coarse_to_fine_range(xStart,xStop)
             controller.motors[scan["y_motor"]]["motor"].move_coarse_to_fine_range(yStart,yStop)
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints #* scanInfo["oversampling_factor"]
-            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = actMotorDwell / scanInfo[
-                                                                                    "oversampling_factor"]
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = xPoints
+            controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = actMotorDwell
             controller.motors[scan["x_motor"]]["motor"].lineMode = "continuous"
 
             nxblocks, xcoarse, xStart_fine, xStop_fine = \
@@ -139,11 +138,11 @@ async def derived_line_image(scan, dataHandler, controller, queue):
                 controller.motors[scan["x_motor"]]["motor"].trajectory_trigger = coarse_offset, coarse_offset
 
             #numMotorPoints should be the total number of motor position measurements expected
-            #numDAQPoints should be equal to xPoints * oversampling
+            #numDAQPoints should be equal to xPoints
             numLineMotorPoints = controller.motors[scan["x_motor"]]["motor"].npositions #this configures the DAQ for one line
-            scanInfo["numLineDAQPoints"] = controller.motors[scan["x_motor"]]["motor"].npositions * scanInfo["oversampling_factor"]
+            scanInfo["numLineDAQPoints"] = controller.motors[scan["x_motor"]]["motor"].npositions
             scanInfo['numMotorPoints'] = numLineMotorPoints * yPoints #total number of motor points configures the full data structrure
-            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scanInfo["oversampling_factor"]
+            scanInfo['numDAQPoints'] = scanInfo['numMotorPoints']
             if energy == energies[0]:
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)

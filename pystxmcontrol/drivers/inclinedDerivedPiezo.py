@@ -7,6 +7,8 @@ class inclinedDerivedPiezo(motor):
         """
         axis1 = FineX/Y
         axis2 = CoarseX/Y
+        axis3 = CoarseR
+        axis4 = ZonePlateZ
         """
         self.controller = controller
         self.simulation = simulation
@@ -245,8 +247,6 @@ class inclinedDerivedPiezo(motor):
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
-                time.sleep(0.03)
-                self.axes["axis1"].setZero()
             #for an inclined sample CoarseY is projected
             #pos is the vertical position in the piezo coordinate system
             #y is the required CoarseY position in the rotated coordinate system to get to pos
@@ -260,6 +260,7 @@ class inclinedDerivedPiezo(motor):
             self.axes["axis4"].moveTo(self.axes["axis4"].calibratedPosition)
 
             if self.config["reset_after_move"]:
+                time.sleep(0.03)
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
                 #use the piezo to clean up slop in the coarse motion

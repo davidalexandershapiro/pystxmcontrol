@@ -212,8 +212,6 @@ def ptychography_image(scan, dataHandler, controller, queue):
                 print("Defocusing zone plate by %.4f microns" % step)
                 controller.motors["ZonePlateZ"]["motor"].moveBy(step=step)
             scanMeta = {"header": dataHandler.currentScanID}
-            for key in controller.main_config.keys():
-                scanMeta[key] = controller.main_config[key]
             scanMeta["repetition"] = 1
             scanMeta["defocus"] = scan["defocus"]
             scanMeta["isDoubleExp"] = int(scan["doubleExposure"])

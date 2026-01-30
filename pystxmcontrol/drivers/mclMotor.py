@@ -218,7 +218,15 @@ class mclMotor(motor):
 
     def getPos(self):
         if not(self.simulation):
-            self.position = self.controller.read(axis = self._axis) * self.config["units"] + self.config["offset"]
+            #it periodically returns a very large number
+            n = 0
+            while n < 5:
+                self.position = self.controller.read(axis = self._axis) * self.config["units"] + self.config["offset"]
+                if self.position < -50.0 or self.position > 50.0:
+                    print(f"[mclMotor] {self.position}")
+                    n += 1
+                else:
+                    break
             return self.position
         else:
             return self.position

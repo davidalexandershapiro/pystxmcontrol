@@ -248,6 +248,3 @@ class stxm_client(QtCore.QThread):
         response = self.send_message(message)
         return response
 
-    def write_config(self):
-        with open(MAINCONFIGFILE, 'w') as fp:
-            json.dump(self.main_config, fp, indent=4)

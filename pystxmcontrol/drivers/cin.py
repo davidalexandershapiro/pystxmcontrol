@@ -189,7 +189,7 @@ class CIN(object):
 
     def setCameraOn(self):
         print(" ")
-        print("Turning off Bias and Clocks in camera head ........  ")
+        print("Turning on Bias and Clocks in camera head ........  ")
 
         self.set_register(crm.REG_BIASCONFIGREGISTER0_REG, "0001", 1)
         self.set_register(crm.REG_CLOCKCONFIGREGISTER0_REG, "0001", 1) # could also be "0009" or "0003"
