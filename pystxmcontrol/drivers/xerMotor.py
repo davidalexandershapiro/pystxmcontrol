@@ -92,4 +92,5 @@ class xerMotor(motor):
     def home(self):
         if not(self.simulation):
             with self.lock:
+                self._axis.xeryon_object.setMasterSetting("ENBL", "1")
                 self._axis.findIndex()

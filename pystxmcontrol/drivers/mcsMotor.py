@@ -24,14 +24,25 @@ class mcsMotor(motor):
     def moveBy(self, step):
         self.position += step
 
+    def set_sensor_on(self):
+        self.controller.set_sensor_on(self._axis)
+
+    def set_sensor_off(self):
+        self.controller.set_sensor_off(self._axis)
+
+    def set_sensor_auto(self):
+        self.controller.set_sensor_auto(self._axis)
+
     def moveTo(self, pos):
         if self.checkLimits(pos):
             if not (self.simulation):
                 t0 = time.time()
                 with self.lock:
                     self.moving = True
+                    self.set_sensor_on()
                     pos = (pos - self.config["offset"]) / self.config["units"]
                     self.controller.move(self._axis,pos)
+                    self.set_sensor_off()
             else:
                 self.position = pos
         else:
@@ -41,7 +52,9 @@ class mcsMotor(motor):
     def getPos(self):
         if not self.simulation:
             with self.lock:
+                self.set_sensor_on()
                 self.position = self.controller.getPos(self._axis) * self.config["units"] + self.config["offset"]
+                self.set_sensor_off()
                 return self.position
         else:
             return self.position

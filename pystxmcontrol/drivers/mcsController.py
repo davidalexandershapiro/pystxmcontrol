@@ -42,6 +42,15 @@ class mcsController(hardwareController):
         ctl.SetProperty_i32(self._deviceID, axis, ctl.Property.HOLD_TIME, 1000)
         ctl.SetProperty_i64(self._deviceID, axis, ctl.Property.MOVE_VELOCITY, 10000000000)
         ctl.SetProperty_i64(self._deviceID, axis, ctl.Property.MOVE_ACCELERATION, 10000000000)
+    
+    def set_sensor_on(self,axis):
+        ctl.SetProperty_i32(self._deviceID, axis, ctl.Property.SENSOR_POWER_MODE, 1)
+
+    def set_sensor_off(self,axis):
+        ctl.SetProperty_i32(self._deviceID, axis, ctl.Property.SENSOR_POWER_MODE, 0)
+
+    def set_sensor_auto(self,axis):
+        ctl.SetProperty_i32(self._deviceID, axis, ctl.Property.SENSOR_POWER_MODE, 2)
 
     def set_velocity(self,axis,velocity):
         velocity = int(velocity * 1E9) #convert mm/s to pm/s
