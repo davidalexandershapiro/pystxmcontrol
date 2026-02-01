@@ -127,7 +127,7 @@ class controller:
                 self.motors[key] = {"motor": eval(self.motorConfig[key]["driver"] + '()')} #{"motor":xpsMotor()}
                 self.motors[key]["motor"].controller = self.controllers[self.motorConfig[key]["controllerID"]]["device"]
 
-                ##add the config to the motor for later use
+                ##add the config to the motor, then connect
                 setattr(self.motors[key]["motor"], "config", self.motorConfig[key])
                 self.motors[key]["motor"].connect(axis = self.motorConfig[key]["axis"])
         for key in self.motorConfig.keys():

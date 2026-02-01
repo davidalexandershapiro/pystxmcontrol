@@ -9,6 +9,16 @@ class inclinedDerivedPiezo(motor):
         axis2 = CoarseX/Y
         axis3 = CoarseR
         axis4 = ZonePlateZ
+
+        This driver assumes the Z offset of the sample with respect to the rotation axis has been
+        corrected manually.  Thus, the radius of the orbit can be determined directly from the SampleY
+        position.
+
+        On 260131, the orbit radius was determined to be 192 microns with the following positions:
+        SampleY = -150
+        CoarseY = -122
+        FineY   = -28
+        The rotation axis is in the negative direction from those positions.
         """
         self.controller = controller
         self.simulation = simulation

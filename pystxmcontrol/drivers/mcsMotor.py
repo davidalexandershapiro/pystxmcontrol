@@ -82,11 +82,11 @@ class mcsMotor(motor):
         self.lock = self.controller.lock
         self.axis = axis
         if axis == 'x':
-            self._axis = 3
+            self._axis = self.config.get("controller_index",0)
         elif axis == 'y':
-            self._axis = 4
+            self._axis = self.config.get("controller_index",1)
         elif axis == 'z':
-            self._axis = 5
+            self._axis = self.config.get("controller_index",2)
         if not self.simulation:
             self.controller.setup_axis(self._axis)
         return True
