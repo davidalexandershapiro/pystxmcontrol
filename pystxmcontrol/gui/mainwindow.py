@@ -1076,10 +1076,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan = {}
         self.scanType = str(self.ui.scanType.currentText())
         scanMotorList = self.client.scanConfig[self.scanType]
-        self.scan["nx_file_version"] = float(self.client.main_config["server"]["nx_file_version"])
-        self.scan["source_type"] = self.client.main_config['source']['type']
-        self.scan["source_name"] = self.client.main_config['source']['name']
-        self.scan["source_probe"] = self.client.main_config['source']['probe']
         self.scan["driver"] = self.client.scanConfig[self.scanType]["driver"]
         self.scan["mode"] = self.client.scanConfig[self.scanType]["mode"]
         self.scan["spiral"] = False
@@ -1089,7 +1085,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan["experimenters"] = self.ui.experimentersLineEdit.text()
         self.scan["sample"] = self.ui.sampleLineEdit.text()
         self.scan["comment"] = self.ui.commentEdit.toPlainText()
-        self.scan["nx_file_version"] = self.client.main_config["server"]["nx_file_version"] #TODO: Move this in config file?
         self.scan["x_motor"] = self.ui.xMotorCombo.currentText()
         self.scan["y_motor"] = self.ui.yMotorCombo.currentText()
         self.scan["defocus"] = self.ui.defocusCheckbox.isChecked()

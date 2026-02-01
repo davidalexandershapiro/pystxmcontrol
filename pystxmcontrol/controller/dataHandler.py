@@ -438,8 +438,6 @@ class dataHandler:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
         scan["start_time"] = datetime.datetime.now().isoformat()
-        print('data handler scan: ')
-        print(scan)
         self.data = stxm(scan)
         #for DAQs that define the energy range, like energy dispersives, get their energy list
         #into the data structure

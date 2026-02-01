@@ -410,6 +410,11 @@ class controller:
     def scan(self, scan):
         self.main_config["lastScan"][scan["scan_type"]] = deepcopy(scan)
         self.write_config()
+        scan["nx_file_version"] = self.main_config["server"]["nx_file_version"]
+        scan["source_type"] = self.main_config["source"]["type"]
+        scan["source_name"] = self.main_config["source"]["name"]
+        scan["source_probe"] = self.main_config["source"]["probe"]
+        print(scan)
         def run_scan():
             asyncio.run(self.scan_helper(scan))
         if not self.scanThread.is_alive():

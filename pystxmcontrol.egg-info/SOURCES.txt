@@ -11,13 +11,6 @@ config/scan.json
 config/xeryon_default.txt
 pystxmcontrol/__init__.py
 pystxmcontrol/stxmcontrol.py
-pystxmcontrol.egg-info/._PKG-INFO
-pystxmcontrol.egg-info/._SOURCES.txt
-pystxmcontrol.egg-info/._dependency_links.txt
-pystxmcontrol.egg-info/._entry_points.txt
-pystxmcontrol.egg-info/._not-zip-safe
-pystxmcontrol.egg-info/._requires.txt
-pystxmcontrol.egg-info/._top_level.txt
 pystxmcontrol.egg-info/PKG-INFO
 pystxmcontrol.egg-info/SOURCES.txt
 pystxmcontrol.egg-info/dependency_links.txt
