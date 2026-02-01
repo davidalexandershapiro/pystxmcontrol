@@ -253,6 +253,7 @@ class stxmServer:
                     message["data"] = self.controller.getScanID(ptychography=ptychography)
                     message["mode"] = "scanning"
                     message["time"] = str(datetime.datetime.now())
+                    print("[server] ", message["scan"])
                     self.controller.scan(message["scan"])
                 else:
                     message["status"] = False

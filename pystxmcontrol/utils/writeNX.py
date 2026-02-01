@@ -309,20 +309,20 @@ class stxm:
         if self._nx_writer is None:
             return
 
-        try:
-            # Attempt to list entries - will fail if file is closed
-            entries = list(self._nx_writer)
+        # try:
+        # Attempt to list entries - will fail if file is closed
+        entries = list(self._nx_writer)
 
-            if (f"entry{i}") in entries:
-                self.updateEntry(i)
-            else:
-                self.createEntry(i)
-                self.updateEntry(i)
-            self.end_time = datetime.datetime.now().isoformat()
-            self._nx_writer[f'entry{i}/end_time'][...] = str(self.end_time).encode("UTF_8")
-        except Exception:
-            # File is closed or invalid - silently skip save
-            pass
+        if (f"entry{i}") in entries:
+            self.updateEntry(i)
+        else:
+            self.createEntry(i)
+            self.updateEntry(i)
+        self.end_time = datetime.datetime.now().isoformat()
+        self._nx_writer[f'entry{i}/end_time'][...] = str(self.end_time).encode("UTF_8")
+        # except Exception:
+        #     # File is closed or invalid - silently skip save
+        #     pass
 
     def updateEntry(self,i):
 

@@ -11,6 +11,7 @@ class mcsMotor(motor):
         self.calibratedPosition = 0.
         self.moving = False
         self.config = {"minValue":-3000,"maxValue":3000,"units":0.000001,"offset":0} #convert micrometers to picometers
+        self.auto_sensor = False
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -39,10 +40,10 @@ class mcsMotor(motor):
                 t0 = time.time()
                 with self.lock:
                     self.moving = True
-                    self.set_sensor_on()
+                    if self.auto_sensor: self.set_sensor_on()
                     pos = (pos - self.config["offset"]) / self.config["units"]
                     self.controller.move(self._axis,pos)
-                    self.set_sensor_off()
+                    if self.auto_sensor: self.set_sensor_off()
             else:
                 self.position = pos
         else:
@@ -52,9 +53,9 @@ class mcsMotor(motor):
     def getPos(self):
         if not self.simulation:
             with self.lock:
-                self.set_sensor_on()
+                if self.auto_sensor: self.set_sensor_on()
                 self.position = self.controller.getPos(self._axis) * self.config["units"] + self.config["offset"]
-                self.set_sensor_off()
+                if self.auto_sensor: self.set_sensor_off()
                 return self.position
         else:
             return self.position
@@ -81,11 +82,11 @@ class mcsMotor(motor):
         self.lock = self.controller.lock
         self.axis = axis
         if axis == 'x':
-            self._axis = 0
+            self._axis = 3
         elif axis == 'y':
-            self._axis = 1
+            self._axis = 4
         elif axis == 'z':
-            self._axis = 2
+            self._axis = 5
         if not self.simulation:
             self.controller.setup_axis(self._axis)
         return True

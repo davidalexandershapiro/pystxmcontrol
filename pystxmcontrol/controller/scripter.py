@@ -19,7 +19,7 @@ class scripter:
 
         ##This is just a default metadata dictionary created when scripter is imported
         ##MOTORS from the last line is used as a check in the move_motor command.  This isn't needed otherwise
-        self.meta = {"proposal": "BLS-000001", "experimenters":"Shapiro", "nxFileVersion":3}
+        self.meta = {"proposal": "BLS-000001", "experimenters":"Shapiro", "nx_file_version":3}
         self.meta["xcenter"] = 0
         self.meta["xrange"] = 5
         self.meta["xpoints"] = 50
@@ -92,7 +92,7 @@ class scripter:
         y_range = ystop - ystart
         ycenter = y_range / 2. + ystart
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["sample_description"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
@@ -162,7 +162,7 @@ class scripter:
         y_range = ystop - ystart
         ycenter = y_range / 2. + ystart
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["sample_description"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
@@ -225,7 +225,7 @@ class scripter:
 
     async def multi_region_ptychography_scan(self, meta, scanRegList):
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["Sample"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
@@ -293,7 +293,7 @@ class scripter:
     async def multi_region_stxm_scan(self, meta, scanRegList):
         # s = connect(ADDRESS, PORT)
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": meta["scan_type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": meta["scan_type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["Sample"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
@@ -441,7 +441,7 @@ class scripter:
         y_range = 0
         ycenter = 0
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["Sample"],
                 "x_motor": meta["xmotor"],
                 "y_motor": None,
@@ -555,7 +555,7 @@ class scripter:
         ycenter = y_range / 2. + ystart
         ypoints = meta['ypoints']
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["Sample"],
                 "x_motor": meta["xmotor"],
                 "y_motor": meta["ymotor"],
@@ -660,7 +660,7 @@ class scripter:
         y_range = ystop - ystart
         ycenter = y_range / 2. + ystart
         energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nxFileVersion": 3,
+        scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
                 "sample": meta["Sample"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",

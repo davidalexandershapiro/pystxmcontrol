@@ -11,6 +11,7 @@ import asyncio
 import atexit
 import numpy as np
 import pprint
+from copy import deepcopy
 
 BASEPATH = sys.prefix
 
@@ -25,6 +26,7 @@ class controller:
         photon energy.
         """
         self.simulation = simulation
+        print(f"motor config: {os.path.join(BASEPATH,'pystxmcontrol_cfg/motor.json')}")
         self.motorConfigFile = os.path.join(BASEPATH,'pystxmcontrol_cfg/motor.json')
         self.daqConfigFile = os.path.join(BASEPATH,'pystxmcontrol_cfg/daq.json')
         self.scanConfigFile = os.path.join(BASEPATH,'pystxmcontrol_cfg/scan.json')
@@ -320,7 +322,7 @@ class controller:
             "experimenters": scan.get("experimenters"),
             "sample": scan.get("sample"),
             "comment": scan.get("comment"),
-            "nxFileVersion": scan.get("nxFileVersion"),
+            "nx_file_version": scan.get("nx_file_version"),
             "daq_list": scan.get("daq_list"),
         }
 
@@ -406,8 +408,7 @@ class controller:
             self.scanning = False
 
     def scan(self, scan):
-        #scan["main_config"] = self.main_config
-        self.main_config["lastScan"][scan["scan_type"]] = scan
+        self.main_config["lastScan"][scan["scan_type"]] = deepcopy(scan)
         self.write_config()
         def run_scan():
             asyncio.run(self.scan_helper(scan))

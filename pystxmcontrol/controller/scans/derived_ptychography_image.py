@@ -14,7 +14,7 @@ async def insertSTXMDetector(controller):
     await asyncio.sleep(5)
 
 async def retractSTXMDetector(controller):
-    controller.moveMotor("Detector Y", -7000)
+    controller.moveMotor("Detector Y", -6000)
     await asyncio.sleep(5)
 
 def getLoopMotorPositions(scan):

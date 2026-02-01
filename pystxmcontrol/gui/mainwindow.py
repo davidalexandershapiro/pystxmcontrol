@@ -1089,7 +1089,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan["experimenters"] = self.ui.experimentersLineEdit.text()
         self.scan["sample"] = self.ui.sampleLineEdit.text()
         self.scan["comment"] = self.ui.commentEdit.toPlainText()
-        self.scan["nxFileVersion"] = self.client.main_config["server"]["nx_file_version"] #TODO: Move this in config file?
+        self.scan["nx_file_version"] = self.client.main_config["server"]["nx_file_version"] #TODO: Move this in config file?
         self.scan["x_motor"] = self.ui.xMotorCombo.currentText()
         self.scan["y_motor"] = self.ui.yMotorCombo.currentText()
         self.scan["defocus"] = self.ui.defocusCheckbox.isChecked()

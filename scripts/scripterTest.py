@@ -9,7 +9,7 @@ s = scripter()
 meta = deepcopy(s.scan)
 meta["proposal"] = "BLS-000625"
 meta["experimenters"] = "Ditter, Shapiro"
-meta["nxFileVersion"] = 3.0 
+meta["nx_file_version"] = 3.0 
 meta["sample_description"] = "Dong Hyun: R1"
 meta["xcenter"] = 0
 meta["xrange"] = 5
@@ -92,7 +92,7 @@ print(s.stxm_scan(meta))
 ##Ptychography###################################################################################
 ##the scan function will automatically calculate the step size so the number of points should be 
 ##calculated in advance to give the correct step size
-# meta = {"proposal": "BLS-000625", "experimenters":"Ditter,Shapiro", "nxFileVersion":2.1,"Sample":"Dong Hyun: R1"}
+# meta = {"proposal": "BLS-000625", "experimenters":"Ditter,Shapiro", "nx_file_version":2.1,"Sample":"Dong Hyun: R1"}
 # meta["xcenter"] = 0
 # meta["xrange"] = 5.5
 # meta["xpoints"] = 55
@@ -127,7 +127,7 @@ print(s.stxm_scan(meta))
 
 # #################################################################################################
 # ##Particle Finder Scan###########################################################################
-# meta = {"proposal": "BLS-000625", "experimenters":"Alex, David", "nxFileVersion":2.1,"Sample":"Standards"}
+# meta = {"proposal": "BLS-000625", "experimenters":"Alex, David", "nx_file_version":2.1,"Sample":"Standards"}
 # overview_scan = '/cosmic-dtn/groups/cosmic/Data/2024/05/240508/NS_240508048.stxm'
 # meta["xstep"] = 0.05
 # meta["ystep"] = 0.05
@@ -159,7 +159,7 @@ print(s.stxm_scan(meta))
 #Focus at zero degrees only!!
 #from scipy.interpolate import interp1d
 #import numpy as np
-#meta = {"proposal": "BLS-000625", "experimenters":"Ditter,Shapiro", "nxFileVersion":2.1,"Sample":"Dong Hyun: R1"}
+#meta = {"proposal": "BLS-000625", "experimenters":"Ditter,Shapiro", "nx_file_version":2.1,"Sample":"Dong Hyun: R1"}
 #meta["xcenter"] = 0
 #meta["xrange"] = 5
 #meta["xpoints"] = 50
