@@ -13,7 +13,6 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
     scanInfo = {"mode": "point"}
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
-    scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["lineIndex"] = 0
     scanInfo["zIndex"] = 0
     scanInfo["direction"] = "forward"
@@ -31,10 +30,7 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
         else:
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-        if controller.daq[daq].meta["oversampling_factor"] > 1:
-            scanInfo["rawData"][daq]["interpolate"] = True
-        else:
-            scanInfo["rawData"][daq]["interpolate"] = False
+        scanInfo["rawData"][daq]["interpolate"] = False
 
     if not scanInfo['scan']['autofocus']:
         currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
@@ -78,8 +74,8 @@ async def single_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["yStart"] = yStart
         scanInfo["yCenter"] = yStart
         scanInfo["yRange"] = 0
-        # controller.daq["default"].config(scanInfo["dwell"] / scan["oversampling_factor"], count=1, samples=1)
-        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = 1, trigger='BUS')
+        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = 1, trigger='BUS', 
+                           daq_list = scanInfo.get("daq_list", ["default"]))
 
         if scan["x_motor"] == "Energy":
             scanInfo["scanMotorVal"] = energy

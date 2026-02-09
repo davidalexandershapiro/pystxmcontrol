@@ -18,7 +18,6 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
     scanInfo["mode"] = mode
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
-    scanInfo["oversampling_factor"] = scan["oversampling_factor"]
     scanInfo["zIndex"] = 0
     energyIndex = 0
     scanInfo["direction"] = "forward"
@@ -77,7 +76,8 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
             else:
                 scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
     dataHandler.data.updateArrays(0, scanInfo)
-    controller.config_daqs(dwell=scanInfo["dwell"], count=1, samples=samples, trigger="BUS")
+    controller.config_daqs(dwell=scanInfo["dwell"], count=1, samples=samples, trigger="BUS", 
+                           daq_list = scanInfo.get("daq_list", ["default"]))
     scanInfo["line_positions"] = [np.linspace(xStart,xStop,samples),np.ones(samples)*yStart] #requested positions
 
     #Since this is a line scan, we don't want to loop over all X-Y positions, but rather just one move each.

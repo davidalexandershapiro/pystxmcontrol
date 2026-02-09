@@ -2006,7 +2006,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.energyRegList[i].energyDef.energyStep.setText(str(scan["energy_regions"]["EnergyRegion" + str(i+1)]["step"]))
             self.energyRegList[i].energyDef.nEnergies.setText(str(scan["energy_regions"]["EnergyRegion" + str(i+1)]["n_energies"]))
             self.energyRegList[i].energyDef.dwellTime.setText(str(scan["energy_regions"]["EnergyRegion" + str(i+1)]["dwell"]))
-        if scan["energy_list"] is not None:
+        if scan.get("energy_list",None) is not None:
             self.ui.energyListCheckbox.setChecked(True)
             self.ui.energyListEdit.setText(str(scan["energy_list"])[1:-1])
         if not(energyOnly):
@@ -2117,6 +2117,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.yLineRange = np.abs(y1 - y0)
             xCenter = np.min((x0,x1)) + self.xLineRange / 2.
             yCenter = np.min((y0,y1)) + self.yLineRange / 2.
+            print(xCenter,self.xLineRange,yCenter,self.yLineRange)
             length = np.sqrt((x1-x0)**2+(y1-y0)**2)
             if length > self.client.main_config["geometry"]["max line length"]:
                 self.ui.lineLengthEdit.setText(str(self.client.main_config["geometry"]["max line length"]))
@@ -2377,6 +2378,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.motorMover2.clear()
         self.ui.xMotorCombo.clear()
         self.ui.yMotorCombo.clear()
+        self.ui.loopMotor.clear()
         for key in keys:
             self.motorScanParams[key] = {}
             if self.client.motorInfo[key]["display"]:

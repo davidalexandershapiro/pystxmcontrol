@@ -12,7 +12,7 @@ class xpsController(hardwareController):
         self._nSockets = 0
         self._sockets = []
         self._timeout = 5.
-        self._position_tolerance = 2.0
+        self._position_tolerance = 5.0
         self._lock = threading.Lock()
 
     def initialize(self, simulation = False):
@@ -24,11 +24,11 @@ class xpsController(hardwareController):
 
     def __sendAndReceive(self, socketId, command):
         try:
-            # with self._lock:
-            self._sockets[socketId].send(command.encode())
-            response = self._sockets[socketId].recv(1024).decode()
-            while (response.find(',EndOfAPI') == -1):
-                response += self._sockets[socketId].recv(1024)
+            with self._lock:
+                self._sockets[socketId].send(command.encode())
+                response = self._sockets[socketId].recv(1024).decode()
+                while (response.find(',EndOfAPI') == -1):
+                    response += self._sockets[socketId].recv(1024)
         except socket.timeout:
             return [-2, '']
         except socket.error as errString:
@@ -57,7 +57,8 @@ class xpsController(hardwareController):
         self.enable_axis(socketId, motor)
         time.sleep(1)
 
-    def moveTo(self, socketId, motor, target, use_relative = False):
+    def moveTo(self, socketId, motor, target, timeout, use_relative = True):
+        self._timeout = timeout
         err, currentPos = self.getPosition(socketId, motor)
         if use_relative:
             #An XPS can get in a state where absolute moves are inaccurate.  Use Relative moves instead.
@@ -101,7 +102,9 @@ class xpsController(hardwareController):
                     if (time.time() - t0) > self._timeout:
                         print("XPS move timeout. Aborting...")
                         self.moving = False
-                        return self.abortMove(socketId, motor)
+                        #return self.abortMove(socketId, motor)
+                        self.abortMove(socketId, motor)
+                        return [err, retString]
                     else:
                         time.sleep(0.1)
                 else:

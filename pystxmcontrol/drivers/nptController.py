@@ -541,9 +541,9 @@ class nptController(hardwareController):
         sets up the trajectory parameters which are later written to the device by acquire_xy.
         :param trigger_axis: axis to trigger on
         :type trigger_axis: int
-        :param start: start position (x,y)
+        :param start: padded start position (x,y)
         :type start: tuple
-        :param stop: stop position (x,y)
+        :param stop: padded stop position (x,y)
         :type stop: tuple
         :param trajectory_pixel_dwell: dwell time per pixel
         :type trajectory_pixel_dwell: float
@@ -566,6 +566,7 @@ class nptController(hardwareController):
         yvelocity = (stop_y - start_y) / (trajectory_pixel_count * trajectory_pixel_dwell)
         velocitySum = np.sqrt(xvelocity**2 + yvelocity**2)
 
+        #convert back to padded positions for the actual trajectory
         distance = np.sqrt((x1-x0)**2 + (y1-y0)**2)
         start_x = self.nmToSteps(1000.*start_position[0])
         start_x = int(self.signedIntToHex(start_x),16)
