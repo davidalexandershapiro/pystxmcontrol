@@ -55,7 +55,7 @@ class aerotechMotor(motor):
         
         # Motor state variables
         self.axis = None          # Axis identifier (e.g., "X", "Y", "Z")
-        self.position = None      # Current position (will be set when connected)
+        self.position = 0.0      # Current position (will be set when connected)
         self.moving = False       # Motion state flag
 
     def _checkConnection(self):

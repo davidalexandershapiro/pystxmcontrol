@@ -505,7 +505,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def clearPlot(self):
         if self.currentPlot is not None:
             self.ui.mainPlot.removeItem(self.currentPlot)
-            self.monitorData[self.client.daqConfig["default"]["name"]]["data"] = []
+            # self.monitorData[self.client.daqConfig["default"]["name"]]["data"] = []
+            for daq in self.client.daqConfig.keys():
+                self.monitorData[self.client.daqConfig[daq]["name"]]["data"] = []
 
     def plotMouseMoved(self,pos):
         vb = self.ui.mainPlot.getPlotItem().vb
@@ -1783,7 +1785,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 channel = self.client.daqConfig[daq]["name"]
                 if channel not in self.monitorData.keys():
                     self.monitorData[channel] = {"data": [], "meta": None}
-                if daq == "default":
+                # if daq == "default":
+                if self.client.daqConfig[daq]["type"] == "point":
                     self.monitorData[channel]["data"].append(message["rawData"][daq]["data"][0])
                     if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
                         self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]
@@ -2027,8 +2030,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
                 self.scanRegList[i].ui.xNPoints.setText(str(scan["scan_regions"]["Region" + str(i+1)]["xPoints"]))
                 self.scanRegList[i].ui.yNPoints.setText(str(scan["scan_regions"]["Region" + str(i+1)]["yPoints"]))
-                self.scanRegList[i].ui.xStep.setText(str(self.xStep))
-                self.scanRegList[i].ui.yStep.setText(str(self.yStep))
+                self.scanRegList[i].ui.xStep.setText(str(np.round(self.xStep,3)))
+                self.scanRegList[i].ui.yStep.setText(str(np.round(self.yStep,3)))
                 self.regDefs[i][0] = np.round(self.xCenter, 3)
                 self.regDefs[i][1] = np.round(self.yCenter, 3)
                 self.regDefs[i][2] = np.round(self.xRange, 3)
