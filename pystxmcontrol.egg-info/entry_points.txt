@@ -1,0 +1,3 @@
+[console_scripts]
+stxmcontrol = pystxmcontrol.stxmcontrol:main
+stxmserver = pystxmcontrol.controller.server:main
