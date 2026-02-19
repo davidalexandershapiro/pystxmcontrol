@@ -66,11 +66,12 @@ class areaDetector(daq):
                 #set exposure times
                 # Value 1 here is "Readout per Trigger"
                 # PICAMBase.adl will claim something else. Don't listen to it
-                caput(self.address + self.camera_prefix + ":TriggerMode", 1, wait = True)
-                caput(self.address + self.camera_prefix + ":TriggerDetermination", "Positive Polarity", wait = True)
+                #caput(self.address + self.camera_prefix + ":TriggerMode", 1, wait = True)
+                caput(self.address + self.camera_prefix + ":TriggerMode", "No Response", wait = True)
+                #caput(self.address + self.camera_prefix + ":TriggerDetermination", "Positive Polarity", wait = True)
 
                 #print(caget(self.address + self.camera_prefix + ":TriggerMode_RBV"))
-                caput(self.address + self.camera_prefix + ":ImageMode", "Continuous", wait=True)
+                caput(self.address + self.camera_prefix + ":ImageMode", "Single", wait=True)
                 caput(self.address + self.camera_prefix + ":AcquireTime.VAL", self.dwell, wait = True)
                 #self.readout_time is the total time including exposure.  This is in seconds
                 self.readout_time_seconds = caget(self.address + self.camera_prefix + ":ReadoutTimeCalc")/1000
@@ -79,7 +80,8 @@ class areaDetector(daq):
                 self.framenum = 0
 
     def init(self):
-        caput(self.address + self.camera_prefix + ":Acquire", 1)
+        pass
+        #caput(self.address + self.camera_prefix + ":Acquire", 1)
 
 
     async def getPoint(self):
@@ -90,11 +92,27 @@ class areaDetector(daq):
             self.display_data = self.data.copy()
             return self.framenum - 1, self.data
         else:
-            await asyncio.sleep(self.readout_time_seconds)
+            t0 = time.time()
+            #print(f'[area Detector]: acquiring {time.time()-t0}')
+            caput(self.address + self.camera_prefix + ":Acquire", 1)
+            await asyncio.sleep(self.dwell / 1000.)
+            #print(f'[area Detector]: after dwell {time.time()-t0}')
+            #await asyncio.sleep(self.readout_time_seconds)
+            asyncio.sleep(0.1)
+            while caget(self.address + self.camera_prefix + ":Acquire_RBV") != 0:
+                asyncio.sleep(0.1)
+            
+            #print(f'[area Detector]: done acquiring {time.time()-t0}')
+
+            #caput(self.address + self.camera_prefix + ":Acquire", 0)
             #print("Readout time seconds: %.4f" %self.readout_time_seconds)
             current_dim = (caget(self.address + self.camera_prefix+":ArraySizeX_RBV"),
                            caget(self.address + self.camera_prefix + ":ArraySizeY_RBV"))
+
+            #print(f'[area Detector]: gotten array size {time.time()-t0}')
+            # Slow sometimes
             frame = caget(self.address + self.image_prefix + ":ArrayData")
+            #print(f'[areaDetector]: gotten array data {time.time()-t0}')
             if current_dim != self.old_dim:
                 try:
                     self.data = np.reshape(frame, self.old_dim)
@@ -102,10 +120,12 @@ class areaDetector(daq):
                     self.data = np.reshape(frame, current_dim)
                     self.old_dim = current_dim
             else:
-                self.data = np.reshape(frame, (current_dim, current_dim))
+                self.data = np.reshape(frame, current_dim)
 
             self.display_data = self.data.copy()
             #publish each frame to ZMQ to it can be received by GUI
+
+            #print(f'[area Detector]: returning {time.time()-t0}')
             return self.framenum - 1, self.data
 
     def getLine(self):

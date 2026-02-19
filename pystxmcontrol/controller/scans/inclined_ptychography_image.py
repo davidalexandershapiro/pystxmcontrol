@@ -70,7 +70,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
 
         # NOTE DAYNE EDIT 20251014: The following line corrects ZonePlateZ motion for sample surface tilt angle
 
-        controller.moveMotor("ZonePlateZ", zPos[i])
+
 
         # END DAYNE EDIT
 
@@ -87,11 +87,11 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         scanInfo['yPos'] = yPos[i]
 
         # NOTE DAYNE EDIT 20251014: Add scanInfo for ZonePlateZ
-
-        scanInfo['zPos'] = zPos[i]
-        await asyncio.sleep(1)
-        print(f'{i} | Time: {time.time()}, SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[i]}')
-        await asyncio.sleep(18)
+        controller.moveMotor("ZonePlateZ", zPos[scanInfo['lineIndex']])
+        scanInfo['zPos'] = zPos[scanInfo["lineIndex"]]
+        #await asyncio.sleep(1)
+        print(f'{i} | Time: {time.time()}, SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[scanInfo['lineIndex']]}')
+        #await asyncio.sleep(18)
 
 
         # END DAYNE EDIT
@@ -105,7 +105,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell2, 0)
                 controller.daq["default"].autoGateOpen()
-                await asyncio.sleep((dwell2 + 10.) / 1000.)
+                #await asyncio.sleep((dwell2 + 10.) / 1000.)
                 await dataHandler.getPoint(scanInfo.copy())
                 frame_num += 1
                 scanInfo["ccd_frame_num"] = frame_num
@@ -113,7 +113,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen()
-                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                #await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
                     # dataHandler.data.saveRegion(0)
@@ -126,7 +126,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             else:
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
-                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                #await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 #now get the data
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
@@ -203,10 +203,10 @@ async def inclined_ptychography_image(scan, dataHandler, controller, queue):
     #numMotorPoints should be the total number of motor position measurements expected
     #numDAQPoints should be equal to xPoints * oversampling
     numLineMotorPoints = len(xPos) #this configures the DAQ for one line
-    numLineDAQPoints = numLineMotorPoints * scan["oversampling_factor"]
+    numLineDAQPoints = numLineMotorPoints
     scanInfo['numMotorPoints'] = numLineMotorPoints * len(yPos) #total number of motor points configures the full data structrure
-    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints'] * scan["oversampling_factor"]
-    controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "BUS")
+    scanInfo['numDAQPoints'] = scanInfo['numMotorPoints']
+    controller.config_daqs(dwell = [dwell1 ,dwell2], count = 1, samples = 1, trigger = "BUS", daq_list = scanInfo["daq_list"])
     # controller.daq["ccd"].start()
     # controller.daq["ccd"].config(dwell1 + 10., dwell2 + 10., scan["doubleExposure"])
 

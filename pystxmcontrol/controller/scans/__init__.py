@@ -16,6 +16,7 @@ from pystxmcontrol.controller.scans.single_motor_scan import single_motor_scan
 from pystxmcontrol.controller.scans.double_motor_scan import double_motor_scan
 from pystxmcontrol.controller.scans.osa_focus_scan import osa_focus_scan
 from pystxmcontrol.controller.scans.XRF_double_motor_scan import XRF_double_motor_scan
+from pystxmcontrol.controller.scans.inclined_ptychography_image import inclined_ptychography_image
 
 
 __all__ = ['BaseScan', 'LinearImageScan', 'linear_image', 'LinearFocusScan', 'linear_focus', 'LinearSpectrumScan', 'linear_spectrum',

@@ -47,7 +47,7 @@ class mcsMotor(motor):
             else:
                 self.position = pos
         else:
-            self.logger.log(f"[mcsMotor] Software limits exceeded for axis {self.axis}. Requested position: {pos}",
+            print(f"[mcsMotor] Software limits exceeded for axis {self.axis}. Requested position: {pos}",
                             level="info")
 
     def getPos(self):
