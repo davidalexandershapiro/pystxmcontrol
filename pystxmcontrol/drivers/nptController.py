@@ -595,8 +595,7 @@ class nptController(hardwareController):
         self.npositions = trajectory_pixel_count
 
     def acquire_xy(self,axes=[1,],**kwargs):
-        #this trajectory will be along the X axis at a given y_center position
-        #center/range are in microns, velocity is microns/millisecond and dwell is millisecond
+ 
         for axis in axes:
             self.writeToDev4B(self.getAxisAddress(axis)+0xB10, 1)  # enable trajectory generation on axis 1
         self.writeToDev4B(0x1182A000, 3) #Number of coordinates in trajectory, just doing a line here
