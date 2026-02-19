@@ -55,7 +55,8 @@ class xpsMotor(motor):
             if not(self.simulation):
                 pos = (pos - self.config["offset"]) / self.config["units"]
                 self.moving = True
-                self.err, retStr = self.controller.moveTo(self.controller.controlSocket, self.axis, pos)
+                self.err, retStr = self.controller.moveTo(self.controller.controlSocket, self.axis, pos,
+                                                          timeout=self.config.get("timeout",1))
                 self.moving = False
             else:
                 self.controller.moving = True

@@ -95,21 +95,22 @@ class stxmServer:
                     duration=time.time() - cmd_start_time
                 )
             elif message["command"] == "move_to_focus":
-                self.controller.move_to_focus()
-                message["status"] = True
-                message["data"] = None
-                message["mode"] = "idle"
-                message["time"] = str(datetime.datetime.now())
-                self.command_sock.send_pyobj(message)
+                if not scanning:
+                    self.controller.move_to_focus()
+                    message["status"] = True
+                    message["data"] = None
+                    message["mode"] = "idle"
+                    message["time"] = str(datetime.datetime.now())
+                    self.command_sock.send_pyobj(message)
 
-                # Log command
-                self.controller.operation_logger.log_command(
-                    command=command_name,
-                    parameters={},
-                    status=message["status"],
-                    mode=message["mode"],
-                    duration=time.time() - cmd_start_time
-                )
+                    # Log command
+                    self.controller.operation_logger.log_command(
+                        command=command_name,
+                        parameters={},
+                        status=message["status"],
+                        mode=message["mode"],
+                        duration=time.time() - cmd_start_time
+                    )
             elif message["command"] == "moveMotor":
                 message["status"] = True
                 error_msg = None

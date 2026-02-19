@@ -18,9 +18,10 @@ class keysight53230A(daq):
     def start(self):
         if not(self.simulation):
             self.counter.connect(visa_address=self.address)
-        self.gate = shutter(address = self.meta["gate address"])
-        self.gate.connect(simulation=self.simulation)
-        self.gate.setStatus(softGATE=0)
+        if self.meta["gate"]:
+            self.gate = shutter(address = self.meta["gate address"])
+            self.gate.connect(simulation=self.simulation)
+            self.gate.setStatus(softGATE=0)
 
     def stop(self):
         if not (self.simulation):
@@ -42,7 +43,8 @@ class keysight53230A(daq):
             pass
         else:
             self.counter.config(self.dwell, count=count, samples=samples, trigger=trigger, output=output, channel = self.meta["channel"])
-            self.setGateDwell(0,0)
+            if self.meta["gate"]:
+                self.setGateDwell(0,0)
 
     def initLine(self):
         if self.simulation:

@@ -414,7 +414,6 @@ class controller:
         scan["source_type"] = self.main_config["source"]["type"]
         scan["source_name"] = self.main_config["source"]["name"]
         scan["source_probe"] = self.main_config["source"]["probe"]
-        print(scan)
         def run_scan():
             asyncio.run(self.scan_helper(scan))
         if not self.scanThread.is_alive():

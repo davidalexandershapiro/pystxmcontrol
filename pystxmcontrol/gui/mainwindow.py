@@ -505,7 +505,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def clearPlot(self):
         if self.currentPlot is not None:
             self.ui.mainPlot.removeItem(self.currentPlot)
-            self.monitorData[self.client.daqConfig["default"]["name"]]["data"] = []
+            # self.monitorData[self.client.daqConfig["default"]["name"]]["data"] = []
+            for daq in self.client.daqConfig.keys():
+                self.monitorData[self.client.daqConfig[daq]["name"]]["data"] = []
 
     def plotMouseMoved(self,pos):
         vb = self.ui.mainPlot.getPlotItem().vb
@@ -1783,7 +1785,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 channel = self.client.daqConfig[daq]["name"]
                 if channel not in self.monitorData.keys():
                     self.monitorData[channel] = {"data": [], "meta": None}
-                if daq == "default":
+                # if daq == "default":
+                if self.client.daqConfig[daq]["type"] == "point":
                     self.monitorData[channel]["data"].append(message["rawData"][daq]["data"][0])
                     if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
                         self.monitorData[channel]["data"] = self.monitorData[channel]["data"][1:]
@@ -2006,7 +2009,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.energyRegList[i].energyDef.energyStep.setText(str(scan["energy_regions"]["EnergyRegion" + str(i+1)]["step"]))
             self.energyRegList[i].energyDef.nEnergies.setText(str(scan["energy_regions"]["EnergyRegion" + str(i+1)]["n_energies"]))
             self.energyRegList[i].energyDef.dwellTime.setText(str(scan["energy_regions"]["EnergyRegion" + str(i+1)]["dwell"]))
-        if scan["energy_list"] is not None:
+        if scan.get("energy_list",None) is not None:
             self.ui.energyListCheckbox.setChecked(True)
             self.ui.energyListEdit.setText(str(scan["energy_list"])[1:-1])
         if not(energyOnly):
@@ -2027,8 +2030,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.scanRegList[i].ui.yRange.setText(str(np.round(self.yRange, 3)))
                 self.scanRegList[i].ui.xNPoints.setText(str(scan["scan_regions"]["Region" + str(i+1)]["xPoints"]))
                 self.scanRegList[i].ui.yNPoints.setText(str(scan["scan_regions"]["Region" + str(i+1)]["yPoints"]))
-                self.scanRegList[i].ui.xStep.setText(str(self.xStep))
-                self.scanRegList[i].ui.yStep.setText(str(self.yStep))
+                self.scanRegList[i].ui.xStep.setText(str(np.round(self.xStep,3)))
+                self.scanRegList[i].ui.yStep.setText(str(np.round(self.yStep,3)))
                 self.regDefs[i][0] = np.round(self.xCenter, 3)
                 self.regDefs[i][1] = np.round(self.yCenter, 3)
                 self.regDefs[i][2] = np.round(self.xRange, 3)
@@ -2117,6 +2120,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.yLineRange = np.abs(y1 - y0)
             xCenter = np.min((x0,x1)) + self.xLineRange / 2.
             yCenter = np.min((y0,y1)) + self.yLineRange / 2.
+            print(xCenter,self.xLineRange,yCenter,self.yLineRange)
             length = np.sqrt((x1-x0)**2+(y1-y0)**2)
             if length > self.client.main_config["geometry"]["max line length"]:
                 self.ui.lineLengthEdit.setText(str(self.client.main_config["geometry"]["max line length"]))
@@ -2377,6 +2381,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.motorMover2.clear()
         self.ui.xMotorCombo.clear()
         self.ui.yMotorCombo.clear()
+        self.ui.loopMotor.clear()
         for key in keys:
             self.motorScanParams[key] = {}
             if self.client.motorInfo[key]["display"]:

@@ -45,14 +45,51 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.static_style = "color: white;"
         self.moving_style = "color: red;"
         self.lineAngle = 0.0
-        
+
         # Store current cursor coordinates from mouse movement
         self.current_cursor_x = 0.0
         self.current_cursor_y = 0.0
-        
+
         # Proposal management
         self.esaf_list = []
         self.participants_list = []
+
+        # Additional data structures from mainwindow.py
+        self.images = {}  # Dictionary of composite image items keyed by scanID:region
+        self.currentCCDData = None
+        self.currentRPIData = None
+        self.ptychoXpixm = 1.0
+        self.ptychoYpixm = 1.0
+        self.scaleBarLength = 0.0
+        self.currentLoadFile = ''
+        self.currentDataDir = ''
+        self.currentFile = ''
+
+        # Focus scan calibration
+        self.zonePlateCalibration = 0.0
+        self.zonePlateOffset = 0.0
+        self.cursorFocusZ = 0.0
+
+        # Scan parameters
+        self.tiled_scan = False
+        self.maxVelocity = 1.0
+        self.velocity = 0.0
+        self.focusRange = 100
+        self.focusSteps = 50
+        self.focusStepSize = 2.0
+        self.lineLength = 10.0
+        self.linePoints = 50
+        self.xLineRange = 10.0
+        self.yLineRange = 0.0
+        self.last_scan = {}
+
+        # Timing overheads
+        self.pointOverhead = 0.01
+        self.lineOverhead = 0.17
+        self.energyOverhead = 5.0
+
+        # Image scan types
+        self.imageScanTypes = ["ptychographyGrid", "rasterLine", "continuousLine", 'continuousSpiral', 'point']
         
         # Initialize the controller
         if self.controller.initialize_client():
@@ -118,6 +155,46 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Energy controls
         self.ui.energyEdit.returnPressed.connect(self.on_energy_changed)
         self.ui.A0Edit.returnPressed.connect(self.on_a0_changed)
+
+        # Additional beamline motor controls
+        if hasattr(self.ui, 'A1Edit'):
+            self.ui.A1Edit.returnPressed.connect(self.on_a1_changed)
+        if hasattr(self.ui, 'dsEdit'):
+            self.ui.dsEdit.returnPressed.connect(self.on_ds_changed)
+        if hasattr(self.ui, 'ndsEdit'):
+            self.ui.ndsEdit.returnPressed.connect(self.on_nds_changed)
+        if hasattr(self.ui, 'm101Edit'):
+            self.ui.m101Edit.returnPressed.connect(self.on_m101_changed)
+        if hasattr(self.ui, 'fbkEdit'):
+            self.ui.fbkEdit.returnPressed.connect(self.on_fbk_changed)
+        if hasattr(self.ui, 'polEdit'):
+            self.ui.polEdit.returnPressed.connect(self.on_pol_changed)
+        if hasattr(self.ui, 'epuEdit'):
+            self.ui.epuEdit.returnPressed.connect(self.on_epu_changed)
+        if hasattr(self.ui, 'harSpin'):
+            self.ui.harSpin.valueChanged.connect(self.on_harmonic_changed)
+
+        # Shutter control
+        if hasattr(self.ui, 'shutterComboBox'):
+            self.ui.shutterComboBox.currentIndexChanged.connect(self.on_shutter_changed)
+
+        # Loop scan controls
+        if hasattr(self.ui, 'loopCheckbox'):
+            self.ui.loopCheckbox.stateChanged.connect(self.update_loop)
+        if hasattr(self.ui, 'loopRange'):
+            self.ui.loopRange.returnPressed.connect(self.update_loop)
+        if hasattr(self.ui, 'loopPoints'):
+            self.ui.loopPoints.returnPressed.connect(self.update_loop)
+
+        # Additional scan controls
+        if hasattr(self.ui, 'setCursor2ZeroButton'):
+            self.ui.setCursor2ZeroButton.clicked.connect(self.set_cursor_to_zero)
+        if hasattr(self.ui, 'beamToCursorButton'):
+            self.ui.beamToCursorButton.clicked.connect(self.beam_to_cursor)
+        if hasattr(self.ui, 'showBeamPosition'):
+            self.ui.showBeamPosition.stateChanged.connect(self.toggle_beam_position)
+        if hasattr(self.ui, 'firstEnergyButton'):
+            self.ui.firstEnergyButton.clicked.connect(self.move_to_first_energy)
         
         # Focus and line parameter controls
         self.ui.focusStepsEdit.textChanged.connect(self.update_focus_step_size)
@@ -137,6 +214,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.plotClearButton.clicked.connect(self.clear_plot)
         self.ui.clearImageButton.clicked.connect(self.clear_image)
         self.ui.removeLastImageButton.clicked.connect(self.remove_last_image)
+        if hasattr(self.ui, 'compositeImageCheckbox'):
+            self.ui.compositeImageCheckbox.stateChanged.connect(self.update_composite_image)
         
         # Region controls
         self.ui.scanRegSpinbox.valueChanged.connect(self.update_scan_regions)
@@ -196,14 +275,21 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.lineAngleEdit.setText('0')
         self.ui.linePointsEdit.setText('50')
         
+        # Set default pen color and style (do this early in case it's needed)
+        self.default_pen = pg.mkPen(
+            self.pen_colors[0],
+            width=3,
+            style=self.pen_styles[0]
+        )
+
         # Calculate initial step sizes
         self.update_focus_step_size()
         self.update_line_step_size()
-        
+
         # Initialize scan regions
         self.update_scan_regions()
         self.update_energy_regions()
-        
+
         # Create initial ROIs
         #self._update_rois_from_regions()
 
@@ -212,13 +298,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         #set the jog/move buttons
         self.toggle_jog_mode()
-
-        # Set default pen color and style
-        self.default_pen = pg.mkPen(
-            self.pen_colors[0],
-            width=3,
-            style=self.pen_styles[0]
-        )
         self.ui.showRangeFinder.setChecked(False)
         self.toggle_range_roi_display()
         
@@ -230,13 +309,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def _populate_combo_boxes(self):
         """Populate combo boxes with data from controller."""
-        # Populate scan types
-        scan_types = self.controller.get_available_scan_types()
+        # Populate scan types - access client directly for now
         self.ui.scanType.clear()
+        scan_types = self.controller.get_available_scan_types()
         for scan_type in scan_types:
             self.ui.scanType.addItem(scan_type)
-            
-        # Populate motor combo boxes
+
+        # Populate motor combo boxes - access client directly for now
         motors = self.controller.get_available_motors()
         
         # Clear existing items
@@ -244,13 +323,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.motorMover2.clear()
         self.ui.xMotorCombo.clear()
         self.ui.yMotorCombo.clear()
-        
+        if hasattr(self.ui, 'loopMotor'):
+            self.ui.loopMotor.clear()
+
         # Add motors to combo boxes
         for motor in motors:
             self.ui.motorMover1.addItem(motor)
             self.ui.motorMover2.addItem(motor)
             self.ui.xMotorCombo.addItem(motor)
             self.ui.yMotorCombo.addItem(motor)
+            if hasattr(self.ui, 'loopMotor'):
+                self.ui.loopMotor.addItem(motor)
             
         # Set default selections if motors are available
         if motors:
@@ -262,8 +345,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.motorMover2.setCurrentText("SampleY")
                 self.ui.yMotorCombo.setCurrentText("SampleY")
                 
-        # Populate channel selector (these are usually fixed)
-        if self.ui.channelSelect.count() == 0:
+        # Populate channel selector from daqConfig
+        self.ui.channelSelect.clear()
+        if hasattr(self.controller, 'client') and hasattr(self.controller.client, 'daqConfig'):
+            for daq_key in self.controller.client.daqConfig.keys():
+                if self.controller.client.daqConfig[daq_key].get("record", True):
+                    daq_name = self.controller.client.daqConfig[daq_key].get("name", daq_key)
+                    self.ui.channelSelect.addItem(daq_name)
+        else:
+            # Fallback to default channels if daqConfig not available
             self.ui.channelSelect.addItems(["Diode", "CCD", "RPI"])
             
         # Populate plot type selector
@@ -283,20 +373,24 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
         # Default motors
         default_motors = ["SampleX", "SampleY", "Energy", "ZonePlateZ"]
-        
+
         # Clear and populate motor combo boxes
-        for combo in [self.ui.motorMover1, self.ui.motorMover2, self.ui.xMotorCombo, self.ui.yMotorCombo]:
+        combo_list = [self.ui.motorMover1, self.ui.motorMover2, self.ui.xMotorCombo, self.ui.yMotorCombo]
+        if hasattr(self.ui, 'loopMotor'):
+            combo_list.append(self.ui.loopMotor)
+
+        for combo in combo_list:
             combo.clear()
             for motor in default_motors:
                 combo.addItem(motor)
-                
+
         # Set default selections
         self.ui.motorMover1.setCurrentText("SampleX")
         self.ui.motorMover2.setCurrentText("SampleY")
         self.ui.xMotorCombo.setCurrentText("SampleX")
         self.ui.yMotorCombo.setCurrentText("SampleY")
         
-        # Populate other combo boxes
+        # Populate channel selector with defaults
         if self.ui.channelSelect.count() == 0:
             self.ui.channelSelect.addItems(["Diode", "CCD", "RPI"])
             
@@ -507,6 +601,82 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.controller.handle_motor_config_change("Energy", "A0", a0_value)
         except ValueError:
             self.show_error_message("Invalid A0 value")
+
+    def on_a1_changed(self):
+        """Handle A1 change."""
+        try:
+            a1_value = float(self.ui.A1Edit.text())
+            self.controller.handle_motor_config_change("Energy", "A1", a1_value)
+        except ValueError:
+            self.show_error_message("Invalid A1 value")
+
+    def on_ds_changed(self):
+        """Handle dispersive slit change."""
+        try:
+            value = float(self.ui.dsEdit.text())
+            self.controller.move_motor("DISPERSIVE_SLIT", value)
+        except ValueError:
+            self.show_error_message("Invalid dispersive slit value")
+
+    def on_nds_changed(self):
+        """Handle non-dispersive slit change."""
+        try:
+            value = float(self.ui.ndsEdit.text())
+            self.controller.move_motor("NONDISPERSIVE_SLIT", value)
+        except ValueError:
+            self.show_error_message("Invalid non-dispersive slit value")
+
+    def on_m101_changed(self):
+        """Handle M101 pitch change."""
+        try:
+            value = float(self.ui.m101Edit.text())
+            self.controller.move_motor("M101PITCH", value)
+        except ValueError:
+            self.show_error_message("Invalid M101 pitch value")
+
+    def on_fbk_changed(self):
+        """Handle feedback offset change."""
+        try:
+            value = float(self.ui.fbkEdit.text())
+            self.controller.move_motor("FBKOFFSET", value)
+        except ValueError:
+            self.show_error_message("Invalid feedback offset value")
+
+    def on_pol_changed(self):
+        """Handle polarization change."""
+        try:
+            value = float(self.ui.polEdit.text())
+            self.controller.move_motor("POLARIZATION", value)
+        except ValueError:
+            self.show_error_message("Invalid polarization value")
+
+    def on_epu_changed(self):
+        """Handle EPU offset change."""
+        try:
+            value = float(self.ui.epuEdit.text())
+            self.controller.move_motor("EPUOFFSET", value)
+        except ValueError:
+            self.show_error_message("Invalid EPU offset value")
+
+    def on_harmonic_changed(self):
+        """Handle harmonic change."""
+        value = self.ui.harSpin.value()
+        self.controller.move_motor("HARMONIC", float(value))
+
+    def on_shutter_changed(self):
+        """Handle shutter control change."""
+        shutter_text = self.ui.shutterComboBox.currentText()
+        if shutter_text == "Shutter Auto":
+            mode = "auto"
+        elif shutter_text == "Shutter Open":
+            mode = "open"
+        elif shutter_text == "Shutter Closed":
+            mode = "closed"
+        else:
+            return
+        # Send gate command through controller
+        if hasattr(self.controller, 'set_gate'):
+            self.controller.set_gate(mode)
             
     def update_focus_step_size(self):
         """Update focus step size label when range or steps change."""
@@ -534,7 +704,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Update line parameters including step size and angle."""
         # Update step size
         self.update_line_step_size()
-        
+
         # Store line angle for other calculations if needed
         try:
             self.lineAngle = float(self.ui.lineAngleEdit.text())
@@ -543,7 +713,101 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         self.update_line_roi()
 
+    def update_loop(self):
+        """Update loop scan parameters and calculate step size."""
+        if not hasattr(self.ui, 'loopRange'):
+            return
+        try:
+            r = float(self.ui.loopRange.text())
+            p = int(self.ui.loopPoints.text())
+            c = float(self.ui.loopCenter.text())
+        except:
+            if hasattr(self.ui, 'loopCheckbox'):
+                self.ui.loopCheckbox.setChecked(False)
+            self.show_error_message("Please check the values entered for the Center, Range and Points")
+        else:
+            if p > 1:
+                s = np.round(r / (p-1), 3)
+                if hasattr(self.ui, 'loopStepSize'):
+                    self.ui.loopStepSize.setText(str(s))
+
+    def set_cursor_to_zero(self):
+        """Set cursor position to zero coordinates by adjusting motor offsets."""
+        if self.current_cursor_x is None or self.current_cursor_y is None:
+            self.show_error_message("Please click on the image first to set cursor position")
+            return
+
+        scan_type = self.ui.scanType.currentText()
+        if "Image" not in scan_type and "Double Motor" not in scan_type:
+            self.show_error_message("This function only works for Image and Double Motor scans")
+            return
+
+        x = round(self.current_cursor_x, 2)
+        y = round(self.current_cursor_y, 2)
+
+        # Get current motors
+        motor_model = self.controller.get_motor_model()
+        motor_info = motor_model.get('motor_info', {})
+
+        x_motor = self.ui.xMotorCombo.currentText() or 'SampleX'
+        y_motor = self.ui.yMotorCombo.currentText() or 'SampleY'
+
+        # Get current offsets
+        x_current_offset = motor_info.get(x_motor, {}).get('offset', 0)
+        y_current_offset = motor_info.get(y_motor, {}).get('offset', 0)
+
+        # Confirm with user
+        result = self.warning_popup(f"Set {x_motor} = {x} and {y_motor} = {y} to 0?")
+        if result:
+            message = f"Setting {x_motor} = {x} and {y_motor} = {y} to 0"
+            self.update_status_display(message)
+
+            # Update offsets
+            self.controller.handle_motor_config_change(x_motor, "offset", x_current_offset - x)
+            self.controller.handle_motor_config_change(y_motor, "offset", y_current_offset - y)
+
+            # Remove crosshairs
+            if self.horizontal_line:
+                self.ui.mainImage.removeItem(self.horizontal_line)
+                self.horizontal_line = None
+            if self.vertical_line:
+                self.ui.mainImage.removeItem(self.vertical_line)
+                self.vertical_line = None
+
+    def beam_to_cursor(self):
+        """Move motors to cursor position."""
+        if self.controller.get_scan_model().get('scanning', False):
+            return
+
+        if self.current_cursor_x is None or self.current_cursor_y is None:
+            self.show_error_message("Please click on the image first to set cursor position")
+            return
+
+        x_motor = self.ui.xMotorCombo.currentText() or 'SampleX'
+        y_motor = self.ui.yMotorCombo.currentText() or 'SampleY'
+
+        self.controller.move_motor(x_motor, self.current_cursor_x)
+        self.controller.move_motor(y_motor, self.current_cursor_y)
+
+    def toggle_beam_position(self):
+        """Toggle beam position display on image."""
+        # This will be implemented when beam position ROI is created
+        pass
+
+    def move_to_first_energy(self):
+        """Move Energy motor to first energy in energy region list."""
+        if self.energy_region_widgets:
+            try:
+                first_energy = float(self.energy_region_widgets[0].energyDef.energyStart.text())
+                self.controller.move_motor("Energy", first_energy)
+            except (ValueError, AttributeError) as e:
+                self.show_error_message(f"Cannot move to first energy: {e}")
+
     def update_line_roi(self):
+        """Update line ROI based on current line parameters."""
+        # Only update if we have scan regions
+        if not self.scan_region_widgets:
+            return
         self._clear_rois()
         self.roi_list.append(self._calculate_line_roi())
         self._show_rois()
@@ -552,10 +816,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Handle mouse movement over image."""
         # Update cursor position display
         scene_pos = self.ui.mainImage.getImageItem().mapFromScene(pos)
-        
+
         # Get image geometry from the image model
         image_model = self.controller.get_image_model()
-        scan_type = image_model.get('scan_type')
+        scan_type = image_model.get('scan_type', 'Image')
         y_motor = 'y'
         if "Focus" in scan_type:
             y_motor = 'z'
@@ -565,25 +829,38 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         y_range = image_model.get(y_motor+'_range', 70.0)
         image_scale = image_model.get('image_scale', (1.0, 1.0))
         if "Spectrum" in scan_type:
-            energies = np.array(image_model.get('energy_list'))
-            image_scale = [image_model.get('x_pts')/energies.size,1.0]
-            x_center = (energies.max() + energies.min()) / 2.0
-            x_range = energies.max() - energies.min()
-        
-        print(x_center,x_range,y_center,y_range)
+            energies = np.array(image_model.get('energy_list', [700, 720]))
+            if len(energies) > 0:
+                image_scale = [image_model.get('x_pts', 50)/energies.size, 1.0]
+                x_center = (energies.max() + energies.min()) / 2.0
+                x_range = energies.max() - energies.min()
 
         # Convert to real coordinates based on image geometry
         x_real = (scene_pos.x() * image_scale[0]) + x_center - x_range / 2.0
         y_real = (scene_pos.y() * image_scale[1]) + y_center - y_range / 2.0
-        
+
         # Store current cursor coordinates for use in click events
         self.current_cursor_x = x_real
         self.current_cursor_y = y_real
-        
+
         # Update cursor position labels (note: y-coordinate is negated for display)
         self.ui.xCursorPos.setText(f"{x_real:.3f}")
         self.ui.yCursorPos.setText(f"{-y_real:.3f}")
-        
+
+        # Calculate and update scale bar
+        if hasattr(self.ui, 'scaleBarLength') and hasattr(self.ui.mainImage, 'imageItem'):
+            try:
+                pixel_size = self.ui.mainImage.imageItem.pixelSize()[0]
+                if pixel_size > 0:
+                    self.scaleBarLength = np.round(100. / pixel_size * image_scale[0], 3)
+                    if self.scaleBarLength < 1.:
+                        scale_text = f"{self.scaleBarLength * 1000.} nm"
+                    else:
+                        scale_text = f"{self.scaleBarLength} um"
+                    self.ui.scaleBarLength.setText(scale_text)
+            except:
+                pass
+
         # Read image intensity at cursor position
         self._update_cursor_intensity(scene_pos)
         
@@ -628,6 +905,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def on_mouse_clicked(self, pos):
         """Handle mouse click on image."""
+        image_model = self.controller.get_image_model()
         if self.ui.channelSelect.currentText() == "CCD":
             return
             
@@ -638,6 +916,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
         # Pass real coordinates to controller for cursor position tracking
         self.controller.handle_mouse_click(x_real, y_real)
+
+        # Activate action buttons as appropriate for the scan type
+        print(self.controller.scanning)
+        if "Image" in image_model.get('scan_type','') and not self.controller.scanning:
+            self.ui.motors2CursorButton.setEnabled(True)
         
         # Update crosshair using real coordinates (this is what the user sees)
         self._update_crosshair(x_real, y_real)
@@ -708,12 +991,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             except:
                 pass
                 
-        # Update A0 label from motor info (this comes from client config, not motor position)
+        # Update A0 and A1 labels from motor info (this comes from client config, not motor position)
         motor_model = self.controller.get_motor_model()
         motor_info = motor_model.get('motor_info', {})
         if 'Energy' in motor_info:
             a0_value = motor_info['Energy'].get('A0', 0)
             self.ui.A0Label.setText(f"{int(a0_value)}")
+            if hasattr(self.ui, 'A1Label'):
+                a1_value = motor_info['Energy'].get('A1', 0)
+                self.ui.A1Label.setText(f"{round(a1_value, 4)}")
             
     def update_motor_status_display(self, motor_name: str, is_moving: bool):
         """Update motor status display."""
@@ -747,32 +1033,51 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
     def update_image_display(self, image_data):
         """Update image display."""
-        if image_data is not None:
-            # Get current image geometry settings to maintain coordinate system
-            image_model = self.controller.get_image_model()
-            x_center = image_model.get('x_center', 0.0)
-            y_center = image_model.get('y_center', 0.0) 
-            x_range = image_model.get('x_range', 70.0)
-            y_range = image_model.get('y_range', 70.0)
-            image_scale = image_model.get('image_scale', (0.7, 0.7))
-            if "Spectrum" in image_model.get('scan_type'):
-                energies = np.array(image_model.get('energy_list'))
-                image_scale = [image_model.get('x_pts')/energies.size,1.0]
+        if image_data is None:
+            return
+
+        # Handle case where image_data might be a dict (from scan messages)
+        if isinstance(image_data, dict):
+            # Extract the actual image array from the dict
+            if 'default' in image_data:
+                image_data = image_data['default']
+            else:
+                print(f"Warning: image_data is a dict but has no 'default' key: {image_data.keys()}")
+                return
+
+        # Verify we have a numpy array
+        if not isinstance(image_data, np.ndarray):
+            print(f"Warning: image_data is not a numpy array, got {type(image_data)}")
+            return
+
+        # Get current image geometry settings to maintain coordinate system
+        image_model = self.controller.get_image_model()
+        x_center = image_model.get('x_center', 0.0)
+        y_center = image_model.get('y_center', 0.0)
+        x_range = image_model.get('x_range', 70.0)
+        y_range = image_model.get('y_range', 70.0)
+        image_scale = image_model.get('image_scale', (0.7, 0.7))
+
+        scan_type = image_model.get('scan_type', '')
+        if "Spectrum" in scan_type:
+            energies = np.array(image_model.get('energy_list', [700, 720]))
+            if energies.size > 0:
+                image_scale = [image_model.get('x_pts', 50)/energies.size, 1.0]
                 y_center = 0.0
                 y_range = energies.max() - energies.min()
                 image_data = image_data.T
-            
-            # Calculate position to center the image at the motor coordinate center
-            pos = (x_center - x_range / 2.0, y_center - y_range / 2.0)
-            
-            # Update image while preserving coordinate system
-            self.ui.mainImage.setImage(
-                image_data.T, 
-                autoRange=self.ui.autorangeCheckbox.isChecked(),
-                autoLevels=self.ui.autoscaleCheckbox.isChecked(),
-                pos=pos,
-                scale=image_scale
-            )
+
+        # Calculate position to center the image at the motor coordinate center
+        pos = (x_center - x_range / 2.0, y_center - y_range / 2.0)
+
+        # Update image while preserving coordinate system
+        self.ui.mainImage.setImage(
+            image_data.T,
+            autoRange=self.ui.autorangeCheckbox.isChecked(),
+            autoLevels=self.ui.autoscaleCheckbox.isChecked(),
+            pos=pos,
+            scale=image_scale
+        )
             
     def update_scan_progress_display(self, progress_info: str):
         """Update scan progress display."""
@@ -786,6 +1091,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         msg.setInformativeText(error_message)
         msg.setWindowTitle("Error")
         msg.exec()
+
+    def warning_popup(self, message: str) -> bool:
+        """Show warning popup with OK/Cancel buttons.
+        Returns True if OK was clicked, False otherwise."""
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Warning)
+        msg.setText("Warning!")
+        msg.setInformativeText(message)
+        msg.setWindowTitle("Warning")
+        msg.setStandardButtons(QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+        msg.setDefaultButton(QtWidgets.QMessageBox.Ok)
+        result = msg.exec()
+        return result == QtWidgets.QMessageBox.Ok
         
     def update_status_display(self, status_message: str):
         """Update status display."""
@@ -868,12 +1186,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
         # Disable cursor-based buttons initially
         self.ui.motors2CursorButton.setEnabled(False)
-        self.ui.beamToCursorButton.setEnabled(False)
         self.ui.focusToCursorButton.setEnabled(False)
+        self.ui.setCursor2ZeroButton.setEnabled(False)
         
         # Set motor combos based on scan config if available
         if hasattr(self.controller.client, 'scanConfig') and self.controller.client.scanConfig:
-            scan_config = self.controller.client.scanConfig.get("scans", {})
+            scan_config = self.controller.client.scanConfig
             if scan_type in scan_config:
                 x_motor = scan_config[scan_type].get("xMotor")
                 y_motor = scan_config[scan_type].get("yMotor")
@@ -889,7 +1207,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.yMotorCombo.setEnabled(False)
             self.ui.scanRegSpinbox.setEnabled(False)
             self.ui.energyRegSpinbox.setEnabled(False)
-            self.ui.beamToCursorButton.setEnabled(False)
+            if hasattr(self.ui, 'beamToCursorButton'):
+                self.ui.beamToCursorButton.setEnabled(False)
             self.ui.toggleSingleEnergy.setChecked(True)
             self.ui.toggleSingleEnergy.setEnabled(False)
             self.ui.doubleExposureCheckbox.setChecked(False)
@@ -1049,16 +1368,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.energyRegSpinbox.setEnabled(not scanning)
         
         # Image controls
-        self.ui.compositeImageCheckbox.setEnabled(not scanning)
+        if hasattr(self.ui, 'compositeImageCheckbox'):
+            self.ui.compositeImageCheckbox.setEnabled(not scanning)
         self.ui.removeLastImageButton.setEnabled(not scanning)
         self.ui.clearImageButton.setEnabled(not scanning)
-        self.ui.firstEnergyButton.setEnabled(not scanning)
+        if hasattr(self.ui, 'firstEnergyButton'):
+            self.ui.firstEnergyButton.setEnabled(not scanning)
         self.ui.toggleSingleEnergy.setEnabled(not scanning)
         
         # Motor controls
         self.ui.xMotorCombo.setEnabled(not scanning)
         self.ui.yMotorCombo.setEnabled(not scanning)
-        self.ui.beamToCursorButton.setEnabled(not scanning)
         self.ui.focusToCursorButton.setEnabled(not scanning)
         self.ui.motors2CursorButton.setEnabled(not scanning)
         
@@ -1148,11 +1468,80 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def open_scan_file(self):
         """Open scan file dialog."""
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, 'Open Scan File', '', 'STXM Files (*.stxm);;All Files (*)'
+            self, 'Open Scan File', self.currentDataDir or '', 'STXM Files (*.stxm);;All Files (*)'
         )
         if filename:
-            # Load scan file through controller
-            pass
+            self.currentLoadFile = filename
+            self.load_scan_file()
+
+    def load_scan_file(self):
+        """Load and display scan data from .stxm file."""
+        if not self.currentLoadFile:
+            return
+
+        try:
+            from pystxmcontrol.utils.writeNX import stxm
+            self.nx = stxm(stxm_file=self.currentLoadFile)
+            print(f"Loading file {self.currentLoadFile}")
+
+            scan_type = self.nx.meta.get("scan_type", "")
+
+            if "Image" in scan_type or scan_type == "Double Motor":
+                self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
+                image_data = self.nx.data["entry0"]["counts"]["default"]
+
+                # Get image dimensions
+                ne, y, x = image_data.shape
+
+                # Get position arrays
+                xpos = self.nx.data['entry0']['xpos']
+                ypos = self.nx.data['entry0']['ypos']
+
+                # Calculate image parameters
+                x_range = xpos.max() - xpos.min()
+                y_range = ypos.max() - ypos.min()
+                x_center = xpos.min() + x_range / 2.
+                y_center = ypos.min() + y_range / 2.
+                x_scale = float(x_range) / float(x)
+                y_scale = float(y_range) / float(y)
+                pos = (x_center - float(x_range) / 2., y_center - float(y_range) / 2.)
+
+                # Update image model
+                image_model = self.controller.get_image_model()
+                image_model.set('x_center', x_center)
+                image_model.set('y_center', y_center)
+                image_model.set('x_range', x_range)
+                image_model.set('y_range', y_range)
+                image_model.set('image_scale', (x_scale, y_scale))
+
+                # Display image (transpose for correct orientation)
+                axes = (0, 2, 1)
+                self.ui.mainImage.setImage(
+                    np.transpose(image_data, axes=axes),
+                    autoRange=True,
+                    autoLevels=True,
+                    autoHistogramRange=True,
+                    pos=pos,
+                    scale=(x_scale, y_scale)
+                )
+
+                # Update scan type
+                if scan_type in [item.strip() for item in [self.ui.scanType.itemText(i) for i in range(self.ui.scanType.count())]]:
+                    self.ui.scanType.setCurrentText(scan_type)
+
+            elif scan_type == "Single Motor":
+                self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
+                self.ui.plotType.setCurrentText("Motor Scan")
+                # Handle single motor scan plotting
+                pass
+
+            else:
+                self.warning_popup(f"File {self.currentLoadFile} is {scan_type} scan type.")
+
+        except Exception as e:
+            self.show_error_message(f"Failed to open file: {self.currentLoadFile}\nError: {str(e)}")
+            import traceback
+            traceback.print_exc()
             
     def save_scan_definition(self):
         """Save scan definition dialog."""
@@ -1354,30 +1743,48 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
     def _update_rois_from_regions(self):
         """Update ROIs based on current scan region widgets."""
+        print(f"DEBUG: _update_rois_from_regions() called")
         # Clear existing ROIs
         self._clear_rois()
-        
+
         # Create new ROIs from scan region widgets
         scan_type = self.ui.scanType.currentText()
+        print(f"DEBUG: scan_type = {scan_type}")
         if hasattr(self.controller, 'client') and self.controller.client and hasattr(self.controller.client, 'scanConfig'):
             try:
-                config_scan_type = self.controller.client.scanConfig.get("scans", {}).get(scan_type, {}).get("type", "image")
+                config_scan_type = self.controller.client.scanConfig.get(scan_type, {}).get("type", "image")
+                print(f"DEBUG: config_scan_type from scanConfig = {config_scan_type}")
             except:
                 config_scan_type = "image"
+                print(f"DEBUG: config_scan_type defaulted to image (exception)")
         else:
             config_scan_type = "image"  # Default
-            
+            print(f"DEBUG: config_scan_type defaulted to image (no scanConfig)")
+
+        print(f"DEBUG: Creating ROIs for {len(self.scan_region_widgets)} regions")
         for i, region_widget in enumerate(self.scan_region_widgets):
+            print(f"DEBUG: Creating ROI {i} with type {config_scan_type}")
             self._add_roi_from_region(region_widget, i, config_scan_type)
-            
+
         # Show ROIs if checkbox is checked
+        print(f"DEBUG: roiCheckbox.isChecked() = {self.ui.roiCheckbox.isChecked()}")
         if self.ui.roiCheckbox.isChecked():
             self._show_rois()
 
         self.update_estimated_time()
 
     def _calculate_line_roi(self):
-        
+        """Calculate line ROI from current line parameters."""
+        # Check if we have scan regions
+        if not self.scan_region_widgets:
+            # Return a default line ROI if no regions exist yet
+            roi = pg.LineSegmentROI(
+                positions=((-5, 0), (5, 0)),
+                pen=self.default_pen if hasattr(self, 'default_pen') else pg.mkPen('r', width=3),
+                movable=True
+            )
+            return roi
+
         region_widget = self.scan_region_widgets[-1]
         x_center = float(region_widget.ui.xCenter.text() or 0)
         y_center = float(region_widget.ui.yCenter.text() or 0)
@@ -1472,8 +1879,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
             # Connect ROI change signal to update region widgets
             roi.sigRegionChanged.connect(self._update_region_from_roi)
-            
+
+            print(f"DEBUG: Adding ROI to list: {roi}, type={type(roi)}")
             self.roi_list.append(roi)
+            print(f"DEBUG: roi_list now has {len(self.roi_list)} items")
             
         except (ValueError, AttributeError) as e:
             print(f"Error creating ROI for region {index}: {e}")
@@ -1484,6 +1893,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Find which ROI was changed by checking the sender
             sender_roi = self.sender()
             if sender_roi not in self.roi_list:
+                print(f"DEBUG: ROI not in list. sender_roi={sender_roi}, roi_list length={len(self.roi_list)}")
+                for i, r in enumerate(self.roi_list):
+                    print(f"  roi_list[{i}] = {r}, same object? {r is sender_roi}")
                 return
                 
             roi_index = self.roi_list.index(sender_roi)
@@ -1499,7 +1911,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             config_scan_type = "image"  # Default
             if hasattr(self.controller, 'client') and self.controller.client and hasattr(self.controller.client, 'scanConfig'):
                 try:
-                    config_scan_type = self.controller.client.scanConfig.get("scans", {}).get(scan_type, {}).get("type", "image")
+                    config_scan_type = self.controller.client.scanConfig.get(scan_type, {}).get("type", "image")
                 except:
                     pass
             
@@ -1544,28 +1956,35 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 # Handle line ROI updates
                 handles = sender_roi.getHandles()
                 if len(handles) >= 2:
-                    pos1 = sender_roi.mapSceneToParent(handles[0].scenePos())
-                    pos2 = sender_roi.mapSceneToParent(handles[1].scenePos())
-                    
-                    # Calculate line center and length
+                    # Get positions in parent (image) coordinates
+                    pos1 = sender_roi.mapToParent(handles[0].pos())
+                    pos2 = sender_roi.mapToParent(handles[1].pos())
+
+                    # Calculate line center, length, and angle
                     x_center = (pos1.x() + pos2.x()) / 2
                     y_center_motor = (pos1.y() + pos2.y()) / 2
                     y_center = -y_center_motor  # Convert to display coordinates
-                    
-                    line_length = ((pos2.x() - pos1.x())**2 + (pos2.y() - pos1.y())**2)**0.5
-                    
-                    # Update the region widget
-                    region_widget.regionChanged.disconnect()
-                    
+
+                    dx = pos2.x() - pos1.x()
+                    dy = pos2.y() - pos1.y()
+                    line_length = (dx**2 + dy**2)**0.5
+                    line_angle = np.degrees(np.arctan2(dy, dx))
+
+                    # Update the region widget (disconnect to avoid recursion)
+                    region_widget.regionChanged.disconnect(self._update_rois_from_regions)
+
                     region_widget.ui.xCenter.setText(f"{x_center:.3f}")
                     region_widget.ui.yCenter.setText(f"{y_center:.3f}")
                     region_widget.ui.xRange.setText(f"{line_length:.3f}")
-                    
-                    # For line spectrum, update the line length edit as well
+
+                    # For line spectrum and focus scans, update the line length and angle edits as well
                     if hasattr(self.ui, 'lineLengthEdit'):
                         self.ui.lineLengthEdit.setText(f"{line_length:.3f}")
                         self.update_line_step_size()
-                    
+                    if hasattr(self.ui, 'lineAngleEdit'):
+                        self.ui.lineAngleEdit.setText(f"{line_angle:.3f}")
+
+                    # Reconnect signal
                     region_widget.regionChanged.connect(self._update_rois_from_regions)
                     
         except Exception as e:
@@ -1579,16 +1998,30 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def _clear_rois(self):
         """Clear all ROIs from display and list."""
+        print(f"DEBUG: _clear_rois() called, clearing {len(self.roi_list)} ROIs")
         for roi in self.roi_list:
+            # Disconnect signal before removing
+            try:
+                roi.sigRegionChanged.disconnect(self._update_region_from_roi)
+                print(f"DEBUG: Disconnected signal for ROI {roi}")
+            except:
+                print(f"DEBUG: Could not disconnect signal for ROI {roi}")
+                pass  # Signal may not be connected
+            # Remove from display
             if roi in self.ui.mainImage.getView().allChildItems():
                 self.ui.mainImage.removeItem(roi)
         self.roi_list.clear()
+        print(f"DEBUG: roi_list cleared")
             
     def _show_rois(self):
         """Show ROIs on image."""
+        print(f"DEBUG: _show_rois() called, showing {len(self.roi_list)} ROIs")
         for roi in self.roi_list:
             if roi not in self.ui.mainImage.getView().allChildItems():
+                print(f"DEBUG: Adding ROI to display: {roi}")
                 self.ui.mainImage.addItem(roi)
+            else:
+                print(f"DEBUG: ROI already in display: {roi}")
             
     def _hide_rois(self):
         """Hide ROIs from image."""
@@ -1632,13 +2065,82 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def clear_image(self):
         """Clear all images."""
+        # Clear composite images
+        for key in self.images.keys():
+            if self.images[key] in self.ui.mainImage.getView().allChildItems():
+                self.ui.mainImage.removeItem(self.images[key])
+        self.images = {}
+
+        # Clear main image
         self.ui.mainImage.clear()
         self.controller.get_image_model().clear_image_stack()
-        
+
     def remove_last_image(self):
-        """Remove the last image."""
-        # This would need to be implemented based on the image stack
-        pass
+        """Remove the last image from composite display."""
+        if not self.images:
+            return
+        key = list(self.images.keys())[-1]
+        if self.images[key] in self.ui.mainImage.getView().allChildItems():
+            self.ui.mainImage.removeItem(self.images[key])
+        del self.images[key]
+
+    def update_image_from_ccd(self, ccd_data):
+        """Update image display from CCD camera data."""
+        self.currentCCDData = ccd_data
+        if self.ui.channelSelect.currentText() == "CCD":
+            # Log-scale CCD data for display
+            modified_CCD = ccd_data.T + 10
+            modified_CCD[modified_CCD < 1] = 1
+            modified_CCD = np.log(modified_CCD)
+            self.ui.mainImage.setImage(
+                modified_CCD,
+                autoRange=self.ui.autorangeCheckbox.isChecked(),
+                autoLevels=self.ui.autoscaleCheckbox.isChecked(),
+                autoHistogramRange=self.ui.autorangeCheckbox.isChecked(),
+                pos=(0, 0),
+                scale=(1, 1)
+            )
+
+    def update_image_from_rpi(self, rpi_data):
+        """Update image display from RPI (Ptychography) reconstruction."""
+        self.currentRPIData, self.ptychoXpixm, self.ptychoYpixm = rpi_data
+        if self.ui.channelSelect.currentText() == "RPI":
+            image_model = self.controller.get_image_model()
+            x_center = image_model.get('x_center', 0.0)
+            y_center = image_model.get('y_center', 0.0)
+            x_range = image_model.get('x_range', 70.0)
+            y_range = image_model.get('y_range', 70.0)
+
+            # RPI uses micron pixel scale
+            xScale = self.ptychoXpixm * 1e6
+            yScale = self.ptychoYpixm * 1e6
+            pos = (x_center - x_range / 2., y_center - y_range / 2.)
+
+            self.ui.mainImage.setImage(
+                self.currentRPIData,
+                autoRange=True,
+                autoLevels=True,
+                autoHistogramRange=True,
+                pos=pos,
+                scale=(xScale, yScale)
+            )
+
+    def update_composite_image(self):
+        """Toggle composite image display mode."""
+        if hasattr(self.ui, 'compositeImageCheckbox'):
+            if self.ui.compositeImageCheckbox.isChecked():
+                # Show all images
+                for key in self.images.keys():
+                    if self.images[key] not in self.ui.mainImage.getView().allChildItems():
+                        self.ui.mainImage.addItem(self.images[key])
+            else:
+                # Show only the last image
+                if self.images:
+                    last_key = list(self.images.keys())[-1]
+                    for key in self.images.keys():
+                        if key != last_key:
+                            if self.images[key] in self.ui.mainImage.getView().allChildItems():
+                                self.ui.mainImage.removeItem(self.images[key])
         
     def _populate_proposal_combobox(self):
         """Populate the proposal combobox with ESAF proposals."""
@@ -1681,19 +2183,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         try:
             selected_text = self.ui.proposalComboBox.currentText()
             selected_index = self.ui.proposalComboBox.currentIndex()
-            
+
             if selected_text == "Staff Access":
                 # Activate GUI but warn about data access
                 self._activate_gui()
+                self._activate_staff()
                 self._set_warning_banner("Users cannot access this data!")
                 self.ui.experimentersLineEdit.setText("")
-                
+
             elif selected_index > 0 and selected_index <= len(self.esaf_list):
                 # Valid proposal selected
                 try:
                     # Get participant list for this proposal
                     participants = self.participants_list[selected_index - 1]  # -1 because index 0 is "Select a Proposal"
-                    
+
                     # Create comma-separated string of participants
                     if participants:
                         participant_string = participants[0]
@@ -1702,56 +2205,112 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                         self.ui.experimentersLineEdit.setText(participant_string)
                     else:
                         self.ui.experimentersLineEdit.setText("")
-                    
+
                     # Activate GUI and clear warning
                     self._activate_gui()
                     self._set_warning_banner(None)
-                    
+
                 except (IndexError, AttributeError) as e:
                     print(f"Error setting experimenters: {e}")
                     self.ui.experimentersLineEdit.setText("")
                     self._activate_gui()
                     self._set_warning_banner(None)
-                    
+
             else:
                 # "Select a Proposal" or invalid selection
                 self.ui.experimentersLineEdit.setText("")
                 self._set_warning_banner("Select a proposal to activate the GUI")
                 self._deactivate_gui()
-                
+                self._deactivate_staff()
+
         except Exception as e:
             print(f"Error handling proposal change: {e}")
             
     def _activate_gui(self):
         """Activate GUI elements when a valid proposal is selected."""
         # Enable main scan controls
+        if hasattr(self.ui, 'compositeImageCheckbox'):
+            self.ui.compositeImageCheckbox.setEnabled(True)
+        self.ui.removeLastImageButton.setEnabled(True)
+        self.ui.clearImageButton.setEnabled(True)
+        if hasattr(self.ui, 'firstEnergyButton'):
+            self.ui.firstEnergyButton.setEnabled(True)
         self.ui.beginScanButton.setEnabled(True)
         self.ui.scanType.setEnabled(True)
         self.ui.scanRegSpinbox.setEnabled(True)
         self.ui.energyRegSpinbox.setEnabled(True)
-        
+
         # Enable motor controls (these might be disabled by scan type)
         scan_type = self.ui.scanType.currentText()
         if scan_type in ("Image", "Spiral Image", "Double Motor"):
             self.ui.roiCheckbox.setEnabled(True)
             self.ui.toggleSingleEnergy.setEnabled(True)
-            
+            for reg in self.scan_region_widgets:
+                if hasattr(reg, 'setEnabled'):
+                    reg.setEnabled(True)
+
         # Enable other controls based on scan type
         self.on_scan_type_changed()
-        
+
     def _deactivate_gui(self):
         """Deactivate GUI elements when no valid proposal is selected."""
         # Disable main scan controls
+        if hasattr(self.ui, 'compositeImageCheckbox'):
+            self.ui.compositeImageCheckbox.setEnabled(False)
+        self.ui.removeLastImageButton.setEnabled(False)
+        self.ui.clearImageButton.setEnabled(False)
+        if hasattr(self.ui, 'firstEnergyButton'):
+            self.ui.firstEnergyButton.setEnabled(False)
+        self.ui.toggleSingleEnergy.setEnabled(False)
         self.ui.beginScanButton.setEnabled(False)
         self.ui.scanType.setEnabled(False)
         self.ui.scanRegSpinbox.setEnabled(False)
         self.ui.energyRegSpinbox.setEnabled(False)
         self.ui.roiCheckbox.setEnabled(False)
-        self.ui.toggleSingleEnergy.setEnabled(False)
-        
+        self.ui.focusToCursorButton.setEnabled(False)
+        self.ui.xMotorCombo.setEnabled(False)
+        self.ui.yMotorCombo.setEnabled(False)
+        self.ui.motors2CursorButton.setEnabled(False)
+
         # Hide ROIs
         self._hide_rois()
         self.ui.roiCheckbox.setChecked(False)
+
+        # Hide beam position
+        if self.beam_position is not None:
+            if self.beam_position in self.ui.mainImage.getView().allChildItems():
+                self.ui.mainImage.removeItem(self.beam_position)
+
+        # Remove crosshairs
+        if self.horizontal_line is not None:
+            self.ui.mainImage.removeItem(self.horizontal_line)
+            self.horizontal_line = None
+        if self.vertical_line is not None:
+            self.ui.mainImage.removeItem(self.vertical_line)
+            self.vertical_line = None
+
+        # Disable region widgets
+        for reg in self.scan_region_widgets:
+            if hasattr(reg, 'setEnabled'):
+                reg.setEnabled(False)
+
+    def _activate_staff(self):
+        """Activate staff-only controls."""
+        if hasattr(self.ui, 'A1Edit'):
+            self.ui.A1Edit.setEnabled(True)
+        if hasattr(self.ui, 'serverAddressEdit'):
+            self.ui.serverAddressEdit.setEnabled(True)
+        if hasattr(self.ui, 'serverConnectButton'):
+            self.ui.serverConnectButton.setEnabled(True)
+
+    def _deactivate_staff(self):
+        """Deactivate staff-only controls."""
+        if hasattr(self.ui, 'A1Edit'):
+            self.ui.A1Edit.setEnabled(False)
+        if hasattr(self.ui, 'serverAddressEdit'):
+            self.ui.serverAddressEdit.setEnabled(False)
+        if hasattr(self.ui, 'serverConnectButton'):
+            self.ui.serverConnectButton.setEnabled(False)
         
     def _set_warning_banner(self, warning_text):
         """Set or clear the warning banner."""
@@ -1784,13 +2343,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if self.controller.compile_scan_from_view(self):
             # Get the compiled scan data
             scan_data = self.controller.get_scan_model().to_dict()
-            
+
             # Show summary
             scan_regions = scan_data.get('scan_regions', {})
             energy_regions = scan_data.get('energy_regions', {})
-            
+
             message = f"""Scan compilation successful!
-            
+
 Scan Type: {scan_data.get('scan_type', 'Unknown')}
 Motors: X={scan_data.get('x_motor', 'None')}, Y={scan_data.get('y_motor', 'None')}
 Scan Regions: {len(scan_regions)}
@@ -1805,3 +2364,9 @@ Energy Regions:
             self.show_error_message(message)
         else:
             self.show_error_message("Scan compilation failed!")
+
+    def disconnect(self):
+        """Cleanup and disconnect from server."""
+        # This would be called on application exit
+        # Cleanup resources, close connections, etc.
+        pass

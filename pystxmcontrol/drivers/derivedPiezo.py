@@ -231,16 +231,11 @@ class derivedPiezo(motor):
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
-        print(f"[inclined piezo] {self.axis} {kwargs}")
         if fine_only:
-            print(f"[inclined piezo] fine_only {self.axis} move to {pos}")
             self.axes["axis1"].moveTo(pos)
         elif self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
-            print(f"[inclined piezo] moving fine {self.axis} motor to {newFinePos}. Coarse {self.axis} position: {self.coarsePos}")
             self.axes["axis1"].moveTo(newFinePos)
         else:
-            print(f"[inclined piezo] {self._finePos},{self.coarsePos},{deltaPos},{newFinePos},{pos}")
-            print(f"[inclined piezo] check limit failed for fine {self.axis} position {newFinePos} at coarse position {pos}")
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
