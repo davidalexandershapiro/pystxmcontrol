@@ -39,7 +39,8 @@ class ScanModel(BaseModel):
             'nx_file_version': '',
             'single_energy': True,
             'energy_list': None,
-            'dwell': 1.0
+            'dwell': 1.0,
+            'scanning': False
         }
         
     def validate(self) -> bool:

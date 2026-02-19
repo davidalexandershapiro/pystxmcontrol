@@ -232,6 +232,10 @@ class inclinedDerivedPiezo(motor):
             self.position = self.position + step
 
     def moveTo(self, pos = None, sleep = True, **kwargs):
+        """
+        The distance from the rotation axis depends only on the FineY position of the particle at a given angle.  This assumes
+        that CoarseZ has been corrected as a calibration step.
+        """
         pos = (pos - self.config["offset"]) / self.config["units"]
         if "coarse_only" in kwargs.keys():
             coarse_only = kwargs["coarse_only"]
@@ -244,7 +248,11 @@ class inclinedDerivedPiezo(motor):
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
-        #print(f"[inclined piezo] {self.axis} {kwargs}")
+        
+        #now calculate the new radius based on the newFinePos
+        r = 220. + newFinePos
+        
+
         if fine_only:
             #print(f"[inclined piezo] fine_only {self.axis} move to {pos}")
             self.axes["axis1"].moveTo(pos)
