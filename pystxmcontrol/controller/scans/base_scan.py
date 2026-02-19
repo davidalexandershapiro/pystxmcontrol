@@ -282,7 +282,7 @@ class BaseScan(ABC):
         return await terminateFlyscan(self.controller, self.dataHandler,
                                      self.scan, motor_name, message)
 
-    def configure_daqs(self, dwell: float, count: int, samples: int,
+    def configure_daqs(self, dwell: float, count: int, samples: int, trajectories: int,
                       trigger: str = "EXT"):
         """
         Configure all DAQs with specified parameters.
@@ -291,9 +291,12 @@ class BaseScan(ABC):
         :param count: Number of acquisitions
         :param samples: Number of samples per acquisition
         :param trigger: Trigger type ('EXT', 'BUS', etc.)
+        :param trajectories: Number of trajectories expected. Useful for detectors like XRF with overhead per line.
         """
         self.controller.config_daqs(dwell=dwell, count=count,
-                                   samples=samples, trigger=trigger, daq_list = self.scan.get("daq_list", ["default"]))
+                                    samples=samples, trigger=trigger, daq_list = self.scan.get("daq_list", ["default"]),trajectories=trajectories)
+
+            
 
     def get_scan_region_geometry(self, region_index: int = 0) -> Dict[str, Any]:
         """

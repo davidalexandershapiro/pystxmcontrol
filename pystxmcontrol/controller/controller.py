@@ -425,15 +425,19 @@ class controller:
             self.scanQueue.put_nowait('end')
         self.scanning = False
 
-    def config_daqs(self, dwell, count, samples, trigger,daq_list):
+    def config_daqs(self, dwell, count, samples, trigger,daq_list, trajectories):
+        print(f'[controller]: configuring daqs with dwell {dwell}, count {count}, samples {samples}, trigger {trigger}, trajectories {trajectories}, and daq_list {daq_list}.')
         for daq in daq_list:
-            if isinstance(dwell, list):
-                d = dwell
-                s = samples
+            if not self.daqConfig[daq].get("accumulate",False) or trajectories == 1:
+                if isinstance(dwell, list):
+                    d = dwell
+                    s = samples
+                else:
+                    d = dwell / self.daqConfig[daq].get("oversamling_factor",1)
+                    s = samples * self.daqConfig[daq].get("oversamling_factor",1)
+                self.daq[daq].config(d, count = count, samples = s, trigger = trigger)
             else:
-                d = dwell / self.daqConfig[daq].get("oversamling_factor",1)
-                s = samples * self.daqConfig[daq].get("oversamling_factor",1)
-            self.daq[daq].config(d, count = count, samples = s, trigger = trigger)
+                self.daq[daq].config(dwell, count = count* trajectories, samples = samples, trigger = trigger)
 
     async def read_daq(self, daq, dwell, shutter = True):
         try:

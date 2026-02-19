@@ -6,10 +6,12 @@ function on the controller. It moves coarse motors to the center of the
 scan range and executes a fine scan smaller than the max piezo scan range.
 """
 
+import asyncio
 from pystxmcontrol.controller.scans.base_scan import BaseScan
 from pystxmcontrol.controller.scans.scan_utils import doFlyscanLine, terminateFlyscan
 from numpy import ones
 from time import sleep,time
+from copy import deepcopy
 
 
 class LinearImageScan(BaseScan):
@@ -146,10 +148,12 @@ class LinearImageScan(BaseScan):
             self.dataHandler.data.updateArrays(region_index, self.scanInfo)
 
         # Configure DAQs
+        print(f'[linear image]: configuring daqs')
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
             count=self.scanInfo["numLineDAQPoints"],
             samples= self.scanInfo["oversampling_factor"],
+            trajectories = geometry["yPoints"],
             trigger="EXT"
         )
 
@@ -282,10 +286,28 @@ class LinearImageScan(BaseScan):
         start_x = self.scanInfo["start_position_x"]
         wait_time = 0.005 + geometry["xPoints"] * 0.0001
 
+        # Split DAQs: accumulate DAQs collect all lines in one shot;
+        # line DAQs are read out after every line as usual.
+        accumulate_daqs = [
+            daq for daq in self.scanInfo["daq_list"]
+            if self.controller.daqConfig[daq].get("accumulate", False)
+        ]
+        line_daqs = [
+            daq for daq in self.scanInfo["daq_list"]
+            if not self.controller.daqConfig[daq].get("accumulate", False)
+        ]
+
         self.controller.daq["default"].stop()
         self.controller.daq["default"].start()
-        self.controller.config_daqs(dwell = self.scanInfo["dwell"], count = 1, samples = self.scanInfo["numLineDAQPoints"], trigger = "EXT", daq_list=self.scanInfo["daq_list"])
-        
+
+        # Start accumulate DAQs once before the line loop so they are armed
+        # for the full scan's worth of external triggers.
+        for daq in accumulate_daqs:
+            self.controller.daq[daq].initLine()
+
+        # Per-line metadata needed to slice and queue XRF data after the scan.
+        line_scan_infos = []
+
         for line_index, y_pos in enumerate(geometry["yPos"]):
             # Check for abort
             if await self.check_abort():
@@ -299,25 +321,68 @@ class LinearImageScan(BaseScan):
             # Update motor positions
             self.update_motor_positions(region_index)
 
-            # Update scanInfo for this line
-            self.scanInfo.update({
+            # Build per-line scanInfo; use only line_daqs so accumulate DAQs
+            # are not initialized or read out on every line.
+            line_info = {
+                **self.scanInfo,
                 "index": line_index * num_line_motor_points,
                 "lineIndex": line_index,
                 "zIndex": 0,
                 "xVal": geometry["xPos"],
-                "yVal": y_pos * ones(len(geometry["xPos"]))
-            })
+                "yVal": y_pos * ones(len(geometry["xPos"])),
+                "daq_list": line_daqs,
+            }
 
-            # Execute flyscan line
+            # Execute flyscan line (accumulate DAQs receive triggers silently)
             success = await doFlyscanLine(
                 self.controller, self.dataHandler,
-                self.scan, self.scanInfo, wait_time
+                self.scan, line_info, wait_time
             )
+
+            if accumulate_daqs:
+                # Save enough metadata to reconstruct a scanInfo for each
+                # XRF line after the bulk read.
+                line_scan_infos.append({
+                    "line_index": line_index,
+                    "y_pos": y_pos,
+                    "line_positions": line_info.get("line_positions"),
+                })
 
             if not success:
                 # Trigger missed - skip line with zeros in data
                 # Could add retry logic here if desired
                 pass
+
+        # After all motor lines are done, read accumulated XRF data in one shot
+        # then slice it into per-line chunks and post each to the data queue.
+        if accumulate_daqs:
+            await asyncio.gather(
+                *[self.controller.daq[daq].getLine() for daq in accumulate_daqs]
+            )
+
+            frames_per_line = num_line_motor_points * self.scanInfo["oversampling_factor"]
+
+            for stored in line_scan_infos:
+                line_index = stored["line_index"]
+                xrf_scanInfo = deepcopy(self.scanInfo)
+                xrf_scanInfo.update({
+                    "index": line_index * num_line_motor_points,
+                    "lineIndex": line_index,
+                    "zIndex": 0,
+                    "xVal": geometry["xPos"],
+                    "yVal": stored["y_pos"] * ones(len(geometry["xPos"])),
+                    "daq_list": accumulate_daqs,
+                    "line_positions": stored["line_positions"],
+                })
+
+                start = line_index * frames_per_line
+                end = start + frames_per_line
+                for daq in accumulate_daqs:
+                    xrf_scanInfo["rawData"][daq]["data"] = (
+                        self.controller.daq[daq].data[:, start:end]
+                    )
+
+                await self.dataHandler.dataQueue.put(xrf_scanInfo)
 
         return True
 
