@@ -182,7 +182,7 @@ class MainController(QObject):
             self.status_updated.emit(f"Command response: {response.get('status', 'Unknown')}")
         
     def _handle_monitor_message(self, message):
-        """Handle real-time monitor messages from client.  These messages are python dictionaries which 
+        """Handle real-time monitor messages from client.  These messages are python dictionaries which
         contain the data and it's definition for live display.  It may either be the idle monitor stream
         or the data images during a scan."""
         # Handle scan completion
@@ -190,6 +190,12 @@ class MainController(QObject):
             self.scanning = False
             self.status_updated.emit("Scan completed")
             self.scan_state_changed.emit(False)  # Signal scan completed
+            return  # Early return - nothing else to do
+
+        # If message is not a dict, skip processing
+        if not isinstance(message, dict):
+            return
+
         try:
             # Extract motor positions and status
             if 'motorPositions' in message:
@@ -206,32 +212,59 @@ class MainController(QObject):
                     self.motor_model.update_status(motor_name, is_moving)
                     
             # Handle monitor data for plotting
-            if message["mode"] == "monitor" and isinstance(message['data'], np.ndarray) and len(message['data']) > 0:
-                monitor_value = message['data'][0]
-                self.image_model.add_monitor_data(monitor_value, max_points=500)
-                
-                # Update current DAQ value display
-                daq_display_value = monitor_value * 10.0  # Scale factor from original
-                self.image_model.set('daq_current_value', daq_display_value)
-                
-                # Signals will be emitted automatically by model changes
+            if message.get("type") == "monitor":
+                # Store zone plate calibration data if present
+                if 'zonePlateCalibration' in message:
+                    self.image_model.set('zonePlateCalibration', message['zonePlateCalibration'])
+                if 'zonePlateOffset' in message:
+                    self.image_model.set('zonePlateOffset', message['zonePlateOffset'])
+
+                # Process DAQ data from rawData structure
+                if 'rawData' in message:
+                    for daq in message["rawData"].keys():
+                        if daq == "default" and "data" in message["rawData"][daq]:
+                            # Get the first data point from default DAQ
+                            monitor_value = message["rawData"][daq]["data"][0]
+                            self.image_model.add_monitor_data(monitor_value, max_points=500)
+
+                            # Update current DAQ value display (scaled by 10)
+                            daq_display_value = monitor_value * 10.0
+                            self.image_model.set('daq_current_value', daq_display_value)
+
+                            # Signals will be emitted automatically by model changes
+                            break
                     
             # Handle elapsed time from scan messages
             elif 'elapsedTime' in message:
                 elapsed_time = message['elapsedTime']
                 self.elapsed_time_updated.emit(float(elapsed_time))
                 
-            # Handle image data
-            if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'ptychographyGrid']:
-                image_data = message['image']
+            # Handle image data (for both continuous and point mode scans)
+            if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'ptychographyGrid', 'point']:
+                # message['image'] is now a dict with keys like 'default', 'xrf', 'tey', etc.
+                image_dict = message['image']
+
+                # Store the full image dictionary
                 metadata = {
                     'energy': message.get('energy'),
                     'dwell': message.get('dwell'),
                     'scan_region': message.get('scanRegion'),
                     'energy_index': message.get('energyIndex'),
-                    'type': message.get('type')
+                    'type': message.get('type'),
+                    'mode': message.get('mode'),
+                    'all_images': image_dict  # Store all detector images
                 }
-                self.update_image_data(image_data, metadata)
+
+                # Extract the default detector image for display
+                if isinstance(image_dict, dict):
+                    if 'default' in image_dict:
+                        default_image = image_dict['default']
+                        self.update_image_data(default_image, metadata)
+                    else:
+                        print(f"Warning: image dict has no 'default' key. Keys: {image_dict.keys()}")
+                else:
+                    # Fallback for old message format (direct numpy array)
+                    self.update_image_data(image_dict, metadata)
                 
         except Exception as e:
             print(f"Error handling monitor message: {e}")
@@ -271,8 +304,8 @@ class MainController(QObject):
         """Get list of available scan types."""
         if hasattr(self.client, 'scanConfig') and self.client.scanConfig:
             scan_types = []
-            for scan_type, config in self.client.scanConfig.get("scans", {}).items():
-                if config.get("display", False):
+            for scan_type in self.client.scanConfig.keys():
+                if self.client.scanConfig[scan_type].get("display", False):
                     scan_types.append(scan_type)
             return scan_types
         return ["Image", "Focus Scan", "Line Spectrum", "Single Motor", "Double Motor"]  # Default fallback
@@ -295,8 +328,58 @@ class MainController(QObject):
             self.scan_model.set('proposal', view.ui.proposalComboBox.currentText() if view.ui.proposalComboBox.count() > 0 else '')
             self.scan_model.set('experimenters', view.ui.experimentersLineEdit.text())
             self.scan_model.set('sample', view.ui.sampleLineEdit.text())
+            self.scan_model.set('comment', view.ui.commentEdit.toPlainText() if hasattr(view.ui, 'commentEdit') else '')
             self.scan_model.set('driver',self.client.scanConfig[scan_type]['driver'])
-            
+
+            # DAQ list - get from scan config but filter by what's available in daqConfig
+            if 'daq_list' in self.client.scanConfig[scan_type]:
+                daq_list_str = self.client.scanConfig[scan_type]['daq_list']
+                if isinstance(daq_list_str, str):
+                    requested_daqs = daq_list_str.split(',')
+                else:
+                    requested_daqs = daq_list_str  # Already a list
+
+                # Filter by what's actually available and recordable in daqConfig
+                daq_list = []
+                for daq_key in requested_daqs:
+                    if daq_key in self.client.daqConfig:
+                        if self.client.daqConfig[daq_key].get('record', True):
+                            daq_list.append(daq_key)
+
+                # If nothing passed the filter, use default
+                if not daq_list:
+                    daq_list = ['default']
+
+                self.scan_model.set('daq_list', daq_list)
+            else:
+                # Build from daqConfig - all DAQs with record=True
+                daq_list = []
+                for daq_key in self.client.daqConfig.keys():
+                    if self.client.daqConfig[daq_key].get('record', True):
+                        daq_list.append(daq_key)
+
+                if not daq_list:
+                    daq_list = ['default']
+
+                self.scan_model.set('daq_list', daq_list)
+
+            # Loop scan parameters
+            if hasattr(view.ui, 'loopCheckbox'):
+                loop_scan_enabled = view.ui.loopCheckbox.isChecked()
+                self.scan_model.set('loop_scan', loop_scan_enabled)
+                if loop_scan_enabled:
+                    try:
+                        self.scan_model.set('loop_motor', view.ui.loopMotor.currentText())
+                        self.scan_model.set('loop_center', float(view.ui.loopCenter.text()))
+                        self.scan_model.set('loop_range', float(view.ui.loopRange.text()))
+                        self.scan_model.set('loop_points', int(view.ui.loopPoints.text()))
+                        self.scan_model.set('loop_step', float(view.ui.loopStepSize.text()))
+                    except (ValueError, AttributeError) as e:
+                        print(f"Warning: Could not read loop scan parameters: {e}")
+                        self.scan_model.set('loop_scan', False)
+            else:
+                self.scan_model.set('loop_scan', False)
+
             # Collect scan regions from widgets
             for i, region_widget in enumerate(view.scan_region_widgets):
                 region_name = f"Region{i + 1}"
@@ -520,10 +603,14 @@ class MainController(QObject):
             self.motor_model.update_status(motor_name, is_moving)
             
     def update_image_data(self, image_data: np.ndarray, metadata: Dict[str, Any]):
-        """Update image data and metadata.  This is called by _handle_monitor_message and updates the image_model 
+        """Update image data and metadata.  This is called by _handle_monitor_message and updates the image_model
         during the scan.  The model then emits the data changed signal."""
         self.image_model.set_current_image(image_data)
-        
+
+        # Store all detector images if available
+        if 'all_images' in metadata:
+            self.image_model.set('all_detector_images', metadata['all_images'])
+
         # Update image metadata
         if 'energy' in metadata:
             self.image_model.set('current_energy', metadata['energy'])
