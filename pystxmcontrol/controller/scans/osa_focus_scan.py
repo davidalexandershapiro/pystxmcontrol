@@ -105,7 +105,10 @@ async def osa_focus_scan(scan, dataHandler, controller, queue):
                     return
         elif mode == "continuousLine":
             scanInfo["index"] = i * len(yPos[0])
+            # controller.moveMotor(scan["x_motor"],xStart)
+            controller.motors[scan["x_motor"]]["motor"].setAxisParams(2)
             controller.moveMotor(scan["x_motor"],xStart)
+            controller.motors[scan["x_motor"]]["motor"].setAxisParams(velocity)
             if queue.empty():
                 controller.daq["default"].initLine()
                 controller.daq["default"].autoGateOpen()
