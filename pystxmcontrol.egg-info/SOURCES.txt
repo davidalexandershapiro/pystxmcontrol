@@ -35,6 +35,7 @@ pystxmcontrol/controller/zmq_publisher.py
 pystxmcontrol/controller/scans/XRF_double_motor_scan.py
 pystxmcontrol/controller/scans/__init__.py
 pystxmcontrol/controller/scans/base_scan.py
+pystxmcontrol/controller/scans/ccd_replay.py
 pystxmcontrol/controller/scans/derived_line_focus.py
 pystxmcontrol/controller/scans/derived_line_image.py
 pystxmcontrol/controller/scans/derived_line_spectrum.py

@@ -79,5 +79,15 @@
     "daq_list": "default",
     "mode": "continuousLine",
     "display": true
+  },
+  "CCD Replay": {
+    "index": 7,
+    "type": "point",
+    "driver": "ccd_replay",
+    "daq_list": "default,CCD",
+    "mode": "point",
+    "display": true,
+    "source_scan": "",
+    "frame_delay_ms": 100
   }
 }

@@ -302,7 +302,7 @@ class dataHandler:
             self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
             image = self.data.interp_counts[daq][k][m,:,:]
             
-        elif scanInfo["type"] == "Ptychography Image":
+        elif scanInfo["type"] == "Ptychography Image" or scanInfo["type"] == "CCD Replay":
             c = scanInfo["columnIndex"]
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
                 self.data.interp_counts[daq][k][m,y,c] = scanInfo["data"]["default"]

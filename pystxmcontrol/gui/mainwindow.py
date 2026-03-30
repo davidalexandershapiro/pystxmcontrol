@@ -1188,8 +1188,22 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 zRange = 0
                 zPoints = 1
                 zStep = 0
+            elif self.scanType == "CCD Replay":
+                xCenter = 0
+                yCenter = 0
+                xRange = 10
+                yRange = 10
+                xPoints = 10
+                yPoints = 10
+                xStep = 1
+                yStep = 1
+                zCenter = 0
+                zRange = 0
+                zPoints = 1
                 zStep = 0
-            
+                self.scan["source_scan"] = self.client.scanConfig[self.scanType].get("source_scan", "")
+                self.scan["frame_delay_ms"] = self.client.scanConfig[self.scanType].get("frame_delay_ms", 100)
+
             #these are used to properly set the crosshairs when clicking in the image
             self.xPixelSize = xStep
             self.yPixelSize = yStep
@@ -1358,6 +1372,10 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def scanCheck(self):
         self.compileScan(nowrite=False)
+        if self.scanType == "CCD Replay":
+            if not self.scan.get("source_scan", ""):
+                return "CCD Replay: no source_scan path specified in scan config."
+            return None
         xMin = self.client.motorInfo[self.scan["x_motor"]]["minScanValue"]
         xMax = self.client.motorInfo[self.scan["x_motor"]]["maxScanValue"]
         yMin = self.client.motorInfo[self.scan["y_motor"]]["minScanValue"]
@@ -1520,6 +1538,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pass
         channel = self.ui.channelSelect.currentText()
         if self.ui.plotType.currentText() == "Monitor":
+            if channel not in self.monitorData or self.monitorData[channel]["meta"] is None:
+                return
             if self.monitorData[channel]["meta"]["type"] == "spectrum":
                 self.currentPlot = self.ui.mainPlot.plot(self.monitorData[channel]["meta"]["x"],np.squeeze(self.monitorData[channel]["data"]), \
                 pen = pg.mkPen('w', width = 1, style = QtCore.Qt.DotLine), symbol='o',symbolPen = 'g', symbolSize=3,\

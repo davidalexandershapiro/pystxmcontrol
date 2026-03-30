@@ -366,6 +366,22 @@ class controller:
                     parameters=scan_params
                 )
 
+                # CCD replay scans need a minimal scan structure for stxm() constructor
+                if scan.get("driver") == "ccd_replay":
+                    scan.setdefault("scan_regions", {
+                        "Region1": {
+                            "xStart": 0.0, "xStop": 0.0, "xPoints": 1, "xStep": 0.0,
+                            "xRange": 0.0, "xCenter": 0.0,
+                            "yStart": 0.0, "yStop": 0.0, "yPoints": 1, "yStep": 0.0,
+                            "yRange": 0.0, "yCenter": 0.0,
+                            "zStart": 0.0, "zStop": 0.0, "zPoints": 1,
+                        }
+                    })
+                    scan.setdefault("energy_regions", {
+                        "EnergyRegion1": {"start": 0.0, "stop": 0.0, "n_energies": 1, "dwell": 1.0}
+                    })
+                    scan.setdefault("daq_list", [])
+
                 scan_tasks = []
                 scan_tasks.append(self.dataHandler.startScanProcess(scan))
                 scan_tasks.append(eval(scan["driver"]+"(scan, self.dataHandler, self, self.scanQueue)"))

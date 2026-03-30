@@ -16,9 +16,11 @@ from pystxmcontrol.controller.scans.single_motor_scan import single_motor_scan
 from pystxmcontrol.controller.scans.double_motor_scan import double_motor_scan
 from pystxmcontrol.controller.scans.osa_focus_scan import osa_focus_scan
 from pystxmcontrol.controller.scans.XRF_double_motor_scan import XRF_double_motor_scan
+from pystxmcontrol.controller.scans.ccd_replay import ccd_replay
 
 
 __all__ = ['BaseScan', 'LinearImageScan', 'linear_image', 'LinearFocusScan', 'linear_focus', 'LinearSpectrumScan', 'linear_spectrum',
            'derived_spiral_image', 'derived_line_image','derived_line_focus','derived_line_spectrum','line_image',
            'line_spectrum','line_focus','spiral_image','ptychography_image','derived_ptychography_image',
-           'single_motor_scan','double_motor_scan','osa_focus_scan',"XRF_double_motor_scan","inclined_ptychography_image"]
+           'single_motor_scan','double_motor_scan','osa_focus_scan',"XRF_double_motor_scan","inclined_ptychography_image",
+           'ccd_replay']

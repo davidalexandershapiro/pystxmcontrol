@@ -13,5 +13,18 @@
     "gate address": "/dev/arduino",
     "record": true,
     "simulation": true
+  },
+  "CCD": {
+    "index": 1,
+    "name": "CCD",
+    "type": "image",
+    "driver": "fccd_control",
+    "address": "131.243.73.85",
+    "port": 49206,
+    "oversampling_factor": 1,
+    "ndim": 2,
+    "gate": false,
+    "record": true,
+    "simulation": true
   }
 }
