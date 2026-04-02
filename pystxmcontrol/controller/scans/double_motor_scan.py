@@ -118,7 +118,7 @@ async def double_motor_scan(scan, dataHandler, controller, queue):
             elif mode == "continuousLine":
                 scanInfo["index"] = i * len(yPos[0])
                 scanInfo["direction"] = "forward"
-                controller.motors[scan["x_motor"]]["motor"].setAxisParams(2)
+                controller.motors[scan["x_motor"]]["motor"].setAxisParams(controller.motors[scan["x_motor"]]["motor"].config.get("return_velocity",1))
                 controller.moveMotor(scan["x_motor"],xStart)
                 controller.motors[scan["x_motor"]]["motor"].setAxisParams(velocity)
                 if queue.empty():
