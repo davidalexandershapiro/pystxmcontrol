@@ -1230,11 +1230,11 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                         dwellStr = '0.12'
                     # elif float(dwellStr)>15.:
                     #     dwellStr = '15.'
-            elif "Focus" in self.scanType or self.scanType == "Line Spectrum":
-                if float(dwellStr)<3:
-                    dwellStr = '3'
-                # elif float(dwellStr)>15.:
-                #     dwellStr = '15.'
+            # elif "Focus" in self.scanType or self.scanType == "Line Spectrum":
+            #     if float(dwellStr)<3:
+            #         dwellStr = '3'
+            #     # elif float(dwellStr)>15.:
+            #     #     dwellStr = '15.'
                 
             region.energyDef.dwellTime.setText(dwellStr)
             self.scan["energy_regions"][regStr] = {}

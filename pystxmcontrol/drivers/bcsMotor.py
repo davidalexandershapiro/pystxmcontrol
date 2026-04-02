@@ -43,7 +43,7 @@ class bcsMotor(motor):
     def moveTo(self, pos, timeout = None):
         if self.checkLimits(pos):
             if timeout is None:
-                timeout = self.config.get("timeout")
+                timeout = self.config.get("timeout",5)
             pos = (pos - self.config["offset"]) / self.config["units"]
             if (self.axis is not None) and not(self.controller.simulation):
                 with self.lock:

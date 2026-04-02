@@ -59,7 +59,7 @@ async def derived_line_image(scan, dataHandler, controller, queue):
     for energy in energies:
         #Handle motor and daq timing minimum/maximum values
         minMotorDwell = 0.12  # ms needs to be in config probably.
-        maxMotorDwell = 5  # ms Ditto
+        maxMotorDwell = 100  # ms Ditto
 
         reqDwell = dataHandler.data.dwells[energyIndex]
 

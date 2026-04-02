@@ -352,11 +352,9 @@ class aerotechController(hardwareController):
             # Query position using status API for efficiency
             # Status items are defined in enums in the Python API
             status_config = a1.StatusItemConfiguration()
-            status_config.axis.add(a1.AxisStatusItem.ProgramPosition, motor)
-            #status_config.axis.add(a1.AxisStatusItem.FeedbackPosition, motor)
+            status_config.axis.add(a1.AxisStatusItem.PositionFeedback, motor)
             results = self.controller.runtime.status.get_status_items(status_config)
-            position = results.axis.get(a1.AxisStatusItem.ProgramPosition, motor).value
-            #position = results.axis.get(a1.AxisStatusItem.FeedbackPosition, motor).value
+            position = results.axis.get(a1.AxisStatusItem.PositionFeedback, motor).value
             return [0, float(position)]
         except a1.ControllerException as e:
             print(f"Error getting position for {motor}: {e.message}")
@@ -396,55 +394,125 @@ class aerotechController(hardwareController):
 
     def moveBy(self, motor, displacement, speed=None):
         """
-        Move motor by relative distance.
-        
-        This method sends a relative move command to the controller.
-        The move is non-blocking - it starts the move and returns immediately.
-        
-        The move_relative() method is part of the MotionCommands API under Commands.motion.
-        
+        Move motor by relative distance with blocking behavior.
+
+        move_incremental() is asynchronous — it submits the command and returns
+        immediately before the axis has started moving.  This method therefore
+        mirrors moveTo() by polling AxisStatus until the motion is confirmed
+        complete (or a timeout fires).
+
+        This method:
+        1. Starts an incremental move by the requested displacement
+        2. Waits briefly for the Jogging bit to assert before polling begins
+        3. Monitors motion progress using DriveStatus and AxisStatus
+        4. Waits for the move to complete or timeout
+        5. Handles stop requests and simulation mode
+
         Args:
             motor: Axis identifier to move
             displacement: Relative distance to move (in controller units)
             speed: Movement speed (optional, uses DefaultAxisSpeed if not provided)
-            
+
         Returns:
             list: [error_code, message] where error_code is 0 for success, -1 for failure
         """
 
         if self.simulation:
+            self.moving = True
+            time.sleep(0.1)
+            self.moving = False
             return [0, 'Relative move completed (simulation)']
-        
+
         if not self._checkConnection():
             return [-1, 'Not connected']
-        
+
         try:
             # Set axis speed if provided
             if speed is not None:
                 speed_result = self.setAxisSpeed(motor, speed)
                 if speed_result[0] != 0:
                     return speed_result
-            
-            # Get current speed for the move
+
+            # Get current speed for timeout calculation
             speed_info = self.getAxisSpeed(motor)
             if speed_info['error_code'] == 0:
                 current_speed = speed_info['default_speed']
             else:
                 current_speed = 0.1  # fallback speed
-            
+
             # Create displacement and speeds as lists as required by Automation1 SDK
-            # For single axis move, we need single-element lists
             displacements = [displacement]
-            speeds = [current_speed]  # Use the set speed or current default speed
-            
-            # Use the move_incremental() method in the MotionCommands API
+            speeds = [current_speed]
+
+            # Submit the incremental move — this returns immediately (asynchronous)
             self.controller.runtime.commands.motion.move_incremental([motor], displacements, speeds)
-            return [0, 'Relative move started']
+            self.moving = True
+
+            # Wait for the Jogging bit to assert before entering the polling loop.
+            # move_incremental() is asynchronous so the bit may not be set yet on the
+            # very first status read without this delay.
+            time.sleep(0.05)
+
+            # Calculate timeout: distance/speed with 3x safety margin, minimum 10 s
+            expected_time = abs(displacement) / current_speed
+            timeout = max(10.0, expected_time * 3.0)
+            t0 = time.time()
+
+            while self.moving:
+                if self.stopped:
+                    self.moving = False
+                    self.stopped = False
+                    return [0, 'Move stopped']
+
+                # Check motion completion using DriveStatus and AxisStatus
+                try:
+                    status_config = a1.StatusItemConfiguration()
+                    status_config.axis.add(a1.AxisStatusItem.DriveStatus, motor)
+                    results = self.controller.runtime.status.get_status_items(status_config)
+                    drive_status = int(results.axis.get(a1.AxisStatusItem.DriveStatus, motor).value)
+
+                    in_position = (drive_status & a1.DriveStatus.InPosition) == a1.DriveStatus.InPosition
+                    move_active = (drive_status & a1.DriveStatus.MoveActive) == a1.DriveStatus.MoveActive
+
+                    axis_status_config = a1.StatusItemConfiguration()
+                    axis_status_config.axis.add(a1.AxisStatusItem.AxisStatus, motor)
+                    axis_results = self.controller.runtime.status.get_status_items(axis_status_config)
+                    axis_status = int(axis_results.axis.get(a1.AxisStatusItem.AxisStatus, motor).value)
+
+                    # MotionDone = True  → velocity profile reached zero
+                    # Jogging    = True  → MoveIncremental/MoveAbsolute is active
+                    # is_moving  = Jogging AND NOT MotionDone
+                    motion_done = (axis_status & a1.AxisStatus.MotionDone) == a1.AxisStatus.MotionDone
+                    jogging     = (axis_status & a1.AxisStatus.Jogging)    == a1.AxisStatus.Jogging
+                    is_moving   = jogging and not motion_done
+
+                    if not is_moving:
+                        self.moving = False
+                        return [0, 'Relative move completed']
+
+                    if (time.time() - t0) > timeout:
+                        print(f"Aerotech moveBy timeout for {motor}. Aborting...")
+                        self.moving = False
+                        return self.abortMove(motor)
+
+                    time.sleep(0.01)  # prevent busy-waiting
+
+                except a1.ControllerException as e:
+                    print(f"Error checking moveBy status for {motor}: {e.message}")
+                    self.moving = False
+                    return [-1, str(e.message)]
+                except Exception as e:
+                    print(f"Error checking moveBy status for {motor}: {e}")
+                    self.moving = False
+                    return [-1, str(e)]
+
         except a1.ControllerException as e:
             print(f"Error in moveBy for {motor}: {e.message}")
+            self.moving = False
             return [-1, str(e.message)]
         except Exception as e:
             print(f"Error in moveBy for {motor}: {e}")
+            self.moving = False
             return [-1, str(e)]
 
     def setAxisSpeed(self, motor, speed):
@@ -537,16 +605,19 @@ class aerotechController(hardwareController):
     def moveTo(self, motor, target, speed=None):
         """
         Move motor to absolute position with blocking behavior.
-        
-        The move_absolute() method will not return until the move is complete.
-        We can keep this application responsive during the move if we do the move on a background thread.
-        
+
+        move_absolute() is asynchronous — it submits the command and returns
+        immediately before the axis has started moving.  This method implements
+        blocking behaviour by polling AxisStatus until the motion is confirmed
+        complete (or a timeout fires).
+
         This method:
         1. Starts an absolute move to the target position
-        2. Monitors the move progress using status API
-        3. Waits for the move to complete or timeout
-        4. Handles simulation mode with realistic timing
-        5. Provides dynamic timeout based on move distance
+        2. Waits briefly for the Jogging bit to assert before polling begins
+        3. Monitors the move progress using DriveStatus and AxisStatus
+        4. Waits for the move to complete or timeout
+        5. Handles simulation mode with realistic timing
+        6. Provides dynamic timeout based on move distance
         
         Args:
             motor: Axis identifier to move
@@ -576,36 +647,38 @@ class aerotechController(hardwareController):
             # Get current position for timeout calculation
             current_pos = self.getPosition(motor)[1]
             move_delta = abs(target - current_pos)
-            self._waittime = move_delta #mm to seconds
-            
+
             # Get current speed for timeout calculation
             speed_info = self.getAxisSpeed(motor)
             if speed_info['error_code'] == 0:
                 current_speed = speed_info['default_speed']
             else:
                 current_speed = 0.1  # fallback speed
-            
+
             # Create target and speeds as lists as required by Automation1 SDK
-            # For single axis move, we need single-element lists
             targets = [target]
-            speeds = [current_speed]  # Use the set speed or current default speed
-            
-            # Start the absolute move using move_absolute() method
+            speeds = [current_speed]
+
+            # Submit the absolute move — this returns immediately (asynchronous)
             self.controller.runtime.commands.motion.move_absolute([motor], targets, speeds)
             self.moving = True
-            
-            # Wait for move to complete with dynamic timeout
+
+            # Wait for the Jogging bit to assert before entering the polling loop.
+            # move_absolute() is asynchronous so the bit may not be set yet on the
+            # very first status read without this delay.
+            time.sleep(0.05)
+
+            # Calculate timeout: distance/speed with 3x safety margin, minimum 10 s
             t0 = time.time()
-            # Calculate timeout based on actual move time: distance/speed + safety margin
             expected_time = move_delta / current_speed
-            timeout = max(10.0, expected_time * 3.0)  # 3x safety margin, minimum 10 seconds
+            timeout = max(10.0, expected_time * 3.0)
             #print(f"Move distance: {move_delta:.6f}, Speed: {current_speed:.6f}, Expected time: {expected_time:.1f}s, Timeout: {timeout:.1f}s")
             
             while self.moving:
                 if self.stopped:
                     self.moving = False
                     self.stopped = False
-                    time.sleep(self._waittime)
+                    # time.sleep(self._waittime)
                     return [0, 'Move stopped']
                 
                 # Check if move is complete using status API
@@ -642,7 +715,7 @@ class aerotechController(hardwareController):
                     if not is_moving:
                         # print("breaking the loop - motion complete")
                         self.moving = False
-                        time.sleep(self._waittime)
+                        # time.sleep(self._waittime)
                         return [0, 'Move completed']
                     
                     # Check timeout and abort if necessary
@@ -803,12 +876,13 @@ class aerotechController(hardwareController):
             if distance is not None:
                 axis_params.in_position_distance.value = float(distance)
                 print(f"InPositionDistance set to {distance} for axis {motor}")
+                print(f"[aerotechController] in_position_distance set to {distance}")
             
             # Set InPositionTime if provided  
             if time is not None:
                 axis_params.in_position_time.value = float(time)
                 print(f"InPositionTime set to {time} ms for axis {motor}")
-            
+                
             # Set InPositionTimeoutThreshold if provided
             if timeout_threshold is not None:
                 axis_params.in_position_timeout_threshold.value = float(timeout_threshold)
