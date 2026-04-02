@@ -34,9 +34,20 @@ class _SigFigAxisItem(pg.AxisItem):
 
     # ------------------------------------------------------------------
     def setLabel(self, text='', units='', unitPrefix='', **args):
-        if not self._annotating:
-            self._base_label = text or ''
-        super().setLabel(text, units, unitPrefix, **args)
+        if self._annotating:
+            super().setLabel(text, units, unitPrefix, **args)
+            return
+        self._base_label = text or ''
+        # If we already know the exponent, write the annotated text directly in
+        # one shot so there is no intermediate bare-text repaint (no flicker).
+        if self._sig_exp is not None and self._sig_exp != 0:
+            sup = str(self._sig_exp).translate(self._SUP)
+            annotated = f'{self._base_label}  ×10{sup}'
+            self._annotating = True
+            super().setLabel(annotated, units, unitPrefix, **args)
+            self._annotating = False
+        else:
+            super().setLabel(text, units, unitPrefix, **args)
 
     # ------------------------------------------------------------------
     def tickStrings(self, values, scale, spacing):
@@ -229,6 +240,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         test_scan_action = QAction("Test Scan Compilation", self)
         test_scan_action.triggered.connect(self.test_scan_compilation)
         self.ui.menuHelp.addAction(test_scan_action)
+
+        set_password_action = QAction("Set Staff Password…", self)
+        set_password_action.triggered.connect(self.set_staff_password)
+        self.ui.menuFile.addAction(set_password_action)
         
         # Scan controls
         self.ui.scanType.currentIndexChanged.connect(self.on_scan_type_changed)
@@ -324,7 +339,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.toggleSingleEnergy.stateChanged.connect(self.toggle_single_energy)
         
         # Proposal controls
-        self.ui.proposalComboBox.currentIndexChanged.connect(self.on_proposal_changed)
+        self.ui.proposalComboBox.activated.connect(lambda idx: self.on_proposal_changed())
         
     def _setup_controller_connections(self):
         """Connect controller signals to view update methods."""
@@ -1741,17 +1756,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         data_array = np.array(monitor_data)
 
         if self.current_plot is None:
-            # First call: create the plot item and set labels once
             self.current_plot = self.ui.mainPlot.plot(
                 data_array,
                 pen=self._main_plot_pen,
             )
-            self.ui.mainPlot.setLabel("bottom", "Monitor")
-            self.ui.mainPlot.setLabel("left", channel_key)
         else:
-            # Subsequent calls: update data in-place — much faster than remove+re-add
             self.current_plot.setData(data_array)
 
+        self.ui.mainPlot.setLabel("bottom", "Monitor")
+        self.ui.mainPlot.setLabel("left", channel_key)
         self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
             
     def update_motor_scan_plot(self):
@@ -1786,12 +1799,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 x_arr, y_arr,
                 pen=self._main_plot_pen,
             )
-            x_motor = image_model.get('motor_scan_x_motor', 'Motor')
-            self.ui.mainPlot.setLabel("bottom", x_motor)
-            self.ui.mainPlot.setLabel("left", channel_key)
         else:
             self.current_plot.setData(x_arr, y_arr)
 
+        x_motor = image_model.get('motor_scan_x_motor', 'Motor')
+        self.ui.mainPlot.setLabel("bottom", x_motor)
+        self.ui.mainPlot.setLabel("left", channel_key)
         self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
             
     def _show_image_line_plots(self, scene_pos):
@@ -2255,31 +2268,23 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
     def _update_rois_from_regions(self):
         """Update ROIs based on current scan region widgets."""
-        print(f"DEBUG: _update_rois_from_regions() called")
         # Clear existing ROIs
         self._clear_rois()
 
         # Create new ROIs from scan region widgets
         scan_type = self.ui.scanType.currentText()
-        print(f"DEBUG: scan_type = {scan_type}")
         if hasattr(self.controller, 'client') and self.controller.client and hasattr(self.controller.client, 'scanConfig'):
             try:
                 config_scan_type = self.controller.client.scanConfig.get(scan_type, {}).get("type", "image")
-                print(f"DEBUG: config_scan_type from scanConfig = {config_scan_type}")
             except:
                 config_scan_type = "image"
-                print(f"DEBUG: config_scan_type defaulted to image (exception)")
         else:
             config_scan_type = "image"  # Default
-            print(f"DEBUG: config_scan_type defaulted to image (no scanConfig)")
 
-        print(f"DEBUG: Creating ROIs for {len(self.scan_region_widgets)} regions")
         for i, region_widget in enumerate(self.scan_region_widgets):
-            print(f"DEBUG: Creating ROI {i} with type {config_scan_type}")
             self._add_roi_from_region(region_widget, i, config_scan_type)
 
         # Show ROIs if checkbox is checked
-        print(f"DEBUG: roiCheckbox.isChecked() = {self.ui.roiCheckbox.isChecked()}")
         if self.ui.roiCheckbox.isChecked():
             self._show_rois()
 
@@ -2384,9 +2389,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Connect ROI change signal to update region widgets
             roi.sigRegionChanged.connect(self._update_region_from_roi)
 
-            print(f"DEBUG: Adding ROI to list: {roi}, type={type(roi)}")
             self.roi_list.append(roi)
-            print(f"DEBUG: roi_list now has {len(self.roi_list)} items")
             
         except (ValueError, AttributeError) as e:
             print(f"Error creating ROI for region {index}: {e}")
@@ -2397,9 +2400,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Find which ROI was changed by checking the sender
             sender_roi = self.sender()
             if sender_roi not in self.roi_list:
-                print(f"DEBUG: ROI not in list. sender_roi={sender_roi}, roi_list length={len(self.roi_list)}")
-                for i, r in enumerate(self.roi_list):
-                    print(f"  roi_list[{i}] = {r}, same object? {r is sender_roi}")
                 return
                 
             roi_index = self.roi_list.index(sender_roi)
@@ -2505,30 +2505,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def _clear_rois(self):
         """Clear all ROIs from display and list."""
-        print(f"DEBUG: _clear_rois() called, clearing {len(self.roi_list)} ROIs")
         for roi in self.roi_list:
-            # Disconnect signal before removing
             try:
                 roi.sigRegionChanged.disconnect(self._update_region_from_roi)
-                print(f"DEBUG: Disconnected signal for ROI {roi}")
             except:
-                print(f"DEBUG: Could not disconnect signal for ROI {roi}")
                 pass  # Signal may not be connected
-            # Remove from display
             if roi in self.ui.mainImage.getView().allChildItems():
                 self.ui.mainImage.removeItem(roi)
         self.roi_list.clear()
-        print(f"DEBUG: roi_list cleared")
             
     def _show_rois(self):
         """Show ROIs on image."""
-        print(f"DEBUG: _show_rois() called, showing {len(self.roi_list)} ROIs")
         for roi in self.roi_list:
             if roi not in self.ui.mainImage.getView().allChildItems():
-                print(f"DEBUG: Adding ROI to display: {roi}")
                 self.ui.mainImage.addItem(roi)
-            else:
-                print(f"DEBUG: ROI already in display: {roi}")
             
     def _hide_rois(self):
         """Hide ROIs from image."""
@@ -2662,7 +2652,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             try:
                 from pystxmcontrol.utils.alsapi import getCurrentEsafList
                 self.esaf_list, self.participants_list = getCurrentEsafList()
-                
+
                 # Add each proposal to the combobox
                 for esaf in self.esaf_list:
                     self.ui.proposalComboBox.addItem(esaf)
@@ -2692,7 +2682,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             selected_index = self.ui.proposalComboBox.currentIndex()
 
             if selected_text == "Staff Access":
-                # Activate GUI but warn about data access
+                if not self._check_staff_password():
+                    # Reset combo back to "Select a Proposal" without re-firing signal
+                    self.ui.proposalComboBox.blockSignals(True)
+                    self.ui.proposalComboBox.setCurrentIndex(0)
+                    self.ui.proposalComboBox.blockSignals(False)
+                    return
                 self._activate_gui()
                 self._activate_staff()
                 self._set_warning_banner("Users cannot access this data!")
@@ -2704,18 +2699,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     # Get participant list for this proposal
                     participants = self.participants_list[selected_index - 1]  # -1 because index 0 is "Select a Proposal"
 
-                    # Create comma-separated string of participants
-                    if participants:
-                        participant_string = participants[0]
-                        for i in range(1, len(participants)):
-                            participant_string += ',' + participants[i]
-                        self.ui.experimentersLineEdit.setText(participant_string)
-                    else:
-                        self.ui.experimentersLineEdit.setText("")
-
-                    # Activate GUI and clear warning
+                    # Activate GUI first (on_scan_type_changed inside it overwrites experimentersLineEdit)
                     self._activate_gui()
                     self._set_warning_banner(None)
+                    # Set experimenters after _activate_gui so it isn't overwritten
+                    self.ui.experimentersLineEdit.setText(', '.join(participants))
 
                 except (IndexError, AttributeError) as e:
                     print(f"Error setting experimenters: {e}")
@@ -2803,6 +2791,95 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         for reg in self.energy_region_widgets:
             if hasattr(reg, 'setEnabled'):
                 reg.setEnabled(False)
+
+    # ------------------------------------------------------------------
+    # Staff password helpers
+    # ------------------------------------------------------------------
+
+    def _staff_config_path(self):
+        import sys, os
+        return os.path.join(sys.prefix, 'pystxmcontrol_cfg', 'main.json')
+
+    def _read_main_json(self):
+        import json
+        try:
+            with open(self._staff_config_path()) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _write_main_json(self, data: dict):
+        import json
+        try:
+            with open(self._staff_config_path(), 'w') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            self.show_error_message(f"Could not save config: {e}")
+
+    def _hash_password(self, password: str, salt: bytes) -> str:
+        import hashlib
+        return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 260000).hex()
+
+    def _check_staff_password(self) -> bool:
+        """Prompt for the staff password. Returns True if authenticated."""
+        import os, hashlib
+        cfg = self._read_main_json()
+        stored_hash = cfg.get('staff_password_hash')
+        stored_salt = cfg.get('staff_password_salt')
+
+        if not stored_hash:
+            # No password set yet — prompt to create one
+            reply = QtWidgets.QMessageBox.question(
+                self, "Staff Password",
+                "No staff password is set. Set one now?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+            )
+            if reply == QtWidgets.QMessageBox.Yes:
+                self.set_staff_password()
+                # Re-read after setting
+                cfg = self._read_main_json()
+                stored_hash = cfg.get('staff_password_hash')
+                stored_salt = cfg.get('staff_password_salt')
+                if not stored_hash:
+                    return False  # User cancelled set
+            else:
+                return False
+
+        password, ok = QtWidgets.QInputDialog.getText(
+            self, "Staff Access", "Enter staff password:",
+            QtWidgets.QLineEdit.Password
+        )
+        if not ok or not password:
+            return False
+
+        salt = bytes.fromhex(stored_salt)
+        return self._hash_password(password, salt) == stored_hash
+
+    def set_staff_password(self):
+        """Prompt to set a new staff password and save the hash to main.json."""
+        import os
+        password, ok = QtWidgets.QInputDialog.getText(
+            self, "Set Staff Password", "Enter new staff password:",
+            QtWidgets.QLineEdit.Password
+        )
+        if not ok or not password:
+            return
+
+        confirm, ok = QtWidgets.QInputDialog.getText(
+            self, "Set Staff Password", "Confirm new staff password:",
+            QtWidgets.QLineEdit.Password
+        )
+        if not ok or confirm != password:
+            QtWidgets.QMessageBox.warning(self, "Staff Password", "Passwords do not match.")
+            return
+
+        salt = os.urandom(32)
+        hashed = self._hash_password(password, salt)
+        cfg = self._read_main_json()
+        cfg['staff_password_hash'] = hashed
+        cfg['staff_password_salt'] = salt.hex()
+        self._write_main_json(cfg)
+        QtWidgets.QMessageBox.information(self, "Staff Password", "Staff password updated.")
 
     def _activate_staff(self):
         """Activate staff-only controls."""
