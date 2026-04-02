@@ -353,8 +353,10 @@ class aerotechController(hardwareController):
             # Status items are defined in enums in the Python API
             status_config = a1.StatusItemConfiguration()
             status_config.axis.add(a1.AxisStatusItem.ProgramPosition, motor)
+            #status_config.axis.add(a1.AxisStatusItem.FeedbackPosition, motor)
             results = self.controller.runtime.status.get_status_items(status_config)
             position = results.axis.get(a1.AxisStatusItem.ProgramPosition, motor).value
+            #position = results.axis.get(a1.AxisStatusItem.FeedbackPosition, motor).value
             return [0, float(position)]
         except a1.ControllerException as e:
             print(f"Error getting position for {motor}: {e.message}")

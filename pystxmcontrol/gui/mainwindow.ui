@@ -1240,6 +1240,9 @@ font: 75 11pt &quot;Ubuntu&quot;;
        <property name="text">
         <string/>
        </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
       </widget>
      </widget>
      <widget class="QLabel" name="label_6">
@@ -2751,49 +2754,80 @@ font: 75 11pt &quot;Ubuntu&quot;;
      <attribute name="title">
       <string>Analysis</string>
      </attribute>
-     <widget class="QTabWidget" name="tabWidget_4">
-      <property name="geometry">
-       <rect>
-        <x>-4</x>
-        <y>-1</y>
-        <width>1501</width>
-        <height>1001</height>
-       </rect>
+     <layout class="QVBoxLayout" name="tab_10_layout">
+      <property name="spacing">
+       <number>0</number>
       </property>
-      <property name="currentIndex">
-       <number>1</number>
+      <property name="leftMargin">
+       <number>0</number>
       </property>
-      <widget class="QWidget" name="tab_14">
-       <attribute name="title">
-        <string>Line Spectrum</string>
-       </attribute>
-       <widget class="lineScanReaderWidget" name="linescan_viewer" native="true">
-        <property name="geometry">
-         <rect>
-          <x>180</x>
-          <y>130</y>
-          <width>1131</width>
-          <height>661</height>
-         </rect>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QTabWidget" name="tabWidget_4">
+        <property name="currentIndex">
+         <number>1</number>
         </property>
+        <widget class="QWidget" name="tab_14">
+         <attribute name="title">
+          <string>Line Spectrum</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tab_14_layout">
+          <property name="spacing">
+           <number>0</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="lineScanReaderWidget" name="linescan_viewer" native="true"/>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tab_15">
+         <attribute name="title">
+          <string>Stack</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tab_15_layout">
+          <property name="spacing">
+           <number>0</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="stackViewerWidget" name="stack_viewer" native="true"/>
+          </item>
+         </layout>
+        </widget>
        </widget>
-      </widget>
-      <widget class="QWidget" name="tab_15">
-       <attribute name="title">
-        <string>Stack</string>
-       </attribute>
-       <widget class="stackViewerWidget" name="stack_viewer" native="true">
-        <property name="geometry">
-         <rect>
-          <x>70</x>
-          <y>70</y>
-          <width>1351</width>
-          <height>801</height>
-         </rect>
-        </property>
-       </widget>
-      </widget>
-     </widget>
+      </item>
+     </layout>
     </widget>
     <widget class="QWidget" name="tab_13">
      <attribute name="title">

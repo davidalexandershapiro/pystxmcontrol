@@ -287,7 +287,7 @@ class dataHandler:
         m = scanInfo["energyIndex"]
 
         #add the interpolated data to the structure
-        if scanInfo["type"] == "Image":
+        if scanInfo["type"] in ["Image","TEY Image"]:
             self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
             mi = scanInfo['index']
             mj = mi + scanInfo['line_positions'][0].size
@@ -332,7 +332,7 @@ class dataHandler:
 
         elif scanInfo["type"] == "Single Motor":
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"]
+                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"][0]
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
             image = self.data.interp_counts[daq][k][m,:,:]
@@ -341,7 +341,7 @@ class dataHandler:
             if scanInfo["mode"] == "point":
                 c = scanInfo["columnIndex"]
                 if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"]
+                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"][0]
                 elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                     self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
             elif scanInfo["mode"] == "continuousLine":

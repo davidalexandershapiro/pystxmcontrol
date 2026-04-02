@@ -60,7 +60,7 @@ class scripter:
         else: return False
 
     async def read_daq(self, daq,dwell, shutter = True):
-        message = {"command":"getData","daq":daq,"dwell":dwell, "shutter":shutter}
+        message = {"command":"get_data","daq":daq,"dwell":dwell, "shutter":shutter}
         self.sock.send_pyobj(message)
         response = await self.sock.recv_pyobj()
         if response is not None: return response["data"]
