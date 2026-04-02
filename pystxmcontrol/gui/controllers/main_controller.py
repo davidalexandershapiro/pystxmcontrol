@@ -11,6 +11,7 @@ from ..models.scan_model import ScanModel
 from ..models.motor_model import MotorModel
 from ..models.image_model import ImageModel
 from ...controller.client import stxm_client
+from ...utils.writeNX import stxm
 
 
 class ControlThread(QThread):
@@ -53,6 +54,7 @@ class MainController(QObject):
     estimated_time_updated = Signal(float)       # estimated scan time updated
     elapsed_time_updated = Signal(float)         # elapsed scan time updated
     motor_scan_updated = Signal()                # single motor scan data ready to plot
+    live_data_ready = Signal(object, object)     # (stxm object, raw message dict) for stack viewer
     
     def __init__(self):
         super().__init__()
@@ -76,6 +78,7 @@ class MainController(QObject):
         # Scan data is always stored in the model; only the display is rate-limited.
         self._display_min_interval = 1.0 / 30.0   # max 30 fps
         self._last_display_time = 0.0
+        self._live_stxm = None  # stxm object maintained during Image scans for stack viewer
 
         # Profiling — set PROFILE_IMAGE_UPDATE = True to enable timing output
         self.PROFILE_IMAGE_UPDATE = False
@@ -413,7 +416,23 @@ class MainController(QObject):
                 else:
                     # Fallback for old message format (direct numpy array)
                     self.update_image_data(image_dict, metadata)
-                
+
+                # Update live stxm object for stack viewer
+                if self._live_stxm is not None and isinstance(image_dict, dict):
+                    try:
+                        energy_index = message.get('energyIndex', 0)
+                        region_str = message.get('scanRegion', 'Region1')
+                        region_num = int(region_str.split('Region')[-1]) - 1
+                        for daq, img in image_dict.items():
+                            if (daq in self._live_stxm.interp_counts and
+                                    region_num < len(self._live_stxm.interp_counts[daq]) and
+                                    isinstance(img, np.ndarray) and img.ndim >= 2):
+                                self._live_stxm.interp_counts[daq][region_num][energy_index] = img
+                        self._live_stxm.NXfile = message.get('scanID', '')
+                        self.live_data_ready.emit(self._live_stxm, message)
+                    except Exception as ex:
+                        print(f"Warning: live stxm update failed: {ex}")
+
         except Exception as e:
             print(f"Error handling monitor message: {e}")
             
@@ -785,6 +804,16 @@ class MainController(QObject):
             # Reset motor scan data so a new Single Motor scan starts fresh
             self.image_model._data['motor_scan_x_data'] = []
             self.image_model._data['motor_scan_y_data'] = {}
+            # Create stxm data object for Image-type scans (used by stack viewer live display)
+            scan_type = self.scan_model.get('scan_type', '')
+            if 'Image' in scan_type:
+                try:
+                    self._live_stxm = stxm(scan_config)
+                except Exception as e:
+                    print(f"Warning: could not create live stxm object: {e}")
+                    self._live_stxm = None
+            else:
+                self._live_stxm = None
             self.status_updated.emit("Scan started")
             self.scan_state_changed.emit(True)  # Signal scan started
             return True

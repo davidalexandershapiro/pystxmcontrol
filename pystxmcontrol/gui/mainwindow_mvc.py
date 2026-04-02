@@ -340,7 +340,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.scan_state_changed.connect(self._set_scan_ui_state)
         self.controller.elapsed_time_updated.connect(self.update_elapsed_time_display)
         self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
-        
+        self.controller.live_data_ready.connect(self.ui.stack_viewer.recv_live_data)
+
     def _initialize_display(self):
         """Initialize the display elements."""
         # Set up image view with proper coordinate system
