@@ -113,7 +113,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
                 controller.daq["ccd"].init()
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen()
-                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                #await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)
                     # dataHandler.data.saveRegion(0)
@@ -126,7 +126,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             else:
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
-                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+                #await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
                 #now get the data
                 if not await dataHandler.getPoint(scanInfo.copy()):
                     #queue.get(True)

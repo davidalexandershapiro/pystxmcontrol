@@ -544,6 +544,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.update_line_roi()
 
     def update_line_roi(self):
+        if not self.scan_region_widgets:
+            return
         self._clear_rois()
         self.roi_list.append(self._calculate_line_roi())
         self._show_rois()

@@ -66,7 +66,8 @@ class areaDetector(daq):
                 #set exposure times
                 # Value 1 here is "Readout per Trigger"
                 # PICAMBase.adl will claim something else. Don't listen to it
-                caput(self.address + self.camera_prefix + ":TriggerMode", 1, wait = True)
+                #caput(self.address + self.camera_prefix + ":TriggerMode", 1, wait = True) #External
+                caput(self.address + self.camera_prefix + ":TriggerMode", "No Response", wait = True)
                 caput(self.address + self.camera_prefix + ":TriggerDetermination", "Positive Polarity", wait = True)
 
                 #print(caget(self.address + self.camera_prefix + ":TriggerMode_RBV"))
@@ -79,7 +80,8 @@ class areaDetector(daq):
                 self.framenum = 0
 
     def init(self):
-        caput(self.address + self.camera_prefix + ":Acquire", 1)
+        pass
+        #caput(self.address + self.camera_prefix + ":Acquire", 1)
 
 
     async def getPoint(self):
@@ -90,6 +92,8 @@ class areaDetector(daq):
             self.display_data = self.data.copy()
             return self.framenum - 1, self.data
         else:
+            caput(self.address + self.camera_prefix + ":Acquire", 1)
+            await asyncio.sleep(self.dwell / 1000.)
             await asyncio.sleep(self.readout_time_seconds)
             #print("Readout time seconds: %.4f" %self.readout_time_seconds)
             current_dim = (caget(self.address + self.camera_prefix+":ArraySizeX_RBV"),
