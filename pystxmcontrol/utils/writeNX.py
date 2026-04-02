@@ -63,7 +63,10 @@ class stxm:
         #called "definition" but that is not nexus compliant so now it is called "version" whereas "definition" now
         #refers to the nexus definition NXstxm.  Also, our original files did not have this at all.
         if self._nx_reader["entry0/definition"][()] == b"NXstxm":
-            self.meta["version"] = self._nx_reader["entry0/version"][()]
+            try:
+                self.meta["version"] = self._nx_reader["entry0/version"][()]
+            except:
+                self.meta["version"] = 0
         else:
             try:
                 self.meta["version"] = float(self._nx_reader["entry0/definition"][()])
@@ -78,9 +81,9 @@ class stxm:
             self.meta["start_time"] = self._nx_reader["entry0/start_time"][()][0].decode()
             self.meta["end_time"] = self._nx_reader["entry0/end_time"][()][0].decode()
             self.meta["experimenters"] = self._nx_reader["entry0/experimenters"][()][0].decode()
-            self.meta["sample_description"] = self._nx_reader["entry0/sample_description"][()].decode()
-            self.meta["proposal"] = self._nx_reader["entry0/proposal"][()].decode()
-            self.meta["scan_type"] = self._nx_reader["entry0/counter0/stxm_scan_type"][()].decode()
+            self.meta["sample_description"] = self._nx_reader["entry0/sample_description"][()][0].decode()
+            self.meta["proposal"] = self._nx_reader["entry0/proposal"][()][0].decode()
+            self.meta["scan_type"] = self._nx_reader["entry0/counter0/stxm_scan_type"][()][0].decode()
         else:
             self.meta["start_time"] = self._nx_reader["entry0/start_time"][()].decode()
             self.meta["end_time"] = self._nx_reader["entry0/end_time"][()].decode()
@@ -200,7 +203,7 @@ class stxm:
                     self.data[entryStr]["motors"][item] = self._nx_reader[entryStr + "/motors/" + item][()]
                 self.data[entryStr]["energy"] = self._nx_reader[entryStr + "/counter0/energy"][()].astype("float64")
                 self.data[entryStr]["dwell"] = self._nx_reader[entryStr + "/counter0/count_time"][()].astype("float64")
-                self.data[entryStr]["counts"] = self._nx_reader[entryStr + "/counter0/data"][()].astype("float64")
+                self.data[entryStr]["counts"] = {"default": self._nx_reader[entryStr + "/counter0/data"][()].astype("float64")}
                 self.data[entryStr]["xpos"] = np.array(self._nx_reader[entryStr + "/counter0/sample_x"][()]).astype("float64")
                 self.data[entryStr]["ypos"] = np.array(self._nx_reader[entryStr + "/counter0/sample_y"][()]).astype("float64")
                 xpos = self.data[entryStr]["xpos"]

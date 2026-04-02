@@ -39,7 +39,9 @@ class ScanModel(BaseModel):
             'nx_file_version': '',
             'single_energy': True,
             'energy_list': None,
-            'dwell': 1.0
+            'dwell': 1.0,
+            'scanning': False,
+            'daq_list': ['default']
         }
         
     def validate(self) -> bool:
@@ -61,7 +63,42 @@ class ScanModel(BaseModel):
             return False
             
         return True
-        
+
+    def validate_ranges(self, motor_model) -> tuple:
+        """Check that each scan region fits within the motor travel limits.
+
+        Returns (True, '') on success or (False, error_message) on failure.
+        motor_model must expose get_motor_limits(name) -> (min, max).
+        Tiled scans are exempt — the server handles breaking them into sub-regions.
+        """
+        if self.get('tiled'):
+            return (True, '')
+
+        x_motor = self.get('x_motor', '')
+        y_motor = self.get('y_motor', '')
+        z_motor = self.get('z_motor', '')
+
+        checks = [
+            ('xRange', x_motor, 'X'),
+            ('yRange', y_motor, 'Y'),
+            ('zRange', z_motor, 'Z'),
+        ]
+
+        for region_name, region in self.get('scan_regions', {}).items():
+            for range_key, motor_name, axis_label in checks:
+                scan_range = region.get(range_key, 0)
+                if scan_range <= 0 or not motor_name:
+                    continue
+                min_val, max_val = motor_model.get_motor_limits(motor_name)
+                travel = max_val - min_val
+                if scan_range > travel:
+                    return (False,
+                            f"{region_name}: {axis_label} range {scan_range:.3f} exceeds "
+                            f"{motor_name} travel {travel:.3f} "
+                            f"({min_val:.3f} – {max_val:.3f})")
+
+        return (True, '')
+
     def add_scan_region(self, region_name: str, region_data: Dict[str, Any]) -> None:
         """Add a scan region."""
         regions = self.get('scan_regions', {}).copy()

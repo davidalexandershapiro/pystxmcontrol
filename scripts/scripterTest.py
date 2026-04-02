@@ -1,5 +1,6 @@
 from pystxmcontrol_mcp.scripter import scripter
 import numpy as np
+import time
 
 host = '127.0.0.1'
 port = 9999
@@ -20,6 +21,7 @@ S.help()
 ##update a stxm scan and execute#################################################################
 # print(S.scan["scan_type"])
 # print(S.update_scan(scan_type="Image",
+#                     dwell=0.2,
 #                     x_center=100,
 #                     x_range=5,
 #                     x_points=100,
@@ -38,8 +40,11 @@ S.help()
 
 #################################################################################################
 ##Get Data from DAQ##############################################################################
-# print(S.read_daq("default", 100))
-# data2 = S.read_daq("ccd", 100)
+t0 = time.time()
+print(S.read_daq("default", 100))
+t1 = time.time()
+data2 = S.read_daq("CCD", 100)
+print(time.time()-t1,t1-t0)
 
 #################################################################################################
 ##spiral stxm scan###############################################################################
@@ -65,6 +70,7 @@ S.help()
 #################################################################################################
 ##Ptychography###################################################################################
 # print(S.update_scan(scan_type="Ptychography Image",
+#                     dwell=10,
 #                     x_points=10,
 #                     y_points=10,
 #                     defocus=True,

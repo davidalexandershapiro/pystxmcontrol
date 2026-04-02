@@ -27,6 +27,11 @@ class BaseModel(QObject):
         """Update multiple values at once."""
         for key, value in data.items():
             self.set(key, value)
+
+    def silent_update(self, data: Dict[str, Any]) -> None:
+        """Write multiple keys directly into _data without emitting any signals.
+        Use this for metadata that doesn't need to trigger UI redraws on its own."""
+        self._data.update(data)
             
     def to_dict(self) -> Dict[str, Any]:
         """Return a copy of the internal data dictionary."""

@@ -338,7 +338,7 @@ class LinearFocusScan(BaseScan):
             # Execute flyscan line
             success = await doFlyscanLine(
                 self.controller, self.dataHandler,
-                self.scan, self.scanInfo, wait_time
+                self.scan, self.scanInfo, wait_time, axes=[1,2]
             )
 
             if not success:

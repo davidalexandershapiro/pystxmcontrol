@@ -26,7 +26,7 @@ class counter:
         self.count = count
         self.trigger = trigger
         self.session.write("*RST")
-        self.session.write("DISP OFF")
+        self.session.write("DISP ON")
         self.session.write(f"CONF:TOT:TIM {dwell/1000.}, (@{channel})")
         self.session.write(f"TRIG:COUN {count}")
         self.session.write(f"SAMP:COUN {samples}")

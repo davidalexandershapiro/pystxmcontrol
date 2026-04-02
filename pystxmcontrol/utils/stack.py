@@ -420,7 +420,7 @@ class stack():
         for im in self.rawFrames:
             print(im.data.shape)
 
-    def alignFrames(self, sobelFilter = False, mode = 'translation', mask = False, threshold = 0., autocrop = True):
+    def alignFrames(self, sobelFilter = False, mode = 'manualtranslation', mask = False, threshold = 0., autocrop = True):
         """
         This is the top level call for aligning processedFrames.  It applies a sobel filter by default prior
         to alignment.
@@ -433,7 +433,7 @@ class stack():
         self.lastFrames = self.processedFrames.copy()
         self.processedFrames = self.registerFrameStack(self.processedFrames, \
             sobelFilter = sobelFilter, mode = mode, mask = mask, threshold = threshold, autocrop = autocrop)
-        if mode != "translation":
+        if mode not in ["translation","manualtranslation"]:
             self.processedFrames = self.processedFrames[:,5:-5,5:-5]
         self.shape = self.processedFrames.shape
         self.nEnergies, self.nY, self.nX = self.processedFrames.shape
@@ -473,12 +473,13 @@ class stack():
                                                     moving_mask = b > threshold)#upsample_factor=100)
             else:
                 #shifts,a,b = register_translation(dst_image, src_image, upsample_factor=100)
-                shifts = register_translation(dst_image, src_image, \
+                shifts,c,d = register_translation(dst_image, src_image, \
                                                     reference_mask = dst_image > threshold, \
                                                     moving_mask = src_image > threshold)#upsample_factor=100)
                 #shifts = register_translation(dst_image, src_image, \
                 #                              reference_mask=dst_image > threshold, \
                 #                              moving_mask=src_image > threshold)
+                print(shifts[0])
             temp = src_image.min()
             #src_image = ndimage.interpolation.shift(src_image, shifts, mode = 'wrap')
             src_image = np.roll(src_image, (round(shifts[0]),round(shifts[1])),axis = (0,1))
@@ -617,7 +618,7 @@ class stack():
             if maxY == 0: maxY += 1
             if autocrop: alignedFrames = alignedFrames[:,minY:-maxY, minX:-maxX]
             self.shifts = shiftList
-        elif mode == 'thresholded':
+        elif mode in ['thresholded','manualtranslation']:
             for i in range(0,len(frames)):
                 alignedFrames[i] = self._registerImages(frames[0],frames[i],sobelFilter = sobelFilter,mode = mode)
                 shifts = self.warp_matrix[0, 2], self.warp_matrix[1, 2]
@@ -671,7 +672,7 @@ class stack():
         """
         if len(self.processedFrames) == 2:
             self.despike()
-            self.alignFrames(mode = 'translation')
+            self.alignFrames(mode = 'manualtranslation')
             self.calcOD()
             self.alignODFrames(sobelFilter = False, mode = 'homographic')
             self.map = self.odFrames[1] - self.odFrames[0]

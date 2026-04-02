@@ -133,4 +133,5 @@ pystxmcontrol/utils/general.py
 pystxmcontrol/utils/image.py
 pystxmcontrol/utils/logger.py
 pystxmcontrol/utils/stack.py
+pystxmcontrol/utils/test_sample.py
 pystxmcontrol/utils/writeNX.py

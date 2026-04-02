@@ -1,4 +1,5 @@
 from pystxmcontrol.utils.writeNX import stxm
+from pystxmcontrol.utils.test_sample import test_sample
 from pystxmcontrol.controller.zmq_publisher import ZMQPublisher
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time, os, datetime, threading
@@ -286,7 +287,7 @@ class dataHandler:
         m = scanInfo["energyIndex"]
 
         #add the interpolated data to the structure
-        if scanInfo["type"] == "Image":
+        if scanInfo["type"] in ["Image","TEY Image"]:
             self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
             mi = scanInfo['index']
             mj = mi + scanInfo['line_positions'][0].size
@@ -331,7 +332,7 @@ class dataHandler:
 
         elif scanInfo["type"] == "Single Motor":
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"]
+                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"][0]
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                 self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
             image = self.data.interp_counts[daq][k][m,:,:]
@@ -340,7 +341,7 @@ class dataHandler:
             if scanInfo["mode"] == "point":
                 c = scanInfo["columnIndex"]
                 if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"]
+                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"][0]
                 elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
                     self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
             elif scanInfo["mode"] == "continuousLine":
@@ -604,6 +605,19 @@ class dataHandler:
                     scanInfo["rawData"][daq]["data"] = self.daq[daq].data[::-1]
             else:
                 scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+
+        if self.controller.daqConfig["default"]["simulation"]:
+            row_index = scanInfo["lineIndex"]
+            column_index = scanInfo["index"]
+            y_center = scanInfo["yCenter"]
+            x_center = scanInfo["xCenter"]
+            y_size = scanInfo["yPoints"]
+            x_size = scanInfo["xPoints"]
+            pixel_size = scanInfo["xStep"]
+            dwell = scanInfo["dwell"]
+            scanInfo["rawData"]["default"]["data"] = test_sample(row_index,column_index,y_size,x_size,
+                                                                 pixel_size,dwell,y_center,x_center)
+
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Line] Acquisition time: {t1-t0}")
         return True

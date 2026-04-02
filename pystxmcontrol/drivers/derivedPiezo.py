@@ -200,7 +200,7 @@ class derivedPiezo(motor):
                 t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
                 #print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
-                self.axes["axis2"].setAxisParams(velocity = 2.0)
+                self.axes["axis2"].setAxisParams(velocity = self.config.get("return_velocity",1))
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
                 self.positions = self.axes["axis1"].controller.acquire_xy()
@@ -232,6 +232,7 @@ class derivedPiezo(motor):
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
+
         if self._debug:
             print(f"[inclined piezo] {self.axis} {kwargs}")
         if fine_only:

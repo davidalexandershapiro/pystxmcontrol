@@ -129,7 +129,7 @@ class BaseScan(ABC):
 
     def calculate_actual_dwell(self, requested_dwell: float,
                                min_motor_dwell: float = 0.12,
-                               max_motor_dwell: float = 5.0) -> Tuple[float, float]:
+                               max_motor_dwell: float = 100.0) -> Tuple[float, float]:
         """
         Calculate actual DAQ and motor dwell times based on constraints.
 
