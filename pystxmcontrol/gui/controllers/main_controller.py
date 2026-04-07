@@ -507,6 +507,7 @@ class MainController(QObject):
             self.scan_model.set('tiled', view.ui.tiledCheckbox.isChecked())
             self.scan_model.set('defocus', view.ui.defocusCheckbox.isChecked())
             self.scan_model.set('autofocus', view.ui.autofocusCheckbox.isChecked())
+            self.scan_model.set('doubleExposure', view.ui.doubleExposureCheckbox.isChecked() if hasattr(view.ui, 'doubleExposureCheckbox') else False)
             self.scan_model.set('proposal', view.ui.proposalComboBox.currentText() if view.ui.proposalComboBox.count() > 0 else '')
             self.scan_model.set('experimenters', view.ui.experimentersLineEdit.text())
             self.scan_model.set('sample', view.ui.sampleLineEdit.text())
