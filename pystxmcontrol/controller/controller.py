@@ -426,6 +426,7 @@ class controller:
             self.scanning = False
 
     def scan(self, scan):
+        print(scan)
         self.main_config["lastScan"][scan["scan_type"]] = deepcopy(scan)
         self.write_config()
         scan["nx_file_version"] = self.main_config["server"]["nx_file_version"]

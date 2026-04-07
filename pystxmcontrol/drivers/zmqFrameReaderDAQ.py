@@ -77,6 +77,9 @@ class zmq_frame_reader(daq):
         pass
 
     async def getPoint(self):
+        crop = self.meta["crop"]
+        if crop < 1:
+            crop = 1
         if self.simulation:
             await asyncio.sleep(self.dwell / 1000.)
             self.data = array([poisson(1e7 * self.dwell / 1000.)])
@@ -86,7 +89,7 @@ class zmq_frame_reader(daq):
         else:
             try:
                 obj, px_size_y, px_size_x, metadata = recv_rec(self.sock, flags=zmq.NOBLOCK)
-                self.data = np.abs(obj[self.crop:-self.crop,self.crop:-self.crop])
+                self.data = np.abs(obj[crop:-crop,crop:-crop])
             except:
                 self.data = None
             return self.data
