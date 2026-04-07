@@ -320,6 +320,8 @@ class MainController(QObject):
                     for daq_key, daq_data in raw.items():
                         if isinstance(daq_data, dict) and "data" in daq_data:
                             data = daq_data["data"]
+                            if data is None:
+                                continue
                             daq_type = daq_cfg.get(daq_key, {}).get('type', 'point')
                             if daq_type == 'image':
                                 value = float(np.sum(data))
@@ -338,22 +340,25 @@ class MainController(QObject):
                     selected = raw.get(channel_key)
                     if selected is not None and "data" in selected:
                         data = selected["data"]
-                        daq_type = daq_cfg.get(channel_key, {}).get('type', 'point')
-                        val = float(np.sum(data)) if daq_type == 'image' else float(data[0])
-                        self.image_model.set('daq_current_value', val * 10.0)
-                        # For image-type DAQs, push the raw frame to the main display
-                        if daq_type == 'image' and isinstance(data, np.ndarray) and data.ndim >= 2:
-                            self.image_updated.emit(data)
+                        if data is not None:
+                            daq_type = daq_cfg.get(channel_key, {}).get('type', 'point')
+                            val = float(np.sum(data)) if daq_type == 'image' else float(data[0])
+                            self.image_model.set('daq_current_value', val * 10.0)
+                            # For image-type DAQs, push the raw frame to the main display
+                            if daq_type == 'image' and isinstance(data, np.ndarray) and data.ndim >= 2:
+                                self.image_updated.emit(data)
                     
             # Handle elapsed time from scan messages
             elif 'elapsedTime' in message:
                 elapsed_time = message['elapsedTime']
-                self.elapsed_time_updated.emit(float(elapsed_time))
+                if elapsed_time is not None:
+                    self.elapsed_time_updated.emit(float(elapsed_time))
                 
             # Handle Single Motor scan — data arrives as rawData points, not images
             if (message.get('mode') == 'point' and
                     message.get('type') == 'Single Motor' and
-                    'scanMotorVal' in message and 'rawData' in message):
+                    'scanMotorVal' in message and 'rawData' in message and
+                    message['scanMotorVal'] is not None):
                 x_val = float(message['scanMotorVal'])
                 raw = message['rawData']
                 daq_cfg = getattr(self.client, 'daqConfig', {})
@@ -368,6 +373,8 @@ class MainController(QObject):
                     motor_y = {}
                 for daq_key, daq_data in raw.items():
                     if isinstance(daq_data, dict) and 'data' in daq_data:
+                        if daq_data['data'] is None:
+                            continue
                         daq_type = daq_cfg.get(daq_key, {}).get('type', 'point')
                         val = float(np.sum(daq_data['data'])) if daq_type == 'image' else float(daq_data['data'][0])
                         ch_buf = motor_y.get(daq_key, []) + [val]
@@ -394,7 +401,15 @@ class MainController(QObject):
                     'scan_id': message.get('scanID', ''),
                     'type': message.get('type'),
                     'mode': message.get('mode'),
-                    'all_images': image_dict  # Store all detector images
+                    'all_images': image_dict,  # Store all detector images
+                    # Per-tile geometry sent by the scan driver (used for tiled scans
+                    # where server-generated sub-regions are not in the GUI scan_regions dict)
+                    'msg_x_center': message.get('xCenter'),
+                    'msg_y_center': message.get('yCenter'),
+                    'msg_x_range':  message.get('xRange'),
+                    'msg_y_range':  message.get('yRange'),
+                    'msg_x_pts':    message.get('xPoints'),
+                    'msg_y_pts':    message.get('yPoints'),
                 }
 
                 # Extract the selected channel's image for display
@@ -909,37 +924,52 @@ class MainController(QObject):
         if parts:
             self.scan_progress_updated.emit(' / '.join(parts))
 
-        # Compute image geometry from scan model
+        # Compute image geometry — prefer scan_regions dict (GUI), fall back to
+        # per-message fields for tiled scans where the server generates sub-regions
+        # ("Region2", "Region3", …) that are not in the GUI's scan_regions dict.
         scan_regions = self.scan_model.get('scan_regions', {})
-        if scan_regions and 'scan_region' in metadata:
+        if 'scan_region' in metadata:
             region_name = metadata['scan_region']
-            if region_name in scan_regions:
-                region_data = scan_regions[region_name]
-                scan_type = self.scan_model.get('scan_type', '')
-                x_center = region_data.get('xCenter', 0.0)
-                x_range = region_data.get('xRange', 70.0)
-                x_pts = region_data.get('xPoints', 100)
+            scan_type = self.scan_model.get('scan_type', '')
 
-                # For Focus scans the vertical image axis is Z, not Y
+            if scan_regions and region_name in scan_regions:
+                region_data = scan_regions[region_name]
+                x_center = region_data.get('xCenter', 0.0)
+                x_range  = region_data.get('xRange',  70.0)
+                x_pts    = region_data.get('xPoints', 100)
+
                 if 'Focus' in scan_type:
                     y_center = region_data.get('zCenter', 0.0)
-                    y_range = region_data.get('zRange', 70.0)
-                    y_pts = region_data.get('zPoints', 100)
+                    y_range  = region_data.get('zRange',  70.0)
+                    y_pts    = region_data.get('zPoints', 100)
                 else:
                     y_center = region_data.get('yCenter', 0.0)
-                    y_range = region_data.get('yRange', 70.0)
-                    y_pts = region_data.get('yPoints', 100)
+                    y_range  = region_data.get('yRange',  70.0)
+                    y_pts    = region_data.get('yPoints', 100)
 
+            elif metadata.get('msg_x_center') is not None:
+                # Tiled scan: use geometry the scan driver put in the message
+                x_center = metadata['msg_x_center']
+                y_center = metadata['msg_y_center']
+                x_range  = metadata['msg_x_range']
+                y_range  = metadata['msg_y_range']
+                x_pts    = metadata.get('msg_x_pts', 100)
+                y_pts    = metadata.get('msg_y_pts', 100)
+
+            else:
+                region_name = None  # Nothing to update
+
+            if region_name is not None:
                 pixel_size_x = x_range / x_pts if x_pts > 0 else 1.0
                 pixel_size_y = y_range / y_pts if y_pts > 0 else 1.0
 
                 silent.update({
-                    'x_center': x_center,
-                    'y_center': y_center,
-                    'x_range': x_range,
-                    'y_range': y_range,
+                    'x_center':    x_center,
+                    'y_center':    y_center,
+                    'x_range':     x_range,
+                    'y_range':     y_range,
                     'image_scale': (pixel_size_x, pixel_size_y),
-                    'pixel_size': pixel_size_x,
+                    'pixel_size':  pixel_size_x,
                 })
 
         # Write all metadata silently so geometry is ready before any display call.

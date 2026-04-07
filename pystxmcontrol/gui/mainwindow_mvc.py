@@ -166,6 +166,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Saved dwell for energy list mode (captured before region widgets are removed)
         self._energy_list_dwell = 1000.0
+        self._saved_multi_energy = []   # saved energy region values while Single Energy is checked
+        self._single_energy_active = False  # tracks current state to detect transitions
 
         # Scan parameters
         self.tiled_scan = False
@@ -424,9 +426,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Initialize energy list widget as hidden
         self.ui.energyListWidget.setVisible(False)
         
-        # Set default single energy state
-        self.ui.toggleSingleEnergy.setChecked(True)
-
         # Initialize the Browser tab
         self._initialize_browser()
 
@@ -1329,9 +1328,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 return
             image_data = img
 
-        # Verify we have a numpy array
+        # Verify we have a numpy array (None is expected when zmq recv fails)
         if not isinstance(image_data, np.ndarray):
-            print(f"Warning: image_data is not a numpy array, got {type(image_data)}")
             return
 
         # Get current image geometry settings to maintain coordinate system
@@ -1359,19 +1357,29 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Calculate position to center the image at the motor coordinate center
         pos = (x_center - x_range / 2.0, y_center - y_range / 2.0)
 
-        composite_on = (hasattr(self.ui, 'compositeImageCheckbox') and
-                        self.ui.compositeImageCheckbox.isChecked())
+        auto_range = self.ui.autorangeCheckbox.isChecked()
+        auto_scale = self.ui.autoscaleCheckbox.isChecked()
+
+        # Compute levels from non-zero data when autoscale is on
+        levels = None
+        if auto_scale:
+            pos_data = image_data[image_data > 0]
+            if pos_data.size > 0:
+                levels = [float(pos_data.min()), float(pos_data.max())]
+
+        tiled_scan = self.controller.scan_model.get('tiled', False)
+        composite_on = tiled_scan or (hasattr(self.ui, 'compositeImageCheckbox') and
+                                      self.ui.compositeImageCheckbox.isChecked())
 
         if composite_on:
             # Build a unique key for this scan region
             region = image_model.get('scan_region_index', 0)
             image_id = f"scan_{self._composite_scan_counter}:{region}"
             if image_id in self.images:
-                # Update image data in the existing item
-                self.images[image_id].setImage(
-                    image_data.T,
-                    autoLevels=self.ui.autoscaleCheckbox.isChecked()
-                )
+                if levels is not None:
+                    self.images[image_id].setImage(image_data.T, autoLevels=False, levels=levels)
+                else:
+                    self.images[image_id].setImage(image_data.T, autoLevels=False)
             else:
                 # Create a new ImageItem positioned in motor coordinates
                 img = pg.ImageItem()
@@ -1379,21 +1387,33 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 tr.scale(image_scale[0], image_scale[1])
                 tr.translate(pos[0] / image_scale[0], pos[1] / image_scale[1])
                 img.setTransform(tr)
-                img.setImage(
-                    image_data.T,
-                    autoLevels=self.ui.autoscaleCheckbox.isChecked()
-                )
+                if levels is not None:
+                    img.setImage(image_data.T, autoLevels=False, levels=levels)
+                else:
+                    img.setImage(image_data.T, autoLevels=False)
                 self.images[image_id] = img
                 self.ui.mainImage.addItem(img)
         else:
             # Normal (non-composite) mode — update the main ImageView directly
-            self.ui.mainImage.setImage(
-                image_data.T,
-                autoRange=self.ui.autorangeCheckbox.isChecked(),
-                autoLevels=self.ui.autoscaleCheckbox.isChecked(),
-                pos=pos,
-                scale=image_scale
-            )
+            if levels is not None:
+                self.ui.mainImage.setImage(
+                    image_data.T,
+                    autoRange=auto_range,
+                    autoLevels=False,
+                    levels=levels,
+                    autoHistogramRange=auto_range,
+                    pos=pos,
+                    scale=image_scale
+                )
+            else:
+                self.ui.mainImage.setImage(
+                    image_data.T,
+                    autoRange=auto_range,
+                    autoLevels=False,
+                    autoHistogramRange=auto_range,
+                    pos=pos,
+                    scale=image_scale
+                )
 
             
     def update_scan_progress_display(self, progress_info: str):
@@ -1446,9 +1466,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def update_estimated_time(self):
         """Update estimated time by compiling current scan parameters.  Called by update_scan_regions
         and update_energy_regions"""
-        try:  
-        # Compile scan to calculate estimated time
+        try:
             self.controller.compile_scan_from_view(self)
+            velocity = self.controller.scan_model.get_scan_velocity()
+            self.ui.scanVelocity.setText(f"{velocity:.3f} mm/s")
+            if velocity > self.maxVelocity:
+                self.ui.scanVelocity.setStyleSheet("color: red;")
+            else:
+                self.ui.scanVelocity.setStyleSheet("")
         except Exception as e:
             print(f"Error updating estimated time: {e}")
 
@@ -1600,7 +1625,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.roiCheckbox.setEnabled(True)
             self.ui.xMotorCombo.setEnabled(False)  # Usually fixed for image scans
             self.ui.yMotorCombo.setEnabled(False)
-            self.ui.toggleSingleEnergy.setChecked(True)
             self.ui.toggleSingleEnergy.setEnabled(True)
             self._set_focus_widgets(False)
             self._set_line_widgets(False)
@@ -1955,6 +1979,49 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if scan_type in [item.strip() for item in [self.ui.scanType.itemText(i) for i in range(self.ui.scanType.count())]]:
                     self.ui.scanType.setCurrentText(scan_type)
 
+                # Build scan-region and energy-region dicts from the stxm data
+                # and push them into the UI widgets.
+                scan_regions_cfg = {}
+                for ri in range(self.nx.nRegions):
+                    entry = self.nx.data[f'entry{ri}']
+                    xp = np.atleast_1d(entry['xpos']).flatten()
+                    yp = np.atleast_1d(entry['ypos']).flatten()
+                    xr = float(xp.max() - xp.min())
+                    yr = float(yp.max() - yp.min())
+                    xc = float(xp.min() + xr / 2.0)
+                    yc = float(yp.min() + yr / 2.0)
+                    nx_pts = int(xp.size)
+                    ny_pts = int(yp.size)
+                    xs = float(entry.get('xstepsize', xr / nx_pts if nx_pts > 1 else xr))
+                    ys = float(entry.get('ystepsize', yr / ny_pts if ny_pts > 1 else yr))
+                    scan_regions_cfg[f'Region{ri + 1}'] = {
+                        'xCenter': round(xc, 4), 'yCenter': round(yc, 4),
+                        'xRange':  round(xr, 4), 'yRange':  round(yr, 4),
+                        'xPoints': nx_pts,        'yPoints': ny_pts,
+                        'xStep':   round(xs, 4),  'yStep':   round(ys, 4),
+                    }
+
+                # Energy region — reconstruct from entry0's energy array
+                energy_arr = np.atleast_1d(self.nx.data['entry0']['energy']).flatten()
+                dwell_arr  = np.atleast_1d(self.nx.data['entry0']['dwell']).flatten()
+                ne_pts = int(energy_arr.size)
+                e_start = round(float(energy_arr[0]), 3)
+                e_stop  = round(float(energy_arr[-1]), 3)
+                e_step  = round(float((e_stop - e_start) / (ne_pts - 1)), 3) if ne_pts > 1 else 1.0
+                dwell_val = round(float(np.mean(dwell_arr)), 3)
+                energy_regions_cfg = {
+                    'EnergyRegion1': {
+                        'start': e_start, 'stop': e_stop,
+                        'step': e_step,   'n_energies': ne_pts,
+                        'dwell': dwell_val,
+                    }
+                }
+
+                self._populate_ui_from_scan_config(
+                    {'scan_regions': scan_regions_cfg, 'energy_regions': energy_regions_cfg},
+                    scan_type=scan_type,
+                )
+
             elif scan_type == "Single Motor":
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
                 self.ui.plotType.setCurrentText("Motor Scan")
@@ -1982,17 +2049,39 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, 'Open Energy Definition', '', 'JSON Files (*.json);;All Files (*)'
         )
-        if filename:
-            # Load energy definition through controller
-            pass
-            
+        if not filename:
+            return
+        try:
+            import json
+            with open(filename, 'r') as f:
+                data = json.load(f)
+            # Accept either {"energy_regions": {...}} or the raw regions dict
+            if 'energy_regions' in data:
+                cfg = {'energy_regions': data['energy_regions']}
+            else:
+                cfg = {'energy_regions': data}
+            self._populate_ui_from_scan_config(cfg)
+        except Exception as e:
+            self.show_error_message(f"Failed to open energy definition: {filename}\nError: {str(e)}")
+
     def open_scan_definition(self):
         """Open scan definition dialog."""
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, 'Open Scan Definition', '', 'JSON Files (*.json);;All Files (*)'
         )
-        if filename:
+        if not filename:
+            return
+        try:
+            import json
+            with open(filename, 'r') as f:
+                data = json.load(f)
             self.controller.load_scan_definition(filename)
+            scan_type = data.get('scan_type', self.ui.scanType.currentText())
+            if scan_type:
+                self.ui.scanType.setCurrentText(scan_type)
+            self._populate_ui_from_scan_config(data, scan_type=scan_type)
+        except Exception as e:
+            self.show_error_message(f"Failed to open scan definition: {filename}\nError: {str(e)}")
             
     # Theme and appearance
     def set_light_theme(self):
@@ -2061,23 +2150,67 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Update energy region widgets."""
         requested_count = self.ui.energyRegSpinbox.value()
         current_count = len(self.energy_region_widgets)
-        
+
+        # Refresh _saved_multi_energy from live widget values so any user edits
+        # to energyStart (or other fields) made since the last single→multi
+        # transition are preserved if the user later toggles Single Energy again.
+        if not self._single_energy_active:
+            refreshed = []
+            for ew in self.energy_region_widgets:
+                if hasattr(ew, 'energyDef'):
+                    ed = ew.energyDef
+                    refreshed.append({
+                        'start':      ed.energyStart.text(),
+                        'stop':       ed.energyStop.text(),
+                        'step':       ed.energyStep.text(),
+                        'n_energies': ed.nEnergies.text(),
+                        'dwell':      ed.dwellTime.text(),
+                    })
+            if refreshed:
+                self._saved_multi_energy = refreshed
+
         # Add widgets if needed
         while current_count < requested_count:
             widget = energyDefWidget()
             widget.energyDef.regNum.setText(f"Region {current_count + 1}")
-            
-            # Set default values for new energy region widgets
-            widget.energyDef.energyStart.setText("700")
-            widget.energyDef.energyStop.setText("720")
-            widget.energyDef.energyStep.setText("1")
-            widget.energyDef.nEnergies.setText("21")
-            widget.energyDef.dwellTime.setText("1")
-            
+
+            # Default multi-energy values for the new region
+            defaults = {'start': '700', 'stop': '720', 'step': '1',
+                        'n_energies': '21', 'dwell': '1'}
+            widget.energyDef.energyStart.setText(defaults['start'])
+            widget.energyDef.energyStop.setText(defaults['stop'])
+            widget.energyDef.energyStep.setText(defaults['step'])
+            widget.energyDef.nEnergies.setText(defaults['n_energies'])
+
+            if current_count == 0:
+                # Region 1 is the dwell master — connect its return-press to propagate
+                widget.energyDef.dwellTime.setText(defaults['dwell'])
+                widget.energyDef.dwellTime.returnPressed.connect(self._propagate_dwell)
+            else:
+                # Non-master regions mirror Region 1's dwell and are not editable
+                if self.energy_region_widgets:
+                    dwell_val = self.energy_region_widgets[0].energyDef.dwellTime.text()
+                else:
+                    dwell_val = defaults['dwell']
+                widget.energyDef.dwellTime.setText(dwell_val)
+                widget.energyDef.dwellTime.setEnabled(False)
+                defaults['dwell'] = dwell_val
+
             self.ui.energyDefWidget.addWidget(widget.widget)
             self.energy_region_widgets.append(widget)
+
+            # While single energy is active, save the new region's defaults so
+            # unchecking Single Energy later restores them, then apply single-energy overwrite
+            if self._single_energy_active:
+                self._saved_multi_energy.append(defaults)
+                widget.setSingleEnergy()
+                ed = widget.energyDef
+                ed.energyStep.setText("1")
+                ed.nEnergies.setText("1")
+                ed.energyStop.setText(defaults['start'])
+
             current_count += 1
-            
+
         # Apply current single energy state to all widgets
         self.toggle_single_energy()
             
@@ -2087,6 +2220,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.energyDefWidget.removeWidget(widget.widget)
             widget.widget.deleteLater()
             current_count -= 1
+            # Keep saved list in sync
+            if self._saved_multi_energy:
+                self._saved_multi_energy = self._saved_multi_energy[:current_count]
             
     def _read_main_config_from_disk(self) -> dict:
         """Read main.json from disk without requiring a server connection."""
@@ -2102,15 +2238,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Populate UI widgets with the last-used values for *scan_type* from main.json."""
         last_scan = self._local_main_config.get("lastScan", {}).get(scan_type)
         if not last_scan:
+            # No saved state — default to single energy
+            self._saved_multi_energy = []
+            self._single_energy_active = False
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(True)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+            self.toggle_single_energy()
             return
 
-        # ── header fields ─────────────────────────────────────────────────────
-        # Don't restore the proposal — it is the activation gate and must
-        # always start at "Select a Proposal" on launch.
+        # Don't restore the proposal — it is the activation gate.
         self.ui.experimentersLineEdit.setText(last_scan.get("experimenters", ""))
         self.ui.sampleLineEdit.setText(last_scan.get("sample", ""))
 
-        # ── motors ────────────────────────────────────────────────────────────
         x_motor = last_scan.get("x_motor", "")
         y_motor = last_scan.get("y_motor", "")
         if x_motor:
@@ -2118,10 +2258,18 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if y_motor:
             self.ui.yMotorCombo.setCurrentText(y_motor)
 
+        self._populate_ui_from_scan_config(last_scan, scan_type=scan_type)
+
+    def _populate_ui_from_scan_config(self, config: dict, scan_type: str = ""):
+        """Populate scan-region and energy-region widgets from a scan config dict.
+
+        *config* must contain 'scan_regions' and/or 'energy_regions' keys in the
+        same format used by the scan model / main.json.  *scan_type* is only used
+        to decide whether to fill z-axis (focus) fields.
+        """
         # ── scan regions ──────────────────────────────────────────────────────
-        scan_regions = last_scan.get("scan_regions", {})
+        scan_regions = config.get("scan_regions", {})
         if scan_regions:
-            # setValue triggers update_scan_regions to create/remove widgets
             self.ui.scanRegSpinbox.setValue(len(scan_regions))
             for i, region in enumerate(scan_regions.values()):
                 if i >= len(self.scan_region_widgets):
@@ -2136,8 +2284,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 w.ui.xStep.setText(str(region.get("xStep", 0.7)))
                 w.ui.yStep.setText(str(region.get("yStep", 0.7)))
 
-            # z fields used by Focus and OSA Focus scans
-            if scan_regions and ("Focus" in scan_type or "OSA Focus" in scan_type):
+            if scan_type and ("Focus" in scan_type or "OSA Focus" in scan_type):
                 first_region = next(iter(scan_regions.values()))
                 if hasattr(self.ui, "focusCenterEdit"):
                     self.ui.focusCenterEdit.setText(str(first_region.get("zCenter", 0.0)))
@@ -2147,7 +2294,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     self.ui.focusStepsEdit.setText(str(first_region.get("zPoints", 50)))
 
         # ── energy regions ────────────────────────────────────────────────────
-        energy_regions = last_scan.get("energy_regions", {})
+        energy_regions = config.get("energy_regions", {})
         if energy_regions:
             self.ui.energyRegSpinbox.setValue(len(energy_regions))
             for i, region in enumerate(energy_regions.values()):
@@ -2159,6 +2306,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 w.energyDef.energyStep.setText(str(region.get("step", 1.0)))
                 w.energyDef.nEnergies.setText(str(region.get("n_energies", 21)))
                 w.energyDef.dwellTime.setText(str(region.get("dwell", 1.0)))
+
+            max_n = max(r.get("n_energies", 1) for r in energy_regions.values())
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(max_n <= 1)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+        else:
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(True)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+
+        # Reset transition state so toggle_single_energy fires correctly
+        self._saved_multi_energy = []
+        self._single_energy_active = False
+        self.toggle_single_energy()
 
         self._update_rois_from_regions()
 
@@ -2229,21 +2390,77 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.energyRegSpinbox.setEnabled(True)
         
         # Apply settings to all energy region widgets
+        transitioning_to_single = is_single_energy and not self._single_energy_active
+        transitioning_to_multi = not is_single_energy and self._single_energy_active
+        self._single_energy_active = is_single_energy
+
+        if transitioning_to_single:
+            # Save the current multi-energy definition before overwriting
+            self._saved_multi_energy = []
+            for energy_widget in self.energy_region_widgets:
+                if hasattr(energy_widget, 'energyDef'):
+                    ed = energy_widget.energyDef
+                    self._saved_multi_energy.append({
+                        'start':      ed.energyStart.text(),
+                        'stop':       ed.energyStop.text(),
+                        'step':       ed.energyStep.text(),
+                        'n_energies': ed.nEnergies.text(),
+                        'dwell':      ed.dwellTime.text(),
+                    })
+        elif transitioning_to_multi:
+            # Restore saved multi-energy definition if available
+            if self._saved_multi_energy:
+                for i, energy_widget in enumerate(self.energy_region_widgets):
+                    if i >= len(self._saved_multi_energy):
+                        break
+                    if hasattr(energy_widget, 'energyDef'):
+                        ed = energy_widget.energyDef
+                        saved = self._saved_multi_energy[i]
+                        ed.energyStart.setText(saved['start'])
+                        ed.energyStop.setText(saved['stop'])
+                        ed.energyStep.setText(saved['step'])
+                        ed.nEnergies.setText(saved['n_energies'])
+                        ed.dwellTime.setText(saved['dwell'])
+
+        # When switching to single energy, use current energy motor position as start
+        current_energy_str = None
+        if is_single_energy and transitioning_to_single:
+            try:
+                motor_positions = self.controller.get_motor_model().get('current_positions', {})
+                energy_motor = self.controller.scan_model.get('energy_motor', 'Energy')
+                energy_val = motor_positions.get(energy_motor)
+                if energy_val is not None:
+                    current_energy_str = f"{energy_val:.3f}"
+            except Exception:
+                pass
+
         for energy_widget in self.energy_region_widgets:
             if hasattr(energy_widget, 'energyDef'):
-                # Enable/disable controls based on single energy mode
-                energy_widget.energyDef.energyStop.setEnabled(not is_single_energy)
-                energy_widget.energyDef.energyStep.setEnabled(not is_single_energy)
-                energy_widget.energyDef.nEnergies.setEnabled(not is_single_energy)
-                
-                # When switching to single energy mode, set step and N energies to 1
                 if is_single_energy:
-                    energy_widget.energyDef.energyStep.setText("1")
-                    energy_widget.energyDef.nEnergies.setText("1")
-                    # Set stop energy equal to start energy for single energy
-                    start_energy = energy_widget.energyDef.energyStart.text()
-                    energy_widget.energyDef.energyStop.setText(start_energy)
-                    
+                    energy_widget.setSingleEnergy()
+                    ed = energy_widget.energyDef
+                    if current_energy_str is not None:
+                        ed.energyStart.setText(current_energy_str)
+                    ed.energyStep.setText("1")
+                    ed.nEnergies.setText("1")
+                    ed.energyStop.setText(ed.energyStart.text())
+                else:
+                    energy_widget.setMultiEnergy()
+
+        # Ensure non-Region-1 dwell fields stay locked to Region 1
+        if not is_single_energy:
+            self._propagate_dwell()
+
+    def _propagate_dwell(self):
+        """Copy Region 1's dwell time to all other energy regions and disable their field."""
+        if not self.energy_region_widgets:
+            return
+        dwell_val = self.energy_region_widgets[0].energyDef.dwellTime.text()
+        for widget in self.energy_region_widgets[1:]:
+            ed = widget.energyDef
+            ed.dwellTime.setText(dwell_val)
+            ed.dwellTime.setEnabled(False)
+
     def toggle_roi_display(self):
         """Toggle ROI display."""
         if self.ui.roiCheckbox.isChecked():

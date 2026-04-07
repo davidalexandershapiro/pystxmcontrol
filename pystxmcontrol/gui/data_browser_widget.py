@@ -132,7 +132,10 @@ def _load_preview(filepath):
                 pass
 
     if n_frames > 1:
-        scan_type = scan_type.replace(" Image", " Stack")
+        if scan_type == "Image":
+            scan_type = "Stack"
+        else:
+            scan_type = scan_type.replace(" Image", " Stack")
 
     # For ptychography files, replace the stxm thumbnail with the cropped
     # object amplitude from the companion reconstruction .h5 file.
