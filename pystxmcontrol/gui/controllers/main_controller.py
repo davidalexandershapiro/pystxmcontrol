@@ -390,7 +390,18 @@ class MainController(QObject):
             # Handle image data (for both continuous and point mode scans)
             if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'continuousSpiral', 'ptychographyGrid', 'point']:
                 # message['image'] is now a dict with keys like 'default', 'xrf', 'tey', etc.
-                image_dict = message['image']
+                image_dict = dict(message['image'])
+
+                # For ptychographyGrid scans the CCD frame comes in message['data'] rather
+                # than message['image'].  Merge any image-type DAQ entries from 'data' so
+                # the channel selector can display them (e.g. when channel_key == 'CCD').
+                if message.get('mode') == 'ptychographyGrid' and isinstance(message.get('data'), dict):
+                    daq_cfg = getattr(self.client, 'daqConfig', {})
+                    for daq_key, daq_val in message['data'].items():
+                        if daq_val is None:
+                            continue
+                        if daq_cfg.get(daq_key, {}).get('type') == 'image' and daq_key not in image_dict:
+                            image_dict[daq_key] = daq_val
 
                 # Store the full image dictionary
                 metadata = {
