@@ -841,12 +841,14 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                     newValue = A0
             except:
                 self.errorPopup("Please enter a valid number")
-                return
+                return False
             if (newValue < self.client.motorInfo["Energy"]["A0_min"]) or (newValue > self.client.motorInfo["Energy"]["A0_max"]):
                 self.errorPopup("Requested A0 exceeds allowed limits")
+                return False
             else:
                 self.client.change_motor_config("Energy","A0",newValue)
                 #self.client.move_to_focus()
+                return True
         
     def updateA1(self, A1 = None):
         try:
@@ -882,12 +884,13 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.client.main_config["geometry"]["A0_calibrated"]:
                 newA0 = A0 - (self.zonePlateCalibration - self.cursorFocusZ)
                 print(f"Setting A0 to {newA0}")
+                if not self.updateA0(A0=newA0):
+                    return
                 #change the motor offset to SampleZ such that it's position during the focus scan is set to the new A0 value.
                 sampleZ_offsetDelta=newA0-self.currentMotorPositions["SampleZ"]
                 newSampleZOffset = self.client.motorInfo["SampleZ"]["offset"]+sampleZ_offsetDelta
                 print(f"Setting SampleZ offset to {newSampleZOffset}.")
                 self.client.change_motor_config("SampleZ","offset",newSampleZOffset)
-                self.updateA0(A0=newA0)
             else:
                 #This changes the ZonePlateZ offset
                 offsetDelta = (self.zonePlateCalibration - A0 - self.cursorFocusZ)

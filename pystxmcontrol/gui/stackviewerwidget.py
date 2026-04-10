@@ -262,6 +262,40 @@ class stackViewerWidget(QtWidgets.QWidget):
         # set up the form class as a `ui` attribute
         self.ui = Ui_stackViewer()
         self.ui.setupUi(self)
+
+        # ── Post-setupUi layout: equal-width columns, shorter image, metadata ──
+        # Remove mainImage from the horizontal layout so we can wrap it
+        self.ui.horizontalLayout_main.removeWidget(self.ui.mainImage)
+
+        # Remove horizontal stretch and cap the image height; keep it top-aligned
+        sp = self.ui.mainImage.sizePolicy()
+        sp.setHorizontalStretch(0)
+        sp.setVerticalPolicy(QtWidgets.QSizePolicy.Policy.Maximum)
+        self.ui.mainImage.setSizePolicy(sp)
+        self.ui.mainImage.setMinimumHeight(600)
+        self.ui.mainImage.setMaximumHeight(600)
+
+        # Build left column: image pinned to top, metadata expands below
+        self._left_widget = QtWidgets.QWidget()
+        _left_vbox = QtWidgets.QVBoxLayout(self._left_widget)
+        _left_vbox.setContentsMargins(0, 0, 0, 0)
+        _left_vbox.setSpacing(4)
+        _left_vbox.addWidget(self.ui.mainImage, stretch=0, alignment=QtCore.Qt.AlignTop)
+
+        self.metadata_edit = QtWidgets.QTextEdit()
+        self.metadata_edit.setReadOnly(True)
+        self.metadata_edit.setMinimumHeight(80)
+        _mono = QtGui.QFont("Monospace", 8)
+        _mono.setStyleHint(QtGui.QFont.StyleHint.Monospace)
+        self.metadata_edit.setFont(_mono)
+        self.metadata_edit.setPlaceholderText("Load a stack to see scan metadata.")
+        _left_vbox.addWidget(self.metadata_edit, stretch=1)
+
+        # Insert left column at index 0; right side (verticalLayout_right) is index 1
+        self.ui.horizontalLayout_main.insertWidget(0, self._left_widget, stretch=1)
+        self.ui.horizontalLayout_main.setStretch(1, 1)
+        # ────────────────────────────────────────────────────────────────────────
+
         self.stack_file = None
         self.scaleBar = None
         self.viewFrames = None
@@ -347,6 +381,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.haveStack = True
         self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
         self.updateMainImage()
+        self._populate_metadata()
 
     def toggleTrackMouse(self):
         if self.haveStack:
@@ -660,6 +695,60 @@ class stackViewerWidget(QtWidgets.QWidget):
         if self.haveStack:
             self.stack.medianFilter()
 
+    def _populate_metadata(self):
+        """Fill the metadata text panel from the currently loaded stack."""
+        if not self.haveStack:
+            return
+        nx = getattr(self.stack, 'nx', None)
+        if nx is None:
+            return
+        meta = getattr(nx, 'meta', {})
+
+        def m(key):
+            return meta.get(key, '')
+
+        lines = [
+            f"File:          {os.path.basename(m('file_name') or self.stack_file or '')}",
+            f"Scan type:     {m('scan_type')}",
+            f"Start time:    {m('start_time')}",
+            f"End time:      {m('end_time')}",
+            f"Experimenters: {m('experimenters')}",
+            f"Sample:        {m('sample_description')}",
+            f"Proposal:      {m('proposal')}",
+            "\u2500" * 44,
+        ]
+
+        try:
+            iReg = self.iRegion
+            ne, ny_pts, nx_pts = nx.interp_counts["default"][iReg].shape
+            dx = nx.xstepsize[iReg]
+            dy = nx.ystepsize[iReg]
+            lines.append(f"X range:       {nx_pts * dx:.3f} \u00b5m  ({nx_pts} pts, {dx:.4f} \u00b5m/pt)")
+            lines.append(f"Y range:       {ny_pts * dy:.3f} \u00b5m  ({ny_pts} pts, {dy:.4f} \u00b5m/pt)")
+        except Exception:
+            pass
+
+        try:
+            energies = nx.energies["default"]
+            if len(energies):
+                lines.append(f"Energies:      {len(energies)}  ({energies[0]:.2f} \u2013 {energies[-1]:.2f} eV)")
+        except Exception:
+            pass
+
+        try:
+            dwells = nx.dwells
+            if dwells is not None and len(dwells):
+                lines.append(f"Dwell:         {dwells[0]:.1f} ms")
+        except Exception:
+            pass
+
+        if m('x_motor'):
+            lines.append(f"X motor:       {m('x_motor')}")
+        if m('y_motor'):
+            lines.append(f"Y motor:       {m('y_motor')}")
+
+        self.metadata_edit.setPlainText("\n".join(lines))
+
     def receiveStack(self, fileName):
         self.initializeGUI()
         self.stack_file = fileName
@@ -674,6 +763,7 @@ class stackViewerWidget(QtWidgets.QWidget):
             self.nRegion = self.stack.nx.nRegions
         self.updateMainImage()
         self.updateRegionCombo()
+        self._populate_metadata()
 
     def stack_from_nx(self,nxdata):
         self.stack = stack()
@@ -721,6 +811,7 @@ class stackViewerWidget(QtWidgets.QWidget):
             self.nRegion = len(self.stack.nx.interp_counts["default"])
             self.updateMainImage()
             self.updateRegionCombo()
+            self._populate_metadata()
 
     def updateRegionCombo(self):
         nItems = self.ui.regionSelect.count()
