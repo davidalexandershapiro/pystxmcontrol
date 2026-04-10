@@ -71,6 +71,7 @@ class areaDetector(daq):
                 caput(self.address + self.camera_prefix + ":TriggerMode", "No Response", wait = True)
                 #caput(self.address + self.camera_prefix + ":TriggerDetermination", "Positive Polarity", wait = True)
 
+
                 #print(caget(self.address + self.camera_prefix + ":TriggerMode_RBV"))
                 caput(self.address + self.camera_prefix + ":ImageMode", "Single", wait=True)
                 caput(self.address + self.camera_prefix + ":AcquireTime.VAL", self.dwell, wait = True)
@@ -99,6 +100,7 @@ class areaDetector(daq):
             self.display_data = self.data.copy()
             return self.framenum - 1, self.data
         else:
+<<<<<<< HEAD
             t0 = time.time()
             #print(f'[area Detector]: acquiring {time.time()-t0}')
             caput(self.address + self.camera_prefix + ":Acquire", 1)
@@ -112,6 +114,11 @@ class areaDetector(daq):
             #print(f'[area Detector]: done acquiring {time.time()-t0}')
 
             #caput(self.address + self.camera_prefix + ":Acquire", 0)
+=======
+            caput(self.address + self.camera_prefix + ":Acquire", 1)
+            await asyncio.sleep(self.dwell / 1000.)
+            await asyncio.sleep(self.readout_time_seconds)
+>>>>>>> 754bba93eee3911ead3262b5853d59f2bf0fadbb
             #print("Readout time seconds: %.4f" %self.readout_time_seconds)
             current_dim = (caget(self.address + self.camera_prefix+":ArraySizeY_RBV"),
                            caget(self.address + self.camera_prefix + ":ArraySizeX_RBV"))

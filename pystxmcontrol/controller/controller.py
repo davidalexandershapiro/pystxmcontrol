@@ -149,7 +149,8 @@ class controller:
             driver = meta["driver"]
             address = meta["address"]
             record = meta["record"]
-            self.daq[daq] = eval(f"{driver}(address = '{address}', simulation = {simulation})")
+            port = meta.get("port",0)
+            self.daq[daq] = eval(f"{driver}(address = '{address}', port = {port}, simulation = {simulation})")
             self.daq[daq].meta = meta
             self.daq[daq].start()
         self.dataHandler = dataHandler(self, self.lock, self._logger)
@@ -374,6 +375,24 @@ class controller:
                 #close the data file and send the zmq event to downstream processing
                 self.dataHandler.data.close()
                 file_path = self.dataHandler.data.file_name
+
+                # cache thumbnail while arrays are still in memory
+                try:
+                    from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache
+                    _d = self.dataHandler.data
+                    _daq = _d.daq_list[0]
+                    _arr = _d.interp_counts[_daq][0]  # first scan region
+                    _xpos = _d.xPos[0]
+                    _x_range = float(_xpos.max() - _xpos.min()) if _xpos.size > 1 else 0.0
+                    ThumbnailCache().put(
+                        file_path,
+                        _arr,
+                        _d.scan_dict.get("scan_type", ""),
+                        str(_d.start_time),
+                        _x_range,
+                    )
+                except Exception:
+                    pass
                 self.dataHandler.zmq_send_string({'event': 'stxm', 'data': {"identifier":os.path.basename(file_path)}})
                 #end scan loop here
 
@@ -408,6 +427,7 @@ class controller:
             self.scanning = False
 
     def scan(self, scan):
+        print(scan)
         self.main_config["lastScan"][scan["scan_type"]] = deepcopy(scan)
         self.write_config()
         scan["nx_file_version"] = self.main_config["server"]["nx_file_version"]
@@ -440,7 +460,7 @@ class controller:
             self.daq["default"].start()
             self.daq["default"].config(dwell)
             self.daq["default"].autoGateOpen(shutter=0)
-            data = await self.daq["default"].getPoint()
+            data = await self.daq[daq].getPoint()
             self.daq["default"].autoGateClosed()
             self.daq["default"].stop()
         except Exception:

@@ -45,11 +45,13 @@ class ImageModel(BaseModel):
             'show_range_finder': True,
             'show_roi': True,
             'composite_image': True,
+            'daq_list': [],
             'channel_select': 'Diode',
+            'channel_key': 'default',
             'plot_type': 'Monitor',
             'beam_position': None,
             'crosshair_position': None,
-            'monitor_data': [],
+            'monitor_data': {},
             'motor_scan_x_data': [],
             'motor_scan_y_data': []
         }
@@ -120,15 +122,20 @@ class ImageModel(BaseModel):
         """Get crosshair position."""
         return self.get('crosshair_position')
         
-    def add_monitor_data(self, data_point: float, max_points: int = 500) -> None:
-        """Add a data point to monitor data."""
-        monitor_data = self.get('monitor_data', []).copy()
-        monitor_data.append(data_point)
-        
-        # Keep only the last max_points
-        if len(monitor_data) > max_points:
-            monitor_data = monitor_data[-max_points:]
+    def add_monitor_data(self, data_point: float, channel_key: str = 'default',
+                         max_points: int = 500) -> None:
+        """Add a data point to the per-channel monitor data."""
+        monitor_data = self.get('monitor_data', {}).copy()
+        channel_buf = monitor_data.get(channel_key, [])
+        channel_buf = channel_buf + [data_point]
+        if len(channel_buf) > max_points:
+            channel_buf = channel_buf[-max_points:]
+        monitor_data[channel_key] = channel_buf
         self.set('monitor_data', monitor_data)
+
+    def get_monitor_data(self, channel_key: str = 'default') -> list:
+        """Return the monitor data list for a specific channel."""
+        return self.get('monitor_data', {}).get(channel_key, [])
         
     def add_motor_scan_data(self, x_data: float, y_data: float) -> None:
         """Add data points to motor scan data."""
@@ -147,8 +154,8 @@ class ImageModel(BaseModel):
         self.set('motor_scan_y_data', [])
         
     def clear_monitor_data(self) -> None:
-        """Clear monitor data."""
-        self.set('monitor_data', [])
+        """Clear monitor data for all channels."""
+        self.set('monitor_data', {})
         
     def update_image_info(self, energy: float = None, dwell: float = None, 
                          pixel_size: float = None) -> None:

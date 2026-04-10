@@ -577,6 +577,7 @@ class Ui_MainWindow(object):
         self.warningLabel.setStyleSheet(u"color: rgb(224, 27, 36);\n"
 "font: 75 11pt \"Ubuntu\";\n"
 "")
+        self.warningLabel.setAlignment(Qt.AlignCenter)
         self.label_6 = QLabel(self.tab_9)
         self.label_6.setObjectName(u"label_6")
         self.label_6.setGeometry(QRect(10, 10, 171, 34))
@@ -1354,21 +1355,39 @@ class Ui_MainWindow(object):
         self.tabWidget_3.addTab(self.tab_9, "")
         self.tab_10 = QWidget()
         self.tab_10.setObjectName(u"tab_10")
+        self.tab_10_layout = QVBoxLayout(self.tab_10)
+        self.tab_10_layout.setSpacing(0)
+        self.tab_10_layout.setObjectName(u"tab_10_layout")
+        self.tab_10_layout.setContentsMargins(0, 0, 0, 0)
         self.tabWidget_4 = QTabWidget(self.tab_10)
         self.tabWidget_4.setObjectName(u"tabWidget_4")
-        self.tabWidget_4.setGeometry(QRect(-4, -1, 1501, 1001))
         self.tab_14 = QWidget()
         self.tab_14.setObjectName(u"tab_14")
+        self.tab_14_layout = QVBoxLayout(self.tab_14)
+        self.tab_14_layout.setSpacing(0)
+        self.tab_14_layout.setObjectName(u"tab_14_layout")
+        self.tab_14_layout.setContentsMargins(0, 0, 0, 0)
         self.linescan_viewer = lineScanReaderWidget(self.tab_14)
         self.linescan_viewer.setObjectName(u"linescan_viewer")
-        self.linescan_viewer.setGeometry(QRect(180, 130, 1131, 661))
+
+        self.tab_14_layout.addWidget(self.linescan_viewer)
+
         self.tabWidget_4.addTab(self.tab_14, "")
         self.tab_15 = QWidget()
         self.tab_15.setObjectName(u"tab_15")
+        self.tab_15_layout = QVBoxLayout(self.tab_15)
+        self.tab_15_layout.setSpacing(0)
+        self.tab_15_layout.setObjectName(u"tab_15_layout")
+        self.tab_15_layout.setContentsMargins(0, 0, 0, 0)
         self.stack_viewer = stackViewerWidget(self.tab_15)
         self.stack_viewer.setObjectName(u"stack_viewer")
-        self.stack_viewer.setGeometry(QRect(70, 70, 1351, 801))
+
+        self.tab_15_layout.addWidget(self.stack_viewer)
+
         self.tabWidget_4.addTab(self.tab_15, "")
+
+        self.tab_10_layout.addWidget(self.tabWidget_4)
+
         self.tabWidget_3.addTab(self.tab_10, "")
         self.tab_13 = QWidget()
         self.tab_13.setObjectName(u"tab_13")

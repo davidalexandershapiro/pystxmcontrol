@@ -13,7 +13,7 @@ class ccd_monitor(QtCore.QThread):
 
     framedata = QtCore.Signal(np.ndarray)
 
-    def __init__(self, rows=520, roi=480, cols=1152, sub_address="131.243.73.179:49206", pub_address = "131.243.73.225:49207", simulation = True):
+    def __init__(self, rows=520, roi=480, cols=1152, sub_address="localhost:49206", pub_address = "localhost:49207", simulation = True):
         self.sub_address = sub_address
         self.pub_address = pub_address
         QtCore.QThread.__init__(self)
@@ -63,7 +63,7 @@ class rpi_monitor(QtCore.QThread):
 
     rpidata = QtCore.Signal(np.ndarray)
 
-    def __init__(self, rows=520, roi=480, cols=1152, sub_address="131.243.73.205:37014", pub_address = "131.243.73.225:49207", simulation = False):
+    def __init__(self, rows=520, roi=480, cols=1152, sub_address="localhost:37014", pub_address = "localhost:49207", simulation = False):
         self.sub_address = sub_address
         self.pub_address = pub_address
         QtCore.QThread.__init__(self)
@@ -102,7 +102,7 @@ class ptycho_monitor(QtCore.QThread):
 
     ptychoData = QtCore.Signal(object)
     
-    def __init__(self, sub_address="ptycho2.lbl.gov:37015", pub_address="131.243.73.225:49207", cropsize = 128, simulation=False):
+    def __init__(self, sub_address="localhost:37015", pub_address="localhost:49207", cropsize = 256, simulation=False):
         self.sub_address, self.sub_port = sub_address.split(':')
         self.pub_address, self.pub_port = pub_address.split(':')
         QtCore.QThread.__init__(self)

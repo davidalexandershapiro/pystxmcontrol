@@ -273,8 +273,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             ##add ptychography metadata to main scanInfo for sending to Abe's processes
             # scanInfo["ptychoMeta"] = scanMeta # ABE - I remove this, and only send it with the start event
             # I also moved the start event to here, so that we can have the full scan metadata dictionary to send
-            # dataHandler.zmq_start_event(scan, metadata=scanMeta)
-            # dataHandler.zmq_send({'event': 'start', 'data': scan, 'metadata': scanMeta})
+            dataHandler.zmq_start_event(scan, metadata=scanMeta)
 
             await asyncio.sleep(0.1)
             scanInfo["scanRegion"] = scanRegion
@@ -304,6 +303,8 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
                 if scanInfo['retract']:
                     await insertSTXMDetector(controller)
+                if scan["defocus"]:
+                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
                 return
             while not dataHandler.regionComplete:
                 print("Waiting...")
@@ -311,13 +312,15 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 # need to wait here until all the data has gone through the pipe
                 pass
             print("Scan region complete, saving data...")
+            if 'illumination' in scanMeta:
+                del scanMeta['illumination']
             dataHandler.ptychodata.addDict(scanMeta, "metadata")  # stuff needed by the preprocessor
             dataHandler.ptychodata.saveRegion(0)
             dataHandler.ptychodata.close()
             dataHandler.zmq_send_string(
                 {'event': 'ccd_data', 'data': {"identifier": os.path.basename(dataHandler.ptychodata.file_name)}})
             dataHandler.data.end_time = str(datetime.datetime.now())
-            dataHandler.zmq_send({'event': 'stop', 'data': None})
+            dataHandler.zmq_stop_event()
             print("Done!")
         energyIndex += 1
     await dataHandler.dataQueue.put('endOfScan')

@@ -1,5 +1,7 @@
 from PySide6.QtCore import QObject, Signal, QThread
 from typing import Dict, Any, Optional
+import os
+import re
 import time
 import sys
 import numpy as np
@@ -9,6 +11,7 @@ from ..models.scan_model import ScanModel
 from ..models.motor_model import MotorModel
 from ..models.image_model import ImageModel
 from ...controller.client import stxm_client
+from ...utils.writeNX import stxm
 
 
 class ControlThread(QThread):
@@ -41,7 +44,8 @@ class MainController(QObject):
     motor_position_updated = Signal(str, float)  # motor_name, position
     motor_status_updated = Signal(str, bool)     # motor_name, is_moving
     image_updated = Signal(object)               # image data
-    scan_progress_updated = Signal(str)          # progress info
+    scan_progress_updated = Signal(str)          # progress info (region / energy)
+    scan_file_updated = Signal(str)              # current scan file name
     error_occurred = Signal(str)                 # error message
     status_updated = Signal(str)                 # status message
     monitor_data_updated = Signal()              # monitor plot needs update
@@ -49,6 +53,9 @@ class MainController(QObject):
     scan_state_changed = Signal(bool)            # scanning state changed (True=scanning, False=completed)
     estimated_time_updated = Signal(float)       # estimated scan time updated
     elapsed_time_updated = Signal(float)         # elapsed scan time updated
+    motor_scan_updated = Signal()                # single motor scan data ready to plot
+    live_data_ready = Signal(object, object)     # (stxm object, raw message dict) for stack viewer
+    external_scan_started = Signal(str)          # scan started externally (carries scan_type string)
     
     def __init__(self):
         super().__init__()
@@ -67,24 +74,70 @@ class MainController(QObject):
         self.scanning = False
         self.server_status = False
         self.exiting = False
+
+        # Display throttle — limit image redraws to this interval (seconds).
+        # Scan data is always stored in the model; only the display is rate-limited.
+        self._display_min_interval = 1.0 / 30.0   # max 30 fps
+        self._last_display_time = 0.0
+        self._live_stxm = None  # stxm object maintained during Image scans for stack viewer
+
+        # Profiling — set PROFILE_IMAGE_UPDATE = True to enable timing output
+        self.PROFILE_IMAGE_UPDATE = False
+        self._prof = {}   # accumulated seconds per label
+        self._prof_n = 0  # image line count
+        self._prof_interval = 20  # print summary every N lines
         
         # Connect model signals
         self._connect_model_signals()
         
+    def _prof_tick(self, label: str, dt: float):
+        """Accumulate timing for a labelled section."""
+        self._prof[label] = self._prof.get(label, 0.0) + dt
+
+    def _prof_report(self):
+        """Print accumulated timing summary and reset counters."""
+        total = sum(self._prof.values())
+        print(f"\n── Image update profile ({self._prof_n} lines) ──")
+        for label, acc in sorted(self._prof.items(), key=lambda x: -x[1]):
+            pct = 100.0 * acc / total if total > 0 else 0
+            print(f"  {label:<35s} {acc*1000/self._prof_n:7.2f} ms/line  ({pct:.0f}%)")
+        print(f"  {'TOTAL':<35s} {total*1000/self._prof_n:7.2f} ms/line")
+        self._prof.clear()
+        self._prof_n = 0
+
     def _connect_model_signals(self):
         """Connect model signals to controller methods."""
         self.scan_model.data_changed.connect(self._on_scan_model_changed)
         self.motor_model.data_changed.connect(self._on_motor_model_changed)
         self.image_model.data_changed.connect(self._on_image_model_changed)
         
+    def _resolve_daq_list(self, scan_type: str) -> list:
+        """
+        Return the recordable DAQ keys for *scan_type* by cross-referencing
+        scan.json (scanConfig) with daq.json (daqConfig).
+        Falls back to ['default'] if config is unavailable.
+        """
+        try:
+            scan_cfg = self.client.scanConfig.get(scan_type, {})
+            raw = scan_cfg.get('daq_list', 'default')
+            requested = [raw] if isinstance(raw, str) else list(raw)
+            daq_cfg = self.client.daqConfig
+            resolved = [k for k in requested if k in daq_cfg and daq_cfg[k].get('record', True)]
+            return resolved if resolved else ['default']
+        except Exception:
+            return ['default']
+
     def _on_scan_model_changed(self, property_name: str, value: Any):
         """Handle scan model changes."""
         if property_name in ['scan_regions', 'energy_regions']:
-            self.image_model.set('energy_list',self.scan_model.get_energies())
+            self.image_model.set('energy_list', self.scan_model.get_energies())
             # Recalculate estimated time when scan parameters change
             estimated_time = self.scan_model.calculate_estimated_time()
             # Emit signal for view to update
             self.estimated_time_updated.emit(estimated_time)
+        elif property_name == 'daq_list':
+            # Keep image model in sync so the display layer knows which channels exist
+            self.image_model.set('daq_list', value)
             
     def _on_motor_model_changed(self, property_name: str, value: Any):
         """Handle motor model changes."""
@@ -100,14 +153,32 @@ class MainController(QObject):
         if property_name == 'current_image':
             self.image_updated.emit(value)
         elif property_name == 'monitor_data':
-            # Monitor data updated, trigger plot update
             self.monitor_data_updated.emit()
         elif property_name == 'daq_current_value':
-            # DAQ value updated
             self.daq_value_updated.emit(value)
+        elif property_name == 'channel_key':
+            # Channel changed — re-emit the stored image for the new channel so
+            # the view updates immediately without waiting for the next scan frame
+            self.refresh_channel_image()
         elif property_name in ['cursor_x', 'cursor_y', 'cursor_intensity']:
-            # Cursor position updates could be handled here
             pass
+
+    def refresh_channel_image(self):
+        """Re-emit image_updated for the currently selected channel.
+
+        Looks at the last complete set of detector images stored in the model
+        ('all_detector_images') and emits the slice for the active channel.
+        No-ops silently if no image data has been received yet.
+        """
+        all_images = self.image_model.get('all_detector_images')
+        if not isinstance(all_images, dict):
+            return
+        channel_key = self.image_model.get('channel_key', 'default')
+        image = all_images.get(channel_key)
+        if image is None:
+            image = all_images.get('default')
+        if image is not None:
+            self.image_updated.emit(image)
             
     def initialize_client(self):
         """Initialize the client connection."""
@@ -120,7 +191,11 @@ class MainController(QObject):
             # Get configuration
             self.client.get_config()
             self.motor_model.set_motor_info(self.client.motorInfo)
-            
+
+            # Seed scan model with the daq_list for the default scan type
+            default_scan_type = self.scan_model.get('scan_type', 'Image')
+            self.scan_model.set('daq_list', self._resolve_daq_list(default_scan_type))
+
             # Initialize motor positions from client
             self._initialize_motor_positions()
             
@@ -189,6 +264,11 @@ class MainController(QObject):
         if message == "scan_complete":
             self.scanning = False
             self.status_updated.emit("Scan completed")
+            # Force a final display update so the last partial image is always shown
+            final_image = self.image_model.get('current_image')
+            if final_image is not None:
+                self._last_display_time = 0.0  # reset throttle
+                self.image_model.set_current_image(final_image)
             self.scan_state_changed.emit(False)  # Signal scan completed
             return  # Early return - nothing else to do
 
@@ -202,15 +282,27 @@ class MainController(QObject):
                 motor_positions = message['motorPositions']
                 motor_status = message['motorPositions'].get('status', {})
                 
-                # Update motor model
-                for motor_name, position in motor_positions.items():
-                    if motor_name != 'status' and isinstance(position, (int, float)):
-                        self.motor_model.update_position(motor_name, position)
-                        
-                # Update motor status
-                for motor_name, is_moving in motor_status.items():
-                    self.motor_model.update_status(motor_name, is_moving)
-                    
+                # Update all motor positions in a single batch to avoid the
+                # O(N²) signal emission caused by updating one-at-a-time
+                # (each update_position call re-emits for the entire dict).
+                batch = {
+                    k: v for k, v in motor_positions.items()
+                    if k != 'status' and isinstance(v, (int, float))
+                }
+                if batch:
+                    _t0 = time.perf_counter()
+                    positions = self.motor_model.get('current_positions', {}).copy()
+                    positions.update(batch)
+                    self.motor_model.set('current_positions', positions)
+                    if self.PROFILE_IMAGE_UPDATE:
+                        self._prof_tick('1_motor_positions', time.perf_counter() - _t0)
+
+                # Batch motor status update — single set() call, single signal emission
+                if motor_status:
+                    status = self.motor_model.get('motor_status', {}).copy()
+                    status.update(motor_status)
+                    self.motor_model.set('motor_status', status)
+
             # Handle monitor data for plotting
             if message.get("type") == "monitor":
                 # Store zone plate calibration data if present
@@ -219,30 +311,105 @@ class MainController(QObject):
                 if 'zonePlateOffset' in message:
                     self.image_model.set('zonePlateOffset', message['zonePlateOffset'])
 
-                # Process DAQ data from rawData structure
-                if 'rawData' in message:
-                    for daq in message["rawData"].keys():
-                        if daq == "default" and "data" in message["rawData"][daq]:
-                            # Get the first data point from default DAQ
-                            monitor_value = message["rawData"][daq]["data"][0]
-                            self.image_model.add_monitor_data(monitor_value, max_points=500)
-
-                            # Update current DAQ value display (scaled by 10)
-                            daq_display_value = monitor_value * 10.0
-                            self.image_model.set('daq_current_value', daq_display_value)
-
-                            # Signals will be emitted automatically by model changes
-                            break
+                # Monitor data accumulation and plot update are only needed when
+                # idle — skip entirely during a scan regardless of message layout.
+                if 'rawData' in message and not self.scanning:
+                    _t0 = time.perf_counter()
+                    raw = message["rawData"]
+                    daq_cfg = getattr(self.client, 'daqConfig', {})
+                    monitor_data = self.image_model.get('monitor_data', {}).copy()
+                    for daq_key, daq_data in raw.items():
+                        if isinstance(daq_data, dict) and "data" in daq_data:
+                            data = daq_data["data"]
+                            if data is None:
+                                continue
+                            daq_type = daq_cfg.get(daq_key, {}).get('type', 'point')
+                            if daq_type == 'image':
+                                value = float(np.sum(data))
+                            else:
+                                value = float(data[0])
+                            buf = monitor_data.get(daq_key, []) + [value]
+                            monitor_data[daq_key] = buf[-500:]
+                    if self.PROFILE_IMAGE_UPDATE:
+                        self._prof_tick('2a_monitor_data_accumulate', time.perf_counter() - _t0)
+                        _t0 = time.perf_counter()
+                    self.image_model.set('monitor_data', monitor_data)  # triggers monitor plot redraw
+                    if self.PROFILE_IMAGE_UPDATE:
+                        self._prof_tick('2b_monitor_plot_signal+render', time.perf_counter() - _t0)
+                    # Current-value display and optional image update for selected channel
+                    channel_key = self.image_model.get('channel_key', 'default')
+                    selected = raw.get(channel_key)
+                    if selected is not None and "data" in selected:
+                        data = selected["data"]
+                        if data is not None:
+                            daq_type = daq_cfg.get(channel_key, {}).get('type', 'point')
+                            val = float(np.sum(data)) if daq_type == 'image' else float(data[0])
+                            self.image_model.set('daq_current_value', val * 10.0)
+                            # For image-type DAQs, prefer the minimally processed image
+                            # from message['data'][channel_key] over the raw frame.
+                            if daq_type == 'image':
+                                processed = message.get('data', {}).get(channel_key)
+                                frame = (processed if isinstance(processed, np.ndarray) and processed.ndim >= 2
+                                         else data if isinstance(data, np.ndarray) and data.ndim >= 2
+                                         else None)
+                                if frame is not None:
+                                    self.image_updated.emit(frame)
                     
             # Handle elapsed time from scan messages
             elif 'elapsedTime' in message:
                 elapsed_time = message['elapsedTime']
-                self.elapsed_time_updated.emit(float(elapsed_time))
+                if elapsed_time is not None:
+                    self.elapsed_time_updated.emit(float(elapsed_time))
                 
+            # Handle Single Motor scan — data arrives as rawData points, not images
+            if (message.get('mode') == 'point' and
+                    message.get('type') == 'Single Motor' and
+                    'scanMotorVal' in message and 'rawData' in message and
+                    message['scanMotorVal'] is not None):
+                x_val = float(message['scanMotorVal'])
+                raw = message['rawData']
+                daq_cfg = getattr(self.client, 'daqConfig', {})
+
+                # Accumulate X position
+                x_data = self.image_model.get('motor_scan_x_data', []) + [x_val]
+                self.image_model._data['motor_scan_x_data'] = x_data
+
+                # Accumulate Y data per channel
+                motor_y = self.image_model.get('motor_scan_y_data', {})
+                if not isinstance(motor_y, dict):
+                    motor_y = {}
+                for daq_key, daq_data in raw.items():
+                    if isinstance(daq_data, dict) and 'data' in daq_data:
+                        if daq_data['data'] is None:
+                            continue
+                        daq_type = daq_cfg.get(daq_key, {}).get('type', 'point')
+                        val = float(np.sum(daq_data['data'])) if daq_type == 'image' else float(daq_data['data'][0])
+                        ch_buf = motor_y.get(daq_key, []) + [val]
+                        motor_y[daq_key] = ch_buf
+                self.image_model._data['motor_scan_y_data'] = motor_y
+
+                # Store motor name and scan type for axis labels
+                self.image_model._data['motor_scan_x_motor'] = self.scan_model.get('x_motor', 'Motor')
+                self.image_model._data['scan_type'] = 'Single Motor'
+
+                self._on_external_scan_detected('Single Motor')
+                self.motor_scan_updated.emit()
+
             # Handle image data (for both continuous and point mode scans)
-            if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'ptychographyGrid', 'point']:
+            if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'continuousSpiral', 'ptychographyGrid', 'point']:
                 # message['image'] is now a dict with keys like 'default', 'xrf', 'tey', etc.
-                image_dict = message['image']
+                image_dict = dict(message['image'])
+
+                # For image-type DAQs (e.g. CCD) the server sends both a raw frame in
+                # message['image'] and a minimally processed image in message['data'].
+                # Override image_dict entries with the processed version for all scan modes.
+                if isinstance(message.get('data'), dict):
+                    daq_cfg = getattr(self.client, 'daqConfig', {})
+                    for daq_key, daq_val in message['data'].items():
+                        if daq_val is None:
+                            continue
+                        if daq_cfg.get(daq_key, {}).get('type') == 'image':
+                            image_dict[daq_key] = daq_val
 
                 # Store the full image dictionary
                 metadata = {
@@ -250,22 +417,60 @@ class MainController(QObject):
                     'dwell': message.get('dwell'),
                     'scan_region': message.get('scanRegion'),
                     'energy_index': message.get('energyIndex'),
+                    'scan_id': message.get('scanID', ''),
                     'type': message.get('type'),
                     'mode': message.get('mode'),
-                    'all_images': image_dict  # Store all detector images
+                    'all_images': image_dict,  # Store all detector images
+                    # Per-tile geometry sent by the scan driver (used for tiled scans
+                    # where server-generated sub-regions are not in the GUI scan_regions dict)
+                    'msg_x_center': message.get('xCenter'),
+                    'msg_y_center': message.get('yCenter'),
+                    'msg_x_range':  message.get('xRange'),
+                    'msg_y_range':  message.get('yRange'),
+                    'msg_x_pts':    message.get('xPoints'),
+                    'msg_y_pts':    message.get('yPoints'),
                 }
 
-                # Extract the default detector image for display
+                # Extract the selected channel's image for display
                 if isinstance(image_dict, dict):
-                    if 'default' in image_dict:
-                        default_image = image_dict['default']
-                        self.update_image_data(default_image, metadata)
+                    channel_key = self.image_model.get('channel_key', 'default')
+                    display_image = image_dict.get(channel_key)
+                    if display_image is None:
+                        display_image = image_dict.get('default')
+                    if display_image is not None:
+                        _t0 = time.perf_counter()
+                        self.update_image_data(display_image, metadata)
+                        if self.PROFILE_IMAGE_UPDATE:
+                            self._prof_tick('3_update_image_data (total)', time.perf_counter() - _t0)
+                            self._prof_n += 1
+                            if self._prof_n >= self._prof_interval:
+                                self._prof_report()
                     else:
-                        print(f"Warning: image dict has no 'default' key. Keys: {image_dict.keys()}")
+                        print(f"Warning: image dict has no key '{channel_key}' or 'default'. Keys: {list(image_dict.keys())}")
                 else:
                     # Fallback for old message format (direct numpy array)
                     self.update_image_data(image_dict, metadata)
-                
+
+                # Update live stxm object for stack viewer
+                if self._live_stxm is not None and isinstance(image_dict, dict):
+                    try:
+                        energy_index = message.get('energyIndex', 0)
+                        region_str = message.get('scanRegion', 'Region1')
+                        region_num = int(region_str.split('Region')[-1]) - 1
+                        for daq, img in image_dict.items():
+                            if (daq in self._live_stxm.interp_counts and
+                                    region_num < len(self._live_stxm.interp_counts[daq]) and
+                                    isinstance(img, np.ndarray) and img.ndim >= 2):
+                                self._live_stxm.interp_counts[daq][region_num][energy_index] = img
+                        self._live_stxm.NXfile = message.get('scanID', '')
+                        self.live_data_ready.emit(self._live_stxm, message)
+                    except Exception as ex:
+                        print(f"Warning: live stxm update failed: {ex}")
+
+                # Detect scan that started externally (update_image_data has already written
+                # scan_type into image_model, so the view will read the correct type).
+                self._on_external_scan_detected(message.get('type', ''))
+
         except Exception as e:
             print(f"Error handling monitor message: {e}")
             
@@ -278,6 +483,23 @@ class MainController(QObject):
         """Handle ptychography data."""
         # Update image model with ptycho data
         self.image_model.set('ptycho_data', ptycho_data)
+
+    def _on_external_scan_detected(self, scan_type: str):
+        """Called when scan data arrives while self.scanning is False.
+
+        This covers two scenarios:
+          1. The GUI starts up while the server is already running a scan.
+          2. A remote scripting interface starts a scan while the GUI is idle.
+
+        Sets the controller scanning state and emits external_scan_started so
+        the view can configure itself exactly as if the user had pressed Begin.
+        """
+        if not self.scanning and scan_type:
+            self.scanning = True
+            self.image_model._data['motor_scan_x_data'] = []
+            self.image_model._data['motor_scan_y_data'] = {}
+            self.status_updated.emit(f"External scan detected: {scan_type}")
+            self.external_scan_started.emit(scan_type)
             
     def get_available_motors(self) -> list:
         """Get list of available motors for display."""
@@ -325,11 +547,13 @@ class MainController(QObject):
             self.scan_model.set('tiled', view.ui.tiledCheckbox.isChecked())
             self.scan_model.set('defocus', view.ui.defocusCheckbox.isChecked())
             self.scan_model.set('autofocus', view.ui.autofocusCheckbox.isChecked())
+            self.scan_model.set('doubleExposure', view.ui.doubleExposureCheckbox.isChecked() if hasattr(view.ui, 'doubleExposureCheckbox') else False)
             self.scan_model.set('proposal', view.ui.proposalComboBox.currentText() if view.ui.proposalComboBox.count() > 0 else '')
             self.scan_model.set('experimenters', view.ui.experimentersLineEdit.text())
             self.scan_model.set('sample', view.ui.sampleLineEdit.text())
             self.scan_model.set('comment', view.ui.commentEdit.toPlainText() if hasattr(view.ui, 'commentEdit') else '')
-            self.scan_model.set('driver',self.client.scanConfig[scan_type]['driver'])
+            self.scan_model.set('driver', self.client.scanConfig[scan_type]['driver'])
+            self.scan_model.set('mode', self.client.scanConfig[scan_type].get('mode', 'continuousLine'))
 
             # DAQ list - get from scan config but filter by what's available in daqConfig
             if 'daq_list' in self.client.scanConfig[scan_type]:
@@ -387,12 +611,40 @@ class MainController(QObject):
                 if region_data:
                     self.scan_model.add_scan_region(region_name, region_data)
             
-            # Collect energy regions from widgets  
-            for i, energy_widget in enumerate(view.energy_region_widgets):
-                region_name = f"EnergyRegion{i + 1}"
-                energy_data = self._extract_energy_region_data(energy_widget, view)
-                if energy_data:
-                    self.scan_model.add_energy_region(region_name, energy_data)
+            # Collect energy regions — handle energy list mode separately
+            if (hasattr(view.ui, 'energyListCheckbox') and
+                    view.ui.energyListCheckbox.isChecked()):
+                # Parse comma/space/newline-separated energy values from the text edit
+                raw = view.ui.energyListEdit.toPlainText().strip()
+                tokens = re.split(r'[\s,;]+', raw)
+                energies = []
+                for tok in tokens:
+                    try:
+                        energies.append(float(tok))
+                    except ValueError:
+                        pass
+                if not energies:
+                    self.error_occurred.emit("Energy list is empty — enter at least one energy value")
+                    return False
+                dwell = getattr(view, '_energy_list_dwell', 1000.0)
+                n = len(energies)
+                step = (energies[-1] - energies[0]) / (n - 1) if n > 1 else 0.0
+                self.scan_model.add_energy_region('EnergyRegion1', {
+                    'start':      energies[0],
+                    'stop':       energies[-1],
+                    'step':       step,
+                    'dwell':      dwell,
+                    'n_energies': n,
+                    'energy_list': energies,
+                })
+                self.scan_model.set('single_energy', False)
+                self.scan_model.set('energy_list', energies)
+            else:
+                for i, energy_widget in enumerate(view.energy_region_widgets):
+                    region_name = f"EnergyRegion{i + 1}"
+                    energy_data = self._extract_energy_region_data(energy_widget, view)
+                    if energy_data:
+                        self.scan_model.add_energy_region(region_name, energy_data)
                     
             # Calculate estimated time and include it in status message
             estimated_time = self.scan_model.calculate_estimated_time()
@@ -505,6 +757,62 @@ class MainController(QObject):
                     'zStart': 0,
                     'zStop': 0
                 }
+            elif "Single Motor" in scan_type:
+                x_center = float(region_widget.ui.xCenter.text() or 0)
+                x_range = float(region_widget.ui.xRange.text() or 10)
+                x_points = int(region_widget.ui.xNPoints.text() or 100)
+                x_step = x_range / x_points if x_points > 0 else 0.1
+                return {
+                    'xCenter': x_center,
+                    'yCenter': 0,
+                    'xRange': x_range,
+                    'yRange': 0,
+                    'xPoints': x_points,
+                    'yPoints': 1,
+                    'xStep': x_step,
+                    'yStep': 0,
+                    'xStart': x_center - x_range / 2.0 + x_step / 2.0,
+                    'xStop': x_center + x_range / 2.0 - x_step / 2.0,
+                    'yStart': 0,
+                    'yStop': 0,
+                    'zCenter': 0,
+                    'zRange': 0,
+                    'zPoints': 1,
+                    'zStep': 0,
+                    'zStart': 0,
+                    'zStop': 0
+                }
+            else:
+                # Fallback for Double Motor and any other 2D scan types — same
+                # layout as Image scan.
+                x_center = float(region_widget.ui.xCenter.text() or 0)
+                y_center = float(region_widget.ui.yCenter.text() or 0)
+                x_range = float(region_widget.ui.xRange.text() or 10)
+                y_range = float(region_widget.ui.yRange.text() or 10)
+                x_points = int(region_widget.ui.xNPoints.text() or 100)
+                y_points = int(region_widget.ui.yNPoints.text() or 100)
+                x_step = x_range / x_points if x_points > 0 else 0.1
+                y_step = y_range / y_points if y_points > 0 else 0.1
+                return {
+                    'xCenter': x_center,
+                    'yCenter': y_center,
+                    'xRange': x_range,
+                    'yRange': y_range,
+                    'xPoints': x_points,
+                    'yPoints': y_points,
+                    'xStep': x_step,
+                    'yStep': y_step,
+                    'xStart': x_center - x_range / 2.0 + x_step / 2.0,
+                    'xStop': x_center + x_range / 2.0 - x_step / 2.0,
+                    'yStart': y_center - y_range / 2.0 + y_step / 2.0,
+                    'yStop': y_center + y_range / 2.0 - y_step / 2.0,
+                    'zCenter': 0,
+                    'zRange': 0,
+                    'zPoints': 1,
+                    'zStep': 0,
+                    'zStart': 0,
+                    'zStop': 0
+                }
         except (ValueError, AttributeError) as e:
             print(f"Error extracting scan region data: {e}")
             return {}
@@ -534,6 +842,11 @@ class MainController(QObject):
         if not self.scan_model.validate():
             self.error_occurred.emit("Invalid scan configuration")
             return False
+
+        ok, msg = self.scan_model.validate_ranges(self.motor_model)
+        if not ok:
+            self.error_occurred.emit(f"Scan range error: {msg}")
+            return False
             
         if self.scanning:
             self.error_occurred.emit("Scan already in progress")
@@ -544,6 +857,19 @@ class MainController(QObject):
             message = {"command": "scan", "scan": scan_config}
             self.message_queue.put(message)
             self.scanning = True
+            # Reset motor scan data so a new Single Motor scan starts fresh
+            self.image_model._data['motor_scan_x_data'] = []
+            self.image_model._data['motor_scan_y_data'] = {}
+            # Create stxm data object for Image-type scans (used by stack viewer live display)
+            scan_type = self.scan_model.get('scan_type', '')
+            if 'Image' in scan_type:
+                try:
+                    self._live_stxm = stxm(scan_config)
+                except Exception as e:
+                    print(f"Warning: could not create live stxm object: {e}")
+                    self._live_stxm = None
+            else:
+                self._live_stxm = None
             self.status_updated.emit("Scan started")
             self.scan_state_changed.emit(True)  # Signal scan started
             return True
@@ -561,7 +887,11 @@ class MainController(QObject):
             self.scan_state_changed.emit(False)  # Signal scan completed
         else:
             self.error_occurred.emit("No scan in progress")
-            
+
+    def set_gate(self, mode: str):
+        """Set the shutter/gate mode. mode must be 'auto', 'open', or 'closed'."""
+        self.message_queue.put({"command": "setGate", "mode": mode})
+
     def move_motor(self, motor_name: str, position: float) -> bool:
         """Move a motor to the specified position."""
         if not self.motor_model.is_position_valid(motor_name, position):
@@ -605,52 +935,115 @@ class MainController(QObject):
     def update_image_data(self, image_data: np.ndarray, metadata: Dict[str, Any]):
         """Update image data and metadata.  This is called by _handle_monitor_message and updates the image_model
         during the scan.  The model then emits the data changed signal."""
-        self.image_model.set_current_image(image_data)
 
-        # Store all detector images if available
+        # Collect all metadata into a single silent write (no per-key signal emissions).
+        # set_current_image() is called last so the display fires once with all geometry
+        # already in place.
+        silent = {}
+
         if 'all_images' in metadata:
-            self.image_model.set('all_detector_images', metadata['all_images'])
-
-        # Update image metadata
+            silent['all_detector_images'] = metadata['all_images']
         if 'energy' in metadata:
-            self.image_model.set('current_energy', metadata['energy'])
+            silent['current_energy'] = metadata['energy']
         if 'dwell' in metadata:
-            self.image_model.set('current_dwell', metadata['dwell'])
+            silent['current_dwell'] = metadata['dwell']
         if 'scan_region' in metadata:
-            self.image_model.set('scan_region_index', metadata['scan_region'])
+            silent['scan_region_index'] = metadata['scan_region']
         if 'energy_index' in metadata:
-            self.image_model.set('energy_index', metadata['energy_index'])
+            silent['energy_index'] = metadata['energy_index']
         if 'type' in metadata:
-            self.image_model.set('scan_type', metadata['type'])
-            
-        # Update image geometry from scan model if available
+            silent['scan_type'] = metadata['type']
+        if 'scan_id' in metadata and metadata['scan_id']:
+            scan_id = metadata['scan_id']
+            silent['scan_file_name'] = scan_id
+            self.scan_file_updated.emit(os.path.basename(scan_id))
+
+        # Emit region / energy progress string (no model write needed)
+        region = metadata.get('scan_region', '')
+        energy_idx = metadata.get('energy_index', '')
+        parts = []
+        if region not in ('', None):
+            parts.append(str(region))
+        if energy_idx not in ('', None):
+            parts.append(f"Energy {int(energy_idx) + 1}")
+        if parts:
+            self.scan_progress_updated.emit(' / '.join(parts))
+
+        # Compute image geometry — prefer scan_regions dict (GUI), fall back to
+        # per-message fields for tiled scans where the server generates sub-regions
+        # ("Region2", "Region3", …) that are not in the GUI's scan_regions dict.
         scan_regions = self.scan_model.get('scan_regions', {})
-        if scan_regions and 'scan_region' in metadata:
+        if 'scan_region' in metadata:
             region_name = metadata['scan_region']
-            if region_name in scan_regions:
+            scan_type = self.scan_model.get('scan_type', '')
+
+            if scan_regions and region_name in scan_regions:
                 region_data = scan_regions[region_name]
                 x_center = region_data.get('xCenter', 0.0)
-                y_center = region_data.get('yCenter', 0.0)
-                x_range = region_data.get('xRange', 70.0)
-                y_range = region_data.get('yRange', 70.0)
-                x_pts = region_data.get('xPoints', 100)
-                y_pts = region_data.get('yPoints', 100)
-                
-                # Calculate pixel size for proper coordinate conversion
+                x_range  = region_data.get('xRange',  70.0)
+                x_pts    = region_data.get('xPoints', 100)
+
+                if 'Focus' in scan_type:
+                    y_center = region_data.get('zCenter', 0.0)
+                    y_range  = region_data.get('zRange',  70.0)
+                    y_pts    = region_data.get('zPoints', 100)
+                else:
+                    y_center = region_data.get('yCenter', 0.0)
+                    y_range  = region_data.get('yRange',  70.0)
+                    y_pts    = region_data.get('yPoints', 100)
+
+            elif metadata.get('msg_x_center') is not None:
+                # Tiled scan: use geometry the scan driver put in the message
+                x_center = metadata['msg_x_center']
+                y_center = metadata['msg_y_center']
+                x_range  = metadata['msg_x_range']
+                y_range  = metadata['msg_y_range']
+                x_pts    = metadata.get('msg_x_pts', 100)
+                y_pts    = metadata.get('msg_y_pts', 100)
+
+            else:
+                region_name = None  # Nothing to update
+
+            if region_name is not None:
                 pixel_size_x = x_range / x_pts if x_pts > 0 else 1.0
                 pixel_size_y = y_range / y_pts if y_pts > 0 else 1.0
-                
-                # Update image model geometry
-                self.image_model.set('x_center', x_center)
-                self.image_model.set('y_center', y_center)
-                self.image_model.set('x_range', x_range)
-                self.image_model.set('y_range', y_range)
-                self.image_model.set('image_scale', (pixel_size_x, pixel_size_y))
-                self.image_model.set('pixel_size', pixel_size_x)  # Use x pixel size
+
+                silent.update({
+                    'x_center':    x_center,
+                    'y_center':    y_center,
+                    'x_range':     x_range,
+                    'y_range':     y_range,
+                    'image_scale': (pixel_size_x, pixel_size_y),
+                    'pixel_size':  pixel_size_x,
+                })
+
+        # Write all metadata silently so geometry is ready before any display call.
+        if self.PROFILE_IMAGE_UPDATE:
+            _t0 = time.perf_counter()
+        # Include the image in the silent write so it's always current in the model
+        # (needed for channel switches and Image X/Y plots) without triggering a redraw.
+        silent['current_image'] = image_data
+        self.image_model.silent_update(silent)
+        if self.PROFILE_IMAGE_UPDATE:
+            self._prof_tick('3a_silent_update', time.perf_counter() - _t0)
+
+        # Throttle the display: only call set_current_image (which triggers setImage
+        # in pyqtgraph) when enough time has elapsed since the last repaint.
+        # This prevents the Qt event loop from being saturated with repaint events
+        # on fast point-mode scans while still keeping the display responsive.
+        now = time.perf_counter()
+        if now - self._last_display_time >= self._display_min_interval:
+            self._last_display_time = now
+            if self.PROFILE_IMAGE_UPDATE:
+                _t0 = time.perf_counter()
+            self.image_model.set_current_image(image_data)
+            if self.PROFILE_IMAGE_UPDATE:
+                self._prof_tick('3b_set_image+render', time.perf_counter() - _t0)
             
     def set_scan_type(self, scan_type: str):
-        """Set the scan type."""
+        """Set the scan type and resolve its daq_list from scan.json."""
         self.scan_model.set('scan_type', scan_type)
+        self.scan_model.set('daq_list', self._resolve_daq_list(scan_type))
         
     def add_scan_region(self, region_data: Dict[str, Any]) -> str:
         """Add a scan region and return its name."""
@@ -695,6 +1088,11 @@ class MainController(QObject):
                 }
             }
             self.message_queue.put(message)
+            # Mirror the change into the local motor_info so the label stays current
+            motor_info = self.motor_model.get('motor_info', {})
+            if motor_name in motor_info:
+                motor_info[motor_name][config_type] = value
+                self.motor_model.set('motor_info', motor_info)
             self.status_updated.emit(f"Updated {motor_name} {config_type} to {value}")
         except Exception as e:
             self.error_occurred.emit(f"Failed to update motor config: {str(e)}")

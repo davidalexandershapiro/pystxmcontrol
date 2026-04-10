@@ -174,7 +174,7 @@ class stxmServer:
                     error_message=error_msg,
                     duration=time.time() - cmd_start_time
                 )
-            elif message["command"] == "getData":
+            elif message["command"] == "get_data":
                 if not(scanning):
                     message["status"] = True
                     message["data"] = await self.controller.read_daq(daq=message["daq"], dwell=message["dwell"],

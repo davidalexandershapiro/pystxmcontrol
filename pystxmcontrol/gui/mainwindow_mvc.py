@@ -2,10 +2,101 @@ from pystxmcontrol.gui.mainwindow_UI import Ui_MainWindow
 from pystxmcontrol.gui.controllers.main_controller import MainController
 from pystxmcontrol.gui.energyDef import energyDefWidget
 from pystxmcontrol.gui.scanDef import scanRegionDef
-from PySide6 import QtWidgets, QtCore
+from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
+from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import numpy as np
 import qdarktheme
+
+
+class _MajorOnlyAxisItem(pg.AxisItem):
+    """Bottom axis that generates only major ticks, suppressing minor sub-ticks."""
+
+    def tickValues(self, minVal, maxVal, size):
+        levels = super().tickValues(minVal, maxVal, size)
+        return levels[:1] if levels else levels
+
+
+class _SigFigAxisItem(pg.AxisItem):
+    """Y AxisItem that shows tick values normalized to 2+ significant figures
+    and annotates the common exponent as ×10ⁿ in the axis label."""
+
+    # Unicode superscript digits and minus for exponent annotation
+    _SUP = str.maketrans('0123456789-', '⁰¹²³⁴⁵⁶⁷⁸⁹⁻')
+
+    def __init__(self, orientation, **kwargs):
+        # Must be set before super().__init__ because AxisItem.__init__ calls setLabel()
+        self._base_label = ''
+        self._sig_exp = None
+        self._label_pending = False
+        self._annotating = False
+        super().__init__(orientation, **kwargs)
+
+    # ------------------------------------------------------------------
+    def setLabel(self, text='', units='', unitPrefix='', **args):
+        if self._annotating:
+            super().setLabel(text, units, unitPrefix, **args)
+            return
+        self._base_label = text or ''
+        # If we already know the exponent, write the annotated text directly in
+        # one shot so there is no intermediate bare-text repaint (no flicker).
+        if self._sig_exp is not None and self._sig_exp != 0:
+            sup = str(self._sig_exp).translate(self._SUP)
+            annotated = f'{self._base_label}  ×10{sup}'
+            self._annotating = True
+            super().setLabel(annotated, units, unitPrefix, **args)
+            self._annotating = False
+        else:
+            super().setLabel(text, units, unitPrefix, **args)
+
+    # ------------------------------------------------------------------
+    def tickStrings(self, values, scale, spacing):
+        if not values:
+            return []
+
+        scaled = [v * scale for v in values]
+        nonzero = [abs(v) for v in scaled if v != 0]
+
+        if not nonzero:
+            self._schedule_exp(0)
+            return ['0'] * len(values)
+
+        abs_max = max(nonzero)
+        exp = int(np.floor(np.log10(abs_max))) if abs_max > 0 else 0
+        factor = 10.0 ** exp
+
+        # Decide how many decimal places are needed to distinguish adjacent ticks.
+        # Always at least 1 (→ 2 sig figs for values in [1, 10)).
+        scaled_spacing = abs(spacing * scale / factor) if factor != 0 else 1.0
+        if scaled_spacing > 0:
+            decimals = max(1, -int(np.floor(np.log10(scaled_spacing))))
+        else:
+            decimals = 1
+
+        self._schedule_exp(exp)
+        return [f'{v / factor:.{decimals}f}' for v in scaled]
+
+    # ------------------------------------------------------------------
+    def _schedule_exp(self, exp):
+        if exp == self._sig_exp:
+            return
+        self._sig_exp = exp
+        if not self._label_pending:
+            self._label_pending = True
+            QtCore.QTimer.singleShot(0, self._apply_exp_label)
+
+    def _apply_exp_label(self):
+        self._label_pending = False
+        exp = self._sig_exp
+        base = self._base_label
+        if exp is None or exp == 0:
+            text = base
+        else:
+            sup = str(exp).translate(self._SUP)
+            text = f'{base}  ×10{sup}'
+        self._annotating = True
+        super().setLabel(text)
+        self._annotating = False
 
 
 class MainWindowMVC(QtWidgets.QMainWindow):
@@ -47,8 +138,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.lineAngle = 0.0
 
         # Store current cursor coordinates from mouse movement
-        self.current_cursor_x = 0.0
+        self.current_cursor_x = 0.0   # updated continuously on mouse move
         self.current_cursor_y = 0.0
+        self.crosshair_x = None       # set only when user clicks (crosshair placed)
+        self.crosshair_y = None
 
         # Proposal management
         self.esaf_list = []
@@ -56,6 +149,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Additional data structures from mainwindow.py
         self.images = {}  # Dictionary of composite image items keyed by scanID:region
+        self._composite_scan_counter = 0  # Increments each scan for unique composite keys
         self.currentCCDData = None
         self.currentRPIData = None
         self.ptychoXpixm = 1.0
@@ -69,6 +163,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.zonePlateCalibration = 0.0
         self.zonePlateOffset = 0.0
         self.cursorFocusZ = 0.0
+
+        # Saved dwell for energy list mode (captured before region widgets are removed)
+        self._energy_list_dwell = 1000.0
+        self._saved_multi_energy = []   # saved energy region values while Single Energy is checked
+        self._single_energy_active = False  # tracks current state to detect transitions
 
         # Scan parameters
         self.tiled_scan = False
@@ -91,16 +190,23 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Image scan types
         self.imageScanTypes = ["ptychographyGrid", "rasterLine", "continuousLine", 'continuousSpiral', 'point']
         
+        # Load main.json from disk (independent of server connection)
+        self._local_main_config = self._read_main_config_from_disk()
+
         # Initialize the controller
         if self.controller.initialize_client():
             self._populate_combo_boxes()
+            self._update_server_address_display()
         else:
             # If client initialization fails, populate with defaults
             self._populate_default_combo_boxes()
 
-        # Initialize the view
+        # Initialize the view — signals must be live before _apply_last_scan
         self._setup_ui_connections()
         self._setup_controller_connections()
+        # Restore last scan params, then enforce deactivated startup state
+        self._apply_last_scan(self.ui.scanType.currentText())
+        self._deactivate_gui()
         self._initialize_display()
         self._create_range_roi()
         
@@ -137,6 +243,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         test_scan_action = QAction("Test Scan Compilation", self)
         test_scan_action.triggered.connect(self.test_scan_compilation)
         self.ui.menuHelp.addAction(test_scan_action)
+
+        set_password_action = QAction("Set Staff Password…", self)
+        set_password_action.triggered.connect(self.set_staff_password)
+        self.ui.menuFile.addAction(set_password_action)
         
         # Scan controls
         self.ui.scanType.currentIndexChanged.connect(self.on_scan_type_changed)
@@ -172,7 +282,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if hasattr(self.ui, 'epuEdit'):
             self.ui.epuEdit.returnPressed.connect(self.on_epu_changed)
         if hasattr(self.ui, 'harSpin'):
-            self.ui.harSpin.valueChanged.connect(self.on_harmonic_changed)
+            self.ui.harSpin.setEnabled(False)  # read-back only
 
         # Shutter control
         if hasattr(self.ui, 'shutterComboBox'):
@@ -191,6 +301,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.setCursor2ZeroButton.clicked.connect(self.set_cursor_to_zero)
         if hasattr(self.ui, 'beamToCursorButton'):
             self.ui.beamToCursorButton.clicked.connect(self.beam_to_cursor)
+        if hasattr(self.ui, 'focusToCursorButton'):
+            self.ui.focusToCursorButton.clicked.connect(self.on_focus_to_cursor)
+        if hasattr(self.ui, 'motors2CursorButton'):
+            self.ui.motors2CursorButton.clicked.connect(self.beam_to_cursor)
         if hasattr(self.ui, 'showBeamPosition'):
             self.ui.showBeamPosition.stateChanged.connect(self.toggle_beam_position)
         if hasattr(self.ui, 'firstEnergyButton'):
@@ -228,7 +342,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.toggleSingleEnergy.stateChanged.connect(self.toggle_single_energy)
         
         # Proposal controls
-        self.ui.proposalComboBox.currentIndexChanged.connect(self.on_proposal_changed)
+        self.ui.proposalComboBox.activated.connect(lambda idx: self.on_proposal_changed())
         
     def _setup_controller_connections(self):
         """Connect controller signals to view update methods."""
@@ -236,13 +350,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.motor_status_updated.connect(self.update_motor_status_display)
         self.controller.image_updated.connect(self.update_image_display)
         self.controller.scan_progress_updated.connect(self.update_scan_progress_display)
+        self.controller.scan_file_updated.connect(self.update_scan_file_display)
         self.controller.error_occurred.connect(self.show_error_message)
         self.controller.status_updated.connect(self.update_status_display)
         self.controller.monitor_data_updated.connect(self.update_monitor_plot)
         self.controller.daq_value_updated.connect(self.update_daq_value_display)
         self.controller.scan_state_changed.connect(self._set_scan_ui_state)
         self.controller.elapsed_time_updated.connect(self.update_elapsed_time_display)
-        
+        self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
+        self.controller.live_data_ready.connect(self.ui.stack_viewer.recv_live_data)
+        self.controller.external_scan_started.connect(self.on_external_scan_started)
+
     def _initialize_display(self):
         """Initialize the display elements."""
         # Set up image view with proper coordinate system
@@ -262,11 +380,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         pos = (x_center - x_range / 2.0, y_center - y_range / 2.0)
         
         self.ui.mainImage.setImage(
-            default_image, 
+            default_image,
             autoRange=False,  # Don't auto-range to preserve coordinate system
             pos=pos,
             scale=image_scale
         )
+
+        # Invert Y axis so that moving the ROI upward gives more negative Y,
+        # matching the microscope convention (moving sample down = field of view moves up).
+        self.ui.mainImage.getView().invertY(True)
         
         # Set up default values
         self.ui.focusRangeEdit.setText('100')
@@ -300,13 +422,77 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.toggle_jog_mode()
         self.ui.showRangeFinder.setChecked(False)
         self.toggle_range_roi_display()
+        if hasattr(self.ui, 'compositeImageCheckbox'):
+            self.ui.compositeImageCheckbox.setChecked(False)
         
         # Initialize energy list widget as hidden
         self.ui.energyListWidget.setVisible(False)
         
-        # Set default single energy state
-        self.ui.toggleSingleEnergy.setChecked(True)
-        
+        # Initialize the Browser tab
+        self._initialize_browser()
+
+        # Style the mainPlot
+        self._initialize_main_plot()
+
+    def _initialize_main_plot(self):
+        """Configure mainPlot: custom sig-fig axis, bounding frame, grid, theme."""
+        pi = self.ui.mainPlot.getPlotItem()
+
+        # Install the 2-sig-fig custom Y axis and major-only bottom axis
+        pi.setAxisItems({
+            'left':   _SigFigAxisItem('left'),
+            'bottom': _MajorOnlyAxisItem('bottom'),
+        })
+
+        # Show top and right axes as bounding lines (no tick values)
+        pi.showAxis('top')
+        pi.showAxis('right')
+        pi.getAxis('top').setStyle(showValues=False)
+        pi.getAxis('right').setStyle(showValues=False)
+        pi.getAxis('top').setHeight(10)
+        pi.getAxis('right').setWidth(10)
+
+        # Major-tick grid on both axes
+        pi.showGrid(x=True, y=True, alpha=0.25)
+
+        # Apply initial colour theme (light)
+        self._apply_plot_theme(light=True)
+
+    def _apply_plot_theme(self, light: bool):
+        """Switch mainPlot between light (blue/white) and dark (green/black) themes."""
+        plot = self.ui.mainPlot
+        pi = plot.getPlotItem()
+
+        if light:
+            bg_color = 'w'
+            ax_pen = pg.mkPen('k')
+            line_color = (30, 100, 210)   # blue
+        else:
+            bg_color = 'k'
+            ax_pen = pg.mkPen('w')
+            line_color = (50, 205, 80)    # green
+
+        plot.setBackground(bg_color)
+        for axis_name in ('left', 'bottom', 'top', 'right'):
+            ax = pi.getAxis(axis_name)
+            ax.setPen(ax_pen)
+            ax.setTextPen(ax_pen)
+
+        self._main_plot_pen = pg.mkPen(color=line_color, width=1.5)
+
+        # Update any live curves immediately
+        if getattr(self, 'current_plot', None) is not None:
+            self.current_plot.setPen(self._main_plot_pen)
+        if getattr(self, 'x_plot', None) is not None:
+            self.x_plot.setPen(self._main_plot_pen)
+
+    def _initialize_browser(self):
+        """Populate the Browser tab with the data file thumbnail browser."""
+        self.browser_widget = DataBrowserWidget()
+        layout = QtWidgets.QVBoxLayout(self.ui.tab_13)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.browser_widget)
+
     def _populate_combo_boxes(self):
         """Populate combo boxes with data from controller."""
         # Populate scan types - access client directly for now
@@ -345,24 +531,25 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.motorMover2.setCurrentText("SampleY")
                 self.ui.yMotorCombo.setCurrentText("SampleY")
                 
-        # Populate channel selector from daqConfig
+        # Populate channel selector from daqConfig; store DAQ key as item data
         self.ui.channelSelect.clear()
         if hasattr(self.controller, 'client') and hasattr(self.controller.client, 'daqConfig'):
-            for daq_key in self.controller.client.daqConfig.keys():
-                if self.controller.client.daqConfig[daq_key].get("record", True):
-                    daq_name = self.controller.client.daqConfig[daq_key].get("name", daq_key)
-                    self.ui.channelSelect.addItem(daq_name)
+            for daq_key, daq_cfg in self.controller.client.daqConfig.items():
+                if daq_cfg.get("record", True):
+                    daq_name = daq_cfg.get("name", daq_key)
+                    self.ui.channelSelect.addItem(daq_name, daq_key)
         else:
-            # Fallback to default channels if daqConfig not available
-            self.ui.channelSelect.addItems(["Diode", "CCD", "RPI"])
+            # Fallback — use key == name
+            for name in ["Diode", "CCD", "RPI"]:
+                self.ui.channelSelect.addItem(name, name)
             
         # Populate plot type selector
         if self.ui.plotType.count() == 0:
             self.ui.plotType.addItems(["Monitor", "Motor Scan", "Image X", "Image Y", "Image XY"])
-            
+
         # Populate proposal combobox
         self._populate_proposal_combobox()
-            
+
     def _populate_default_combo_boxes(self):
         """Populate combo boxes with default values when client is not available."""
         # Default scan types
@@ -504,17 +691,47 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.toggle_range_roi_display()
         
     # View event handlers
+    def _update_y_axis_label(self, scan_type: str):
+        """Set Y/Z cursor label based on scan type (Focus scans use Z as vertical axis)."""
+        if "Focus" in scan_type:
+            html = ("<html><head/><body><p><span style=\" font-weight:700;\">"
+                    "Z:</span></p></body></html>")
+        else:
+            html = ("<html><head/><body><p><span style=\" font-weight:700;\">"
+                    "Y:</span></p></body></html>")
+        self.ui.label_23.setText(html)
+
     def on_scan_type_changed(self):
         """Handle scan type change."""
         scan_type = self.ui.scanType.currentText()
         self.controller.set_scan_type(scan_type)
         self._update_ui_for_scan_type(scan_type)
-        
+        self._update_y_axis_label(scan_type)
+
+        # Check the ROI checkbox for any scan type that supports it
+        if self.ui.roiCheckbox.isEnabled():
+            self.ui.roiCheckbox.setChecked(True)
+
+        # Restore last-used values for this scan type
+        self._apply_last_scan(scan_type)
+
+        # For Focus scans, always initialise the Z centre to the current ZonePlateZ
+        # position (i.e. where the microscope is focused right now).  This must run
+        # after _apply_last_scan so the current motor position takes precedence over
+        # whatever was saved in main.json.
+        if "Focus" in scan_type and hasattr(self.ui, 'focusCenterEdit'):
+            try:
+                motor_positions = self.controller.get_motor_model().get('current_positions', {})
+                zone_plate_z = motor_positions.get('ZonePlateZ', 0)
+                self.ui.focusCenterEdit.setText(f"{zone_plate_z:.2f}")
+            except Exception:
+                pass
+
         # Recreate range ROI with updated motor configuration
         self._recreate_range_roi()
-        
-        # Update scan ROIs for new scan type
-        self._update_rois_from_regions()
+
+        # Update scan ROIs for new scan type, positioned to fill the current field of view
+        self._update_rois_from_regions(reset_to_view=True)
         
     def on_begin_scan(self):
         """Handle begin scan button click."""
@@ -523,6 +740,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Then start the scan
             success = self.controller.start_scan()
             if success:
+                # Cache the compiled config so switching scan types and returning
+                # restores these values via _apply_last_scan.
+                scan_config = self.controller.get_scan_model().to_dict()
+                scan_type = scan_config.get('scan_type', '')
+                if scan_type:
+                    self._local_main_config.setdefault('lastScan', {})[scan_type] = scan_config
                 self._set_scan_ui_state(scanning=True)
         else:
             self.show_error_message("Failed to compile scan configuration")
@@ -531,7 +754,36 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Handle cancel scan button click."""
         self.controller.cancel_scan()
         self._set_scan_ui_state(scanning=False)
-        
+
+    def on_external_scan_started(self, scan_type: str):
+        """Handle a scan that was started externally (server already scanning on GUI
+        startup, or a remote script triggered a scan while the GUI was idle).
+
+        Syncs the scanType combobox to the reported scan type, then puts the GUI
+        into the same scanning state it would be in had the user pressed Begin.
+        """
+        # Match combobox item — exact match first, then substring match.
+        matched_index = -1
+        for i in range(self.ui.scanType.count()):
+            if self.ui.scanType.itemText(i) == scan_type:
+                matched_index = i
+                break
+        if matched_index == -1:
+            for i in range(self.ui.scanType.count()):
+                item = self.ui.scanType.itemText(i)
+                if scan_type in item or item in scan_type:
+                    matched_index = i
+                    break
+
+        if matched_index != -1:
+            # Update combobox without triggering on_scan_type_changed (which would
+            # overwrite the image model and reset region widgets mid-scan).
+            self.ui.scanType.blockSignals(True)
+            self.ui.scanType.setCurrentIndex(matched_index)
+            self.ui.scanType.blockSignals(False)
+
+        self._set_scan_ui_state(scanning=True)
+
     def on_move_motor1(self):
         """Handle motor 1 move button click."""
         motor_name = self.ui.motorMover1.currentText()
@@ -599,6 +851,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         try:
             a0_value = float(self.ui.A0Edit.text())
             self.controller.handle_motor_config_change("Energy", "A0", a0_value)
+            self.ui.A0Label.setText(f"{int(a0_value)}")
         except ValueError:
             self.show_error_message("Invalid A0 value")
 
@@ -674,9 +927,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             mode = "closed"
         else:
             return
-        # Send gate command through controller
-        if hasattr(self.controller, 'set_gate'):
-            self.controller.set_gate(mode)
+        self.controller.set_gate(mode)
             
     def update_focus_step_size(self):
         """Update focus step size label when range or steps change."""
@@ -733,7 +984,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
     def set_cursor_to_zero(self):
         """Set cursor position to zero coordinates by adjusting motor offsets."""
-        if self.current_cursor_x is None or self.current_cursor_y is None:
+        if self.crosshair_x is None or self.crosshair_y is None:
             self.show_error_message("Please click on the image first to set cursor position")
             return
 
@@ -742,8 +993,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.show_error_message("This function only works for Image and Double Motor scans")
             return
 
-        x = round(self.current_cursor_x, 2)
-        y = round(self.current_cursor_y, 2)
+        x = round(self.crosshair_x, 2)
+        y = round(self.crosshair_y, 2)
 
         # Get current motors
         motor_model = self.controller.get_motor_model()
@@ -775,19 +1026,80 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.vertical_line = None
 
     def beam_to_cursor(self):
-        """Move motors to cursor position."""
+        """Move motors to the crosshair (clicked) position."""
         if self.controller.get_scan_model().get('scanning', False):
             return
 
-        if self.current_cursor_x is None or self.current_cursor_y is None:
+        if self.crosshair_x is None or self.crosshair_y is None:
             self.show_error_message("Please click on the image first to set cursor position")
             return
 
         x_motor = self.ui.xMotorCombo.currentText() or 'SampleX'
         y_motor = self.ui.yMotorCombo.currentText() or 'SampleY'
 
-        self.controller.move_motor(x_motor, self.current_cursor_x)
-        self.controller.move_motor(y_motor, self.current_cursor_y)
+        self.controller.move_motor(x_motor, self.crosshair_x)
+        self.controller.move_motor(y_motor, self.crosshair_y)
+
+    def on_focus_to_cursor(self):
+        """Calibrate focus using the Z position the user clicked in a Focus scan image.
+
+        Mirrors setFocusZ() from the legacy mainwindow.py:
+        - OSA Focus or uncalibrated A0 → adjust ZonePlateZ offset so the clicked
+          Z position maps to the zone-plate calibration position.
+        - Regular Focus with calibrated A0 → adjust A0 (and SampleZ offset) instead.
+        In both cases, move ZonePlateZ to the calibration position afterwards.
+        """
+        self.ui.focusToCursorButton.setEnabled(False)
+
+        if self.crosshair_y is None:
+            self.show_error_message("Please click on the image first to set cursor position")
+            return
+
+        cursor_focus_z = self.crosshair_y  # y-axis = Z in Focus scan images; use clicked position
+
+        image_model = self.controller.get_image_model()
+        zone_plate_calibration = image_model.get('zonePlateCalibration', 0.0)
+        zone_plate_offset = image_model.get('zonePlateOffset', 0.0)
+
+        motor_model = self.controller.get_motor_model()
+        motor_info = motor_model.get('motor_info', {})
+        a0 = motor_info.get('Energy', {}).get('A0', 0.0)
+        current_positions = motor_model.get('current_positions', {})
+
+        scan_type = image_model.get('scan_type', '')
+        a0_calibrated = False
+        try:
+            a0_calibrated = self.controller.client.main_config.get(
+                'geometry', {}).get('A0_calibrated', False)
+        except Exception:
+            pass
+
+        if "OSA" in scan_type or not a0_calibrated:
+            # Adjust ZonePlateZ offset to bring clicked position to calibration point
+            offset_delta = zone_plate_calibration - a0 - cursor_focus_z
+            new_offset = zone_plate_offset + offset_delta
+            print(f"setFocusZ: setting ZonePlateZ offset to {new_offset:.3f}")
+            self.controller.handle_motor_config_change("ZonePlateZ", "offset", new_offset)
+        else:
+            # Calibrated A0 path: adjust A0 and SampleZ offset
+            new_a0 = a0 - (zone_plate_calibration - cursor_focus_z)
+            sample_z = current_positions.get('SampleZ', 0.0)
+            sample_z_offset = motor_info.get('SampleZ', {}).get('offset', 0.0)
+            new_sample_z_offset = sample_z_offset + (new_a0 - sample_z)
+            print(f"setFocusZ: setting A0 to {new_a0:.3f}, SampleZ offset to {new_sample_z_offset:.3f}")
+            self.controller.handle_motor_config_change("SampleZ", "offset", new_sample_z_offset)
+            self.controller.handle_motor_config_change("Energy", "A0", new_a0)
+
+        # Move ZonePlateZ to the calibration position
+        self.controller.move_motor("ZonePlateZ", zone_plate_calibration)
+
+        # Remove crosshairs
+        if self.horizontal_line:
+            self.ui.mainImage.removeItem(self.horizontal_line)
+            self.horizontal_line = None
+        if self.vertical_line:
+            self.ui.mainImage.removeItem(self.vertical_line)
+            self.vertical_line = None
 
     def toggle_beam_position(self):
         """Toggle beam position display on image."""
@@ -809,50 +1121,37 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if not self.scan_region_widgets:
             return
         self._clear_rois()
-        self.roi_list.append(self._calculate_line_roi())
+        roi = self._calculate_line_roi()
+        roi.sigRegionChanged.connect(self._update_region_from_roi)
+        self.roi_list.append(roi)
         self._show_rois()
             
     def on_mouse_moved(self, pos):
         """Handle mouse movement over image."""
-        # Update cursor position display
-        scene_pos = self.ui.mainImage.getImageItem().mapFromScene(pos)
-
-        # Get image geometry from the image model
-        image_model = self.controller.get_image_model()
-        scan_type = image_model.get('scan_type', 'Image')
-        y_motor = 'y'
-        if "Focus" in scan_type:
-            y_motor = 'z'
-        x_center = image_model.get('x_center', 0.0)
-        y_center = image_model.get(y_motor+'_center', 0.0)
-        x_range = image_model.get('x_range', 70.0)
-        y_range = image_model.get(y_motor+'_range', 70.0)
-        image_scale = image_model.get('image_scale', (1.0, 1.0))
-        if "Spectrum" in scan_type:
-            energies = np.array(image_model.get('energy_list', [700, 720]))
-            if len(energies) > 0:
-                image_scale = [image_model.get('x_pts', 50)/energies.size, 1.0]
-                x_center = (energies.max() + energies.min()) / 2.0
-                x_range = energies.max() - energies.min()
-
-        # Convert to real coordinates based on image geometry
-        x_real = (scene_pos.x() * image_scale[0]) + x_center - x_range / 2.0
-        y_real = (scene_pos.y() * image_scale[1]) + y_center - y_range / 2.0
+        # Convert scene position directly to view (motor) coordinates using the
+        # ViewBox transform — this is always correct regardless of image_scale or
+        # which scan type is active.
+        view_pos = self.ui.mainImage.getView().mapSceneToView(pos)
+        x_real = view_pos.x()
+        y_real = view_pos.y()
 
         # Store current cursor coordinates for use in click events
         self.current_cursor_x = x_real
         self.current_cursor_y = y_real
 
-        # Update cursor position labels (note: y-coordinate is negated for display)
+        # Update cursor position labels.
+        # For Focus scans the vertical image axis is Z, so relabel accordingly.
+        displayed_scan_type = self.controller.get_image_model().get('scan_type', '')
+        self._update_y_axis_label(displayed_scan_type)
         self.ui.xCursorPos.setText(f"{x_real:.3f}")
-        self.ui.yCursorPos.setText(f"{-y_real:.3f}")
+        self.ui.yCursorPos.setText(f"{y_real:.3f}")
 
-        # Calculate and update scale bar
+        # Calculate and update scale bar using the ImageItem's actual pixel size
         if hasattr(self.ui, 'scaleBarLength') and hasattr(self.ui.mainImage, 'imageItem'):
             try:
                 pixel_size = self.ui.mainImage.imageItem.pixelSize()[0]
                 if pixel_size > 0:
-                    self.scaleBarLength = np.round(100. / pixel_size * image_scale[0], 3)
+                    self.scaleBarLength = np.round(100. / pixel_size, 3)
                     if self.scaleBarLength < 1.:
                         scale_text = f"{self.scaleBarLength * 1000.} nm"
                     else:
@@ -861,8 +1160,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             except:
                 pass
 
-        # Read image intensity at cursor position
+        # Read image intensity at cursor position (needs pixel coords from ImageItem)
+        scene_pos = self.ui.mainImage.getImageItem().mapFromScene(pos)
         self._update_cursor_intensity(scene_pos)
+
+        # Update Image X/Y/XY line plots if that mode is active
+        self._show_image_line_plots(scene_pos)
         
     def _update_cursor_intensity(self, scene_pos):
         """Update cursor intensity from image data."""
@@ -918,10 +1221,18 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.handle_mouse_click(x_real, y_real)
 
         # Activate action buttons as appropriate for the scan type
-        print(self.controller.scanning)
-        if "Image" in image_model.get('scan_type','') and not self.controller.scanning:
-            self.ui.motors2CursorButton.setEnabled(True)
+        displayed_type = image_model.get('scan_type', '')
+        if not self.controller.scanning:
+            if "Image" in displayed_type:
+                self.ui.motors2CursorButton.setEnabled(True)
+            if "Focus" in displayed_type:
+                self.ui.focusToCursorButton.setEnabled(True)
         
+        # Store the clicked position separately — this is what action buttons use,
+        # as opposed to current_cursor_x/y which follow the mouse continuously.
+        self.crosshair_x = x_real
+        self.crosshair_y = y_real
+
         # Update crosshair using real coordinates (this is what the user sees)
         self._update_crosshair(x_real, y_real)
         
@@ -934,7 +1245,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             xdata = idx
             ydata = np.interp(idx,motor_data[1],motor_data[0])
         elif self.ui.plotType.currentText() == "Monitor":
-            monitor_data = self.controller.get_image_model().get('monitor_data', [])
+            _im = self.controller.get_image_model()
+            monitor_data = _im.get_monitor_data(_im.get('channel_key', 'default'))
             xdata = idx
             ydata = np.interp(idx,np.arange(len(monitor_data)),monitor_data)
         self.ui.xCursorPos.setText(str(round(xdata,3)))
@@ -943,8 +1255,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def on_channel_changed(self):
         """Handle channel selection change."""
         channel = self.ui.channelSelect.currentText()
-        settings = {'channel_select': channel}
-        self.controller.set_image_display_settings(settings)
+        # itemData holds the raw DAQ key; fall back to the display name if unset
+        channel_key = self.ui.channelSelect.currentData() or channel
+        self.controller.set_image_display_settings({
+            'channel_select': channel,
+            'channel_key':    channel_key,
+        })
+        # Re-display whichever image is already stored for the new channel
+        self.controller.refresh_channel_image()
         
     def on_plot_type_changed(self):
         """Handle plot type change."""
@@ -952,11 +1270,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         settings = {'plot_type': plot_type}
         self.controller.set_image_display_settings(settings)
         
-        # Clear existing plot
+        # Clear existing plots (including Image X/Y line plots)
         if self.current_plot:
             self.ui.mainPlot.removeItem(self.current_plot)
             self.current_plot = None
-            
+        if self.x_plot:
+            self.ui.mainPlot.removeItem(self.x_plot)
+            self.x_plot = None
+        if self.y_plot:
+            self.ui.mainPlot.removeItem(self.y_plot)
+            self.y_plot = None
+
         # Update to new plot type
         self._update_plot_display()
         
@@ -991,15 +1315,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             except:
                 pass
                 
-        # Update A0 and A1 labels from motor info (this comes from client config, not motor position)
-        motor_model = self.controller.get_motor_model()
-        motor_info = motor_model.get('motor_info', {})
-        if 'Energy' in motor_info:
-            a0_value = motor_info['Energy'].get('A0', 0)
-            self.ui.A0Label.setText(f"{int(a0_value)}")
-            if hasattr(self.ui, 'A1Label'):
-                a1_value = motor_info['Energy'].get('A1', 0)
-                self.ui.A1Label.setText(f"{round(a1_value, 4)}")
+        # A0/A1 labels are updated by on_a0_changed / handle_motor_config_change,
+        # not here — updating them on every motor position message is unnecessary overhead.
             
     def update_motor_status_display(self, motor_name: str, is_moving: bool):
         """Update motor status display."""
@@ -1038,16 +1355,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Handle case where image_data might be a dict (from scan messages)
         if isinstance(image_data, dict):
-            # Extract the actual image array from the dict
-            if 'default' in image_data:
-                image_data = image_data['default']
-            else:
-                print(f"Warning: image_data is a dict but has no 'default' key: {image_data.keys()}")
+            channel_key = self.controller.get_image_model().get('channel_key', 'default')
+            img = image_data.get(channel_key)
+            if img is None:
+                img = image_data.get('default')
+            if img is None:
                 return
+            image_data = img
 
-        # Verify we have a numpy array
+        # Verify we have a numpy array (None is expected when zmq recv fails)
         if not isinstance(image_data, np.ndarray):
-            print(f"Warning: image_data is not a numpy array, got {type(image_data)}")
             return
 
         # Get current image geometry settings to maintain coordinate system
@@ -1059,6 +1376,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         image_scale = image_model.get('image_scale', (0.7, 0.7))
 
         scan_type = image_model.get('scan_type', '')
+
+        # Image scans: lock aspect ratio so physical proportions are preserved.
+        # Focus scans: unlock so the image always stretches to fill the viewport.
+        self.ui.mainImage.getView().setAspectLocked("Focus" not in scan_type)
+
         if "Spectrum" in scan_type:
             energies = np.array(image_model.get('energy_list', [700, 720]))
             if energies.size > 0:
@@ -1070,18 +1392,72 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Calculate position to center the image at the motor coordinate center
         pos = (x_center - x_range / 2.0, y_center - y_range / 2.0)
 
-        # Update image while preserving coordinate system
-        self.ui.mainImage.setImage(
-            image_data.T,
-            autoRange=self.ui.autorangeCheckbox.isChecked(),
-            autoLevels=self.ui.autoscaleCheckbox.isChecked(),
-            pos=pos,
-            scale=image_scale
-        )
+        auto_range = self.ui.autorangeCheckbox.isChecked()
+        auto_scale = self.ui.autoscaleCheckbox.isChecked()
+
+        # Compute levels from non-zero data when autoscale is on
+        levels = None
+        if auto_scale:
+            pos_data = image_data[image_data > 0]
+            if pos_data.size > 0:
+                levels = [float(pos_data.min()), float(pos_data.max())]
+
+        tiled_scan = self.controller.scan_model.get('tiled', False)
+        composite_on = tiled_scan or (hasattr(self.ui, 'compositeImageCheckbox') and
+                                      self.ui.compositeImageCheckbox.isChecked())
+
+        if composite_on:
+            # Build a unique key for this scan region
+            region = image_model.get('scan_region_index', 0)
+            image_id = f"scan_{self._composite_scan_counter}:{region}"
+            if image_id in self.images:
+                if levels is not None:
+                    self.images[image_id].setImage(image_data.T, autoLevels=False, levels=levels)
+                else:
+                    self.images[image_id].setImage(image_data.T, autoLevels=False)
+            else:
+                # Create a new ImageItem positioned in motor coordinates
+                img = pg.ImageItem()
+                tr = QtGui.QTransform()
+                tr.scale(image_scale[0], image_scale[1])
+                tr.translate(pos[0] / image_scale[0], pos[1] / image_scale[1])
+                img.setTransform(tr)
+                if levels is not None:
+                    img.setImage(image_data.T, autoLevels=False, levels=levels)
+                else:
+                    img.setImage(image_data.T, autoLevels=False)
+                self.images[image_id] = img
+                self.ui.mainImage.addItem(img)
+        else:
+            # Normal (non-composite) mode — update the main ImageView directly
+            if levels is not None:
+                self.ui.mainImage.setImage(
+                    image_data.T,
+                    autoRange=auto_range,
+                    autoLevels=False,
+                    levels=levels,
+                    autoHistogramRange=auto_range,
+                    pos=pos,
+                    scale=image_scale
+                )
+            else:
+                self.ui.mainImage.setImage(
+                    image_data.T,
+                    autoRange=auto_range,
+                    autoLevels=False,
+                    autoHistogramRange=auto_range,
+                    pos=pos,
+                    scale=image_scale
+                )
+
             
     def update_scan_progress_display(self, progress_info: str):
         """Update scan progress display."""
         self.ui.imageCountText.setText(progress_info)
+
+    def update_scan_file_display(self, filename: str):
+        """Update scan file name label."""
+        self.ui.scanFileName.setText(filename)
         
     def show_error_message(self, error_message: str):
         """Show error message to user."""
@@ -1125,9 +1501,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def update_estimated_time(self):
         """Update estimated time by compiling current scan parameters.  Called by update_scan_regions
         and update_energy_regions"""
-        try:  
-        # Compile scan to calculate estimated time
+        try:
             self.controller.compile_scan_from_view(self)
+            velocity = self.controller.scan_model.get_scan_velocity()
+            self.ui.scanVelocity.setText(f"{velocity:.3f} mm/s")
+            if velocity > self.maxVelocity:
+                self.ui.scanVelocity.setStyleSheet("color: red;")
+            else:
+                self.ui.scanVelocity.setStyleSheet("")
         except Exception as e:
             print(f"Error updating estimated time: {e}")
 
@@ -1234,14 +1615,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     region_widget.ui.xCenter.setEnabled(True)
                     region_widget.ui.yCenter.setEnabled(True)
             
-            # Set focus parameters
-            try:
-                motor_positions = self.controller.get_motor_model().get('current_positions', {})
-                zone_plate_z = motor_positions.get('ZonePlateZ', 0)
-                self.ui.focusCenterEdit.setText(f"{zone_plate_z:.2f}")
-            except:
-                pass
-                
             # Update focus step size
             self.update_focus_step_size()
                 
@@ -1287,7 +1660,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.roiCheckbox.setEnabled(True)
             self.ui.xMotorCombo.setEnabled(False)  # Usually fixed for image scans
             self.ui.yMotorCombo.setEnabled(False)
-            self.ui.toggleSingleEnergy.setChecked(True)
             self.ui.toggleSingleEnergy.setEnabled(True)
             self._set_focus_widgets(False)
             self._set_line_widgets(False)
@@ -1301,11 +1673,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.doubleExposureCheckbox.setEnabled(True)
                 self.ui.multiFrameCheckbox.setEnabled(True)
                 self.ui.defocusCheckbox.setEnabled(True)
+                self.ui.defocusCheckbox.setChecked(True)
             else:
                 self.ui.doubleExposureCheckbox.setChecked(False)
                 self.ui.doubleExposureCheckbox.setEnabled(False)
                 self.ui.multiFrameCheckbox.setChecked(False)
                 self.ui.multiFrameCheckbox.setEnabled(False)
+                self.ui.defocusCheckbox.setChecked(False)
                 self.ui.defocusCheckbox.setEnabled(False)
                 
             # Show range ROI if enabled
@@ -1346,20 +1720,22 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             for region_widget in self.scan_region_widgets:
                 region_widget.setEnabled(True)
                 
-        # Update ROI display based on current image type
-        current_image_type = self.controller.get_image_model().get('scan_type')
-        if "Image" in current_image_type:
-            self.ui.roiCheckbox.setChecked(True)
-            self.ui.roiCheckbox.setEnabled(True)
-        else:
+        # Disable ROI checkbox only for scan types with no spatial ROI (Single Motor)
+        if scan_type == "Single Motor":
             self.ui.roiCheckbox.setChecked(False)
             self.ui.roiCheckbox.setEnabled(False)
+        elif not self.ui.roiCheckbox.isEnabled():
+            # Re-enable for all other scan types (Focus, Line Spectrum, Double Motor, Image)
+            self.ui.roiCheckbox.setEnabled(True)
             
     def _set_scan_ui_state(self, scanning: bool):
 
         """Set UI state for scanning/not scanning.  This function is called with the controller emits
         scan_state_changed.  That occurs when a scan starts, completes or is cancelled."""
-        
+
+        if scanning:
+            self._composite_scan_counter += 1
+
         # Basic scan controls
         self.ui.beginScanButton.setEnabled(not scanning)
         self.ui.cancelButton.setEnabled(scanning)
@@ -1379,7 +1755,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Motor controls
         self.ui.xMotorCombo.setEnabled(not scanning)
         self.ui.yMotorCombo.setEnabled(not scanning)
-        self.ui.focusToCursorButton.setEnabled(not scanning)
+        # focusToCursorButton is only enabled when the user clicks inside a Focus scan
+        # image — always disable it here; on_mouse_clicked re-enables it as needed.
+        self.ui.focusToCursorButton.setEnabled(False)
         self.ui.motors2CursorButton.setEnabled(not scanning)
         
         # Scan region widgets
@@ -1397,9 +1775,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 energy_widget.setEnabled(not scanning)
             
         # ROI display
-        if scanning:
-            self._hide_rois()
+        self._hide_rois()
+        self.ui.roiCheckbox.setChecked(False)
         self._update_ui_for_scan_type(self.controller.get_image_model().get('scan_type'))
+        # Override ROI checkbox during scanning — always disabled+unchecked while running
+        if scanning:
+            self.ui.roiCheckbox.setChecked(False)
+            self.ui.roiCheckbox.setEnabled(False)
         
     def _update_crosshair(self, x: float, y: float):
         """Update crosshair position on image."""
@@ -1425,45 +1807,150 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
     def _show_monitor_plot(self):
         """Show monitor data plot."""
-        monitor_data = self.controller.get_image_model().get('monitor_data', [])
-        
-        # Remove existing plot
-        if self.current_plot:
-            self.ui.mainPlot.removeItem(self.current_plot)
-            self.current_plot = None
-        
-        # Plot new data if available
-        if monitor_data:
+        image_model = self.controller.get_image_model()
+        channel_key = image_model.get('channel_key', 'default')
+        monitor_data = image_model.get_monitor_data(channel_key)
+
+        if not monitor_data:
+            return
+
+        data_array = np.array(monitor_data)
+
+        if self.current_plot is None:
             self.current_plot = self.ui.mainPlot.plot(
-                np.array(monitor_data),
-                pen=pg.mkPen('w', width=1, style=QtCore.Qt.DotLine),
-                symbol='o', symbolPen='g', symbolSize=3,
-                symbolBrush=(0, 255, 0)
+                data_array,
+                pen=self._main_plot_pen,
             )
-            # Set plot labels
-            self.ui.mainPlot.setLabel("bottom", "Monitor")
-            self.ui.mainPlot.setLabel("left", "Intensity")
+        else:
+            self.current_plot.setData(data_array)
+
+        self.ui.mainPlot.setLabel("bottom", "Monitor")
+        self.ui.mainPlot.setLabel("left", channel_key)
+        self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
             
-            # Auto-scale the plot for better visibility
-            self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
-            
+    def update_motor_scan_plot(self):
+        """Called when new Single Motor scan data arrives — switch plot and update."""
+        if self.ui.plotType.currentText() != "Motor Scan":
+            self.ui.plotType.blockSignals(True)
+            self.ui.plotType.setCurrentText("Motor Scan")
+            self.ui.plotType.blockSignals(False)
+        self._show_motor_scan_plot()
+
     def _show_motor_scan_plot(self):
-        """Show motor scan data plot."""
+        """Show motor scan data plot with correct axis labels."""
         image_model = self.controller.get_image_model()
         x_data = image_model.get('motor_scan_x_data', [])
-        y_data = image_model.get('motor_scan_y_data', [])
-        
-        if x_data and y_data and self.current_plot:
-            self.ui.mainPlot.removeItem(self.current_plot)
-            
-        if x_data and y_data:
+        motor_y = image_model.get('motor_scan_y_data', {})
+
+        # Support both old flat-list format and new per-channel dict format
+        channel_key = image_model.get('channel_key', 'default')
+        if isinstance(motor_y, dict):
+            y_data = motor_y.get(channel_key) or (next(iter(motor_y.values())) if motor_y else [])
+        else:
+            y_data = motor_y
+
+        if not x_data or not y_data:
+            return
+
+        x_arr = np.array(x_data)
+        y_arr = np.array(y_data)
+
+        if self.current_plot is None:
             self.current_plot = self.ui.mainPlot.plot(
-                np.array(x_data), np.array(y_data),
-                pen=pg.mkPen('w', width=1, style=QtCore.Qt.DotLine),
-                symbol='o', symbolPen='g', symbolSize=3,
-                symbolBrush=(255, 255, 255)
+                x_arr, y_arr,
+                pen=self._main_plot_pen,
             )
+        else:
+            self.current_plot.setData(x_arr, y_arr)
+
+        x_motor = image_model.get('motor_scan_x_motor', 'Motor')
+        self.ui.mainPlot.setLabel("bottom", x_motor)
+        self.ui.mainPlot.setLabel("left", channel_key)
+        self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
             
+    def _show_image_line_plots(self, scene_pos):
+        """Update Image X / Image Y / Image XY line plots from mouse position.
+
+        scene_pos is the position in ImageItem pixel coordinates:
+          scene_pos.x() → x pixel index (column in display = row in array)
+          scene_pos.y() → y pixel index (row in display = col in array)
+        """
+        plot_type = self.ui.plotType.currentText()
+        if plot_type not in ("Image X", "Image Y", "Image XY"):
+            return
+
+        image_model = self.controller.get_image_model()
+        current_image = image_model.get_current_image()
+        if current_image is None:
+            return
+
+        # Image stored as (y_size, x_size) or (z_size, y_size, x_size)
+        if current_image.ndim == 2:
+            y_size, x_size = current_image.shape
+            frame_index = None
+        elif current_image.ndim == 3:
+            z_size, y_size, x_size = current_image.shape
+            try:
+                frame_index = self.ui.mainImage.currentIndex
+            except Exception:
+                frame_index = 0
+        else:
+            return
+
+        # Pixel indices from scene position
+        x_pix = int(round(scene_pos.x()))   # x pixel (axis 1 of image array)
+        y_pix = int(round(scene_pos.y()))   # y pixel (axis 0 of image array)
+
+        x_center = image_model.get('x_center', 0.0)
+        y_center = image_model.get('y_center', 0.0)
+        x_range  = image_model.get('x_range',  1.0)
+        y_range  = image_model.get('y_range',  1.0)
+
+        x_axis = np.linspace(x_center - x_range / 2, x_center + x_range / 2, x_size)
+        y_axis = np.linspace(y_center - y_range / 2, y_center + y_range / 2, y_size)
+
+        want_x = plot_type in ("Image X", "Image XY")
+        want_y = plot_type in ("Image Y", "Image XY")
+
+        # Remove stale line plots
+        if self.x_plot:
+            self.ui.mainPlot.removeItem(self.x_plot)
+            self.x_plot = None
+        if self.y_plot:
+            self.ui.mainPlot.removeItem(self.y_plot)
+            self.y_plot = None
+
+        channel_key = image_model.get('channel_key', 'default')
+
+        if want_x and 0 <= y_pix < y_size:
+            if frame_index is None:
+                x_line = current_image[y_pix, :]
+            else:
+                x_line = current_image[frame_index, y_pix, :]
+            self.x_plot = self.ui.mainPlot.plot(
+                x_axis, x_line,
+                pen=self._main_plot_pen,
+            )
+            self.ui.mainPlot.setLabel("bottom", "X (µm)")
+            self.ui.mainPlot.setLabel("left", channel_key)
+
+        if want_y and 0 <= x_pix < x_size:
+            if frame_index is None:
+                y_line = current_image[:, x_pix]
+            else:
+                y_line = current_image[frame_index, :, x_pix]
+            self.y_plot = self.ui.mainPlot.plot(
+                y_axis, y_line,
+                pen=pg.mkPen(color=(200, 60, 30), width=1.5),
+            )
+            self.ui.mainPlot.setLabel("bottom", "Y (µm)")
+            self.ui.mainPlot.setLabel("left", channel_key)
+
+        if want_x and want_y:
+            self.ui.mainPlot.setLabel("bottom", "Motor position (µm)")
+
+        self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
+
     # File operations
     def open_scan_file(self):
         """Open scan file dialog."""
@@ -1529,6 +2016,49 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if scan_type in [item.strip() for item in [self.ui.scanType.itemText(i) for i in range(self.ui.scanType.count())]]:
                     self.ui.scanType.setCurrentText(scan_type)
 
+                # Build scan-region and energy-region dicts from the stxm data
+                # and push them into the UI widgets.
+                scan_regions_cfg = {}
+                for ri in range(self.nx.nRegions):
+                    entry = self.nx.data[f'entry{ri}']
+                    xp = np.atleast_1d(entry['xpos']).flatten()
+                    yp = np.atleast_1d(entry['ypos']).flatten()
+                    xr = float(xp.max() - xp.min())
+                    yr = float(yp.max() - yp.min())
+                    xc = float(xp.min() + xr / 2.0)
+                    yc = float(yp.min() + yr / 2.0)
+                    nx_pts = int(xp.size)
+                    ny_pts = int(yp.size)
+                    xs = float(entry.get('xstepsize', xr / nx_pts if nx_pts > 1 else xr))
+                    ys = float(entry.get('ystepsize', yr / ny_pts if ny_pts > 1 else yr))
+                    scan_regions_cfg[f'Region{ri + 1}'] = {
+                        'xCenter': round(xc, 4), 'yCenter': round(yc, 4),
+                        'xRange':  round(xr, 4), 'yRange':  round(yr, 4),
+                        'xPoints': nx_pts,        'yPoints': ny_pts,
+                        'xStep':   round(xs, 4),  'yStep':   round(ys, 4),
+                    }
+
+                # Energy region — reconstruct from entry0's energy array
+                energy_arr = np.atleast_1d(self.nx.data['entry0']['energy']).flatten()
+                dwell_arr  = np.atleast_1d(self.nx.data['entry0']['dwell']).flatten()
+                ne_pts = int(energy_arr.size)
+                e_start = round(float(energy_arr[0]), 3)
+                e_stop  = round(float(energy_arr[-1]), 3)
+                e_step  = round(float((e_stop - e_start) / (ne_pts - 1)), 3) if ne_pts > 1 else 1.0
+                dwell_val = round(float(np.mean(dwell_arr)), 3)
+                energy_regions_cfg = {
+                    'EnergyRegion1': {
+                        'start': e_start, 'stop': e_stop,
+                        'step': e_step,   'n_energies': ne_pts,
+                        'dwell': dwell_val,
+                    }
+                }
+
+                self._populate_ui_from_scan_config(
+                    {'scan_regions': scan_regions_cfg, 'energy_regions': energy_regions_cfg},
+                    scan_type=scan_type,
+                )
+
             elif scan_type == "Single Motor":
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
                 self.ui.plotType.setCurrentText("Motor Scan")
@@ -1556,39 +2086,75 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, 'Open Energy Definition', '', 'JSON Files (*.json);;All Files (*)'
         )
-        if filename:
-            # Load energy definition through controller
-            pass
-            
+        if not filename:
+            return
+        try:
+            import json
+            with open(filename, 'r') as f:
+                data = json.load(f)
+            # Accept either {"energy_regions": {...}} or the raw regions dict
+            if 'energy_regions' in data:
+                cfg = {'energy_regions': data['energy_regions']}
+            else:
+                cfg = {'energy_regions': data}
+            self._populate_ui_from_scan_config(cfg)
+        except Exception as e:
+            self.show_error_message(f"Failed to open energy definition: {filename}\nError: {str(e)}")
+
     def open_scan_definition(self):
         """Open scan definition dialog."""
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, 'Open Scan Definition', '', 'JSON Files (*.json);;All Files (*)'
         )
-        if filename:
+        if not filename:
+            return
+        try:
+            import json
+            with open(filename, 'r') as f:
+                data = json.load(f)
             self.controller.load_scan_definition(filename)
+            scan_type = data.get('scan_type', self.ui.scanType.currentText())
+            if scan_type:
+                self.ui.scanType.setCurrentText(scan_type)
+            self._populate_ui_from_scan_config(data, scan_type=scan_type)
+        except Exception as e:
+            self.show_error_message(f"Failed to open scan definition: {filename}\nError: {str(e)}")
             
     # Theme and appearance
     def set_light_theme(self):
         """Set light theme."""
         self.static_style = "color: black;"
         self.setStyleSheet(qdarktheme.load_stylesheet("light"))
-        
+        if hasattr(self, '_main_plot_pen'):
+            self._apply_plot_theme(light=True)
+
     def set_dark_theme(self):
         """Set dark theme."""
         self.static_style = "color: white;"
         self.setStyleSheet(qdarktheme.load_stylesheet())
+        if hasattr(self, '_main_plot_pen'):
+            self._apply_plot_theme(light=False)
         
     # Initialization methods
     def re_init(self):
         """Re-initialize the application."""
-        self.controller.initialize_client()
+        if self.controller.initialize_client():
+            self._update_server_address_display()
         
     def load_config(self):
         """Load configuration from server."""
         # This would be handled through the controller
         pass
-        
+
+    def _update_server_address_display(self):
+        """Update the server address label, edit, and window title to reflect the connected server."""
+        client = self.controller.client
+        address_text = f"{client.server_address}:{client.command_port}"
+        self.ui.serverAddress.setText(address_text)
+        if hasattr(self.ui, 'serverAddressEdit'):
+            self.ui.serverAddressEdit.setText(address_text)
+        self.setWindowTitle(f"STXM Control: {client.main_config['server']['name']}")
+
     # Region management
     def update_scan_regions(self):
         """Update scan region widgets."""
@@ -1631,23 +2197,67 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Update energy region widgets."""
         requested_count = self.ui.energyRegSpinbox.value()
         current_count = len(self.energy_region_widgets)
-        
+
+        # Refresh _saved_multi_energy from live widget values so any user edits
+        # to energyStart (or other fields) made since the last single→multi
+        # transition are preserved if the user later toggles Single Energy again.
+        if not self._single_energy_active:
+            refreshed = []
+            for ew in self.energy_region_widgets:
+                if hasattr(ew, 'energyDef'):
+                    ed = ew.energyDef
+                    refreshed.append({
+                        'start':      ed.energyStart.text(),
+                        'stop':       ed.energyStop.text(),
+                        'step':       ed.energyStep.text(),
+                        'n_energies': ed.nEnergies.text(),
+                        'dwell':      ed.dwellTime.text(),
+                    })
+            if refreshed:
+                self._saved_multi_energy = refreshed
+
         # Add widgets if needed
         while current_count < requested_count:
             widget = energyDefWidget()
             widget.energyDef.regNum.setText(f"Region {current_count + 1}")
-            
-            # Set default values for new energy region widgets
-            widget.energyDef.energyStart.setText("700")
-            widget.energyDef.energyStop.setText("720")
-            widget.energyDef.energyStep.setText("1")
-            widget.energyDef.nEnergies.setText("21")
-            widget.energyDef.dwellTime.setText("1")
-            
+
+            # Default multi-energy values for the new region
+            defaults = {'start': '700', 'stop': '720', 'step': '1',
+                        'n_energies': '21', 'dwell': '1'}
+            widget.energyDef.energyStart.setText(defaults['start'])
+            widget.energyDef.energyStop.setText(defaults['stop'])
+            widget.energyDef.energyStep.setText(defaults['step'])
+            widget.energyDef.nEnergies.setText(defaults['n_energies'])
+
+            if current_count == 0:
+                # Region 1 is the dwell master — connect its return-press to propagate
+                widget.energyDef.dwellTime.setText(defaults['dwell'])
+                widget.energyDef.dwellTime.returnPressed.connect(self._propagate_dwell)
+            else:
+                # Non-master regions mirror Region 1's dwell and are not editable
+                if self.energy_region_widgets:
+                    dwell_val = self.energy_region_widgets[0].energyDef.dwellTime.text()
+                else:
+                    dwell_val = defaults['dwell']
+                widget.energyDef.dwellTime.setText(dwell_val)
+                widget.energyDef.dwellTime.setEnabled(False)
+                defaults['dwell'] = dwell_val
+
             self.ui.energyDefWidget.addWidget(widget.widget)
             self.energy_region_widgets.append(widget)
+
+            # While single energy is active, save the new region's defaults so
+            # unchecking Single Energy later restores them, then apply single-energy overwrite
+            if self._single_energy_active:
+                self._saved_multi_energy.append(defaults)
+                widget.setSingleEnergy()
+                ed = widget.energyDef
+                ed.energyStep.setText("1")
+                ed.nEnergies.setText("1")
+                ed.energyStop.setText(defaults['start'])
+
             current_count += 1
-            
+
         # Apply current single energy state to all widgets
         self.toggle_single_energy()
             
@@ -1657,13 +2267,126 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.energyDefWidget.removeWidget(widget.widget)
             widget.widget.deleteLater()
             current_count -= 1
+            # Keep saved list in sync
+            if self._saved_multi_energy:
+                self._saved_multi_energy = self._saved_multi_energy[:current_count]
             
+    def _read_main_config_from_disk(self) -> dict:
+        """Read main.json from disk without requiring a server connection."""
+        try:
+            import sys, json, os
+            path = os.path.join(sys.prefix, 'pystxmcontrol_cfg', 'main.json')
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _apply_last_scan(self, scan_type: str):
+        """Populate UI widgets with the last-used values for *scan_type* from main.json."""
+        last_scan = self._local_main_config.get("lastScan", {}).get(scan_type)
+        if not last_scan:
+            # No saved state — default to single energy
+            self._saved_multi_energy = []
+            self._single_energy_active = False
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(True)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+            self.toggle_single_energy()
+            return
+
+        # Don't restore the proposal — it is the activation gate.
+        self.ui.experimentersLineEdit.setText(last_scan.get("experimenters", ""))
+        self.ui.sampleLineEdit.setText(last_scan.get("sample", ""))
+
+        x_motor = last_scan.get("x_motor", "")
+        y_motor = last_scan.get("y_motor", "")
+        if x_motor:
+            self.ui.xMotorCombo.setCurrentText(x_motor)
+        if y_motor:
+            self.ui.yMotorCombo.setCurrentText(y_motor)
+
+        self._populate_ui_from_scan_config(last_scan, scan_type=scan_type)
+
+    def _populate_ui_from_scan_config(self, config: dict, scan_type: str = ""):
+        """Populate scan-region and energy-region widgets from a scan config dict.
+
+        *config* must contain 'scan_regions' and/or 'energy_regions' keys in the
+        same format used by the scan model / main.json.  *scan_type* is only used
+        to decide whether to fill z-axis (focus) fields.
+        """
+        # ── scan regions ──────────────────────────────────────────────────────
+        scan_regions = config.get("scan_regions", {})
+        if scan_regions:
+            self.ui.scanRegSpinbox.setValue(len(scan_regions))
+            for i, region in enumerate(scan_regions.values()):
+                if i >= len(self.scan_region_widgets):
+                    break
+                w = self.scan_region_widgets[i]
+                w.ui.xCenter.setText(str(region.get("xCenter", 0.0)))
+                w.ui.yCenter.setText(str(region.get("yCenter", 0.0)))
+                w.ui.xRange.setText(str(region.get("xRange", 70.0)))
+                w.ui.yRange.setText(str(region.get("yRange", 70.0)))
+                w.ui.xNPoints.setText(str(region.get("xPoints", 100)))
+                w.ui.yNPoints.setText(str(region.get("yPoints", 100)))
+                w.ui.xStep.setText(str(region.get("xStep", 0.7)))
+                w.ui.yStep.setText(str(region.get("yStep", 0.7)))
+
+            if scan_type and ("Focus" in scan_type or "OSA Focus" in scan_type):
+                first_region = next(iter(scan_regions.values()))
+                if hasattr(self.ui, "focusCenterEdit"):
+                    self.ui.focusCenterEdit.setText(str(first_region.get("zCenter", 0.0)))
+                if hasattr(self.ui, "focusRangeEdit"):
+                    self.ui.focusRangeEdit.setText(str(first_region.get("zRange", 100.0)))
+                if hasattr(self.ui, "focusStepsEdit"):
+                    self.ui.focusStepsEdit.setText(str(first_region.get("zPoints", 50)))
+
+        # ── energy regions ────────────────────────────────────────────────────
+        energy_regions = config.get("energy_regions", {})
+        if energy_regions:
+            self.ui.energyRegSpinbox.setValue(len(energy_regions))
+            for i, region in enumerate(energy_regions.values()):
+                if i >= len(self.energy_region_widgets):
+                    break
+                w = self.energy_region_widgets[i]
+                w.energyDef.energyStart.setText(str(region.get("start", 700.0)))
+                w.energyDef.energyStop.setText(str(region.get("stop", 720.0)))
+                w.energyDef.energyStep.setText(str(region.get("step", 1.0)))
+                w.energyDef.nEnergies.setText(str(region.get("n_energies", 21)))
+                w.energyDef.dwellTime.setText(str(region.get("dwell", 1.0)))
+
+            max_n = max(r.get("n_energies", 1) for r in energy_regions.values())
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(max_n <= 1)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+        else:
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(True)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+
+        # Reset transition state so toggle_single_energy fires correctly
+        self._saved_multi_energy = []
+        self._single_energy_active = False
+        self.toggle_single_energy()
+
+        self._update_rois_from_regions()
+
     def toggle_energy_list(self):
         """Toggle between energy regions and energy list."""
         if self.ui.energyListCheckbox.isChecked():
-            # Switch to energy list mode
+            # Switch to energy list mode — uncheck Single Energy first
+            self.ui.toggleSingleEnergy.blockSignals(True)
             self.ui.toggleSingleEnergy.setChecked(False)
-            
+            self.ui.toggleSingleEnergy.blockSignals(False)
+
+            # Save the dwell before removing widgets
+            if self.energy_region_widgets:
+                try:
+                    self._energy_list_dwell = float(
+                        self.energy_region_widgets[0].energyDef.dwellTime.text() or 1000
+                    )
+                except (ValueError, AttributeError):
+                    pass
+
             # Remove all energy region widgets
             while len(self.energy_region_widgets) > 0:
                 widget = self.energy_region_widgets.pop()
@@ -1690,13 +2413,23 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def toggle_single_energy(self):
         """Toggle single energy mode for energy regions."""
         is_single_energy = self.ui.toggleSingleEnergy.isChecked()
-        
+
+        if is_single_energy and self.ui.energyListCheckbox.isChecked():
+            # Uncheck energy list silently and restore energy region widgets
+            self.ui.energyListCheckbox.blockSignals(True)
+            self.ui.energyListCheckbox.setChecked(False)
+            self.ui.energyListCheckbox.blockSignals(False)
+            self.ui.energyListWidget.setVisible(False)
+            self.ui.energyRegSpinbox.setEnabled(True)
+            self.ui.energyRegSpinbox.setValue(1)
+            self.update_energy_regions()
+
         if is_single_energy:
             # When switching to single energy mode, reduce to 1 energy region
             if self.ui.energyRegSpinbox.value() != 1:
                 self.ui.energyRegSpinbox.setValue(1)
                 self.update_energy_regions()
-            
+
             # Disable the energy region spinbox so user can't add more regions
             self.ui.energyRegSpinbox.setEnabled(False)
         else:
@@ -1704,25 +2437,81 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.energyRegSpinbox.setEnabled(True)
         
         # Apply settings to all energy region widgets
+        transitioning_to_single = is_single_energy and not self._single_energy_active
+        transitioning_to_multi = not is_single_energy and self._single_energy_active
+        self._single_energy_active = is_single_energy
+
+        if transitioning_to_single:
+            # Save the current multi-energy definition before overwriting
+            self._saved_multi_energy = []
+            for energy_widget in self.energy_region_widgets:
+                if hasattr(energy_widget, 'energyDef'):
+                    ed = energy_widget.energyDef
+                    self._saved_multi_energy.append({
+                        'start':      ed.energyStart.text(),
+                        'stop':       ed.energyStop.text(),
+                        'step':       ed.energyStep.text(),
+                        'n_energies': ed.nEnergies.text(),
+                        'dwell':      ed.dwellTime.text(),
+                    })
+        elif transitioning_to_multi:
+            # Restore saved multi-energy definition if available
+            if self._saved_multi_energy:
+                for i, energy_widget in enumerate(self.energy_region_widgets):
+                    if i >= len(self._saved_multi_energy):
+                        break
+                    if hasattr(energy_widget, 'energyDef'):
+                        ed = energy_widget.energyDef
+                        saved = self._saved_multi_energy[i]
+                        ed.energyStart.setText(saved['start'])
+                        ed.energyStop.setText(saved['stop'])
+                        ed.energyStep.setText(saved['step'])
+                        ed.nEnergies.setText(saved['n_energies'])
+                        ed.dwellTime.setText(saved['dwell'])
+
+        # When switching to single energy, use current energy motor position as start
+        current_energy_str = None
+        if is_single_energy and transitioning_to_single:
+            try:
+                motor_positions = self.controller.get_motor_model().get('current_positions', {})
+                energy_motor = self.controller.scan_model.get('energy_motor', 'Energy')
+                energy_val = motor_positions.get(energy_motor)
+                if energy_val is not None:
+                    current_energy_str = f"{energy_val:.3f}"
+            except Exception:
+                pass
+
         for energy_widget in self.energy_region_widgets:
             if hasattr(energy_widget, 'energyDef'):
-                # Enable/disable controls based on single energy mode
-                energy_widget.energyDef.energyStop.setEnabled(not is_single_energy)
-                energy_widget.energyDef.energyStep.setEnabled(not is_single_energy)
-                energy_widget.energyDef.nEnergies.setEnabled(not is_single_energy)
-                
-                # When switching to single energy mode, set step and N energies to 1
                 if is_single_energy:
-                    energy_widget.energyDef.energyStep.setText("1")
-                    energy_widget.energyDef.nEnergies.setText("1")
-                    # Set stop energy equal to start energy for single energy
-                    start_energy = energy_widget.energyDef.energyStart.text()
-                    energy_widget.energyDef.energyStop.setText(start_energy)
-                    
+                    energy_widget.setSingleEnergy()
+                    ed = energy_widget.energyDef
+                    if current_energy_str is not None:
+                        ed.energyStart.setText(current_energy_str)
+                    ed.energyStep.setText("1")
+                    ed.nEnergies.setText("1")
+                    ed.energyStop.setText(ed.energyStart.text())
+                else:
+                    energy_widget.setMultiEnergy()
+
+        # Ensure non-Region-1 dwell fields stay locked to Region 1
+        if not is_single_energy:
+            self._propagate_dwell()
+
+    def _propagate_dwell(self):
+        """Copy Region 1's dwell time to all other energy regions and disable their field."""
+        if not self.energy_region_widgets:
+            return
+        dwell_val = self.energy_region_widgets[0].energyDef.dwellTime.text()
+        for widget in self.energy_region_widgets[1:]:
+            ed = widget.energyDef
+            ed.dwellTime.setText(dwell_val)
+            ed.dwellTime.setEnabled(False)
+
     def toggle_roi_display(self):
         """Toggle ROI display."""
         if self.ui.roiCheckbox.isChecked():
-            self._show_rois()
+            self._update_rois_from_regions(reset_to_view=True)
         else:
             self._hide_rois()
             
@@ -1741,33 +2530,31 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     print("Hiding range_roi")
                     self.ui.mainImage.removeItem(self.range_roi)
             
-    def _update_rois_from_regions(self):
-        """Update ROIs based on current scan region widgets."""
-        print(f"DEBUG: _update_rois_from_regions() called")
+    def _update_rois_from_regions(self, *_signal_args, reset_to_view=False):
+        """Update ROIs based on current scan region widgets.
+
+        When *reset_to_view* is True the new ROI is positioned to fill the
+        current image view rather than using the previously stored widget values.
+        Pass reset_to_view=True on scan-type changes so the ROI always appears
+        inside the visible field of view.
+        """
         # Clear existing ROIs
         self._clear_rois()
 
         # Create new ROIs from scan region widgets
         scan_type = self.ui.scanType.currentText()
-        print(f"DEBUG: scan_type = {scan_type}")
         if hasattr(self.controller, 'client') and self.controller.client and hasattr(self.controller.client, 'scanConfig'):
             try:
                 config_scan_type = self.controller.client.scanConfig.get(scan_type, {}).get("type", "image")
-                print(f"DEBUG: config_scan_type from scanConfig = {config_scan_type}")
             except:
                 config_scan_type = "image"
-                print(f"DEBUG: config_scan_type defaulted to image (exception)")
         else:
             config_scan_type = "image"  # Default
-            print(f"DEBUG: config_scan_type defaulted to image (no scanConfig)")
 
-        print(f"DEBUG: Creating ROIs for {len(self.scan_region_widgets)} regions")
         for i, region_widget in enumerate(self.scan_region_widgets):
-            print(f"DEBUG: Creating ROI {i} with type {config_scan_type}")
-            self._add_roi_from_region(region_widget, i, config_scan_type)
+            self._add_roi_from_region(region_widget, i, config_scan_type, reset_to_view=reset_to_view)
 
         # Show ROIs if checkbox is checked
-        print(f"DEBUG: roiCheckbox.isChecked() = {self.ui.roiCheckbox.isChecked()}")
         if self.ui.roiCheckbox.isChecked():
             self._show_rois()
 
@@ -1791,23 +2578,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         line_length = float(self.ui.lineLengthEdit.text() or 10)
         line_angle = float(self.ui.lineAngleEdit.text() or 0)
 
-        # Apply coordinate system transformation (y-axis flip)
-        # The region widget stores y in "display" coordinates, but ROI needs "motor" coordinates
-        y_center_motor = -y_center
-        
         # Convert angle from degrees to radians
         angle_rad = np.radians(line_angle)
-        
+
         # Calculate half-length offsets
         half_length = line_length / 2
         dx = half_length * np.cos(angle_rad)
         dy = half_length * np.sin(angle_rad)
-        
+
         # Calculate endpoints based on center position, length, and angle
         x1 = x_center - dx
-        y1 = y_center_motor - dy
+        y1 = y_center - dy
         x2 = x_center + dx
-        y2 = y_center_motor + dy
+        y2 = y_center + dy
 
         roi = pg.LineSegmentROI(
             positions=((x1, y1), (x2, y2)), 
@@ -1816,18 +2599,30 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         )
         return roi
             
-    def _add_roi_from_region(self, region_widget, index: int, scan_type: str):
-        """Add a single ROI from a region widget."""
+    def _add_roi_from_region(self, region_widget, index: int, scan_type: str, reset_to_view=False):
+        """Add a single ROI from a region widget.
+
+        When *reset_to_view* is True the ROI is positioned to fill the current
+        image view (rectangle) or span it horizontally at mid-height (line),
+        regardless of the values stored in *region_widget*.
+        """
         try:
             x_center = float(region_widget.ui.xCenter.text() or 0)
             y_center = float(region_widget.ui.yCenter.text() or 0)
             x_range = float(region_widget.ui.xRange.text() or 10)
             y_range = float(region_widget.ui.yRange.text() or 10)
-            
-            # Apply coordinate system transformation (y-axis flip)
-            # The region widget stores y in "display" coordinates, but ROI needs "motor" coordinates
-            y_center_motor = -y_center
-            
+
+            # When resetting to view, override position/size with the visible range
+            view_range = None
+            if reset_to_view:
+                try:
+                    vr = self.ui.mainImage.getView().viewRange()
+                    # viewRange returns [[xmin, xmax], [ymin, ymax]]
+                    if vr and len(vr) == 2:
+                        view_range = vr
+                except Exception:
+                    pass
+
             # Get pen color and style
             color_index = index % len(self.pen_colors)
             style_index = int(index / len(self.pen_colors)) % len(self.pen_styles)
@@ -1836,41 +2631,60 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 width=3,
                 style=self.pen_styles[style_index]
             )
-            
-            # Calculate ROI position using motor coordinates
-            x_min = x_center - x_range / 2
-            y_min = y_center_motor - y_range / 2
-            
+
+            if view_range is not None:
+                x_min_v, x_max_v = view_range[0]
+                y_min_v, y_max_v = view_range[1]
+                x_center_v = (x_min_v + x_max_v) / 2
+                y_center_v = (y_min_v + y_max_v) / 2
+                x_range = (x_max_v - x_min_v) * 0.9
+                y_range = (y_max_v - y_min_v) * 0.9
+                x_min = x_center_v - x_range / 2
+                y_min = y_center_v - y_range / 2
+            else:
+                # Calculate ROI position using motor coordinates
+                x_min = x_center - x_range / 2
+                y_min = y_center - y_range / 2
+
             # Create appropriate ROI based on scan type
             if "image" in scan_type.lower():
                 roi = pg.RectROI(
-                    (x_min, y_min), 
-                    (x_range, y_range), 
-                    snapSize=5.0, 
+                    (x_min, y_min),
+                    (x_range, y_range),
+                    snapSize=5.0,
                     pen=roi_pen,
                     movable=True,
                     resizable=True,
                     rotatable=False
                 )
             elif "line" in scan_type.lower():
-                # For line ROIs, use line length and angle parameters
-                try:
-                    roi = self._calculate_line_roi()
-
-                except (ValueError, AttributeError):
-                    # Fallback to horizontal line if parameters are invalid
-                    x_max = x_center + x_range / 2
+                if view_range is not None:
+                    # Horizontal line at 90% of the view width, centred vertically
+                    x_half = (x_max_v - x_min_v) * 0.9 / 2
+                    y_mid = (y_min_v + y_max_v) / 2
                     roi = pg.LineSegmentROI(
-                        positions=((x_min, y_center_motor), (x_max, y_center_motor)), 
+                        positions=((x_center_v - x_half, y_mid), (x_center_v + x_half, y_mid)),
                         pen=roi_pen,
                         movable=True
                     )
+                else:
+                    # For line ROIs, use line length and angle parameters
+                    try:
+                        roi = self._calculate_line_roi()
+                    except (ValueError, AttributeError):
+                        # Fallback to horizontal line if parameters are invalid
+                        x_max = x_center + x_range / 2
+                        roi = pg.LineSegmentROI(
+                            positions=((x_min, y_center), (x_max, y_center)),
+                            pen=roi_pen,
+                            movable=True
+                        )
             else:
                 # Default to rectangle
                 roi = pg.RectROI(
-                    (x_min, y_min), 
-                    (x_range, y_range), 
-                    snapSize=5.0, 
+                    (x_min, y_min),
+                    (x_range, y_range),
+                    snapSize=5.0,
                     pen=roi_pen,
                     movable=True,
                     resizable=True,
@@ -1880,9 +2694,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Connect ROI change signal to update region widgets
             roi.sigRegionChanged.connect(self._update_region_from_roi)
 
-            print(f"DEBUG: Adding ROI to list: {roi}, type={type(roi)}")
             self.roi_list.append(roi)
-            print(f"DEBUG: roi_list now has {len(self.roi_list)} items")
             
         except (ValueError, AttributeError) as e:
             print(f"Error creating ROI for region {index}: {e}")
@@ -1893,9 +2705,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Find which ROI was changed by checking the sender
             sender_roi = self.sender()
             if sender_roi not in self.roi_list:
-                print(f"DEBUG: ROI not in list. sender_roi={sender_roi}, roi_list length={len(self.roi_list)}")
-                for i, r in enumerate(self.roi_list):
-                    print(f"  roi_list[{i}] = {r}, same object? {r is sender_roi}")
                 return
                 
             roi_index = self.roi_list.index(sender_roi)
@@ -1923,12 +2732,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 
                 # Calculate center and range in motor coordinates
                 x_center = roi_pos.x() + roi_size.x() / 2
-                y_center_motor = roi_pos.y() + roi_size.y() / 2
+                y_center = roi_pos.y() + roi_size.y() / 2
                 x_range = roi_size.x()
                 y_range = roi_size.y()
-                
-                # Convert y-coordinate back to display coordinates (flip y-axis)
-                y_center = -y_center_motor
                 
                 # Calculate step sizes based on current point counts
                 try:
@@ -1962,8 +2768,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
                     # Calculate line center, length, and angle
                     x_center = (pos1.x() + pos2.x()) / 2
-                    y_center_motor = (pos1.y() + pos2.y()) / 2
-                    y_center = -y_center_motor  # Convert to display coordinates
+                    y_center = (pos1.y() + pos2.y()) / 2
 
                     dx = pos2.x() - pos1.x()
                     dy = pos2.y() - pos1.y()
@@ -1975,14 +2780,21 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
                     region_widget.ui.xCenter.setText(f"{x_center:.3f}")
                     region_widget.ui.yCenter.setText(f"{y_center:.3f}")
-                    region_widget.ui.xRange.setText(f"{line_length:.3f}")
+                    region_widget.ui.xRange.setText(f"{abs(dx):.3f}")
+                    region_widget.ui.yRange.setText(f"{abs(dy):.3f}")
 
-                    # For line spectrum and focus scans, update the line length and angle edits as well
+                    # For line spectrum and focus scans, update the line length and angle edits.
+                    # Block signals to prevent textChanged → update_line_parameters → update_line_roi
+                    # from clearing and recreating the ROI while it is being dragged.
                     if hasattr(self.ui, 'lineLengthEdit'):
+                        self.ui.lineLengthEdit.blockSignals(True)
                         self.ui.lineLengthEdit.setText(f"{line_length:.3f}")
+                        self.ui.lineLengthEdit.blockSignals(False)
                         self.update_line_step_size()
                     if hasattr(self.ui, 'lineAngleEdit'):
+                        self.ui.lineAngleEdit.blockSignals(True)
                         self.ui.lineAngleEdit.setText(f"{line_angle:.3f}")
+                        self.ui.lineAngleEdit.blockSignals(False)
 
                     # Reconnect signal
                     region_widget.regionChanged.connect(self._update_rois_from_regions)
@@ -1998,30 +2810,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def _clear_rois(self):
         """Clear all ROIs from display and list."""
-        print(f"DEBUG: _clear_rois() called, clearing {len(self.roi_list)} ROIs")
         for roi in self.roi_list:
-            # Disconnect signal before removing
             try:
                 roi.sigRegionChanged.disconnect(self._update_region_from_roi)
-                print(f"DEBUG: Disconnected signal for ROI {roi}")
             except:
-                print(f"DEBUG: Could not disconnect signal for ROI {roi}")
                 pass  # Signal may not be connected
-            # Remove from display
             if roi in self.ui.mainImage.getView().allChildItems():
                 self.ui.mainImage.removeItem(roi)
         self.roi_list.clear()
-        print(f"DEBUG: roi_list cleared")
             
     def _show_rois(self):
         """Show ROIs on image."""
-        print(f"DEBUG: _show_rois() called, showing {len(self.roi_list)} ROIs")
         for roi in self.roi_list:
             if roi not in self.ui.mainImage.getView().allChildItems():
-                print(f"DEBUG: Adding ROI to display: {roi}")
                 self.ui.mainImage.addItem(roi)
-            else:
-                print(f"DEBUG: ROI already in display: {roi}")
             
     def _hide_rois(self):
         """Hide ROIs from image."""
@@ -2066,9 +2868,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def clear_image(self):
         """Clear all images."""
         # Clear composite images
-        for key in self.images.keys():
-            if self.images[key] in self.ui.mainImage.getView().allChildItems():
-                self.ui.mainImage.removeItem(self.images[key])
+        for item in self.images.values():
+            item.setImage()
+            self.ui.mainImage.removeItem(item)
         self.images = {}
 
         # Clear main image
@@ -2080,8 +2882,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if not self.images:
             return
         key = list(self.images.keys())[-1]
-        if self.images[key] in self.ui.mainImage.getView().allChildItems():
-            self.ui.mainImage.removeItem(self.images[key])
+        self.images[key].setImage()
+        self.ui.mainImage.removeItem(self.images[key])
         del self.images[key]
 
     def update_image_from_ccd(self, ccd_data):
@@ -2127,20 +2929,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
     def update_composite_image(self):
         """Toggle composite image display mode."""
-        if hasattr(self.ui, 'compositeImageCheckbox'):
-            if self.ui.compositeImageCheckbox.isChecked():
-                # Show all images
-                for key in self.images.keys():
-                    if self.images[key] not in self.ui.mainImage.getView().allChildItems():
-                        self.ui.mainImage.addItem(self.images[key])
-            else:
-                # Show only the last image
-                if self.images:
-                    last_key = list(self.images.keys())[-1]
-                    for key in self.images.keys():
-                        if key != last_key:
-                            if self.images[key] in self.ui.mainImage.getView().allChildItems():
-                                self.ui.mainImage.removeItem(self.images[key])
+        if not hasattr(self.ui, 'compositeImageCheckbox') or not self.images:
+            return
+        if self.ui.compositeImageCheckbox.isChecked():
+            # Re-add all composite items (order matters for z-stacking)
+            for item in self.images.values():
+                self.ui.mainImage.removeItem(item)
+            for item in self.images.values():
+                self.ui.mainImage.addItem(item)
+        else:
+            # Hide all but the most recent composite item
+            last_key = list(self.images.keys())[-1]
+            for key, item in self.images.items():
+                if key != last_key:
+                    self.ui.mainImage.removeItem(item)
         
     def _populate_proposal_combobox(self):
         """Populate the proposal combobox with ESAF proposals."""
@@ -2155,7 +2957,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             try:
                 from pystxmcontrol.utils.alsapi import getCurrentEsafList
                 self.esaf_list, self.participants_list = getCurrentEsafList()
-                
+
                 # Add each proposal to the combobox
                 for esaf in self.esaf_list:
                     self.ui.proposalComboBox.addItem(esaf)
@@ -2185,7 +2987,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             selected_index = self.ui.proposalComboBox.currentIndex()
 
             if selected_text == "Staff Access":
-                # Activate GUI but warn about data access
+                if not self._check_staff_password():
+                    # Reset combo back to "Select a Proposal" without re-firing signal
+                    self.ui.proposalComboBox.blockSignals(True)
+                    self.ui.proposalComboBox.setCurrentIndex(0)
+                    self.ui.proposalComboBox.blockSignals(False)
+                    return
                 self._activate_gui()
                 self._activate_staff()
                 self._set_warning_banner("Users cannot access this data!")
@@ -2197,18 +3004,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     # Get participant list for this proposal
                     participants = self.participants_list[selected_index - 1]  # -1 because index 0 is "Select a Proposal"
 
-                    # Create comma-separated string of participants
-                    if participants:
-                        participant_string = participants[0]
-                        for i in range(1, len(participants)):
-                            participant_string += ',' + participants[i]
-                        self.ui.experimentersLineEdit.setText(participant_string)
-                    else:
-                        self.ui.experimentersLineEdit.setText("")
-
-                    # Activate GUI and clear warning
+                    # Activate GUI first (on_scan_type_changed inside it overwrites experimentersLineEdit)
                     self._activate_gui()
                     self._set_warning_banner(None)
+                    # Set experimenters after _activate_gui so it isn't overwritten
+                    self.ui.experimentersLineEdit.setText(', '.join(participants))
 
                 except (IndexError, AttributeError) as e:
                     print(f"Error setting experimenters: {e}")
@@ -2293,6 +3093,98 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         for reg in self.scan_region_widgets:
             if hasattr(reg, 'setEnabled'):
                 reg.setEnabled(False)
+        for reg in self.energy_region_widgets:
+            if hasattr(reg, 'setEnabled'):
+                reg.setEnabled(False)
+
+    # ------------------------------------------------------------------
+    # Staff password helpers
+    # ------------------------------------------------------------------
+
+    def _staff_config_path(self):
+        import sys, os
+        return os.path.join(sys.prefix, 'pystxmcontrol_cfg', 'main.json')
+
+    def _read_main_json(self):
+        import json
+        try:
+            with open(self._staff_config_path()) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _write_main_json(self, data: dict):
+        import json
+        try:
+            with open(self._staff_config_path(), 'w') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            self.show_error_message(f"Could not save config: {e}")
+
+    def _hash_password(self, password: str, salt: bytes) -> str:
+        import hashlib
+        return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 260000).hex()
+
+    def _check_staff_password(self) -> bool:
+        """Prompt for the staff password. Returns True if authenticated."""
+        import os, hashlib
+        cfg = self._read_main_json()
+        stored_hash = cfg.get('staff_password_hash')
+        stored_salt = cfg.get('staff_password_salt')
+
+        if not stored_hash:
+            # No password set yet — prompt to create one
+            reply = QtWidgets.QMessageBox.question(
+                self, "Staff Password",
+                "No staff password is set. Set one now?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+            )
+            if reply == QtWidgets.QMessageBox.Yes:
+                self.set_staff_password()
+                # Re-read after setting
+                cfg = self._read_main_json()
+                stored_hash = cfg.get('staff_password_hash')
+                stored_salt = cfg.get('staff_password_salt')
+                if not stored_hash:
+                    return False  # User cancelled set
+            else:
+                return False
+
+        password, ok = QtWidgets.QInputDialog.getText(
+            self, "Staff Access", "Enter staff password:",
+            QtWidgets.QLineEdit.Password
+        )
+        if not ok or not password:
+            return False
+
+        salt = bytes.fromhex(stored_salt)
+        return self._hash_password(password, salt) == stored_hash
+
+    def set_staff_password(self):
+        """Prompt to set a new staff password and save the hash to main.json."""
+        import os
+        password, ok = QtWidgets.QInputDialog.getText(
+            self, "Set Staff Password", "Enter new staff password:",
+            QtWidgets.QLineEdit.Password
+        )
+        if not ok or not password:
+            return
+
+        confirm, ok = QtWidgets.QInputDialog.getText(
+            self, "Set Staff Password", "Confirm new staff password:",
+            QtWidgets.QLineEdit.Password
+        )
+        if not ok or confirm != password:
+            QtWidgets.QMessageBox.warning(self, "Staff Password", "Passwords do not match.")
+            return
+
+        salt = os.urandom(32)
+        hashed = self._hash_password(password, salt)
+        cfg = self._read_main_json()
+        cfg['staff_password_hash'] = hashed
+        cfg['staff_password_salt'] = salt.hex()
+        self._write_main_json(cfg)
+        QtWidgets.QMessageBox.information(self, "Staff Password", "Staff password updated.")
 
     def _activate_staff(self):
         """Activate staff-only controls."""

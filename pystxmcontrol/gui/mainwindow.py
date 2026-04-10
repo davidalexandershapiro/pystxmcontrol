@@ -176,7 +176,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.nRegion = 0
         self.nEnergyRegion = 0
         self.roiList = []
-        self.monitorData = {"default":[]}
+        self.monitorData = {"default":{"data": [], "meta": None}}
         self.monitorDataList = []
         self.monitorNPoints = 500
         self.beamPosition = None
@@ -455,11 +455,14 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.updateEnergy(energy = float(self.energyRegList[0].energyDef.energyStart.text()))
 
     def showRangeFinder(self):
-        if self.ui.showRangeFinder.isChecked():
-            self.ui.mainImage.addItem(self.rangeROI)
-        else:
-            self.ui.mainImage.removeItem(self.rangeROI)
-        self.ui.mainImage.autoRange()
+        try:
+            if self.ui.showRangeFinder.isChecked():
+                self.ui.mainImage.addItem(self.rangeROI)
+            else:
+                self.ui.mainImage.removeItem(self.rangeROI)
+            self.ui.mainImage.autoRange()
+        except:
+            pass
 
     def openEnergyDefinition(self):
         openFileName = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
@@ -505,7 +508,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def clearPlot(self):
         if self.currentPlot is not None:
             self.ui.mainPlot.removeItem(self.currentPlot)
-            # self.monitorData[self.client.daqConfig["default"]["name"]]["data"] = []
             for daq in self.client.daqConfig.keys():
                 self.monitorData[self.client.daqConfig[daq]["name"]]["data"] = []
 
@@ -594,7 +596,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.ui.plotType.currentText() == "Image X":
                 if self.currentPlot is not None:
                     self.ui.mainPlot.removeItem(self.currentPlot)
-                #y,x = self.image.shape
                 xRange = x*self.imageScale[0]
                 xOffset = self.imageCenter[0]
                 xData = np.linspace(xOffset,xRange + xOffset, x)
@@ -611,7 +612,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.ui.plotType.currentText() == "Image Y":
                 if self.currentPlot is not None:
                     self.ui.mainPlot.removeItem(self.currentPlot)
-                #y,x = self.image.shape
                 xRange = y*self.imageScale[1]
                 xOffset = self.imageCenter[1]
                 xData = np.linspace(xOffset,xRange + xOffset, y)
@@ -628,7 +628,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             if self.ui.plotType.currentText() == "Image XY":
                 if self.currentPlot is not None:
                     self.ui.mainPlot.removeItem(self.currentPlot)
-                #y,x = self.image.shape
                 xRange = x*self.imageScale[0]
                 xOffset = self.imageCenter[0]
                 xData = np.linspace(xOffset,xRange + xOffset, x)
@@ -641,7 +640,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                                                          pen=pg.mkPen('w', width=1, style=QtCore.Qt.DotLine), symbol='o',
                                                          symbolPen='r', symbolSize=3, \
                                                          symbolBrush=(255, 0, 0))
-                #y,x = self.image.shape
                 xRange = y*self.imageScale[1]
                 xOffset = self.imageCenter[1]
                 xData = np.linspace(xOffset,xRange + xOffset, y)
@@ -1266,10 +1264,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         else:
             self.scan["n_repeats"] = 1
 
-        ##generate the local data structure
-        if self.scan["mode"] in self.imageScanTypes:
-            self.stxm = stxm(self.scan)
-
         if not(nowrite):
             self.client.main_config["lastScan"][self.scan["scan_type"]] = self.scan
 
@@ -1445,6 +1439,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.singleMotorScanYData[channel] = []
                 self.singleMotorScanXData = []
         if scanCheck is None:
+            ##generate the local data structure
+            if self.scan["mode"] in self.imageScanTypes:
+                self.stxm = stxm(self.scan)
             self.scanning = True
             self.deactivateGUI()
             self.client.scan = self.scan
@@ -1527,13 +1524,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.mainPlot.setLabel("left", channel)
                 self.ui.mainPlot.setLabel("bottom", self.monitorData[channel]["meta"]["x label"])
             else:
-            #if self.monitorData[channel]["meta"]["type"] == "point":
                 self.currentPlot = self.ui.mainPlot.plot(np.array(self.monitorData[channel]["data"]), \
                 pen = pg.mkPen('w', width = 1, style = QtCore.Qt.DotLine), symbol='o',symbolPen = 'g', symbolSize=3,\
                                                         symbolBrush=(0,255,0))
                 self.ui.mainPlot.setLabel("left", channel)
                 self.ui.mainPlot.setLabel("bottom", "")
-            self.ui.daqCurrentValue.setText(str(self.monitorData[self.client.daqConfig["default"]["name"]]["data"][-1]*10.))
+            self.ui.daqCurrentValue.setText(str(self.monitorData["default"]["data"][-1]*10.))
         elif self.ui.plotType.currentText() == "Motor Scan":
             self.currentPlot = self.ui.mainPlot.plot(np.array(self.singleMotorScanXData),np.array(self.singleMotorScanYData[channel]), \
                 pen = pg.mkPen('w', width = 1, style = QtCore.Qt.DotLine), symbol='o',symbolPen = 'g', symbolSize=3,\
@@ -1542,6 +1538,8 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         
     def setChannel(self):
         xScale, yScale = 1., 1.
+        if self.ui.channelSelect.currentText() == '':
+            return
         if self.ui.channelSelect.currentText() == "CCD":
             xScale, yScale = 1., 1.
             self.hideROIs()
@@ -1557,11 +1555,15 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.mainImage.removeItem(self.horizontalLine)
             if self.verticalLine is not None:
                 self.ui.mainImage.removeItem(self.verticalLine)
-        elif self.ui.channelSelect.currentText() == self.client.daqConfig["default"]["name"]:
+        elif self.client.daqConfig[self.ui.channelSelect.currentText()]["type"] == "point":
+            try:
+                image = self.stxm.interp_counts[self.ui.channelSelect.currentText()][self.currentScanRegionIndex][self.currentEnergyIndex]
+            except:
+                image = None
             xScale,yScale = self.imageScale
-            if self.image is None:
-                self.image = np.zeros((100,100))
-            self.ui.mainImage.setImage(self.image.T, autoRange=True, autoLevels=True, \
+            if image is None:
+                image = np.zeros((100,100))
+            self.ui.mainImage.setImage(image.T, autoRange=True, autoLevels=True, \
                     autoHistogramRange=True, pos = self.imageCenter, scale = self.imageScale)
             self.ui.showRangeFinder.setEnabled(True)
             self.ui.roiCheckbox.setEnabled(True)
@@ -1637,8 +1639,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.currentImageType = message["type"]
             self.currentEnergyIndex = message["energyIndex"]
             self.currentScanRegionIndex = scanRegNumber
-            self.image = message["image"]["default"]
-            #prnt(message)
+            self.image = message["image"][self.ui.channelSelect.currentText()]
 
             self.xCenter = self.scan["scan_regions"][message["scanRegion"]]["xCenter"]
             self.yCenter = self.scan["scan_regions"][message["scanRegion"]]["yCenter"]
@@ -1732,7 +1733,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.ui.scanFileName.setText(message["scanID"].split("/")[-1])
                 if self.scan["scan_type"] == "Single Motor":
                     for daq in message["rawData"].keys():
-                        channel = self.client.daqConfig[daq]["name"]
+                        channel = daq #self.client.daqConfig[daq]["name"]
                         if channel not in self.singleMotorScanYData.keys():
                             self.singleMotorScanYData[channel] = []
                         ydata = message["rawData"][daq]["data"][0]
@@ -1782,10 +1783,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.zonePlateCalibration = message['zonePlateCalibration']
             self.zonePlateOffset = message['zonePlateOffset']
             for daq in message["rawData"].keys():
-                channel = self.client.daqConfig[daq]["name"]
+                channel = daq #self.client.daqConfig[daq]["name"]
                 if channel not in self.monitorData.keys():
                     self.monitorData[channel] = {"data": [], "meta": None}
-                # if daq == "default":
                 if self.client.daqConfig[daq]["type"] == "point":
                     self.monitorData[channel]["data"].append(message["rawData"][daq]["data"][0])
                     if len(self.monitorData[channel]["data"]) == self.monitorNPoints:
@@ -2072,9 +2072,12 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.roiList.append(roi)
 
     def showROIs(self):
-        for roi in self.roiList:
-            self.ui.mainImage.addItem(roi)
-        self.ui.mainImage.autoRange()
+        try:
+            for roi in self.roiList:
+                self.ui.mainImage.addItem(roi)
+            self.ui.mainImage.autoRange()
+        except:
+            pass
 
     def hideROIs(self):
         for roi in self.roiList:
@@ -2361,8 +2364,9 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui.channelSelect.clear()
         for key in self.client.daqConfig.keys():
             if self.client.daqConfig[key]["record"]:
-                daq_name = self.client.daqConfig[key]["name"]
-                self.ui.channelSelect.addItem(daq_name)
+                # daq_name = self.client.daqConfig[key]
+                # self.ui.channelSelect.addItem(daq_name)
+                self.ui.channelSelect.addItem(key)
         self.currentMotorPositions = self.client.currentMotorPositions
         self.ui.scanType.clear()
         for scanType in self.client.scanConfig.keys():
@@ -2420,7 +2424,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         roiPen = pg.mkPen((255,255,255),width = 1, style = QtCore.Qt.DashLine)
         self.rangeROI = pg.RectROI((xMin,yMin), (xMax - xMin, yMax - yMin), snapSize = 0.0, pen = roiPen, \
                          rotatable = False, resizable = False, movable = False, removable = False)
-        #self.ui.mainImage.addItem(self.rangeROI)
         self.rangeROI.removeHandle(self.rangeROI.getHandles()[0])
         self.imageCenter = 0,0
         self.imageScale = 0.1,0.1
@@ -2433,7 +2436,6 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setSingleEnergy()
         self.activateGUI()
         if not self.client.main_config["geometry"]["enable_coarse_only"]:
-            #self.ui.tiledCheckbox.setChecked(self.client.main_config["geometry"]["enable_tiled_scan"])
             self.ui.tiledCheckbox.setEnabled(False)
         elif not self.client.main_config["geometry"]["enable_tiled_scan"]:
             self.ui.tiledCheckbox.setChecked(False)

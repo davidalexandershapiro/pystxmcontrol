@@ -527,7 +527,7 @@ class OperationLogger:
         """
         Log a command processed by the server (non-blocking)
 
-        :param command: The command name (e.g., 'moveMotor', 'scan', 'getData')
+        :param command: The command name (e.g., 'moveMotor', 'scan', 'get_data')
         :param parameters: Dictionary of command parameters
         :param status: Whether the command succeeded
         :param mode: Mode after command execution (e.g., 'idle', 'scanning')
@@ -1270,7 +1270,7 @@ class OperationLogger:
                             annotation_parts.append(scan_type)
                         if scan_id != '?':
                             annotation_parts.append(f"#{scan_id}")
-                    elif cmd_name == 'getData':
+                    elif cmd_name == 'get_data':
                         daq = params.get('daq', '?')
                         dwell = params.get('dwell', '?')
                         if daq != '?' or dwell != '?':

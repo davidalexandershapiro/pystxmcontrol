@@ -35,6 +35,7 @@ class derivedPiezo(motor):
         self._padMaximum = 5.0
         self._padMinimum = 0.2
         self.units = 1.
+        self._debug = False
 
     def getStatus(self, **kwargs):
         return self.moving
@@ -198,7 +199,7 @@ class derivedPiezo(motor):
                 t0 = time.time()
                 self.moveTo(self.stop[0], coarse_only = True)
                 #print(f"[derived piezo] moving {self.axis} to {self.stop[0]} took {time.time()-t0} seconds")
-                self.axes["axis2"].setAxisParams(velocity = 2.0)
+                self.axes["axis2"].setAxisParams(velocity = self.config.get("return_velocity",1))
         elif self.lineMode == 'arbitrary':
             if not self.simulation:
                 self.positions = self.axes["axis1"].controller.acquire_xy()
@@ -230,11 +231,21 @@ class derivedPiezo(motor):
         self.moving = True
         deltaPos = pos - self.getPos()
         newFinePos = self._finePos + deltaPos
+
+        if self._debug:
+            print(f"[inclined piezo] {self.axis} {kwargs}")
         if fine_only:
+            if self._debug:
+                print(f"[inclined piezo] fine_only {self.axis} move to {pos}")
             self.axes["axis1"].moveTo(pos)
         elif self.axes["axis1"].checkLimits(newFinePos) and not(coarse_only):
+            if self._debug:
+                print(f"[inclined piezo] moving fine {self.axis} motor to {newFinePos}. Coarse {self.axis} position: {self.coarsePos}")
             self.axes["axis1"].moveTo(newFinePos)
         else:
+            if self._debug:
+                print(f"[inclined piezo] {self._finePos},{self.coarsePos},{deltaPos},{newFinePos},{pos}")
+                print(f"[inclined piezo] check limit failed for fine {self.axis} position {newFinePos} at coarse position {pos}")
             self.axes["axis1"].moveTo(pos = 0.)
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)

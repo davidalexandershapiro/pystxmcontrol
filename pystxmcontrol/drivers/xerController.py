@@ -391,7 +391,7 @@ class Axis:
                     # EPOS is not within tolerance of DPOS, unknown reason.
                     outputConsole("Position not reached. (3) " + getDposEposString(value, self.getEPOS(), unit), True)
                     error = True
-                    break
+                    
 
                 # This movement took too long, timeout time is estimated with speed & distance.
                 if self.__timeOutReached(send_time, distance):
@@ -402,6 +402,8 @@ class Axis:
                     break
                 # Keep polling ==> if timeout is not done, the computer will poll too fast. The microcontroller can't follow.
                 time.sleep(0.1)
+            else:
+                error = False
 
         if outputToConsole and error is False and DISABLE_WAITING is False:  # Output new DPOS & EPOS if necessary
             outputConsole(getDposEposString(value, self.getEPOS(), unit))
