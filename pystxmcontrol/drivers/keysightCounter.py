@@ -18,10 +18,8 @@ class counter:
         self.session.write("*RST")
         print(self.session.ask('*IDN?'))
 
-        #print('*IDN? returned: %s' % idn.rstrip('\n'))
-
     def config(self, dwell, count = 1, samples = 1, trigger = 'BUS', output = 'OFF', channel = 1):
-        #print("Configuring counter with dwell = %.2f ms, count = %i, samples = %i and trigger = %s" %(dwell, count, samples, trigger))
+        print(f"Configuring counter with dwell = {dwell} ms, count = {count}, samples = {samples} and trigger = {trigger}")
         self.dwell = dwell
         self.count = count
         self.trigger = trigger
@@ -35,6 +33,14 @@ class counter:
         self.session.write(f"OUTP:STAT {output}") #output the gate signal for shutter timing
         self.session.write(f"TRIG:SOUR {trigger}")
         self.session.ask("CONF?") #this is needed.  Blocks until config is complete I think
+        # print("[Keysight config]-----------------------------------------------------------")
+        # print(f"CONF:TOT:TIM {dwell/1000.}, (@{channel})")
+        # print(f"TRIG:COUN {count}")
+        # print(f"SAMP:COUN {samples}")
+        # print(f"OUTP:STAT {output}")
+        # print(f"TRIG:SOUR {trigger}")
+        # print("[Keysight config]-----------------------------------------------------------")
+
 
     async def getPoint(self):
         self.session.write("INIT:IMM")

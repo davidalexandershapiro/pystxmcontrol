@@ -172,7 +172,7 @@ class mclController():
         """
         pass
 		
-    def setPositionTrigger(self, pos = 0., axis = 1, mode = "off", clock = 2):
+    def setPositionTrigger(self, pos = 0., axis = 1, mode = "off", clock = 1):
         """
         The MCL cannot trigger on position so the position argument will be ignored.  It will only trigger on the start
         of a waveform and return the position data.  This changes how we must do things.

@@ -50,8 +50,9 @@ class E712Motor(motor):
             else:
                 self.position = pos
         else:
-            self.logger.log("Software limits exceeded for axis %s. Requested position: %.2f" % (self.axis, pos),
-                            level="info")
+            print(f'Software limits exceeded for axis {self.axis}. Requested position: {pos}')
+            #self.logger.log("Software limits exceeded for axis %s. Requested position: %.2f" % (self.axis, pos),
+            #                level="info")
 
     def getPos(self):
         if not self.simulation:

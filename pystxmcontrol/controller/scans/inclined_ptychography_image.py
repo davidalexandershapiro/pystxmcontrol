@@ -5,7 +5,7 @@ import time, datetime
 import asyncio, os
 
 # Define this parameter if you're setting the sample angle to something
-SAMPLE_ANGLE = 45
+SAMPLE_ANGLE = 10
 
 # All dated notes were modifications made by Dayne and Damian
 
@@ -41,9 +41,13 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         dwell2 = 0
     controller.daq["default"].setGateDwell(dwell1, 0)
     if shutter:
-        controller.daq["default"].gate.mode = "auto"
+        #controller.daq["default"].gate.mode = "auto"
+        #For MTE, the CCD controls the shutter
+        controller.daq["CCD"].set_shutter(True)
     else:
-        controller.daq["default"].gate.mode = "close"
+        #controller.daq["default"].gate.mode = "close"
+        controller.daq["CCD"].set_shutter(False)
+
 
     ## NOTE DAYNE EDIT 20251014: I'm implementing some ZOnePlateZ motion correction for tilted samples
     # based on stuff in the 2025-05-21 logbook for reflection imaging
@@ -87,7 +91,8 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         scanInfo['yPos'] = yPos[i]
 
         # NOTE DAYNE EDIT 20251014: Add scanInfo for ZonePlateZ
-        controller.moveMotor("ZonePlateZ", zPos[scanInfo['lineIndex']])
+        if scanInfo["columnIndex"] == 0:
+            controller.moveMotor("ZonePlateZ", zPos[scanInfo['lineIndex']])
         scanInfo['zPos'] = zPos[scanInfo["lineIndex"]]
         #await asyncio.sleep(1)
         print(f'{i} | Time: {time.time()}, SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[scanInfo['lineIndex']]}')
@@ -350,25 +355,25 @@ async def inclined_ptychography_image(scan, dataHandler, controller, queue):
 
             await asyncio.sleep(0.1)
             scanInfo["scanRegion"] = scanRegion
-            # xp_dark = np.linspace(xp.min(), xp.max(), 5)
-            # yp_dark = np.linspace(yp.min(), yp.max(), 5)
+            xp_dark = np.linspace(xp.min(), xp.max(), 5)
+            yp_dark = np.linspace(yp.min(), yp.max(), 5)
 
             # 20251013: THIS IS A DAYNE EDIT; REMOVE AFTER REFLECTION BEAM TIME
             #zp_dark = np.ones((5,)) * controller.motors['ZonePlateZ']['motor'].getPos()
             # END DAYNE EDIT
 
-            # scanInfo["ccd_mode"] = "dark"
+            scanInfo["ccd_mode"] = "dark"
             # print("acquiring background")
             # # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement
-            # if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
-            #     await dataHandler.dataQueue.put('endOfRegion')
-            # else:
-            #     dataHandler.zmq_send({'event': 'abort', 'data': None})
-            #     if scanInfo['retract']:
-            #         insertSTXMDetector(controller)
-            #     if scan["defocus"]:
-            #         controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
-            #     return
+            if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
+                await dataHandler.dataQueue.put('endOfRegion')
+            else:
+                dataHandler.zmq_send({'event': 'abort', 'data': None})
+                if scanInfo['retract']:
+                    insertSTXMDetector(controller)
+                if scan["defocus"]:
+                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
+                return
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
             # NOTE 2025-02-11-1116: Replace zPos[j] with zp. The commented code below was the original if statement

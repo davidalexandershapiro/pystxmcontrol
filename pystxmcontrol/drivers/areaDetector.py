@@ -55,6 +55,7 @@ class areaDetector(daq):
             #These might vary with detector.
             if self.address == "BL7ANDOR1":
                 #set exposure times
+
                 caput(self.address + self.camera_prefix + ":TriggerMode", "External", wait = True)
                 caput(self.address + self.camera_prefix + ":ImageMode", "Continuous", wait=True)
                 caput(self.address + self.camera_prefix + ":AcquireTime.VAL", self.dwell / 1000., wait = True)
@@ -79,6 +80,12 @@ class areaDetector(daq):
                 #reset counter
                 self.framenum = 0
 
+    def set_shutter(self, shutter = False):
+        if shutter:
+            caput(self.address + self.camera_prefix + ":ShutterTimingMode", "Normal", wait = True)
+        else:
+            caput(self.address + self.camera_prefix + ":ShutterTimingMode", "Always Closed", wait = True)
+
     def init(self):
         pass
         #caput(self.address + self.camera_prefix + ":Acquire", 1)
@@ -98,16 +105,16 @@ class areaDetector(daq):
             await asyncio.sleep(self.dwell / 1000.)
             #print(f'[area Detector]: after dwell {time.time()-t0}')
             #await asyncio.sleep(self.readout_time_seconds)
-            asyncio.sleep(0.1)
+            await asyncio.sleep(0.1)
             while caget(self.address + self.camera_prefix + ":Acquire_RBV") != 0:
-                asyncio.sleep(0.1)
+                await asyncio.sleep(0.1)
             
             #print(f'[area Detector]: done acquiring {time.time()-t0}')
 
             #caput(self.address + self.camera_prefix + ":Acquire", 0)
             #print("Readout time seconds: %.4f" %self.readout_time_seconds)
-            current_dim = (caget(self.address + self.camera_prefix+":ArraySizeX_RBV"),
-                           caget(self.address + self.camera_prefix + ":ArraySizeY_RBV"))
+            current_dim = (caget(self.address + self.camera_prefix+":ArraySizeY_RBV"),
+                           caget(self.address + self.camera_prefix + ":ArraySizeX_RBV"))
 
             #print(f'[area Detector]: gotten array size {time.time()-t0}')
             # Slow sometimes

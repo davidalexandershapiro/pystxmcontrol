@@ -149,7 +149,7 @@ class LinearImageScan(BaseScan):
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
             count=self.scanInfo["numLineDAQPoints"],
-            samples= self.scanInfo["oversampling_factor"],
+            samples= 1, #the controller multiplies by oversampling
             trigger="EXT"
         )
 
@@ -282,10 +282,6 @@ class LinearImageScan(BaseScan):
         start_x = self.scanInfo["start_position_x"]
         wait_time = 0.005 + geometry["xPoints"] * 0.0001
 
-        self.controller.daq["default"].stop()
-        self.controller.daq["default"].start()
-        self.controller.config_daqs(dwell = self.scanInfo["dwell"], count = 1, samples = self.scanInfo["numLineDAQPoints"], trigger = "EXT", daq_list=self.scanInfo["daq_list"])
-        
         for line_index, y_pos in enumerate(geometry["yPos"]):
             # Check for abort
             if await self.check_abort():

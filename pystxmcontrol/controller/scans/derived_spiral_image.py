@@ -61,6 +61,10 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             if scanInfo['scan']['autofocus']:
                 controller.moveMotor("ZonePlateZ",
                                           controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                if energyIndex == 0:
+                    await asyncio.sleep(2)
+                else:
+                    await asyncio.sleep(0.5)
 
         for j in range(nScanRegions):
             if "outerLoop" in scan.keys():

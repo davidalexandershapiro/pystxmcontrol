@@ -35,6 +35,7 @@ class LinearFocusScan(BaseScan):
             "coarse_only": self.scan.get("coarse_only", False),
             "include_return": self.controller.scanConfig[self.scan["scan_type"]]["include_return"]
         })
+        print(self.controller.scanConfig)
 
     async def execute_scan(self) -> bool:
         """
@@ -143,9 +144,9 @@ class LinearFocusScan(BaseScan):
 
         # Calculate number of points
         num_line_motor_points = self.controller.motors[self.scan["x_motor"]]["motor"].npositions
-        self.scanInfo["numLineDAQPoints"] = num_line_motor_points * self.scanInfo["oversampling_factor"]
+        self.scanInfo["numLineDAQPoints"] = num_line_motor_points
         self.scanInfo["numMotorPoints"] = num_line_motor_points * geometry["zPoints"]
-        self.scanInfo["numDAQPoints"] = self.scanInfo["numMotorPoints"] * self.scanInfo["oversampling_factor"]
+        self.scanInfo["numDAQPoints"] = self.scanInfo["numMotorPoints"]
 
         # Update data arrays on first energy
         if energy == energies[0]:
@@ -154,8 +155,8 @@ class LinearFocusScan(BaseScan):
         # Configure DAQs
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
-            count=1,
-            samples=self.scanInfo["numLineDAQPoints"],
+            count=self.scanInfo["numLineDAQPoints"],
+            samples= 1, #the controller multiplies by oversampling
             trigger="EXT"
         )
 
@@ -163,8 +164,8 @@ class LinearFocusScan(BaseScan):
         await self.move_to_start_position(geometry, region_index)
 
         # # Setup position trigger
-        # trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
-        # self.scanInfo["trigger_axis"] = trigger_axis
+        trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
+        self.scanInfo["trigger_axis"] = trigger_axis
 
         # Scan all Y lines
         success = await self.scan_focus_lines(geometry, num_line_motor_points, region_index)
@@ -233,6 +234,7 @@ class LinearFocusScan(BaseScan):
                 include_return=self.scanInfo["include_return"]
             )
         else:
+            print(f"[linear_focus] coarse_only: {coarse_only}")
             # Coarse-only trajectory
             start_x = geometry["xStart"] - coarse_offset
             start_y = geometry["yStart"]

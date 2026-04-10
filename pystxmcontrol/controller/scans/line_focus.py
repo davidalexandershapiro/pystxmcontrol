@@ -20,6 +20,7 @@ def line_focus(scan, dataHandler, controller, queue):
     xStart, xStop = scan["scan_regions"][scanRegion]["xStart"], scan["scan_regions"][scanRegion]["xStop"]
     yStart, yStop = scan["scan_regions"][scanRegion]["yStart"], scan["scan_regions"][scanRegion]["yStop"]
     zStart, zStop = scan["scan_regions"][scanRegion]["zStart"], scan["scan_regions"][scanRegion]["zStop"]
+    print(f'[line_focus] zStart, zStop: {zStart, zStop}')
     xPoints = scan["scan_regions"][scanRegion]["xPoints"]
     scanInfo["xPoints"] = xPoints
     scanInfo["oversampling_factor"] = scan["oversampling_factor"]

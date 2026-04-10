@@ -425,7 +425,7 @@ class controller:
             self.scanQueue.put_nowait('end')
         self.scanning = False
 
-    def config_daqs(self, dwell, count, samples, trigger,daq_list):
+    def config_daqs(self, dwell = 1, count = 1, samples = 1, trigger = 'EXT',daq_list = ['default']):
         for daq in daq_list:
             if isinstance(dwell, list):
                 d = dwell

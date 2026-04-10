@@ -355,15 +355,16 @@ class dataHandler:
                 self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
             image = self.data.interp_counts[daq][k][m,:,:]
         
-        elif scanInfo["type"] == "XRF Image":
+        elif scanInfo["type"] == "XRF Image":            
             if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,y,:] = scanInfo["rawData"][daq]["data"]
+                self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
             elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m,y,:] = scanInfo["rawData"][daq]["data"].sum(0)
+                self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0)
             image = self.data.interp_counts[daq][k][m,:,:]
 
         #add the raw data to the structure
         #this doesn't work for single/double motor scan so put it at the end
+
         if scanInfo["rawData"][daq]["meta"]["type"] == "point":
             self.data.counts[daq][k][m,i:j] = scanInfo["rawData"][daq]["data"]
         elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
