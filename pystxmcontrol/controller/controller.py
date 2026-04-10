@@ -149,7 +149,8 @@ class controller:
             driver = meta["driver"]
             address = meta["address"]
             record = meta["record"]
-            self.daq[daq] = eval(f"{driver}(address = '{address}', simulation = {simulation})")
+            port = meta.get("port",0)
+            self.daq[daq] = eval(f"{driver}(address = '{address}', port = {port}, simulation = {simulation})")
             self.daq[daq].meta = meta
             self.daq[daq].start()
         self.dataHandler = dataHandler(self, self.lock, self._logger)

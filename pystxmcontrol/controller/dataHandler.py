@@ -7,7 +7,7 @@ import numpy as np
 import scipy
 import asyncio
 from copy import deepcopy
-import json
+import json, h5py
 
 class dataHandler:
 
@@ -495,6 +495,17 @@ class dataHandler:
 
     def zmq_start_event(self, scan, metadata=None):
         """Send scan start event via ZMQ publisher"""
+        #load the ACME config
+        config_file = '/global/software/ptycholive/ACME_Data_Cleaning_And_Assembly/src/acme_data_cleaning/config.json'
+        acme_config = json.loads(open(config_file).read())
+        metadata['preprocessor_config'] = acme_config
+
+        #load a probe
+        #probe_file = '/cosmic-dtn/groups/cosmic/Data/2026/03/260311/NS_260311008_ccdframes_0_0.h5'
+        #f = h5py.File(probe_file,'r')
+        #probe = f['probe'][()]
+        #f.close()
+        #metadata['illumination'] = probe.tolist()
         self.zmq_publisher.send_scan_start_event(scan, metadata)
 
     def zmq_stop_event(self):
@@ -531,6 +542,7 @@ class dataHandler:
                 if scanInfo["mode"] == "ptychographyGrid":
                     self.ptychodata.addFrame(scanInfo["rawData"]["CCD"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
                     if self.controller.main_config["ptychography"]["streaming"]:
+                        scanInfo['ccd_frame'] = scanInfo["rawData"]["CCD"]["data"]
                         self.zmq_send({'event':'frame','data':scanInfo})
                     if scanInfo["ccd_mode"] == "exp":
                         if scanInfo["doubleExposure"]:

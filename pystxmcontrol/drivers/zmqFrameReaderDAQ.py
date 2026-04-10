@@ -88,8 +88,10 @@ class zmq_frame_reader(daq):
             return self.data
         else:
             try:
+                # print(f"Waiting for frames on {self.address}")
                 obj, px_size_y, px_size_x, metadata = recv_rec(self.sock, flags=zmq.NOBLOCK)
                 self.data = np.abs(obj[crop:-crop,crop:-crop])
+                # print(f"Received data with size {self.data.shape}")
             except:
                 self.data = None
             return self.data

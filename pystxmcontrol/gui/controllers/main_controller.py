@@ -55,6 +55,7 @@ class MainController(QObject):
     elapsed_time_updated = Signal(float)         # elapsed scan time updated
     motor_scan_updated = Signal()                # single motor scan data ready to plot
     live_data_ready = Signal(object, object)     # (stxm object, raw message dict) for stack viewer
+    external_scan_started = Signal(str)          # scan started externally (carries scan_type string)
     
     def __init__(self):
         super().__init__()
@@ -344,9 +345,15 @@ class MainController(QObject):
                             daq_type = daq_cfg.get(channel_key, {}).get('type', 'point')
                             val = float(np.sum(data)) if daq_type == 'image' else float(data[0])
                             self.image_model.set('daq_current_value', val * 10.0)
-                            # For image-type DAQs, push the raw frame to the main display
-                            if daq_type == 'image' and isinstance(data, np.ndarray) and data.ndim >= 2:
-                                self.image_updated.emit(data)
+                            # For image-type DAQs, prefer the minimally processed image
+                            # from message['data'][channel_key] over the raw frame.
+                            if daq_type == 'image':
+                                processed = message.get('data', {}).get(channel_key)
+                                frame = (processed if isinstance(processed, np.ndarray) and processed.ndim >= 2
+                                         else data if isinstance(data, np.ndarray) and data.ndim >= 2
+                                         else None)
+                                if frame is not None:
+                                    self.image_updated.emit(frame)
                     
             # Handle elapsed time from scan messages
             elif 'elapsedTime' in message:
@@ -385,6 +392,7 @@ class MainController(QObject):
                 self.image_model._data['motor_scan_x_motor'] = self.scan_model.get('x_motor', 'Motor')
                 self.image_model._data['scan_type'] = 'Single Motor'
 
+                self._on_external_scan_detected('Single Motor')
                 self.motor_scan_updated.emit()
 
             # Handle image data (for both continuous and point mode scans)
@@ -392,15 +400,15 @@ class MainController(QObject):
                 # message['image'] is now a dict with keys like 'default', 'xrf', 'tey', etc.
                 image_dict = dict(message['image'])
 
-                # For ptychographyGrid scans the CCD frame comes in message['data'] rather
-                # than message['image'].  Merge any image-type DAQ entries from 'data' so
-                # the channel selector can display them (e.g. when channel_key == 'CCD').
-                if message.get('mode') == 'ptychographyGrid' and isinstance(message.get('data'), dict):
+                # For image-type DAQs (e.g. CCD) the server sends both a raw frame in
+                # message['image'] and a minimally processed image in message['data'].
+                # Override image_dict entries with the processed version for all scan modes.
+                if isinstance(message.get('data'), dict):
                     daq_cfg = getattr(self.client, 'daqConfig', {})
                     for daq_key, daq_val in message['data'].items():
                         if daq_val is None:
                             continue
-                        if daq_cfg.get(daq_key, {}).get('type') == 'image' and daq_key not in image_dict:
+                        if daq_cfg.get(daq_key, {}).get('type') == 'image':
                             image_dict[daq_key] = daq_val
 
                 # Store the full image dictionary
@@ -459,6 +467,10 @@ class MainController(QObject):
                     except Exception as ex:
                         print(f"Warning: live stxm update failed: {ex}")
 
+                # Detect scan that started externally (update_image_data has already written
+                # scan_type into image_model, so the view will read the correct type).
+                self._on_external_scan_detected(message.get('type', ''))
+
         except Exception as e:
             print(f"Error handling monitor message: {e}")
             
@@ -471,6 +483,23 @@ class MainController(QObject):
         """Handle ptychography data."""
         # Update image model with ptycho data
         self.image_model.set('ptycho_data', ptycho_data)
+
+    def _on_external_scan_detected(self, scan_type: str):
+        """Called when scan data arrives while self.scanning is False.
+
+        This covers two scenarios:
+          1. The GUI starts up while the server is already running a scan.
+          2. A remote scripting interface starts a scan while the GUI is idle.
+
+        Sets the controller scanning state and emits external_scan_started so
+        the view can configure itself exactly as if the user had pressed Begin.
+        """
+        if not self.scanning and scan_type:
+            self.scanning = True
+            self.image_model._data['motor_scan_x_data'] = []
+            self.image_model._data['motor_scan_y_data'] = {}
+            self.status_updated.emit(f"External scan detected: {scan_type}")
+            self.external_scan_started.emit(scan_type)
             
     def get_available_motors(self) -> list:
         """Get list of available motors for display."""
@@ -858,7 +887,11 @@ class MainController(QObject):
             self.scan_state_changed.emit(False)  # Signal scan completed
         else:
             self.error_occurred.emit("No scan in progress")
-            
+
+    def set_gate(self, mode: str):
+        """Set the shutter/gate mode. mode must be 'auto', 'open', or 'closed'."""
+        self.message_queue.put({"command": "setGate", "mode": mode})
+
     def move_motor(self, motor_name: str, position: float) -> bool:
         """Move a motor to the specified position."""
         if not self.motor_model.is_position_valid(motor_name, position):

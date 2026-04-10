@@ -196,6 +196,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Initialize the controller
         if self.controller.initialize_client():
             self._populate_combo_boxes()
+            self._update_server_address_display()
         else:
             # If client initialization fails, populate with defaults
             self._populate_default_combo_boxes()
@@ -358,6 +359,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.elapsed_time_updated.connect(self.update_elapsed_time_display)
         self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
         self.controller.live_data_ready.connect(self.ui.stack_viewer.recv_live_data)
+        self.controller.external_scan_started.connect(self.on_external_scan_started)
 
     def _initialize_display(self):
         """Initialize the display elements."""
@@ -706,8 +708,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._update_ui_for_scan_type(scan_type)
         self._update_y_axis_label(scan_type)
 
-        # Default ROI checkbox to checked when switching to an Image scan type
-        if "Image" in scan_type:
+        # Check the ROI checkbox for any scan type that supports it
+        if self.ui.roiCheckbox.isEnabled():
             self.ui.roiCheckbox.setChecked(True)
 
         # Restore last-used values for this scan type
@@ -728,8 +730,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Recreate range ROI with updated motor configuration
         self._recreate_range_roi()
 
-        # Update scan ROIs for new scan type
-        self._update_rois_from_regions()
+        # Update scan ROIs for new scan type, positioned to fill the current field of view
+        self._update_rois_from_regions(reset_to_view=True)
         
     def on_begin_scan(self):
         """Handle begin scan button click."""
@@ -738,6 +740,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Then start the scan
             success = self.controller.start_scan()
             if success:
+                # Cache the compiled config so switching scan types and returning
+                # restores these values via _apply_last_scan.
+                scan_config = self.controller.get_scan_model().to_dict()
+                scan_type = scan_config.get('scan_type', '')
+                if scan_type:
+                    self._local_main_config.setdefault('lastScan', {})[scan_type] = scan_config
                 self._set_scan_ui_state(scanning=True)
         else:
             self.show_error_message("Failed to compile scan configuration")
@@ -746,7 +754,36 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Handle cancel scan button click."""
         self.controller.cancel_scan()
         self._set_scan_ui_state(scanning=False)
-        
+
+    def on_external_scan_started(self, scan_type: str):
+        """Handle a scan that was started externally (server already scanning on GUI
+        startup, or a remote script triggered a scan while the GUI was idle).
+
+        Syncs the scanType combobox to the reported scan type, then puts the GUI
+        into the same scanning state it would be in had the user pressed Begin.
+        """
+        # Match combobox item — exact match first, then substring match.
+        matched_index = -1
+        for i in range(self.ui.scanType.count()):
+            if self.ui.scanType.itemText(i) == scan_type:
+                matched_index = i
+                break
+        if matched_index == -1:
+            for i in range(self.ui.scanType.count()):
+                item = self.ui.scanType.itemText(i)
+                if scan_type in item or item in scan_type:
+                    matched_index = i
+                    break
+
+        if matched_index != -1:
+            # Update combobox without triggering on_scan_type_changed (which would
+            # overwrite the image model and reset region widgets mid-scan).
+            self.ui.scanType.blockSignals(True)
+            self.ui.scanType.setCurrentIndex(matched_index)
+            self.ui.scanType.blockSignals(False)
+
+        self._set_scan_ui_state(scanning=True)
+
     def on_move_motor1(self):
         """Handle motor 1 move button click."""
         motor_name = self.ui.motorMover1.currentText()
@@ -890,9 +927,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             mode = "closed"
         else:
             return
-        # Send gate command through controller
-        if hasattr(self.controller, 'set_gate'):
-            self.controller.set_gate(mode)
+        self.controller.set_gate(mode)
             
     def update_focus_step_size(self):
         """Update focus step size label when range or steps change."""
@@ -1638,11 +1673,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.doubleExposureCheckbox.setEnabled(True)
                 self.ui.multiFrameCheckbox.setEnabled(True)
                 self.ui.defocusCheckbox.setEnabled(True)
+                self.ui.defocusCheckbox.setChecked(True)
             else:
                 self.ui.doubleExposureCheckbox.setChecked(False)
                 self.ui.doubleExposureCheckbox.setEnabled(False)
                 self.ui.multiFrameCheckbox.setChecked(False)
                 self.ui.multiFrameCheckbox.setEnabled(False)
+                self.ui.defocusCheckbox.setChecked(False)
                 self.ui.defocusCheckbox.setEnabled(False)
                 
             # Show range ROI if enabled
@@ -1683,13 +1720,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             for region_widget in self.scan_region_widgets:
                 region_widget.setEnabled(True)
                 
-        # Update ROI enabled state based on current image type (checked state managed separately)
-        current_image_type = self.controller.get_image_model().get('scan_type')
-        if "Image" in current_image_type:
-            self.ui.roiCheckbox.setEnabled(True)
-        else:
+        # Disable ROI checkbox only for scan types with no spatial ROI (Single Motor)
+        if scan_type == "Single Motor":
             self.ui.roiCheckbox.setChecked(False)
             self.ui.roiCheckbox.setEnabled(False)
+        elif not self.ui.roiCheckbox.isEnabled():
+            # Re-enable for all other scan types (Focus, Line Spectrum, Double Motor, Image)
+            self.ui.roiCheckbox.setEnabled(True)
             
     def _set_scan_ui_state(self, scanning: bool):
 
@@ -2101,13 +2138,23 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     # Initialization methods
     def re_init(self):
         """Re-initialize the application."""
-        self.controller.initialize_client()
+        if self.controller.initialize_client():
+            self._update_server_address_display()
         
     def load_config(self):
         """Load configuration from server."""
         # This would be handled through the controller
         pass
-        
+
+    def _update_server_address_display(self):
+        """Update the server address label, edit, and window title to reflect the connected server."""
+        client = self.controller.client
+        address_text = f"{client.server_address}:{client.command_port}"
+        self.ui.serverAddress.setText(address_text)
+        if hasattr(self.ui, 'serverAddressEdit'):
+            self.ui.serverAddressEdit.setText(address_text)
+        self.setWindowTitle(f"STXM Control: {client.main_config['server']['name']}")
+
     # Region management
     def update_scan_regions(self):
         """Update scan region widgets."""
@@ -2464,7 +2511,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def toggle_roi_display(self):
         """Toggle ROI display."""
         if self.ui.roiCheckbox.isChecked():
-            self._show_rois()
+            self._update_rois_from_regions(reset_to_view=True)
         else:
             self._hide_rois()
             
@@ -2483,8 +2530,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     print("Hiding range_roi")
                     self.ui.mainImage.removeItem(self.range_roi)
             
-    def _update_rois_from_regions(self):
-        """Update ROIs based on current scan region widgets."""
+    def _update_rois_from_regions(self, *_signal_args, reset_to_view=False):
+        """Update ROIs based on current scan region widgets.
+
+        When *reset_to_view* is True the new ROI is positioned to fill the
+        current image view rather than using the previously stored widget values.
+        Pass reset_to_view=True on scan-type changes so the ROI always appears
+        inside the visible field of view.
+        """
         # Clear existing ROIs
         self._clear_rois()
 
@@ -2499,7 +2552,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             config_scan_type = "image"  # Default
 
         for i, region_widget in enumerate(self.scan_region_widgets):
-            self._add_roi_from_region(region_widget, i, config_scan_type)
+            self._add_roi_from_region(region_widget, i, config_scan_type, reset_to_view=reset_to_view)
 
         # Show ROIs if checkbox is checked
         if self.ui.roiCheckbox.isChecked():
@@ -2546,14 +2599,30 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         )
         return roi
             
-    def _add_roi_from_region(self, region_widget, index: int, scan_type: str):
-        """Add a single ROI from a region widget."""
+    def _add_roi_from_region(self, region_widget, index: int, scan_type: str, reset_to_view=False):
+        """Add a single ROI from a region widget.
+
+        When *reset_to_view* is True the ROI is positioned to fill the current
+        image view (rectangle) or span it horizontally at mid-height (line),
+        regardless of the values stored in *region_widget*.
+        """
         try:
             x_center = float(region_widget.ui.xCenter.text() or 0)
             y_center = float(region_widget.ui.yCenter.text() or 0)
             x_range = float(region_widget.ui.xRange.text() or 10)
             y_range = float(region_widget.ui.yRange.text() or 10)
-            
+
+            # When resetting to view, override position/size with the visible range
+            view_range = None
+            if reset_to_view:
+                try:
+                    vr = self.ui.mainImage.getView().viewRange()
+                    # viewRange returns [[xmin, xmax], [ymin, ymax]]
+                    if vr and len(vr) == 2:
+                        view_range = vr
+                except Exception:
+                    pass
+
             # Get pen color and style
             color_index = index % len(self.pen_colors)
             style_index = int(index / len(self.pen_colors)) % len(self.pen_styles)
@@ -2562,41 +2631,60 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 width=3,
                 style=self.pen_styles[style_index]
             )
-            
-            # Calculate ROI position using motor coordinates
-            x_min = x_center - x_range / 2
-            y_min = y_center - y_range / 2
-            
+
+            if view_range is not None:
+                x_min_v, x_max_v = view_range[0]
+                y_min_v, y_max_v = view_range[1]
+                x_center_v = (x_min_v + x_max_v) / 2
+                y_center_v = (y_min_v + y_max_v) / 2
+                x_range = (x_max_v - x_min_v) * 0.9
+                y_range = (y_max_v - y_min_v) * 0.9
+                x_min = x_center_v - x_range / 2
+                y_min = y_center_v - y_range / 2
+            else:
+                # Calculate ROI position using motor coordinates
+                x_min = x_center - x_range / 2
+                y_min = y_center - y_range / 2
+
             # Create appropriate ROI based on scan type
             if "image" in scan_type.lower():
                 roi = pg.RectROI(
-                    (x_min, y_min), 
-                    (x_range, y_range), 
-                    snapSize=5.0, 
+                    (x_min, y_min),
+                    (x_range, y_range),
+                    snapSize=5.0,
                     pen=roi_pen,
                     movable=True,
                     resizable=True,
                     rotatable=False
                 )
             elif "line" in scan_type.lower():
-                # For line ROIs, use line length and angle parameters
-                try:
-                    roi = self._calculate_line_roi()
-
-                except (ValueError, AttributeError):
-                    # Fallback to horizontal line if parameters are invalid
-                    x_max = x_center + x_range / 2
+                if view_range is not None:
+                    # Horizontal line at 90% of the view width, centred vertically
+                    x_half = (x_max_v - x_min_v) * 0.9 / 2
+                    y_mid = (y_min_v + y_max_v) / 2
                     roi = pg.LineSegmentROI(
-                        positions=((x_min, y_center), (x_max, y_center)),
+                        positions=((x_center_v - x_half, y_mid), (x_center_v + x_half, y_mid)),
                         pen=roi_pen,
                         movable=True
                     )
+                else:
+                    # For line ROIs, use line length and angle parameters
+                    try:
+                        roi = self._calculate_line_roi()
+                    except (ValueError, AttributeError):
+                        # Fallback to horizontal line if parameters are invalid
+                        x_max = x_center + x_range / 2
+                        roi = pg.LineSegmentROI(
+                            positions=((x_min, y_center), (x_max, y_center)),
+                            pen=roi_pen,
+                            movable=True
+                        )
             else:
                 # Default to rectangle
                 roi = pg.RectROI(
-                    (x_min, y_min), 
-                    (x_range, y_range), 
-                    snapSize=5.0, 
+                    (x_min, y_min),
+                    (x_range, y_range),
+                    snapSize=5.0,
                     pen=roi_pen,
                     movable=True,
                     resizable=True,

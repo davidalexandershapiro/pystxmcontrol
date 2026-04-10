@@ -7,7 +7,7 @@ from numpy import array
 import asyncio
 
 class keysight53230A(daq):
-    def __init__(self, address = "USB::0x0957::0x1907::INSTR", simulation = False):
+    def __init__(self, address = "USB::0x0957::0x1907::INSTR", port = None, simulation = False):
         self.address = address
         self.simulation = simulation
         self.meta = {"ndim": 0, "x": [], "type": "point", "name": "Keysight 53230A","channel": 1, "gate": False}
