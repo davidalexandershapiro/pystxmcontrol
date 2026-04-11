@@ -45,6 +45,7 @@ class nptMotor(motor):
         self.axis = axis
         self.fastAxis = axis
         if not(self.simulation):
+            self.controller.setupStages()
             self._axis = self.controller.getAxis(self.axis)
             self.pid = self.controller.pidRead(axis = self._axis)
             self.position = self.controller.getPos(axis = self._axis)
