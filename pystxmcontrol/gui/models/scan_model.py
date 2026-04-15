@@ -190,7 +190,6 @@ class ScanModel(BaseModel):
         for region in energy_regions.values():
             energies = energies + np.linspace(region.get("start"),
                                         region.get("stop"),region.get("n_energies")).tolist()
-            print(region.get('start'),region.get('stop'),region.get('n_energies'))
         return energies
         
     def get_scan_velocity(self) -> float:

@@ -19,7 +19,7 @@ class counter:
         print(self.session.ask('*IDN?'))
 
     def config(self, dwell, count = 1, samples = 1, trigger = 'BUS', output = 'OFF', channel = 1):
-        print(f"Configuring counter with dwell = {dwell} ms, count = {count}, samples = {samples} and trigger = {trigger}")
+        # print(f"Configuring counter with dwell = {dwell} ms, count = {count}, samples = {samples} and trigger = {trigger}")
         self.dwell = dwell
         self.count = count
         self.trigger = trigger

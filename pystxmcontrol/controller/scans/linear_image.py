@@ -146,6 +146,13 @@ class LinearImageScan(BaseScan):
         if energy == energies[0]:
             self.dataHandler.data.updateArrays(region_index, self.scanInfo)
 
+        # Move to start position
+        await self.move_to_start_position(geometry, region_index)
+
+        # Setup position trigger
+        trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
+        self.scanInfo["trigger_axis"] = trigger_axis
+
         # Configure DAQs
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
@@ -153,13 +160,6 @@ class LinearImageScan(BaseScan):
             samples= 1, #the controller multiplies by oversampling
             trigger="EXT"
         )
-
-        # Move to start position
-        await self.move_to_start_position(geometry, region_index)
-
-        # Setup position trigger
-        trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
-        self.scanInfo["trigger_axis"] = trigger_axis
 
         # Scan all Y lines
         success = await self.scan_y_lines(geometry, num_line_motor_points, region_index)
@@ -281,7 +281,7 @@ class LinearImageScan(BaseScan):
         y_motor_name = self.scan["y_motor"]
         x_coarse, _ = self.scanInfo["offset"]
         start_x = self.scanInfo["start_position_x"]
-        wait_time = 0.005 + geometry["xPoints"] * 0.0001
+        wait_time = geometry["xPoints"] * 0.0001
 
         for line_index, y_pos in enumerate(geometry["yPos"]):
             # Check for abort
@@ -329,6 +329,7 @@ async def linear_image(scan, dataHandler, controller, queue):
     :param queue: Async queue for scan control
     :return: Scan completion status
     """
+    print("[linear_image] Scan started")
     scan_instance = LinearImageScan(scan, dataHandler, controller, queue)
     return await scan_instance.run()
 
