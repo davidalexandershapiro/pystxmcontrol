@@ -1320,6 +1320,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._update_plot_display()
         
     # View update methods (called by controller signals)
+
+    def _update_image_labels(self, pixel_size=None, dwell=None, energy=None):
+        """Update the pixel-size / dwell-time / energy labels below the image."""
+        if pixel_size is not None:
+            self.ui.pixelSizeLabel.setText(f"{pixel_size:.3f} um")
+        if dwell is not None:
+            self.ui.dwellTimeLabel.setText(f"{dwell} ms")
+        if energy is not None:
+            self.ui.imageEnergyLabel.setText(f"{energy:.1f} eV")
+
     def update_motor_position_display(self, motor_name: str, position: float):
         """Update motor position display."""
         # Update motor position labels based on motor name
@@ -1404,6 +1414,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Get current image geometry settings to maintain coordinate system
         image_model = self.controller.get_image_model()
+
+        # Update the scan-info labels from values already stored in the model
+        self._update_image_labels(
+            pixel_size=image_model.get('pixel_size'),
+            dwell=image_model.get('current_dwell'),
+            energy=image_model.get('current_energy'),
+        )
         x_center = image_model.get('x_center', 0.0)
         y_center = image_model.get('y_center', 0.0)
         x_range = image_model.get('x_range', 70.0)
@@ -1770,6 +1787,27 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         if scanning:
             self._composite_scan_counter += 1
+            # Seed the image labels immediately from the current UI definition so
+            # they show meaningful values before the first data point arrives.
+            try:
+                if self.scan_region_widgets:
+                    x_range = float(self.scan_region_widgets[0].ui.xRange.text() or 0)
+                    x_pts   = int(self.scan_region_widgets[0].ui.xNPoints.text() or 1)
+                    pixel_size = x_range / x_pts if x_pts > 0 else None
+                else:
+                    pixel_size = None
+
+                if self.energy_region_widgets:
+                    ed = self.energy_region_widgets[0].energyDef
+                    dwell  = float(ed.dwellTime.text() or 0) or None
+                    energy = float(ed.energyStart.text() or 0) or None
+                else:
+                    dwell = energy = None
+
+                self._update_image_labels(pixel_size=pixel_size,
+                                          dwell=dwell, energy=energy)
+            except (ValueError, AttributeError):
+                pass
 
         # Basic scan controls
         self.ui.beginScanButton.setEnabled(not scanning)

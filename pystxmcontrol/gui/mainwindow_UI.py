@@ -749,6 +749,7 @@ class Ui_MainWindow(object):
         font5 = QFont()
         font5.setPointSize(13)
         self.scaleBarLength.setFont(font5)
+        self.scaleBarLength.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.scaleBarLength)
 
@@ -767,6 +768,7 @@ class Ui_MainWindow(object):
         self.pixelSizeLabel.setMinimumSize(QSize(60, 0))
         self.pixelSizeLabel.setMaximumSize(QSize(60, 16777215))
         self.pixelSizeLabel.setFont(font5)
+        self.pixelSizeLabel.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.pixelSizeLabel)
 
@@ -787,6 +789,7 @@ class Ui_MainWindow(object):
         self.dwellTimeLabel.setMinimumSize(QSize(60, 0))
         self.dwellTimeLabel.setMaximumSize(QSize(60, 16777215))
         self.dwellTimeLabel.setFont(font5)
+        self.dwellTimeLabel.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.dwellTimeLabel)
 
@@ -805,6 +808,7 @@ class Ui_MainWindow(object):
         self.imageEnergyLabel.setMinimumSize(QSize(80, 0))
         self.imageEnergyLabel.setMaximumSize(QSize(80, 16777215))
         self.imageEnergyLabel.setFont(font5)
+        self.imageEnergyLabel.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.imageEnergyLabel)
 
