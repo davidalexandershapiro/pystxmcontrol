@@ -30,6 +30,7 @@ class LinearFocusScan(BaseScan):
         # Add line scan specific parameters
         self.scanInfo.update({
             "mode": "continuousLine",
+            "storage_pattern": "focus_line",
             "oversampling_factor": self.controller.daq["default"].meta["oversampling_factor"],
             "totalSplit": None,
             "coarse_only": self.scan.get("coarse_only", False),

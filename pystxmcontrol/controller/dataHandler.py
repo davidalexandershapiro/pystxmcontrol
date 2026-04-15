@@ -273,102 +273,119 @@ class dataHandler:
 
         return counts
 
-    def addDataToStack(self, scanInfo, daq):
-        """This function puts the raw data into the data structure and returns the data that will be the "image" which the user analyzes.  This is also what is displayed
-        in the GUI.  The philosophy here is that the scan driver decides what the correct indices are and this function just puts
-        the data there.  So no need to calculate what "i" is here, for example.
-        scanInfo["rawData"] is the uninterpolated data where as scanInfo["data"] is interpolated.  Not all scans need
-        do the interpolation, like ptychography and single/double motor scans."""
+    # --- Stack writer methods ---
+    # Each writer handles the interp_counts indexing for one storage pattern and
+    # returns the image slice that goes to the GUI.  The raw-data store (counts)
+    # is handled once in addDataToStack after the writer returns.
 
-        i = scanInfo["index"] #index along the long vector
-        y = scanInfo["lineIndex"]
-        j = i + scanInfo["rawData"][daq]["data"].shape[-1] #the last dimension is the number of scan points
+    def _write_2d_line(self, scanInfo, daq):
+        """Continuous line image (LinearImageScan): one y-row per call."""
         k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
         m = scanInfo["energyIndex"]
+        y = scanInfo["lineIndex"]
+        mi = scanInfo["index"]
+        mj = mi + scanInfo["line_positions"][0].size
+        self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
+        self.data.xMeasured[k][m, mi:mj] = scanInfo["line_positions"][0]
+        self.data.yMeasured[k][m, mi:mj] = scanInfo["line_positions"][1]
+        return self.data.interp_counts[daq][k][m, :, :]
 
-        #add the interpolated data to the structure
-        if scanInfo["type"] in ["Image","TEY Image"]:
-            self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
-            mi = scanInfo['index']
-            mj = mi + scanInfo['line_positions'][0].size
-            self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
-            self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            image = self.data.interp_counts[daq][k][m,:,:]
+    def _write_focus_line(self, scanInfo, daq):
+        """Continuous line focus (LinearFocusScan): always uses default daq, energy index 0."""
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        m = scanInfo["energyIndex"]
+        y = scanInfo["lineIndex"]
+        i = scanInfo["index"]
+        j = i + scanInfo["rawData"][daq]["data"].shape[-1]
+        self.data.interp_counts["default"][k][0, y, :] = scanInfo["data"]["default"]
+        self.data.xMeasured[k][0, i:j] = scanInfo["line_positions"][0]
+        self.data.yMeasured[k][0, i:j] = scanInfo["line_positions"][1]
+        return self.data.interp_counts[daq][k][m, :, :]
 
-        elif scanInfo["type"] == "Spiral Image":
-            mi = scanInfo['position_index']#*scanInfo['line_positions'][0].size
-            mj = mi + scanInfo['line_positions'][0].size
-            self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
-            self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            self.data.interp_counts[daq][k][m,:,:] = scanInfo['data'][daq]
-            image = self.data.interp_counts[daq][k][m,:,:]
-            
-        elif scanInfo["type"] == "Ptychography Image":
-            c = scanInfo["columnIndex"]
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,y,c] = scanInfo["data"]["default"]
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m,y,c] = scanInfo["rawData"][daq]["data"].sum(0) #this is a matrix
-            image = self.data.interp_counts[daq][k][m,:,:]
+    def _write_line_spectrum(self, scanInfo, daq):
+        """Continuous line spectrum (LinearSpectrumScan): data stored in row 0, image is energy stack."""
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        m = scanInfo["energyIndex"]
+        i = scanInfo["index"]
+        j = i + scanInfo["rawData"][daq]["data"].shape[-1]
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq].sum(0)
+        else:
+            self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq]
+        self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]
+        self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
+        return self.data.interp_counts[daq][k][:, 0, :]
 
-        elif "Focus" in scanInfo["type"]:
-            if scanInfo["mode"]=="continuousLine":
-                self.data.interp_counts["default"][k][0, y, :] = scanInfo["data"]["default"]  # this is a matrix
-                self.data.xMeasured[k][0,i:j] = scanInfo["line_positions"][0] #these are long vectors
-                self.data.yMeasured[k][0,i:j] = scanInfo["line_positions"][1]
-            else:
-                c = scanInfo["columnIndex"]
-                self.data.interp_counts["default"][k][0, y, c] = scanInfo["data"]["default"]  # this is a matrix
-            image = self.data.interp_counts[daq][k][m,:,:]
+    def _write_spiral(self, scanInfo, daq):
+        """Continuous spiral image (derived_spiral_image): full 2D image written each trajectory."""
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        m = scanInfo["energyIndex"]
+        mi = scanInfo["position_index"]
+        mj = mi + scanInfo["line_positions"][0].size
+        self.data.xMeasured[k][m, mi:mj] = scanInfo["line_positions"][0]
+        self.data.yMeasured[k][m, mi:mj] = scanInfo["line_positions"][1]
+        self.data.interp_counts[daq][k][m, :, :] = scanInfo["data"][daq]
+        return self.data.interp_counts[daq][k][m, :, :]
 
-        elif scanInfo["type"] == "Line Spectrum":
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq]  # this is a matrix
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m, 0, :] = scanInfo["data"][daq].sum(0)
-            self.data.xMeasured[k][m, i:j] = scanInfo["line_positions"][0]  # these are long vectors
-            self.data.yMeasured[k][m, i:j] = scanInfo["line_positions"][1]
-            image = self.data.interp_counts[daq][k][:,0,:]
+    def _write_ptychography(self, scanInfo, daq):
+        """Ptychography grid (derived_ptychography_image): one point per call."""
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        m = scanInfo["energyIndex"]
+        y = scanInfo["lineIndex"]
+        c = scanInfo["columnIndex"]
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            self.data.interp_counts[daq][k][m, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
+        else:
+            self.data.interp_counts[daq][k][m, y, c] = scanInfo["data"]["default"]
+        return self.data.interp_counts[daq][k][m, :, :]
 
-        elif scanInfo["type"] == "Single Motor":
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"][0]
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m,0,i] = scanInfo["rawData"][daq]["data"].sum(0)
-            image = self.data.interp_counts[daq][k][m,:,:]
+    def _write_single_motor(self, scanInfo, daq):
+        """Single motor scan: one point per call stored in row 0 at the current x index."""
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        m = scanInfo["energyIndex"]
+        i = scanInfo["index"]
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            self.data.interp_counts[daq][k][m, 0, i] = scanInfo["rawData"][daq]["data"].sum(0)
+        else:
+            self.data.interp_counts[daq][k][m, 0, i] = scanInfo["rawData"][daq]["data"][0]
+        return self.data.interp_counts[daq][k][m, :, :]
 
-        elif scanInfo["type"] in ["Double Motor","OSA Image","Detector XY Image"]:
-            if scanInfo["mode"] == "point":
-                c = scanInfo["columnIndex"]
-                if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"][0]
-                elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                    self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
-            elif scanInfo["mode"] == "continuousLine":
-                if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq] #this is a matrix
-                elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                    self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0) #this is a matrix
-                mi = scanInfo['index']
-                mj = mi + scanInfo['line_positions'][0].size
-                self.data.xMeasured[k][m,mi:mj] = scanInfo['line_positions'][0]
-                self.data.yMeasured[k][m,mi:mj] = scanInfo['line_positions'][1]
-            image = self.data.interp_counts[daq][k][m,:,:]
-        
-        elif scanInfo["type"] == "XRF Image":            
-            if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-                self.data.interp_counts[daq][k][m, y, :] = scanInfo["data"][daq]
-            elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                self.data.interp_counts[daq][k][m,y,:] = scanInfo["data"][daq].sum(0)
-            image = self.data.interp_counts[daq][k][m,:,:]
+    def _write_double_motor_point(self, scanInfo, daq):
+        """Double motor point scan: one point per call stored at (row, col). Energy index fixed at 0."""
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        y = scanInfo["lineIndex"]
+        c = scanInfo["columnIndex"]
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
+        else:
+            self.data.interp_counts[daq][k][0, y, c] = scanInfo["rawData"][daq]["data"][0]
+        m = scanInfo["energyIndex"]
+        return self.data.interp_counts[daq][k][m, :, :]
 
-        #add the raw data to the structure
-        #this doesn't work for single/double motor scan so put it at the end
+    _STACK_WRITERS = {
+        "2d_line":            "_write_2d_line",
+        "focus_line":         "_write_focus_line",
+        "line_spectrum":      "_write_line_spectrum",
+        "spiral":             "_write_spiral",
+        "ptychography":       "_write_ptychography",
+        "single_motor":       "_write_single_motor",
+        "double_motor_point": "_write_double_motor_point",
+    }
 
-        if scanInfo["rawData"][daq]["meta"]["type"] == "point":
-            self.data.counts[daq][k][m,i:j] = scanInfo["rawData"][daq]["data"]
-        elif scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            self.data.counts[daq][k][m,:,i:j] = scanInfo["rawData"][daq]["data"]
+    def addDataToStack(self, scanInfo, daq):
+        """Route scanInfo to the correct writer via storage_pattern, then store raw counts."""
+        writer = getattr(self, self._STACK_WRITERS[scanInfo["storage_pattern"]])
+        image = writer(scanInfo, daq)
+
+        # Store raw (uninterpolated) data — common to all patterns
+        k = int(scanInfo["scanRegion"].split("Region")[-1]) - 1
+        m = scanInfo["energyIndex"]
+        i = scanInfo["index"]
+        j = i + scanInfo["rawData"][daq]["data"].shape[-1]
+        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
+            self.data.counts[daq][k][m, :, i:j] = scanInfo["rawData"][daq]["data"]
+        else:
+            self.data.counts[daq][k][m, i:j] = scanInfo["rawData"][daq]["data"]
 
         return image
 
@@ -521,59 +538,68 @@ class dataHandler:
         """Send STXM data as JSON string via ZMQ publisher"""
         self.zmq_publisher.publish_stxm_string(info)
 
+    # --- Data processors for sendScanData ---
+    # Each processor populates scanInfo["data"] and scanInfo["image"] for its scan mode.
+
+    def _process_ptycho(self, scanInfo):
+        """Ptychography frame: store CCD frame, compute point intensity, update stack."""
+        self.ptychodata.addFrame(scanInfo["rawData"]["CCD"]["data"],
+                                 scanInfo["ccd_frame_num"], mode=scanInfo["ccd_mode"])
+        if self.controller.main_config["ptychography"]["streaming"]:
+            scanInfo["ccd_frame"] = scanInfo["rawData"]["CCD"]["data"]
+            self.zmq_send({"event": "frame", "data": scanInfo})
+        if scanInfo["ccd_mode"] == "exp":
+            if scanInfo["doubleExposure"]:
+                if scanInfo["ccd_frame_num"] % 2 == 0:
+                    self._ptycho_point_data = self.processFrame(self.daq["CCD"].display_data)
+            else:
+                self._ptycho_point_data = self.processFrame(self.daq["CCD"].display_data)
+            scanInfo["data"]["default"] = self._ptycho_point_data
+            scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
+        else:
+            self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
+            scanInfo["data"]["default"] = 0.
+            scanInfo["data"]["CCD"] = self.darkFrame
+        scanInfo["image"]["default"] = self.addDataToStack(scanInfo, "default")
+
+    def _process_point(self, scanInfo):
+        """Point scan: pass raw data directly, no interpolation."""
+        for daq in scanInfo["daq_list"]:
+            scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
+            scanInfo["image"][daq] = self.addDataToStack(scanInfo, daq)
+
+    def _process_continuous(self, scanInfo):
+        """Continuous (line or spiral) scan: interpolate to image coordinates then store."""
+        for daq in scanInfo["daq_list"]:
+            scanInfo["data"][daq] = self.interpolate_points(scanInfo, daq)
+            scanInfo["image"][daq] = self.addDataToStack(scanInfo, daq)
+
+    _DATA_PROCESSORS = {
+        "ptychographyGrid": "_process_ptycho",
+        "point":            "_process_point",
+    }
+
     async def sendScanData(self, event):
         t0 = time.time()
-        pointData = 0.
-        event.set() #asyncio.Event from the controller to synchronize with the scan routine
+        self._ptycho_point_data = 0.
+        event.set()  # asyncio.Event from the controller to synchronize with the scan routine
         while True:
             scanInfo = await self.dataQueue.get()
-            if scanInfo == 'endOfScan':
+            if scanInfo == "endOfScan":
                 self.regionComplete = True
-                self.zmq_publisher.publish_stxm_data('scan_complete')
+                self.zmq_publisher.publish_stxm_data("scan_complete")
                 return
             elif scanInfo == "endOfRegion":
                 self.regionComplete = True
                 self.data.saveRegion(region)
             else:
                 self.regionComplete = False
-                region = int(scanInfo['scanRegion'].split('Region')[1]) - 1
+                region = int(scanInfo["scanRegion"].split("Region")[1]) - 1
                 scanInfo["elapsedTime"] = time.time() - t0
-                scanInfo["data"] = {} #this is the data in NX coordinates for the file
-                scanInfo["image"] = {} #this is the image that goes to the gui
-                if scanInfo["mode"] == "ptychographyGrid":
-                    self.ptychodata.addFrame(scanInfo["rawData"]["CCD"]["data"],scanInfo["ccd_frame_num"],mode=scanInfo["ccd_mode"])
-                    if self.controller.main_config["ptychography"]["streaming"]:
-                        scanInfo['ccd_frame'] = scanInfo["rawData"]["CCD"]["data"]
-                        self.zmq_send({'event':'frame','data':scanInfo})
-                    if scanInfo["ccd_mode"] == "exp":
-                        if scanInfo["doubleExposure"]:
-                            if scanInfo["ccd_frame_num"] % 2 == 0:
-                                pointData = self.processFrame(self.daq["CCD"].display_data)
-                        else:
-                            pointData = self.processFrame(self.daq["CCD"].display_data)
-                        # for daq in scanInfo["daq_list"]:
-                        #     scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
-                        #     scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
-                        #hard coding the daqs for now, need to generalize this.
-                        scanInfo["data"]["default"] = pointData
-                        scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
-                        #scanInfo["data"]["xrf"] = scanInfo["rawData"]["xrf"]["data"]
-                    else:
-                        self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
-                        scanInfo["data"]["default"] = 0.
-                        scanInfo["data"]["CCD"] = self.darkFrame
-                    scanInfo["image"]["default"] = self.addDataToStack(scanInfo,"default")
-                elif scanInfo["mode"] == "point":
-                    for daq in scanInfo["daq_list"]:
-                        scanInfo["data"][daq] = scanInfo["rawData"][daq]["data"]
-                        scanInfo['image'][daq] = self.addDataToStack(scanInfo,daq)
-                else:
-                    #prepare data to send onto socket (for the GUI)
-                    #interpolate_points takes scanInfo["rawData"] and converts to image coordinates
-                    # scanInfo["data"] = self.interpolate_points(scanInfo) #this is the image in user coordinates for display in the GUI
-                    for daq in scanInfo["daq_list"]:
-                        scanInfo["data"][daq] = self.interpolate_points(scanInfo,daq)
-                        scanInfo["image"][daq] = self.addDataToStack(scanInfo,daq)
+                scanInfo["data"] = {}
+                scanInfo["image"] = {}
+                processor_name = self._DATA_PROCESSORS.get(scanInfo["mode"], "_process_continuous")
+                getattr(self, processor_name)(scanInfo)
                 await self.sendDataToSock(scanInfo)
 
     async def sendDataToSock(self, scan_info):

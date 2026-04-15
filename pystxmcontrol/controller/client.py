@@ -243,6 +243,17 @@ class stxm_client(QtCore.QThread):
         response = self.send_message(message)
         self.get_config()
 
+    def query_motor_history(self, motor_name, start_time, end_time, limit=10000):
+        """Request historical motor position records from the server for a time range."""
+        message = {
+            "command": "query_motor_history",
+            "motor_name": motor_name,
+            "start_time": start_time,
+            "end_time": end_time,
+            "limit": limit,
+        }
+        return self.send_message(message)
+
     def move_to_focus(self):
         message = {"command": "move_to_focus"}
         response = self.send_message(message)

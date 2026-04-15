@@ -21,6 +21,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies["default"]
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "continuousSpiral"}
+    scanInfo["storage_pattern"] = "spiral"
     scanInfo["scan"] = scan
     scanInfo["type"] = scan["scan_type"]
     scanInfo["oversampling_factor"] = controller.daq["default"].meta["oversampling_factor"]

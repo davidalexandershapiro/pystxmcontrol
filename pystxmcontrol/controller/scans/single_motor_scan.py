@@ -1,111 +1,130 @@
+"""
+Single motor point scan using BaseScan abstract class.
+
+Steps one motor through a range, taking a point measurement at each position.
+Supports multi-energy scans (where the motor is "Energy") or single-energy
+spatial scans using any configured motor.
+"""
+
 import asyncio
+from pystxmcontrol.controller.scans.base_scan import BaseScan
+
+
+class SingleMotorScan(BaseScan):
+    """
+    Single motor scan implementation.
+
+    For multi-energy scans the energy motor is stepped and one point is
+    collected per energy step (index stays at 0).  For spatial scans the
+    x_motor is stepped and one point is collected per position.
+    """
+
+    async def initialize_scan_info(self):
+        await super().initialize_scan_info()
+        energies = self.dataHandler.data.energies["default"]
+        self.scanInfo.update({
+            "mode": "point",
+            "storage_pattern": "single_motor",
+            "lineIndex": 0,
+            "zIndex": 0,
+            "direction": "forward",
+            "scanMotor": "Energy" if len(energies) > 1 else self.scan["x_motor"],
+        })
+
+    def setup_daqs(self):
+        super().setup_daqs()
+        # Point scan never needs interpolation
+        for daq in self.scanInfo["daq_list"]:
+            self.scanInfo["rawData"][daq]["interpolate"] = False
+
+    async def execute_scan(self) -> bool:
+        energies = self.dataHandler.data.energies["default"]
+        xPos = self.dataHandler.data.xPos[0]
+        yPos = self.dataHandler.data.yPos[0]
+
+        refocus_offset = None
+        if not self.scan.get("autofocus", False):
+            current_zpz = self.controller.motors["ZonePlateZ"]["motor"].getPos()
+
+        for energy_index, energy in enumerate(energies):
+            self.controller.getMotorPositions()
+            self.dataHandler.data.motorPositions[0] = self.controller.allMotorPositions
+            self.scanInfo.update({
+                "energy": energy,
+                "energyIndex": energy_index,
+                "dwell": self.dataHandler.data.dwells[energy_index],
+                "motorPositions": self.controller.allMotorPositions,
+            })
+
+            if len(energies) > 1:
+                self.controller.moveMotor(self.scan["energy_motor"], energy)
+                if not self.scan.get("autofocus", False):
+                    if energy_index == 0:
+                        refocus_offset = (current_zpz -
+                                          self.controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                    self.controller.moveMotor(
+                        "ZonePlateZ",
+                        self.controller.motors["Energy"]["motor"].calibratedPosition + refocus_offset
+                    )
+            else:
+                if self.scan.get("autofocus", False):
+                    self.controller.moveMotor(
+                        "ZonePlateZ",
+                        self.controller.motors["Energy"]["motor"].calibratedPosition
+                    )
+
+            xStart, xStop = xPos[0], xPos[-1]
+            xRange = xStop - xStart
+            xPoints = len(xPos)
+
+            self.scanInfo.update({
+                "scanRegion": "Region1",
+                "xPoints": xPoints,
+                "xStep": xRange / (xPoints - 1),
+                "xStart": xStart,
+                "xCenter": xStart + xRange / 2.,
+                "xRange": xRange,
+                "yPoints": 1,
+                "yStep": 0,
+                "yStart": yPos[0],
+                "yCenter": yPos[0],
+                "yRange": 0,
+            })
+
+            self.configure_daqs(dwell=self.scanInfo["dwell"], count=1, samples=1, trigger="BUS")
+
+            if self.scan["x_motor"] == "Energy":
+                # Energy is the scan motor: one point per energy step
+                self.scanInfo.update({"scanMotorVal": energy, "index": 0, "energyIndex": energy_index})
+                if await self.check_abort():
+                    await self.queue.get()
+                    self.dataHandler.data.saveRegion(0)
+                    await self.dataHandler.dataQueue.put("endOfScan")
+                    return False
+                self.controller.daq["default"].autoGateOpen()
+                await self.dataHandler.getPoint(self.scanInfo)
+                self.controller.daq["default"].autoGateClosed()
+            else:
+                # Spatial motor: step through x positions
+                for i, x_pos in enumerate(xPos):
+                    self.scanInfo.update({"scanMotorVal": x_pos, "index": i, "energyIndex": 0})
+                    self.controller.moveMotor(self.scan["x_motor"], x_pos)
+                    if await self.check_abort():
+                        await self.queue.get()
+                        self.dataHandler.data.saveRegion(0)
+                        await self.dataHandler.dataQueue.put("endOfScan")
+                        return False
+                    self.controller.daq["default"].autoGateOpen()
+                    await self.dataHandler.getPoint(self.scanInfo)
+                    self.controller.daq["default"].autoGateClosed()
+
+        await self.dataHandler.dataQueue.put("endOfScan")
+        await asyncio.sleep(0.1)
+        self.dataHandler.data.saveRegion(0)
+        return True
+
 
 async def single_motor_scan(scan, dataHandler, controller, queue):
-    """
-    Single motor point scan
-    :param scan:
-    :return:
-    """
-    await scan["synch_event"].wait()
-    regionNum = 0
-    xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
-    energies = dataHandler.data.energies["default"]
-    scanInfo = {"mode": "point"}
-    scanInfo["scan"] = scan
-    scanInfo["type"] = scan["scan_type"]
-    scanInfo["lineIndex"] = 0
-    scanInfo["zIndex"] = 0
-    scanInfo["direction"] = "forward"
-    
-    if len(energies) > 1:
-        scanInfo["scanMotor"] = "Energy"
-    else:
-        scanInfo["scanMotor"] = scan["x_motor"]
-    energyIndex = 0
-    scanInfo['daq_list'] = scan['daq_list']
-    scanInfo["rawData"] = {}
-    for daq in scanInfo["daq_list"]:
-        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
-        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
-        else:
-            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-        scanInfo["rawData"][daq]["interpolate"] = False
-
-    if not scanInfo['scan']['autofocus']:
-        currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
-    for energy in energies:
-        controller.getMotorPositions()
-        dataHandler.data.motorPositions[0] = controller.allMotorPositions
-        scanInfo["motorPositions"] = controller.allMotorPositions
-        ##scanInfo is what gets passed with each data transmission
-        scanInfo["energy"] = energy
-        scanInfo["energyIndex"] = energyIndex
-        scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
-        if len(energies) > 1:
-            controller.moveMotor(scan["energy_motor"], energy)
-            if not scanInfo['scan']['autofocus']:
-                if energy == energies[0]:
-                    scanInfo['refocus_offset'] = currentZonePlateZ - controller.motors['ZonePlateZ'][
-                        'motor'].calibratedPosition
-                    print('calculated offset: {}'.format(scanInfo['refocus_offset']))
-                controller.moveMotor('ZonePlateZ',
-                                          controller.motors['Energy']['motor'].calibratedPosition + scanInfo[
-                                              'refocus_offset']) #this should just move the zone plate to its energy calibrated position
-        else:
-            if scanInfo['scan']['autofocus']:
-                controller.moveMotor("ZonePlateZ",
-                                          controller.motors["Energy"]["motor"].calibratedPosition)
-        x, y = xPos[regionNum], yPos[regionNum]
-        scanInfo["scanRegion"] = "Region" + str(regionNum + 1)
-        xStart, xStop = x[0], x[-1]
-        yStart, yStop = y[0], y[-1]
-        xRange, yRange = xStop - xStart, yStop - yStart
-        xPoints, yPoints = len(x), len(y)
-        xStep, yStep = xRange / (xPoints - 1), yRange / (yPoints - 1)
-        # I'm putting all of these into scanINfo so the GUI knows where to put the data for a script scan
-        scanInfo["xPoints"] = xPoints
-        scanInfo["xStep"] = xStep
-        scanInfo["xStart"] = xStart
-        scanInfo["xCenter"] = xStart + xRange / 2.
-        scanInfo["xRange"] = xRange
-        scanInfo["yPoints"] = 1
-        scanInfo["yStep"] = 0
-        scanInfo["yStart"] = yStart
-        scanInfo["yCenter"] = yStart
-        scanInfo["yRange"] = 0
-        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = 1, trigger='BUS', 
-                           daq_list = scanInfo.get("daq_list", ["default"]))
-
-        if scan["x_motor"] == "Energy":
-            scanInfo["scanMotorVal"] = energy
-            scanInfo["index"] = 0
-            scanInfo["energyIndex"] = energyIndex
-            if queue.empty():
-                controller.daq["default"].autoGateOpen()
-                await dataHandler.getPoint(scanInfo)
-                controller.daq["default"].autoGateClosed()
-            else:
-                await queue.get()
-                dataHandler.data.saveRegion(0)
-                await dataHandler.dataQueue.put('endOfScan')
-                return
-        else:
-            for i in range(len(xPos[0])):
-                scanInfo["scanMotorVal"] = xPos[0][i]
-                scanInfo["index"] = i
-                scanInfo["energyIndex"] = 0
-                controller.moveMotor(scan["x_motor"], xPos[0][i])
-                if queue.empty():
-                    controller.daq["default"].autoGateOpen()
-                    await dataHandler.getPoint(scanInfo)
-                    controller.daq["default"].autoGateClosed()
-                else:
-                    queue.get()
-                    dataHandler.data.saveRegion(0)
-                    await dataHandler.dataQueue.put('endOfScan')
-                    return
-        energyIndex += 1
-    await dataHandler.dataQueue.put('endOfScan')
-    await asyncio.sleep(0.1)
-    dataHandler.data.saveRegion(0)
+    """Entry point for single motor scan."""
+    scan_instance = SingleMotorScan(scan, dataHandler, controller, queue)
+    return await scan_instance.run()

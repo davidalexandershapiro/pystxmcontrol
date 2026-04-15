@@ -1,129 +1,185 @@
-import time
+"""
+OSA focus scan (point and continuous line modes) using BaseScan abstract class.
+
+Steps ZonePlateZ through focus positions (outer loop) and either steps X+Y
+point-by-point (mode="point") or runs a continuous fly-scan along X for each
+Z step (mode="continuousLine"). ZonePlateZ positions are offset by -A0 so that
+the zone plate is focused on the OSA rather than the sample.
+"""
+
 import asyncio
 import numpy as np
+from pystxmcontrol.controller.scans.base_scan import BaseScan
+
+
+class OsaFocusScan(BaseScan):
+    """
+    OSA focus scan implementation.
+
+    ZonePlateZ is the outer (row) axis; X is the inner (column) axis.
+    Y moves in lock-step with X in point mode (1-D path along the OSA),
+    and is fixed in continuousLine mode.
+
+    Point mode       — storage_pattern "double_motor_point":
+                       data stored at interp_counts[daq][k][0, z_idx, col].
+    Continuous mode  — storage_pattern "2d_line":
+                       interpolated data stored at interp_counts[daq][k][0, z_idx, :].
+    """
+
+    async def initialize_scan_info(self):
+        await super().initialize_scan_info()
+        mode = self.scan["mode"]
+        self.scanInfo.update({
+            "mode": mode,
+            "storage_pattern": "double_motor_point" if mode == "point" else "2d_line",
+            "zIndex": 0,
+            "energyIndex": 0,
+            "direction": "forward",
+        })
+
+    def setup_daqs(self):
+        super().setup_daqs()
+        for daq in self.scanInfo["daq_list"]:
+            self.scanInfo["rawData"][daq]["interpolate"] = False
+
+    async def execute_scan(self) -> bool:
+        energies = self.dataHandler.data.energies["default"]
+        mode = self.scan["mode"]
+
+        geom = self.get_scan_region_geometry(0)
+        x, y, z = geom["xPos"], geom["yPos"], geom["zPos"]
+        xStart, xStop = geom["xStart"], geom["xStop"]
+        xRange, yRange = geom["xRange"], geom["yRange"]
+        xPoints, zPoints = geom["xPoints"], geom["zPoints"]
+        xStep, yStep = geom["xStep"], geom["yStep"]
+        yStart = geom["yStart"]
+
+        # Move ZonePlateZ to focus on the OSA (not the sample)
+        A0 = self.controller.motors["Energy"]["motor"].config["A0"]
+        self.controller.moveMotor(
+            "ZonePlateZ",
+            self.controller.motors["Energy"]["motor"].calibratedPosition - A0
+        )
+
+        self.scanInfo.update({
+            "energy":    energies[0],
+            "dwell":     self.dataHandler.data.dwells[0],
+            "scanRegion": "Region1",
+            "xPoints":   xPoints,
+            "xStep":     xStep,
+            "xStart":    xStart,
+            "xCenter":   xStart + xRange / 2.,
+            "xRange":    xRange,
+            "yPoints":   zPoints,   # Z is the outer/row axis for display
+            "yStep":     yStep,
+            "yStart":    yStart,
+            "yCenter":   yStart,
+            "yRange":    yRange,
+        })
+
+        velocity = None
+        if mode == "continuousLine":
+            velocity = xStep / self.scanInfo["dwell"]
+            self.controller.motors[self.scan["x_motor"]]["motor"].setAxisParams(velocity)
+            self.scanInfo.update({
+                "numMotorPoints": xPoints * zPoints,
+                "numDAQPoints":   xPoints * zPoints,
+            })
+            for daq in self.scanInfo["daq_list"]:
+                meta = self.scanInfo["rawData"][daq]["meta"]
+                meta["n_energies"] = (len(meta["x"]) if meta["type"] == "spectrum"
+                                      else len(energies))
+
+        self.dataHandler.data.updateArrays(0, self.scanInfo)
+
+        samples = xPoints if mode == "continuousLine" else 1
+        self.configure_daqs(dwell=self.scanInfo["dwell"], count=1,
+                            samples=samples, trigger="BUS")
+        self.scanInfo["line_positions"] = [
+            np.linspace(xStart, xStop, samples),
+            np.ones(samples) * yStart,
+        ]
+
+        # Position Y motor at the start of the OSA path
+        self.controller.moveMotor(self.scan["y_motor"], y[0])
+
+        if mode == "point":
+            success = await self._scan_point_z(x, y, z, A0)
+        else:
+            success = await self._scan_continuous_z(x, z, xStart, xStop, xPoints,
+                                                    velocity, A0)
+
+        if not success:
+            return False
+
+        await self.dataHandler.dataQueue.put("endOfScan")
+        await asyncio.sleep(0.1)
+        self.dataHandler.data.saveRegion(0)
+        return True
+
+    async def _scan_point_z(self, x, y, z, A0) -> bool:
+        """Outer Z loop with point-by-point X+Y inner loop."""
+        for i, z_pos in enumerate(z):
+            self.controller.moveMotor("ZonePlateZ", z_pos - A0)
+            self.update_motor_positions(0)
+            self.scanInfo["lineIndex"] = i
+            for j in range(len(x)):
+                self.controller.moveMotor(self.scan["y_motor"], y[j])
+                self.controller.moveMotor(self.scan["x_motor"], x[j])
+                self.scanInfo.update({
+                    "columnIndex": j,
+                    "index": i * len(z) + j,
+                })
+                if await self.check_abort():
+                    await self.queue.get()
+                    self.dataHandler.data.saveRegion(0)
+                    await self.dataHandler.dataQueue.put("endOfScan")
+                    return False
+                self.controller.daq["default"].autoGateOpen(shutter=True)
+                await self.dataHandler.getPoint(self.scanInfo)
+                self.controller.daq["default"].autoGateClosed()
+        return True
+
+    async def _scan_continuous_z(self, x, z, xStart, xStop, xPoints,
+                                  velocity, A0) -> bool:
+        """Outer Z loop with fly-scan along X for each step."""
+        x_motor = self.scan["x_motor"]
+        return_velocity = self.controller.motors[x_motor]["motor"].config.get("return_velocity", 1)
+
+        for i, z_pos in enumerate(z):
+            self.controller.moveMotor("ZonePlateZ", z_pos - A0)
+            self.update_motor_positions(0)
+            self.scanInfo.update({
+                "lineIndex": i,
+                "index":     i * len(x),
+                "direction": "forward",
+            })
+
+            # Return X to start at return velocity, then switch to scan velocity
+            self.controller.motors[x_motor]["motor"].setAxisParams(return_velocity)
+            self.controller.moveMotor(x_motor, xStart)
+            self.controller.motors[x_motor]["motor"].setAxisParams(velocity)
+
+            if await self.check_abort():
+                await self.queue.get()
+                self.dataHandler.data.saveRegion(0)
+                await self.dataHandler.dataQueue.put("endOfScan")
+                return False
+
+            self.controller.daq["default"].initLine()
+            self.controller.daq["default"].autoGateOpen()
+            self.controller.daq["default"].bus_trigger()
+            self.controller.moveMotor(x_motor, xStop)
+            self.controller.daq["default"].autoGateClosed()
+            try:
+                await self.dataHandler.getLine(self.scanInfo.copy())
+            except Exception:
+                pass
+
+        return True
+
 
 async def osa_focus_scan(scan, dataHandler, controller, queue):
-    """
-    This is a point mode focus line scan where the line is defined by OSAX and OSAY and the focus axis is ZonePlateZ.
-    It is done with the OSA in focus so the Z positions are shifted negative by A0
-    :param scan:
-    :return:
-    """
-
-    await scan["synch_event"].wait()
-    xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
-    energies = dataHandler.data.energies["default"]
-    scanInfo = {}
-    mode = scan["mode"]
-    scanInfo["mode"] = mode
-    scanInfo["scan"] = scan
-    scanInfo["type"] = scan["scan_type"]
-    scanInfo["zIndex"] = 0
-    energyIndex = 0
-    scanInfo["direction"] = "forward"
-
-    ##scanInfo is what gets passed with each data transmission
-    regionNum = 0
-    scanInfo["energyIndex"] = 0
-    scanInfo["energy"] = energies[energyIndex]
-    scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
-    scanInfo['daq_list'] = scan['daq_list']
-    scanInfo["rawData"] = {}
-    for daq in controller.daq.keys():
-        scanInfo["rawData"][daq]={"meta":controller.daq[daq].meta,"data": None}
-        if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
-        else:
-            scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-        scanInfo["rawData"][daq]["interpolate"] = False
-
-    #move the zone plate to be focused on the OSA
-    A0 = controller.motors["Energy"]["motor"].config["A0"]
-    controller.moveMotor("ZonePlateZ",controller.motors["Energy"]["motor"].calibratedPosition-A0)
-
-    x, y, z = xPos[regionNum], yPos[regionNum], zPos[regionNum]
-    scanInfo["scanRegion"] = "Region" + str(regionNum + 1)
-    xStart, xStop = x[0], x[-1]
-    yStart, yStop = y[0], y[-1]
-    xRange, yRange = xStop - xStart, yStop - yStart
-    xPoints, yPoints, zPoints = len(x), len(y), len(z)
-    xStep, yStep = xRange / (xPoints - 1), yRange / (yPoints - 1)
-
-    #these into scanINfo so the GUI knows where to put the data for a script scan
-    scanInfo["xPoints"] = xPoints
-    scanInfo["xStep"] = xStep
-    scanInfo["xStart"] = xStart
-    scanInfo["xCenter"] = xStart + xRange / 2.
-    scanInfo["xRange"] = xRange
-    scanInfo["yPoints"] = zPoints #because this is a focus scan
-    scanInfo["yStep"] = yStep
-    scanInfo["yStart"] = yStart
-    scanInfo["yCenter"] = yStart
-    scanInfo["yRange"] = yRange
-    
-    if mode == "point":
-        samples = 1
-    elif mode == "continuousLine":
-        samples = scanInfo["xPoints"]
-        velocity = scanInfo["xStep"] / scanInfo["dwell"]
-        controller.motors[scan["x_motor"]]["motor"].setAxisParams(velocity)
-        # Update arrays for continuous line mode to ensure proper dimensionality
-        scanInfo['numMotorPoints'] = samples * len(zPos[0])
-        scanInfo['numDAQPoints'] = samples * len(zPos[0])
-        for daq in controller.daq.keys():
-            if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
-                scanInfo["rawData"][daq]["meta"]["n_energies"] = len(scanInfo["rawData"][daq]["meta"]["x"])
-            else:
-                scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
-    dataHandler.data.updateArrays(0, scanInfo)
-    controller.config_daqs(dwell=scanInfo["dwell"], count=1, samples=samples, trigger="BUS", 
-                           daq_list = scanInfo.get("daq_list", ["default"]))
-    scanInfo["line_positions"] = [np.linspace(xStart,xStop,samples),np.ones(samples)*yStart] #requested positions
-
-    #Since this is a line scan, we don't want to loop over all X-Y positions, but rather just one move each.
-    controller.moveMotor(scan["y_motor"], yPos[0][0])
-    for i in range(len(z)):
-        controller.moveMotor("ZonePlateZ", z[i]-A0)
-        controller.getMotorPositions()
-        dataHandler.data.motorPositions[0] = controller.allMotorPositions
-        scanInfo["motorPositions"] = controller.allMotorPositions
-        scanInfo["lineIndex"] = i
-        if mode == "point":
-            for j in range(len(x)):
-                controller.moveMotor(scan["y_motor"], yPos[0][j])
-                controller.moveMotor(scan["x_motor"], xPos[0][j])
-                scanInfo["columnIndex"] = j
-                scanInfo["index"] = i * len(z) + j
-                if queue.empty():
-                    controller.daq["default"].autoGateOpen(shutter=True)
-                    await dataHandler.getPoint(scanInfo)
-                    controller.daq["default"].autoGateClosed()
-                else:
-                    queue.get()
-                    dataHandler.data.saveRegion(0)
-                    await dataHandler.dataQueue.put('endOfScan')
-                    return
-        elif mode == "continuousLine":
-            scanInfo["index"] = i * len(yPos[0])
-            # controller.moveMotor(scan["x_motor"],xStart)
-            controller.motors[scan["x_motor"]]["motor"].setAxisParams(2)
-            controller.moveMotor(scan["x_motor"],xStart)
-            controller.motors[scan["x_motor"]]["motor"].setAxisParams(velocity)
-            if queue.empty():
-                controller.daq["default"].initLine()
-                controller.daq["default"].autoGateOpen()
-                controller.daq["default"].bus_trigger()
-                controller.moveMotor(scan["x_motor"],xStop)
-                controller.daq["default"].autoGateClosed()
-                try:
-                    await dataHandler.getLine(scanInfo.copy())
-                except:
-                    pass
-            else:
-                queue.get()
-                dataHandler.data.saveRegion(0)
-                await dataHandler.dataQueue.put('endOfScan')
-                return
-    await dataHandler.dataQueue.put('endOfScan')
-    await asyncio.sleep(0.1)
-    dataHandler.data.saveRegion(0)
+    """Entry point for OSA focus scan."""
+    scan_instance = OsaFocusScan(scan, dataHandler, controller, queue)
+    return await scan_instance.run()

@@ -123,6 +123,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
     energies = dataHandler.data.energies["default"]
     xPos, yPos, zPos = dataHandler.data.xPos, dataHandler.data.yPos, dataHandler.data.zPos
     scanInfo = {"mode": "ptychographyGrid"}
+    scanInfo["storage_pattern"] = "ptychography"
     scanInfo["type"] = scan["scan_type"]
     scanInfo["scan"] = scan
     energyIndex = 0

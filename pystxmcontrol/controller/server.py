@@ -388,6 +388,34 @@ class stxmServer:
                     mode=message["mode"],
                     duration=time.time() - cmd_start_time
                 )
+            elif message["command"] == "query_motor_history":
+                motor_name = message.get("motor_name")
+                start_time = message.get("start_time")
+                end_time = message.get("end_time")
+                limit = message.get("limit", 10000)
+                try:
+                    results = self.controller.operation_logger.query_motor_positions(
+                        motor_name=motor_name,
+                        start_time=start_time,
+                        end_time=end_time,
+                        limit=limit,
+                    )
+                    # Trim to just what the GUI needs for plotting
+                    data = [
+                        {"timestamp": r["timestamp"], "actual_position": r["actual_position"]}
+                        for r in results
+                        if r.get("actual_position") is not None
+                    ]
+                    message["status"] = True
+                    message["data"] = data
+                except Exception as e:
+                    message["status"] = False
+                    message["data"] = []
+                    message["error"] = str(e)
+                message["mode"] = "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+
             elif message["command"] == "setGate":
                 if message["mode"] == "open":
                     status = True

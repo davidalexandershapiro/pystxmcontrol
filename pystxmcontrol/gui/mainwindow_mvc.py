@@ -3,6 +3,7 @@ from pystxmcontrol.gui.controllers.main_controller import MainController
 from pystxmcontrol.gui.energyDef import energyDefWidget
 from pystxmcontrol.gui.scanDef import scanRegionDef
 from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
+from pystxmcontrol.gui.motor_panel import MotorPanelWindow
 from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import numpy as np
@@ -131,6 +132,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.x_plot = None
         self.y_plot = None
 
+        # Motor panel (opened via Motor Panel button)
+        self._motor_panel = None
+
         # Other randos
         self.consoleStr = ''
         self.static_style = "color: white;"
@@ -250,9 +254,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
         # Scan controls
         self.ui.scanType.currentIndexChanged.connect(self.on_scan_type_changed)
+        self.ui.xMotorCombo.currentTextChanged.connect(self._on_x_motor_changed)
         self.ui.beginScanButton.clicked.connect(self.on_begin_scan)
         self.ui.cancelButton.clicked.connect(self.on_cancel_scan)
         
+        # Motor panel
+        self.ui.motorPanelButton.clicked.connect(self._open_motor_panel)
+
         # Motor controls
         self.ui.motorMover1Button.clicked.connect(self.on_move_motor1)
         self.ui.motorMover2Button.clicked.connect(self.on_move_motor2)
@@ -701,6 +709,24 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     "Y:</span></p></body></html>")
         self.ui.label_23.setText(html)
 
+    def _update_single_motor_energy_state(self):
+        """Sync the Single Energy checkbox with the selected x motor for Single Motor scans.
+
+        Energy motor selected  → multi-energy is meaningful; uncheck and enable the toggle.
+        Any other motor        → only one energy makes sense; check and disable the toggle.
+        """
+        is_energy_motor = self.ui.xMotorCombo.currentText() == "Energy"
+        self.ui.toggleSingleEnergy.blockSignals(True)
+        self.ui.toggleSingleEnergy.setChecked(not is_energy_motor)
+        self.ui.toggleSingleEnergy.blockSignals(False)
+        self.ui.toggleSingleEnergy.setEnabled(is_energy_motor)
+        self.toggle_single_energy()
+
+    def _on_x_motor_changed(self, motor_name: str):
+        """When the x motor combo changes, update energy toggle if in Single Motor mode."""
+        if self.ui.scanType.currentText() == "Single Motor":
+            self._update_single_motor_energy_state()
+
     def on_scan_type_changed(self):
         """Handle scan type change."""
         scan_type = self.ui.scanType.currentText()
@@ -783,6 +809,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.scanType.blockSignals(False)
 
         self._set_scan_ui_state(scanning=True)
+
+    def _open_motor_panel(self):
+        """Open (or raise) the Motor Panel window."""
+        if self._motor_panel is None or not self._motor_panel.isVisible():
+            self._motor_panel = MotorPanelWindow(self.controller, parent=self)
+            self._motor_panel.show()
+        else:
+            self._motor_panel.raise_()
+            self._motor_panel.activateWindow()
 
     def on_move_motor1(self):
         """Handle motor 1 move button click."""
@@ -1692,7 +1727,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.xMotorCombo.setEnabled(True)  # Allow motor selection
             self.ui.yMotorCombo.setEnabled(False)
             self.ui.energyRegSpinbox.setEnabled(True)
-            self.ui.toggleSingleEnergy.setEnabled(False)
+            self._update_single_motor_energy_state()
             self._set_focus_widgets(False)
             self._set_line_widgets(False)
             

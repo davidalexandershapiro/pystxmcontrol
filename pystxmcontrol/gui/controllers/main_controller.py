@@ -1140,6 +1140,26 @@ class MainController(QObject):
     def get_motor_model(self) -> MotorModel:
         """Get the motor model."""
         return self.motor_model
+
+    def query_motor_history(self, motor_name: str, start_time: float,
+                            end_time: float, limit: int = 10000) -> list:
+        """
+        Fetch historical motor position records from the server for a time range.
+
+        Returns a list of dicts with 'timestamp' and 'actual_position' keys,
+        sorted chronologically.  Returns [] on error or if not connected.
+        """
+        try:
+            response = self.client.query_motor_history(
+                motor_name, start_time, end_time, limit
+            )
+            if response and response.get("status"):
+                records = response.get("data", [])
+                records.sort(key=lambda r: r["timestamp"])
+                return records
+        except Exception as e:
+            self.error_occurred.emit(f"Motor history query failed: {e}")
+        return []
         
     def get_image_model(self) -> ImageModel:
         """Get the image model."""

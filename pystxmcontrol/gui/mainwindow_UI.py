@@ -236,17 +236,17 @@ class Ui_MainWindow(object):
 
         self.gridLayout.addWidget(self.motorMover2Edit, 1, 3, 1, 1)
 
-        self.abortButton = QPushButton(self.layoutWidget_3)
-        self.abortButton.setObjectName(u"abortButton")
+        self.motorPanelButton = QPushButton(self.layoutWidget_3)
+        self.motorPanelButton.setObjectName(u"motorPanelButton")
         sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
-        sizePolicy3.setHeightForWidth(self.abortButton.sizePolicy().hasHeightForWidth())
-        self.abortButton.setSizePolicy(sizePolicy3)
-        self.abortButton.setMinimumSize(QSize(30, 30))
-        self.abortButton.setMaximumSize(QSize(16777215, 16777215))
+        sizePolicy3.setHeightForWidth(self.motorPanelButton.sizePolicy().hasHeightForWidth())
+        self.motorPanelButton.setSizePolicy(sizePolicy3)
+        self.motorPanelButton.setMinimumSize(QSize(30, 30))
+        self.motorPanelButton.setMaximumSize(QSize(16777215, 16777215))
 
-        self.gridLayout.addWidget(self.abortButton, 2, 4, 1, 3)
+        self.gridLayout.addWidget(self.motorPanelButton, 2, 4, 1, 3)
 
         self.tabWidget.addTab(self.tab_4, "")
         self.tab_3 = QWidget()
@@ -1482,7 +1482,7 @@ class Ui_MainWindow(object):
         self.jogToggleButton.setText(QCoreApplication.translate("MainWindow", u"Jog/Move", None))
         self.motorMover1Minus.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.motorMover2Minus.setText(QCoreApplication.translate("MainWindow", u"-", None))
-        self.abortButton.setText(QCoreApplication.translate("MainWindow", u"ABORT", None))
+        self.motorPanelButton.setText(QCoreApplication.translate("MainWindow", u"Motor Panel", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_4), QCoreApplication.translate("MainWindow", u"Move Motors", None))
         self.label_27.setText(QCoreApplication.translate("MainWindow", u"Center", None))
         self.label_29.setText(QCoreApplication.translate("MainWindow", u"Points", None))
