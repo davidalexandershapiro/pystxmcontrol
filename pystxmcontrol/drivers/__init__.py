@@ -7,6 +7,7 @@ from pystxmcontrol.drivers.bcsController import bcsController
 from pystxmcontrol.drivers.mmcController import mmcController
 from pystxmcontrol.drivers.epicsController import epicsController
 from pystxmcontrol.drivers.keysight53230A import keysight53230A
+from pystxmcontrol.drivers.keysight53230A_2channel import keysight53230A_2channel
 from pystxmcontrol.drivers.keysightU2356A import keysightU2356A
 from pystxmcontrol.drivers.fccd_control import fccd_control
 from pystxmcontrol.drivers.shutter import shutter
@@ -29,7 +30,7 @@ from pystxmcontrol.drivers.zmqFrameReaderDAQ import zmq_frame_reader
 
 
 __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
-    'nptController', 'bcsController', 'mmcController','keysight53230A',\
+    'nptController', 'bcsController', 'mmcController','keysight53230A','keysight53230A_2channel',\
            'epicsController', 'shutter', 'keysightU2356A', 'fccd_control', 'xerMotor', \
            'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo',\
            'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM','E712Controller','E712Motor',\

@@ -64,14 +64,28 @@ class ScanModel(BaseModel):
             
         return True
 
-    def validate_ranges(self, motor_model) -> tuple:
+    def validate_ranges(self, motor_model,
+                        enable_coarse_only: bool = True,
+                        enable_tiled_scan: bool = True) -> tuple:
         """Check that each scan region fits within the motor travel limits.
 
         Returns (True, '') on success or (False, error_message) on failure.
         motor_model must expose get_motor_limits(name) -> (min, max).
-        Tiled scans are exempt — the server handles breaking them into sub-regions.
+
+        Behaviour when a scan range exceeds the physical motor travel
+        (maxValue – minValue):
+          - tiled=True  and enable_tiled_scan=True  → allowed (server tiles it)
+          - tiled=True  and enable_tiled_scan=False  → error
+          - tiled=False and enable_coarse_only=True  → set coarse_only=True, allowed
+          - tiled=False and enable_coarse_only=False → error
         """
-        if self.get('tiled'):
+        tiled = bool(self.get('tiled'))
+
+        if tiled and not enable_tiled_scan:
+            return (False, "Tiled scans are not enabled for this instrument.")
+
+        if tiled:
+            # Server handles sub-region tiling; skip range checks.
             return (True, '')
 
         x_motor = self.get('x_motor', '')
@@ -84,6 +98,7 @@ class ScanModel(BaseModel):
             ('zRange', z_motor, 'Z'),
         ]
 
+        needs_coarse = False
         for region_name, region in self.get('scan_regions', {}).items():
             for range_key, motor_name, axis_label in checks:
                 scan_range = region.get(range_key, 0)
@@ -92,10 +107,15 @@ class ScanModel(BaseModel):
                 min_val, max_val = motor_model.get_motor_limits(motor_name)
                 travel = max_val - min_val
                 if scan_range > travel:
-                    return (False,
-                            f"{region_name}: {axis_label} range {scan_range:.3f} exceeds "
-                            f"{motor_name} travel {travel:.3f} "
-                            f"({min_val:.3f} – {max_val:.3f})")
+                    if not enable_coarse_only:
+                        return (False,
+                                f"{region_name}: {axis_label} range {scan_range:.3f} exceeds "
+                                f"{motor_name} travel {travel:.3f} "
+                                f"({min_val:.3f} – {max_val:.3f})")
+                    needs_coarse = True
+
+        if needs_coarse:
+            self.set('coarse_only', True)
 
         return (True, '')
 

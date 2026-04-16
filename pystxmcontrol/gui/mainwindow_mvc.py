@@ -1633,6 +1633,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if y_motor:
                     self.ui.yMotorCombo.setCurrentText(y_motor)
         
+        # Tiled scan is only applicable to Image scans; disable for all others
+        if "Image" not in scan_type and hasattr(self.ui, 'tiledCheckbox'):
+            self.ui.tiledCheckbox.setChecked(False)
+            self.ui.tiledCheckbox.setEnabled(False)
+
         if "Focus" in scan_type:
             # Focus scan settings
             self.ui.defocusCheckbox.setEnabled(False)
@@ -1715,11 +1720,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.toggleSingleEnergy.setEnabled(True)
             self._set_focus_widgets(False)
             self._set_line_widgets(False)
-            
+
+            # Tiled scan checkbox: only enable when the instrument config allows it
+            if hasattr(self.ui, 'tiledCheckbox'):
+                flags = self.controller.get_geometry_flags()
+                if flags["enable_tiled_scan"]:
+                    self.ui.tiledCheckbox.setEnabled(True)
+                else:
+                    self.ui.tiledCheckbox.setChecked(False)
+                    self.ui.tiledCheckbox.setEnabled(False)
+
             # Enable scan region widgets
             for region_widget in self.scan_region_widgets:
                 region_widget.setEnabled(True)
-                
+
             # Ptychography-specific settings
             if "Ptychography" in scan_type:
                 self.ui.doubleExposureCheckbox.setEnabled(True)
@@ -3121,6 +3135,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             for reg in self.scan_region_widgets:
                 if hasattr(reg, 'setEnabled'):
                     reg.setEnabled(True)
+
+        # Tiled scan: permanently disable if not supported by this instrument
+        if hasattr(self.ui, 'tiledCheckbox'):
+            flags = self.controller.get_geometry_flags()
+            if not flags["enable_tiled_scan"]:
+                self.ui.tiledCheckbox.setChecked(False)
+                self.ui.tiledCheckbox.setEnabled(False)
 
         # Enable other controls based on scan type
         self.on_scan_type_changed()

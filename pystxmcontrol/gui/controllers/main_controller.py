@@ -545,6 +545,7 @@ class MainController(QObject):
             self.scan_model.set('x_motor', view.ui.xMotorCombo.currentText())
             self.scan_model.set('y_motor', view.ui.yMotorCombo.currentText())
             self.scan_model.set('tiled', view.ui.tiledCheckbox.isChecked())
+            self.scan_model.set('coarse_only', False)  # reset; validate_ranges may set True
             self.scan_model.set('defocus', view.ui.defocusCheckbox.isChecked())
             self.scan_model.set('autofocus', view.ui.autofocusCheckbox.isChecked())
             self.scan_model.set('doubleExposure', view.ui.doubleExposureCheckbox.isChecked() if hasattr(view.ui, 'doubleExposureCheckbox') else False)
@@ -837,13 +838,35 @@ class MainController(QObject):
             print(f"Error extracting energy region data: {e}")
             return {}
 
+    def get_geometry_flags(self) -> dict:
+        """Return the geometry feature flags from main_config.
+
+        Keys: ``enable_coarse_only`` (bool), ``enable_tiled_scan`` (bool).
+        Defaults to True for both so that behaviour is unchanged when the
+        keys are absent from the config.
+        """
+        geometry = {}
+        try:
+            geometry = self.client.main_config.get("geometry", {})
+        except Exception:
+            pass
+        return {
+            "enable_coarse_only": bool(geometry.get("enable_coarse_only", True)),
+            "enable_tiled_scan":  bool(geometry.get("enable_tiled_scan",  True)),
+        }
+
     def start_scan(self) -> bool:
         """Start a scan based on current scan model."""
         if not self.scan_model.validate():
             self.error_occurred.emit("Invalid scan configuration")
             return False
 
-        ok, msg = self.scan_model.validate_ranges(self.motor_model)
+        flags = self.get_geometry_flags()
+        ok, msg = self.scan_model.validate_ranges(
+            self.motor_model,
+            enable_coarse_only=flags["enable_coarse_only"],
+            enable_tiled_scan=flags["enable_tiled_scan"],
+        )
         if not ok:
             self.error_occurred.emit(f"Scan range error: {msg}")
             return False
