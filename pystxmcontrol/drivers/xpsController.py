@@ -26,9 +26,9 @@ class xpsController(hardwareController):
         try:
             with self._lock:
                 self._sockets[socketId].send(command.encode())
-                response = self._sockets[socketId].recv(1024).decode()
-                while (response.find(',EndOfAPI') == -1):
-                    response += self._sockets[socketId].recv(1024)
+            response = self._sockets[socketId].recv(1024).decode()
+            while (response.find(',EndOfAPI') == -1):
+                response += self._sockets[socketId].recv(1024)
         except socket.timeout:
             return [-2, '']
         except socket.error as errString:

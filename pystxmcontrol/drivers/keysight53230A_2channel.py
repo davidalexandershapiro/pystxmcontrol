@@ -3,31 +3,38 @@ DAQ driver for the Keysight 53230A universal counter — dual-channel variant.
 
 Overview
 --------
-Two entries in ``daq.json`` can both point at the same USB address but with
-different ``"channel"`` values (1 or 2).  This module ensures they share a
-single physical instrument connection and that each measurement cycle issues
-exactly **one** ``INIT:IMM``, one ``*TRG``, and one ``FETC?`` call, collecting
-data from both hardware counters simultaneously.
+Two entries in ``daq.json`` can point at the same USB address with different
+``"channel"`` values (1 or 2).  This module ensures they share one physical
+instrument connection and that each line/point cycle issues exactly **one**
+``INIT:IMM``, one ``*TRG``, and one ``FETC?``, collecting data from both
+hardware counters simultaneously.
 
-How it works
-------------
-* A **class-level registry** (``keysight53230A_2channel._shared``) maps each
-  instrument address to a ``_SharedCounter`` object that holds the
-  ``counter_2channel`` instance and a per-channel config/result cache.
+How sharing works
+-----------------
+* A **class-level registry** (``_shared``) maps each instrument address to a
+  ``_SharedCounter`` that owns the ``counter_2channel`` connection, the
+  per-channel config records, and a result cache for the current
+  line/point.
 
-* The instance with the **lowest channel number** among those currently
-  registered for a given address is the *primary*.  Only the primary issues
-  instrument-level commands (``initLine``, ``bus_trigger``, ``getLine`` /
-  ``getPoint``).  All secondaries are no-ops for those commands and instead read
-  from the result cache populated by the primary.
+* ``config()`` stores per-channel parameters in the shared record and
+  reconfigures the physical instrument for **all channels that have had
+  config() called on them** in the current scan setup.  Channels that are
+  registered (``start()`` was called) but have not yet been configured are
+  excluded — this correctly handles the case where only one channel is in
+  the scan's ``daq_list``.
 
-* Because ``asyncio.gather`` runs coroutines on the same event loop and the
-  underlying ``usbtmc`` calls contain no real ``await`` points, the primary's
-  coroutine always completes before the secondary's starts.  The simple
-  dict-based cache is therefore safe without additional locking.
+* **First-caller-fetches** pattern: the first ``getLine()`` or ``getPoint()``
+  to execute (within an ``asyncio.gather`` call) finds an empty result cache,
+  fetches all configured channels in a single ``FETC?``, and stores the
+  result.  Subsequent callers find the cache populated and just extract their
+  own channel's slice.  No explicit "primary" bookkeeping is required because
+  asyncio coroutines with no internal suspension points run to completion
+  before any sibling task starts.
 
-* When only one channel is in ``daq_list`` the driver degrades gracefully to
-  single-channel operation with no behaviour change visible to the scan code.
+* ``initLine()`` and ``bus_trigger()`` should only be called once per line;
+  the scan code currently calls them on ``controller.daq["default"]``.  Each
+  method guards against double-execution with an ``_is_primary`` check
+  (lowest registered channel number = primary).
 
 daq.json example
 ----------------
@@ -45,11 +52,11 @@ daq.json example
         "ndim": 0,
         "gate": true,
         "gate address": "/dev/arduino",
-        "record": true,
-        "simulation": true,
         "minimum dwell": 1,
         "dwell pad": 0,
-        "time resolution": 1
+        "time resolution": 1,
+        "record": true,
+        "simulation": false
     },
     "counter_ch2": {
         "index": 1,
@@ -62,26 +69,23 @@ daq.json example
         "oversampling_factor": 1,
         "ndim": 0,
         "gate": false,
-        "record": true,
-        "simulation": true,
         "minimum dwell": 1,
         "dwell pad": 0,
-        "time resolution": 1
+        "time resolution": 1,
+        "record": true,
+        "simulation": false
     }
 
-scan.json example
------------------
-Set ``"daq_list"`` per scan type to select which channels participate::
-
-    "Image": {
-        "daq_list": "counter_ch1,counter_ch2",
-        ...
-    }
+Single-channel use
+------------------
+Simply list only one entry in ``daq_list``.  When just ``counter_ch2`` is
+present, only channel 2 is registered; ``config()`` configures the instrument
+for channel 2 only; ``FETC?`` returns one value per sample.  No overhead from
+the dual-channel machinery.
 """
 
 import threading
 import asyncio
-import time
 
 from numpy import array
 from numpy.random import poisson
@@ -92,34 +96,23 @@ from pystxmcontrol.drivers.shutter import shutter
 
 
 # ---------------------------------------------------------------------------
-# Shared-state helper (internal to this module)
+# Internal shared-state helper
 # ---------------------------------------------------------------------------
 
 class _SharedCounter:
     """
-    Holds the single physical ``counter_2channel`` connection shared by all
-    ``keysight53230A_2channel`` instances that target the same instrument
-    address.
-
-    Attributes
-    ----------
-    counter :
-        The ``counter_2channel`` (low-level SCPI) object.
-    ref_count :
-        Number of ``keysight53230A_2channel`` instances currently registered.
-    channel_configs :
-        Maps channel number → most recent config kwargs for that channel.
-    result_cache :
-        Maps channel number → np.array from the most recent fetch.
-        Set by the primary after a fetch; read by all secondaries.
-        Cleared by ``clear_cache()``.
+    Holds the single ``counter_2channel`` connection shared by all
+    ``keysight53230A_2channel`` instances that target the same address.
     """
 
     def __init__(self):
         self.counter = counter_2channel()
         self.ref_count = 0
-        self.channel_configs: dict = {}   # channel → {dwell, count, samples, …}
-        self.result_cache: dict = None    # channel → np.array; None = stale
+        # channel → config dict; empty dict means registered but not yet configured
+        self.channel_configs: dict = {}
+        # result cache populated by the first getLine/getPoint caller;
+        # None means stale (needs a fresh fetch)
+        self.result_cache: dict = None
 
     def register(self, channel: int):
         self.channel_configs.setdefault(channel, {})
@@ -132,9 +125,20 @@ class _SharedCounter:
     def clear_cache(self):
         self.result_cache = None
 
+    def get_configured_channels(self) -> tuple:
+        """
+        Sorted tuple of channels whose ``config()`` has been called in the
+        current scan setup (non-empty config dict).
+
+        Channels that are registered but not yet configured (empty dict from
+        ``setdefault``) are excluded.  This ensures ``FETC?`` is only asked
+        for channels that are actually armed.
+        """
+        return tuple(sorted(ch for ch, cfg in self.channel_configs.items() if cfg))
+
     @property
-    def active_channels(self) -> tuple:
-        """Sorted tuple of channel numbers currently registered."""
+    def all_channels(self) -> tuple:
+        """All registered channel numbers (regardless of config state)."""
         return tuple(sorted(self.channel_configs.keys()))
 
 
@@ -144,13 +148,14 @@ class _SharedCounter:
 
 class keysight53230A_2channel(daq):
     """
-    DAQ driver for a single channel of the Keysight 53230A, designed to work
-    in concert with a second instance sharing the same instrument.
+    DAQ driver for one channel of the Keysight 53230A.
 
-    See module docstring for usage details.
+    Two instances targeting the same address cooperate via a class-level
+    registry to share one USB connection and one ``FETC?`` call per
+    acquisition cycle.  See module docstring for full details.
     """
 
-    # Class-level registry: address string → _SharedCounter
+    # Class-level registry: instrument address → _SharedCounter
     _shared: dict = {}
     _registry_lock = threading.Lock()
 
@@ -174,7 +179,7 @@ class keysight53230A_2channel(daq):
         self.samples = 1
         self.trigger = "BUS"
         self.gate = None
-        self._state: _SharedCounter = None   # set in start()
+        self._state: _SharedCounter = None  # set in start()
 
     # ------------------------------------------------------------------
     # Convenience properties
@@ -186,43 +191,38 @@ class keysight53230A_2channel(daq):
 
     def _is_primary(self) -> bool:
         """
-        True if this instance has the lowest channel number among those
-        currently registered for this instrument.
+        True if this channel has the lowest number among all *registered*
+        channels for this instrument.  Used to elect one instance to issue
+        ``INIT:IMM`` and ``*TRG`` (scan code currently calls these on a single
+        hard-coded DAQ key; this guard prevents double-arming if that ever
+        changes).
         """
-        channels = self._state.active_channels if self._state else (self.channel,)
-        return channels[0] == self.channel if channels else True
+        channels = self._state.all_channels if self._state else (self.channel,)
+        return (not channels) or channels[0] == self.channel
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def start(self):
-        """
-        Register with the shared connection pool and connect if we are the
-        first instance for this address.
-        """
+        """Connect (if first instance for this address) and register channel."""
         with keysight53230A_2channel._registry_lock:
             if self.address not in keysight53230A_2channel._shared:
-                keysight53230A_2channel._shared[self.address] = _SharedCounter()
+                state = _SharedCounter()
                 if not self.simulation:
-                    keysight53230A_2channel._shared[self.address].counter.connect(
-                        self.address
-                    )
+                    state.counter.connect(self.address)
+                keysight53230A_2channel._shared[self.address] = state
             state = keysight53230A_2channel._shared[self.address]
             state.register(self.channel)
             self._state = state
 
-        # Gate / shutter — only the channel that has "gate": true needs one
         if self.meta.get("gate"):
             self.gate = shutter(address=self.meta["gate address"])
             self.gate.connect(simulation=self.simulation)
             self.gate.setStatus(softGATE=0)
 
     def stop(self):
-        """
-        Unregister from the shared pool.  Disconnect the instrument when the
-        last reference is released.
-        """
+        """Unregister; disconnect the instrument when the last instance exits."""
         with keysight53230A_2channel._registry_lock:
             if self._state is not None:
                 self._state.unregister(self.channel)
@@ -242,12 +242,16 @@ class keysight53230A_2channel(daq):
     def config(self, dwell, count: int = 1, samples: int = 1,
                trigger: str = "BUS", output: str = "OFF"):
         """
-        Store this channel's configuration and push it to the instrument.
+        Store this channel's configuration and push to the instrument.
 
-        The instrument is reconfigured for **all currently registered channels**
-        on every call, so the final ``config()`` call in a ``config_daqs()``
-        loop sets the definitive instrument state.  (Intermediate calls are
-        harmless — the second call overwrites with the same parameters.)
+        The instrument is (re)configured for **all channels that have had
+        config() called** in this scan setup.  When ``config_daqs()`` iterates
+        through the daq_list and calls config() on each entry, the last call
+        sets the definitive instrument state with all participating channels.
+
+        Channels that are registered but not in the current daq_list will
+        never have config() called, so they stay out of
+        ``get_configured_channels()`` and are excluded from FETC?.
         """
         if isinstance(dwell, list):
             self.dwell = dwell[0]
@@ -257,7 +261,7 @@ class keysight53230A_2channel(daq):
         self.samples = samples
         self.trigger = trigger
 
-        # Record this channel's config in the shared state
+        # Mark this channel as configured in the shared record
         self._state.channel_configs[self.channel] = {
             "dwell": self.dwell,
             "count": count,
@@ -267,11 +271,10 @@ class keysight53230A_2channel(daq):
         }
 
         if not self.simulation:
-            # Reconfigure the instrument for ALL registered channels.
-            # Using SENS:FUNC (not CONF:TOT:TIM) so both channels stay active.
+            channels = self._state.get_configured_channels()
             self._state.counter.config(
                 dwell=self.dwell,
-                channels=self._state.active_channels,
+                channels=channels,
                 count=count,
                 samples=samples,
                 trigger=trigger,
@@ -281,7 +284,7 @@ class keysight53230A_2channel(daq):
                 self.setGateDwell(0, 0)
 
     # ------------------------------------------------------------------
-    # Gate / shutter helpers (unchanged from original driver)
+    # Gate / shutter helpers
     # ------------------------------------------------------------------
 
     def autoGateOpen(self, shutter: int = 1):
@@ -299,23 +302,24 @@ class keysight53230A_2channel(daq):
             self.gate.setStatus()
 
     # ------------------------------------------------------------------
-    # Trigger control (line-scan path)
+    # Trigger control  (line-scan path)
     # ------------------------------------------------------------------
 
     def initLine(self):
         """
-        Arm the instrument for a line scan.
+        Clear the result cache and arm the instrument (``INIT:IMM``).
 
-        Only the primary instance issues INIT:IMM; secondaries are no-ops.
-        Also clears the result cache so the upcoming fetch is always fresh.
+        The cache clear is unconditional so that the next getLine() call
+        always performs a fresh fetch.  The INIT:IMM is guarded by
+        ``_is_primary`` so only one instance arms the instrument even if
+        this method is called on multiple DAQ objects.
         """
-        if self._is_primary():
-            self._state.clear_cache()
-            if not self.simulation:
-                self._state.counter.initLine()
+        self._state.clear_cache()
+        if self._is_primary() and not self.simulation:
+            self._state.counter.initLine()
 
     def bus_trigger(self):
-        """Issue *TRG (primary only)."""
+        """Issue ``*TRG`` (primary instance only)."""
         if self._is_primary() and not self.simulation:
             self._state.counter.busTrigger()
 
@@ -327,12 +331,12 @@ class keysight53230A_2channel(daq):
         """
         Fetch one full line of count data for this channel.
 
-        *Primary*: issues ``FETC? (@1,2)`` (or whichever channels are active),
-        populates ``_state.result_cache``, then extracts its own channel.
+        First caller within an ``asyncio.gather`` group: finds an empty cache,
+        calls ``FETC?`` for all configured channels, stores the result dict,
+        and extracts its own channel's array.
 
-        *Secondary*: reads directly from ``_state.result_cache`` which the
-        primary already populated (safe because asyncio runs these coroutines
-        sequentially when there are no real ``await`` points).
+        Subsequent callers: find the cache already populated and just extract
+        their channel's array without touching the instrument.
         """
         if self.simulation:
             self.data = poisson(1e7 * self.dwell / 1000., self.count * self.samples)
@@ -340,10 +344,8 @@ class keysight53230A_2channel(daq):
             return self.data
 
         if self._state.result_cache is None:
-            # We are either the primary or the only channel — fetch all at once
-            result = await self._state.counter.getLine(
-                channels=self._state.active_channels
-            )
+            channels = self._state.get_configured_channels()
+            result = await self._state.counter.getLine(channels=channels)
             self._state.result_cache = result
 
         self.data = self._state.result_cache[self.channel]
@@ -353,29 +355,26 @@ class keysight53230A_2channel(daq):
         """
         Acquire a single point.
 
-        *Primary*: issues INIT:IMM + *TRG + ``FETC?``, caches result.
-        *Secondary*: reads from cache.
+        Same first-caller-fetches pattern as ``getLine``.  The primary also
+        issues ``INIT:IMM`` and ``*TRG`` (unlike ``getLine`` where those are
+        done externally by the scan code).
         """
         if self.simulation:
             await asyncio.sleep(self.dwell / 1000.)
             self.data = array([poisson(1e7 * self.dwell / 1000.)])
             return self.data
 
-        if self._is_primary():
-            # Clear any stale cache from the previous point before fetching
-            self._state.clear_cache()
-            result = await self._state.counter.getPoint(
-                channels=self._state.active_channels
-            )
+        if self._state.result_cache is None:
+            channels = self._state.get_configured_channels()
+            result = await self._state.counter.getPoint(channels=channels)
             self._state.result_cache = result
 
         self.data = self._state.result_cache[self.channel]
         return self.data
 
     # ------------------------------------------------------------------
-    # Legacy / compatibility
+    # Compatibility stub
     # ------------------------------------------------------------------
 
     def setGate(self, gate: bool):
-        """Stub kept for API compatibility with base class callers."""
         pass
