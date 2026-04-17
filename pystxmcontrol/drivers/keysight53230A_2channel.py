@@ -36,6 +36,22 @@ How sharing works
   method guards against double-execution with an ``_is_primary`` check
   (lowest registered channel number = primary).
 
+Measurement mode
+----------------
+Each daq.json entry accepts an optional ``"measurement_mode"`` key:
+
+* ``"TOT"`` — single-channel timed totalize (matches the original
+  ``keysight53230A`` driver byte-for-byte).  This is the default and should
+  be used for single-channel configurations to preserve the fast SCPI path.
+* ``"FREQ"`` — frequency measurement; the only mode that supports both
+  channels simultaneously on this instrument.  Readings are internally
+  converted from Hz back to counts (Hz × gate_time) so scan data still
+  carries counts-per-pixel semantics.
+
+Whenever two channels end up in the same scan's ``daq_list`` the driver
+silently upgrades the mode to ``"FREQ"`` regardless of what ``daq.json``
+says, because ``TOT:TIM`` physically cannot run on both channels.
+
 daq.json example
 ----------------
 ::
@@ -48,6 +64,7 @@ daq.json example
         "address": "USB::0x0957::0x1907::INSTR",
         "port": 5025,
         "channel": 1,
+        "measurement_mode": "FREQ",
         "oversampling_factor": 1,
         "ndim": 0,
         "gate": true,
@@ -66,6 +83,7 @@ daq.json example
         "address": "USB::0x0957::0x1907::INSTR",
         "port": 5025,
         "channel": 2,
+        "measurement_mode": "FREQ",
         "oversampling_factor": 1,
         "ndim": 0,
         "gate": false,
@@ -78,10 +96,9 @@ daq.json example
 
 Single-channel use
 ------------------
-Simply list only one entry in ``daq_list``.  When just ``counter_ch2`` is
-present, only channel 2 is registered; ``config()`` configures the instrument
-for channel 2 only; ``FETC?`` returns one value per sample.  No overhead from
-the dual-channel machinery.
+List only one entry in ``daq_list`` and set ``"measurement_mode": "TOT"``.
+Only that channel is configured; ``FETC?`` returns one value per sample;
+the code path is identical to the original driver.
 """
 
 import threading
@@ -113,6 +130,12 @@ class _SharedCounter:
         # result cache populated by the first getLine/getPoint caller;
         # None means stale (needs a fresh fetch)
         self.result_cache: dict = None
+        # Channels that have already read from the current result_cache.  When
+        # this set covers every configured channel the cache is auto-cleared
+        # so the next getPoint/getLine triggers a fresh fetch.  Order-
+        # independent: works regardless of which coroutine asyncio schedules
+        # first.
+        self.cache_consumers: set = set()
 
     def register(self, channel: int):
         self.channel_configs.setdefault(channel, {})
@@ -124,6 +147,17 @@ class _SharedCounter:
 
     def clear_cache(self):
         self.result_cache = None
+        self.cache_consumers = set()
+
+    def consume(self, channel: int):
+        """
+        Mark ``channel`` as having read from the current cache.  Once every
+        configured channel has consumed, the cache is cleared so the next
+        acquisition cycle fetches fresh data.
+        """
+        self.cache_consumers.add(channel)
+        if self.cache_consumers >= set(self.get_configured_channels()):
+            self.clear_cache()
 
     def get_configured_channels(self) -> tuple:
         """
@@ -173,6 +207,9 @@ class keysight53230A_2channel(daq):
             "minimum dwell": 1,
             "dwell pad": 0,
             "time resolution": 1,
+            # "TOT" (single-channel totalize, fast) or "FREQ" (dual-channel
+            # capable; auto-selected whenever 2 channels are active).
+            "measurement_mode": "TOT",
         }
         self.dwell = 1.0
         self.count = 1
@@ -272,6 +309,10 @@ class keysight53230A_2channel(daq):
 
         if not self.simulation:
             channels = self._state.get_configured_channels()
+            # Read requested mode from meta; the counter itself auto-upgrades
+            # to "FREQ" whenever more than one channel is configured (TOT can
+            # only operate on a single channel).
+            mode = str(self.meta.get("measurement_mode", "TOT")).upper()
             self._state.counter.config(
                 dwell=self.dwell,
                 channels=channels,
@@ -279,6 +320,7 @@ class keysight53230A_2channel(daq):
                 samples=samples,
                 trigger=trigger,
                 output=output,
+                mode=mode,
             )
             if self.meta.get("gate") and self.gate is not None:
                 self.setGateDwell(0, 0)
@@ -349,6 +391,7 @@ class keysight53230A_2channel(daq):
             self._state.result_cache = result
 
         self.data = self._state.result_cache[self.channel]
+        self._state.consume(self.channel)
         return self.data
 
     async def getPoint(self):
@@ -370,6 +413,7 @@ class keysight53230A_2channel(daq):
             self._state.result_cache = result
 
         self.data = self._state.result_cache[self.channel]
+        self._state.consume(self.channel)
         return self.data
 
     # ------------------------------------------------------------------

@@ -46,6 +46,7 @@ dependencies = [
     "opencv-python-headless",
     "scikit-learn",
     "PIPython",
+    "reportlab",
 ]
 
 [project.optional-dependencies]

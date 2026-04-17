@@ -60,6 +60,10 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         print("[scan utils] DAQ timeout.  Restarting DAQ and moving on.")
         controller.daq["default"].stop()
         controller.daq["default"].start()
-        controller.config_daqs(dwell = scanInfo["dwell"], count = 1, samples = scanInfo["numLineDAQPoints"], trigger = "EXT", daq_list=scanInfo["daq_list"])
+        controller.config_daqs(dwell = scanInfo["dwell"], 
+                               count = scanInfo["trigger_count"], 
+                               samples = scanInfo["trigger_samples"],
+                               trigger = "EXT", 
+                               daq_list=scanInfo["daq_list"])
         return False
     return True

@@ -1262,6 +1262,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.motors2CursorButton.setEnabled(True)
             if "Focus" in displayed_type:
                 self.ui.focusToCursorButton.setEnabled(True)
+            # setCursor2ZeroButton requires the double_motor_scan driver; look up
+            # the driver from scanConfig so that non-obvious scan types (e.g.
+            # "OSA Image") are also covered without hard-coding their names.
+            if hasattr(self.ui, 'setCursor2ZeroButton'):
+                scan_cfg = getattr(self.controller.client, 'scanConfig', {})
+                driver = scan_cfg.get(displayed_type, {}).get('driver', '')
+                self.ui.setCursor2ZeroButton.setEnabled('double_motor_scan' in driver)
         
         # Store the clicked position separately — this is what action buttons use,
         # as opposed to current_cursor_x/y which follow the mouse continuously.
@@ -1842,9 +1849,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Motor controls
         self.ui.xMotorCombo.setEnabled(not scanning)
         self.ui.yMotorCombo.setEnabled(not scanning)
-        # focusToCursorButton is only enabled when the user clicks inside a Focus scan
-        # image — always disable it here; on_mouse_clicked re-enables it as needed.
+        # focusToCursorButton and setCursor2ZeroButton are only enabled after the
+        # user clicks inside a completed scan image — always disable them here;
+        # on_mouse_clicked re-enables them as needed.
         self.ui.focusToCursorButton.setEnabled(False)
+        if hasattr(self.ui, 'setCursor2ZeroButton'):
+            self.ui.setCursor2ZeroButton.setEnabled(False)
         self.ui.motors2CursorButton.setEnabled(not scanning)
         
         # Scan region widgets
@@ -2224,14 +2234,26 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     # Initialization methods
     def re_init(self):
-        """Re-initialize the application."""
-        if self.controller.initialize_client():
-            self._update_server_address_display()
-        
+        """Re-initialize the application: fetch latest config and rebuild the GUI."""
+        try:
+            client = self.controller.client
+            client.get_config()
+            self.controller.motor_model.set_motor_info(client.motorInfo)
+        except Exception as e:
+            self.show_error_message(f"Re-initialize failed: {e}")
+            return
+        self._update_server_address_display()
+        self._populate_combo_boxes()
+        # Re-fire scan-type change so motor combos, checkboxes, etc. reset to
+        # reflect the current scanType selection with the refreshed config.
+        self.on_scan_type_changed()
+
     def load_config(self):
-        """Load configuration from server."""
-        # This would be handled through the controller
-        pass
+        """Reload configuration from server (data only — does not rebuild GUI)."""
+        try:
+            self.controller.client.get_config()
+        except Exception as e:
+            self.show_error_message(f"Reload config failed: {e}")
 
     def _update_server_address_display(self):
         """Update the server address label, edit, and window title to reflect the connected server."""

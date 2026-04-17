@@ -191,8 +191,9 @@ class derivedPiezo(motor):
                 ypositions = np.linspace(self.trajectory_start[1], self.trajectory_stop[1],
                                          self.trajectory_pixel_count)
                 self.positions = xpositions + offset[0], ypositions + offset[1]
-                x_range = abs(self.trajectory_start[0] - self.trajectory_stop[0])
-                velocity = x_range / (self.trajectory_pixel_dwell * self.trajectory_pixel_count)
+                coarse_offset = self.config.get("acceleration_distance",0)
+                x_range = abs(self.trajectory_start[0] - self.trajectory_stop[0]) - 2.*coarse_offset
+                velocity = x_range  / (self.trajectory_pixel_dwell * self.trajectory_pixel_count)
                 if velocity > self.axes["axis2"].config["max velocity"]:
                     velocity = self.axes["axis2"].config["max velocity"]
                 self.axes["axis2"].setAxisParams(velocity = velocity)

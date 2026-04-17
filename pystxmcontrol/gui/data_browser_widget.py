@@ -448,11 +448,21 @@ class DataBrowserWidget(QtWidgets.QWidget):
         detail_layout.addWidget(self.detail_stack, stretch=1)
 
         export_bar = QtWidgets.QHBoxLayout()
+
         export_btn = QtWidgets.QPushButton("Export PNG")
         export_btn.setFixedWidth(100)
         export_btn.clicked.connect(self._export_png)
         export_bar.addWidget(export_btn)
-        export_bar.addStretch()
+
+        add_log_btn = QtWidgets.QPushButton("Add to log")
+        add_log_btn.setFixedWidth(90)
+        add_log_btn.clicked.connect(self._add_to_log)
+        export_bar.addWidget(add_log_btn)
+
+        self.log_comment_edit = QtWidgets.QLineEdit()
+        self.log_comment_edit.setPlaceholderText("Comment for logbook…")
+        export_bar.addWidget(self.log_comment_edit, stretch=1)
+
         detail_layout.addLayout(export_bar)
 
         self.detail_text = QtWidgets.QTextEdit()
@@ -921,9 +931,16 @@ class DataBrowserWidget(QtWidgets.QWidget):
         elif self._ptycho_scale_bar is not None:
             self._ptycho_scale_bar.setVisible(False)
 
-    def _export_png(self):
+    def _render_composite_image(self):
+        """
+        Render the currently displayed image plus its metadata bar into a
+        ``QImage`` (the same output that Export PNG saves to disk).
+
+        Returns ``(QImage, default_filename_stem)`` or ``(None, "")`` if there
+        is nothing to render.
+        """
         if not self._current_filepath:
-            return
+            return None, ""
 
         base = os.path.splitext(self._current_filepath)[0]
         page = self.detail_stack.currentIndex()
@@ -936,38 +953,28 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 "Probe |amplitude|":  "probe",
             }
             suffix = suffix_map.get(label, label.lower().replace(" ", "_"))
-            default_path = f"{base}_{suffix}.png"
+            stem       = f"{base}_{suffix}"
             image_view = self.ptycho_image
             scale_bar  = self._ptycho_scale_bar
         else:
-            default_path = f"{base}.png"
+            stem       = base
             image_view = self.detail_image
             scale_bar  = self._detail_scale_bar
 
-        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Export PNG", default_path, "PNG Images (*.png)"
-        )
-        if not save_path:
-            return
-
-        # ── hide scale bar so it doesn't appear in the rendered image ─────────
+        # ── hide scale bar, zoom to fit, render ───────────────────────────────
         if scale_bar is not None:
             scale_bar.setVisible(False)
 
-        # ── zoom to fit so the image fills the ViewBox exactly ────────────────
         view = image_view.getView()
         prev_state = view.getState()
         view.autoRange(padding=0)
 
-        # ── render the ViewBox to a QImage ────────────────────────────────────
         from pyqtgraph.exporters import ImageExporter
         exporter = ImageExporter(view)
         img_qimage = exporter.export(toBytes=True)
 
-        # capture view rect while zoomed-to-fit (used for scale bar px width below)
         export_view_rect = view.viewRect()
 
-        # restore view state and scale bar
         view.setState(prev_state)
         if scale_bar is not None:
             scale_bar.setVisible(True)
@@ -975,14 +982,13 @@ class DataBrowserWidget(QtWidgets.QWidget):
         img_w = img_qimage.width()
         img_h = img_qimage.height()
 
-        # ── build metadata bar ────────────────────────────────────────────────
-        font    = QtGui.QFont("Monospace", 11)
-        fm      = QtGui.QFontMetrics(font)
-        line_h  = fm.height()
-        pad     = 12
+        # ── metadata bar ──────────────────────────────────────────────────────
+        font   = QtGui.QFont("Monospace", 11)
+        fm     = QtGui.QFontMetrics(font)
+        line_h = fm.height()
+        pad    = 12
 
         m = self._export_meta
-        # two compact lines; omit empty fields
         row1_parts = [v for v in [
             m.get("filename", ""),
             m.get("date", ""),
@@ -990,12 +996,10 @@ class DataBrowserWidget(QtWidgets.QWidget):
         ] if v]
         scan_type_str = m.get("scan_type", "")
         if page == 0:
-            # Append the selected detector name when multiple detectors are present
             det = self.detector_combo.currentText()
             if det and self.detector_combo.count() > 1:
                 scan_type_str = f"{scan_type_str} ({det})"
         elif page == 1 and scan_type_str:
-            # For ptychography exports, suffix the scan_type with the display type
             display_label_map = {
                 "Object |amplitude|": "amplitude",
                 "Object phase":       "phase",
@@ -1020,31 +1024,27 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
         bar_h = pad + len(meta_rows) * line_h + pad
 
-        # ── composite image ───────────────────────────────────────────────────
+        # ── composite ─────────────────────────────────────────────────────────
         out = QtGui.QImage(img_w, img_h + bar_h, QtGui.QImage.Format_RGB32)
         out.fill(QtGui.QColor(0, 0, 0))
         painter = QtGui.QPainter(out)
         painter.drawImage(0, 0, img_qimage)
 
-        # metadata text (white)
         painter.setPen(QtGui.QColor(255, 255, 255))
         painter.setFont(font)
         for i, row in enumerate(meta_rows):
             y = img_h + pad + i * line_h + fm.ascent()
             painter.drawText(pad, y, row)
 
-        # ── scale bar in white on the right of the metadata bar ───────────────
         if scale_bar is not None:
             bar_size_um = scale_bar.size
             bar_label   = f"{bar_size_um:g} µm"
             px_per_unit = img_w / export_view_rect.width() if export_view_rect.width() > 0 else 1.0
             bar_px      = max(10, round(abs(bar_size_um * px_per_unit)))
-
-            bar_thick = 5
-            bar_x = img_w - bar_px - pad
-            # centre the bar+label vertically in the metadata bar
-            total_h   = bar_thick + fm.ascent() + 2
-            bar_y     = img_h + (bar_h - total_h) // 2 + fm.ascent() + 2
+            bar_thick   = 5
+            bar_x       = img_w - bar_px - pad
+            total_h     = bar_thick + fm.ascent() + 2
+            bar_y       = img_h + (bar_h - total_h) // 2 + fm.ascent() + 2
 
             painter.setBrush(QtGui.QColor(255, 255, 255))
             painter.setPen(QtCore.Qt.NoPen)
@@ -1056,4 +1056,44 @@ class DataBrowserWidget(QtWidgets.QWidget):
             painter.drawText(bar_x + (bar_px - label_w) // 2, bar_y - 2, bar_label)
 
         painter.end()
-        out.save(save_path, "PNG")
+        return out, stem
+
+    def _export_png(self):
+        out, stem = self._render_composite_image()
+        if out is None:
+            return
+        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export PNG", f"{stem}.png", "PNG Images (*.png)"
+        )
+        if save_path:
+            out.save(save_path, "PNG")
+
+    def _add_to_log(self):
+        """Append the current image + metadata + comment to the day's logbook."""
+        if not self._current_filepath:
+            return
+
+        out, _ = self._render_composite_image()
+        if out is None:
+            return
+
+        folder = os.path.dirname(self._current_filepath)
+        comment = self.log_comment_edit.text()
+        detail_text = self.detail_text.toPlainText()
+
+        try:
+            from pystxmcontrol.utils.logbook import add_entry
+            index = add_entry(folder, out, self._export_meta, comment, detail_text)
+            self.log_comment_edit.clear()
+            QtWidgets.QMessageBox.information(
+                self,
+                "Logbook updated",
+                f"Entry {index} added.\n\nLogbook PDF: {os.path.join(folder, 'logbook.pdf')}",
+            )
+        except Exception as e:
+            import traceback
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Logbook error",
+                f"Could not add to logbook:\n{e}\n\n{traceback.format_exc()}",
+            )

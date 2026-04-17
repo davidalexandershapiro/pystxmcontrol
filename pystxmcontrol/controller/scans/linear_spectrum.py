@@ -151,11 +151,26 @@ class LinearSpectrumScan(BaseScan):
         if energy == energies[0]:
             self.dataHandler.data.updateArrays(region_index, self.scanInfo)
 
+        # # Configure DAQs
+        # self.configure_daqs(
+        #     dwell=self.scanInfo["dwell"],
+        #     count=1,
+        #     samples=self.scanInfo["numLineDAQPoints"],
+        #     trigger="EXT"
+        # )
+
+        if self.controller.daq["default"].meta.get("trigger_mode","line") == "point":
+            self.scanInfo["trigger_count"] = self.scanInfo["numLineDAQPoints"]
+            self.scanInfo["trigger_samples"] = 1
+        elif self.controller.daq["default"].meta.get("trigger_mode","line") == "line":
+            self.scanInfo["trigger_count"] = 1
+            self.scanInfo["trigger_samples"] = self.scanInfo["numLineDAQPoints"]   
+
         # Configure DAQs
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
-            count=1,
-            samples=self.scanInfo["numLineDAQPoints"],
+            count=self.scanInfo["trigger_count"],
+            samples=self.scanInfo["trigger_samples"],
             trigger="EXT"
         )
 

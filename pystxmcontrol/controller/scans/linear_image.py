@@ -152,12 +152,19 @@ class LinearImageScan(BaseScan):
         # Setup position trigger
         trigger_axis, _ = self.setup_position_trigger(self.scan["x_motor"])
         self.scanInfo["trigger_axis"] = trigger_axis
+    
+        if self.controller.daq["default"].meta.get("trigger_mode","line") == "point":
+            self.scanInfo["trigger_count"] = self.scanInfo["numLineDAQPoints"]
+            self.scanInfo["trigger_samples"] = 1
+        elif self.controller.daq["default"].meta.get("trigger_mode","line") == "line":
+            self.scanInfo["trigger_count"] = 1
+            self.scanInfo["trigger_samples"] = self.scanInfo["numLineDAQPoints"]   
 
         # Configure DAQs
         self.configure_daqs(
             dwell=self.scanInfo["dwell"],
-            count=self.scanInfo["numLineDAQPoints"],
-            samples= 1, #the controller multiplies by oversampling
+            count=self.scanInfo["trigger_count"],
+            samples=self.scanInfo["trigger_samples"],
             trigger="EXT"
         )
 
@@ -176,7 +183,7 @@ class LinearImageScan(BaseScan):
         x_motor_name = self.scan["x_motor"]
         y_motor_name = self.scan["y_motor"]
         coarse_only = self.scanInfo["coarse_only"]
-        coarse_offset = 20  # Should be in config
+        coarse_offset = self.controller.motors[x_motor_name]["motor"].config.get("acceleration_distance",20)
 
         # Move coarse motors to position range in fine motor range
         x_coarse, y_coarse = self.move_coarse_to_range(
@@ -329,7 +336,6 @@ async def linear_image(scan, dataHandler, controller, queue):
     :param queue: Async queue for scan control
     :return: Scan completion status
     """
-    print("[linear_image] Scan started")
     scan_instance = LinearImageScan(scan, dataHandler, controller, queue)
     return await scan_instance.run()
 
