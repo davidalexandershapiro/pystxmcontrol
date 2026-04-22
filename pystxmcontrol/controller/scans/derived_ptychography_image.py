@@ -17,16 +17,7 @@ async def retractSTXMDetector(controller):
     controller.moveMotor("Detector Y", -6000)
     await asyncio.sleep(5)
 
-def getLoopMotorPositions(scan):
-    r = scan["outerLoop"]["range"]
-    center = scan["outerLoop"]["center"]
-    motor = scan["outerLoop"]["motor"]
-    points = scan["outerLoop"]["points"]
-    start = center - r / 2
-    stop = center + r / 2
-    return np.linspace(start,stop,points)
-
-async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, controller, queue, shutter=True,scanRegion="Region1"):
+async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queue, shutter=True, scanRegion="Region1", grid_indices=None):
 
     xPos, yPos, zPos = positionList
     if shutter == True:
@@ -60,8 +51,12 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
         ypts = scan["scan_regions"][scanRegion]["yPoints"]
 
         scanInfo["index"] = i
-        scanInfo["lineIndex"] = i // xpts
-        scanInfo["columnIndex"] = i % xpts
+        if grid_indices is not None:
+            scanInfo["lineIndex"]   = grid_indices[i][0]
+            scanInfo["columnIndex"] = grid_indices[i][1]
+        else:
+            scanInfo["lineIndex"]   = i // xpts
+            scanInfo["columnIndex"] = i % xpts
 
         ##need to also be able to request measured positions
         scanInfo["xVal"], scanInfo["yVal"] = xPos[i], yPos[i] * np.ones(len(xPos))
@@ -169,8 +164,6 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
     scanInfo['numDAQPoints'] = scanInfo['numMotorPoints']
     controller.config_daqs(dwell = [dwell1 + 10.,dwell2 + 10.], count = 1, samples = 1, trigger = "BUS", daq_list=scanInfo["daq_list"])
 
-    if "outerLoop" in scan.keys():
-        loopMotorPos = getLoopMotorPositions(scan)
     currentZonePlateZ = controller.motors['ZonePlateZ']['motor'].getPos()
 
     for energy in energies:
@@ -184,9 +177,6 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 #this needs to have info per daq, but it doesn't currently
                 dataHandler.data.updateArrays(j, scanInfo)
             scanRegion = "Region" + str(j + 1)
-            if "outerLoop" in scan.keys():
-                print("Moving %s motor to %.4f" % (scan["outerLoop"]["motor"], loopMotorPos[j]))
-                controller.moveMotor(scan["outerLoop"]["motor"], loopMotorPos[j])
             scan["file_name"] = dataHandler.currentScanID.replace('.stxm', '_ccdframes_' + str(energyIndex) + '_' + str(
                 j) + '.stxm')
             dataHandler.ptychodata = stxm(scan)
@@ -283,7 +273,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
 
             scanInfo["ccd_mode"] = "dark"
             print("acquiring background")
-            if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
+            if await point_loop(scan, scanInfo.copy(), (xp_dark, yp_dark, zPos[j]), dataHandler, controller, queue, shutter=False,scanRegion=scanRegion):
                 await dataHandler.dataQueue.put('endOfRegion')
             else:
                 dataHandler.zmq_send({'event': 'abort', 'data': None})
@@ -293,7 +283,7 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
 
-            if await pointLoopSquareGrid(scan, scanInfo.copy(), (xp, yp, zPos[j]), dataHandler, controller, queue, shutter=True,scanRegion=scanRegion):
+            if await point_loop(scan, scanInfo.copy(), (xp, yp, zPos[j]), dataHandler, controller, queue, shutter=True,scanRegion=scanRegion):
                 #there is a race condition happening because apparently this is not thread safe
                 #I need to wait after sending the 'endOfRegion' flag to ensure data makes it through
                 await dataHandler.dataQueue.put('endOfRegion')

@@ -402,7 +402,11 @@ class stxmServer:
                     )
                     # Trim to just what the GUI needs for plotting
                     data = [
-                        {"timestamp": r["timestamp"], "actual_position": r["actual_position"]}
+                        {
+                            "timestamp": r["timestamp"],
+                            "actual_position": r["actual_position"],
+                            "motor_offset": r.get("motor_offset"),
+                        }
                         for r in results
                         if r.get("actual_position") is not None
                     ]

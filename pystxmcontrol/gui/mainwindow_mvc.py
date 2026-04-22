@@ -192,7 +192,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.energyOverhead = 5.0
 
         # Image scan types
-        self.imageScanTypes = ["ptychographyGrid", "rasterLine", "continuousLine", 'continuousSpiral', 'point']
+        self.imageScanTypes = ["ptychographyGrid", "ptychographySpiral", "rasterLine", "continuousLine", 'continuousSpiral', 'point']
         
         # Load main.json from disk (independent of server connection)
         self._local_main_config = self._read_main_config_from_disk()
@@ -1305,6 +1305,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         })
         # Re-display whichever image is already stored for the new channel
         self.controller.refresh_channel_image()
+
+        # Image-type DAQs produce 2-D detector frames; the ROI overlay is
+        # meaningless for them, so uncheck and disable it.  Point-type DAQs
+        # produce scalar counts that are binned into a scan image, so the ROI
+        # is applicable and should remain controllable.
+        daq_cfg = {}
+        if hasattr(self.controller, 'client') and hasattr(self.controller.client, 'daqConfig'):
+            daq_cfg = self.controller.client.daqConfig.get(channel_key, {})
+        daq_type = daq_cfg.get('type', 'point')
+        if daq_type == 'image':
+            self.ui.roiCheckbox.setChecked(False)
+            self.ui.roiCheckbox.setEnabled(False)
+        else:
+            self.ui.roiCheckbox.setEnabled(True)
         
     def on_plot_type_changed(self):
         """Handle plot type change."""

@@ -17,10 +17,14 @@ from pystxmcontrol.controller.scans.double_motor_scan import double_motor_scan, 
 from pystxmcontrol.controller.scans.osa_focus_scan import osa_focus_scan, OsaFocusScan
 from pystxmcontrol.controller.scans.XRF_double_motor_scan import XRF_double_motor_scan
 from pystxmcontrol.controller.scans.inclined_ptychography_image import inclined_ptychography_image
+from pystxmcontrol.controller.scans.spiral_ptychography_image import (
+    spiral_ptychography_image, SpiralPtychographyScan,
+)
 
 
 __all__ = ['BaseScan', 'LinearImageScan', 'linear_image', 'LinearFocusScan', 'linear_focus', 'LinearSpectrumScan', 'linear_spectrum',
            'derived_spiral_image', 'derived_line_image','derived_line_focus','derived_line_spectrum','line_image',
            'line_spectrum','line_focus','spiral_image','ptychography_image','derived_ptychography_image',
            'SingleMotorScan', 'single_motor_scan', 'DoubleMotorScan', 'double_motor_scan',
-           'osa_focus_scan', 'OsaFocusScan', "XRF_double_motor_scan","inclined_ptychography_image"]
+           'osa_focus_scan', 'OsaFocusScan', "XRF_double_motor_scan","inclined_ptychography_image",
+           'spiral_ptychography_image', 'SpiralPtychographyScan']

@@ -150,6 +150,28 @@ class MotorPanelWindow(QtWidgets.QDialog):
             symbolBrush=pg.mkBrush(255, 180, 80, 180),
             symbolPen=None,
         )
+
+        # ── Right-axis ViewBox for motor offset ─────────────────────────
+        self._offsetVB = pg.ViewBox()
+        self.histPlot.scene().addItem(self._offsetVB)
+
+        self._offsetAxis = pg.AxisItem("right")
+        self._offsetAxis.setLabel("Offset", color="#80ff80")
+        self.histPlot.plotItem.layout.addItem(self._offsetAxis, 2, 3)
+        self._offsetAxis.linkToView(self._offsetVB)
+        self._offsetVB.setXLink(self.histPlot.plotItem)
+
+        self._offsetCurve = pg.PlotDataItem(
+            pen=pg.mkPen(color=(128, 255, 128), width=1),
+            symbol='t', symbolSize=5,
+            symbolBrush=pg.mkBrush(128, 255, 128, 180),
+            symbolPen=None,
+        )
+        self._offsetVB.addItem(self._offsetCurve)
+
+        # Keep the offset ViewBox geometry in sync with the main plot
+        self.histPlot.plotItem.vb.sigResized.connect(self._sync_offset_vb)
+
         hist_layout.addWidget(self.histPlot)
         hist_layout.addLayout(self._make_zoom_controls(self.histPlot))
 
@@ -172,6 +194,10 @@ class MotorPanelWindow(QtWidgets.QDialog):
         self.configText.setFont(mono)
         cfg_layout.addWidget(self.configText)
         root.addWidget(cfg_group)
+
+    def _sync_offset_vb(self):
+        """Keep the offset ViewBox geometry locked to the main plot ViewBox."""
+        self._offsetVB.setGeometry(self.histPlot.plotItem.vb.sceneBoundingRect())
 
     @staticmethod
     def _make_zoom_controls(plot_widget: pg.PlotWidget) -> QtWidgets.QHBoxLayout:
@@ -252,6 +278,8 @@ class MotorPanelWindow(QtWidgets.QDialog):
         self.livePlot.setLabel("left", motor_name)
         self.histPlot.setLabel("left", motor_name)
         self.histCurve.setData([], [])
+        self._offsetCurve.setData([], [])
+        self._offsetAxis.setLabel(f"{motor_name} Offset", color="#80ff80")
         self.histStatus.setText("")
 
         motor_model = self.controller.get_motor_model()
@@ -309,10 +337,19 @@ class MotorPanelWindow(QtWidgets.QDialog):
             return
 
         timestamps = [r["timestamp"] for r in records]
-        positions = [r["actual_position"] for r in records]
-
+        positions  = [r["actual_position"] for r in records]
         self.histCurve.setData(timestamps, positions)
-        self.histStatus.setText(f"{len(records)} records")
+
+        # Plot offsets on the right axis (skip records where offset is None)
+        off_ts  = [r["timestamp"]    for r in records if r.get("motor_offset") is not None]
+        off_val = [r["motor_offset"] for r in records if r.get("motor_offset") is not None]
+        self._offsetCurve.setData(off_ts, off_val)
+        self._offsetAxis.setVisible(bool(off_ts))
+
+        self.histStatus.setText(
+            f"{len(records)} records"
+            + (f" · {len(off_ts)} offset readings" if off_ts else "")
+        )
 
     def _on_move(self):
         motor_name = self.motorCombo.currentText()

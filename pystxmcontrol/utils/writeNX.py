@@ -421,7 +421,7 @@ class stxm:
                 d.create_dataset("motor_name_y",data=self.scan_dict["y_motor"])
             except:
                 d.create_dataset("motor_name_y", data="None")
-        if self.scan_dict['scan_type'] == "Ptychography Image":
+        if 'ptychography' in self.scan_dict.get('scan_type', '').lower():
             ccd = nxentry.create_group('ccd0')
             ccd.create_group('dark')
             ccd.create_group('exp')

@@ -253,6 +253,9 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                 DAQcount = numTrajMotorPoints
                 DAQsamples = 1
 
+            scanInfo["trigger_count"] = DAQcount
+            scanInfo["trigger_samples"] = DAQsamples
+
             print('dwell: {}'.format(actDAQDwell))
             print('count: {}'.format(DAQcount))
             print('samples: {}'.format(DAQsamples))
@@ -306,6 +309,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                     # Set up motor trajectory
                     xMotorPos = xList[i]
                     yMotorPos = yList[i]
+                    print(f"[derived spiral scan] segment {i + 1} of {len(xList)} with n_points: {len(xMotorPos)}")
                     controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_count = len(xMotorPos)
                     controller.motors[scan["x_motor"]]["motor"].trajectory_pixel_dwell = actMotorDwell
                     controller.motors[scan["x_motor"]]["motor"].lineMode = "arbitrary"

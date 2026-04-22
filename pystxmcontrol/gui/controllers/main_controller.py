@@ -396,7 +396,7 @@ class MainController(QObject):
                 self.motor_scan_updated.emit()
 
             # Handle image data (for both continuous and point mode scans)
-            if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'continuousSpiral', 'ptychographyGrid', 'point']:
+            if 'image' in message and message.get('mode') in ['rasterLine', 'continuousLine', 'continuousSpiral', 'ptychographyGrid', 'ptychographySpiral', 'point']:
                 # message['image'] is now a dict with keys like 'default', 'xrf', 'tey', etc.
                 image_dict = dict(message['image'])
 
