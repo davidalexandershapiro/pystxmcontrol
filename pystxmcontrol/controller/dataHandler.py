@@ -336,7 +336,7 @@ class dataHandler:
         if scanInfo["rawData"][daq]["meta"]["type"] == "spectrum":
             self.data.interp_counts[daq][k][m, y, c] = scanInfo["rawData"][daq]["data"].sum(0)
         else:
-            self.data.interp_counts[daq][k][m, y, c] = 1. #scanInfo["rawData"][daq]["data"][0]
+            self.data.interp_counts[daq][k][m, y, c] = scanInfo["rawData"][daq]["data"][0]
         return self.data.interp_counts[daq][k][m, :, :]
 
     def _write_single_motor(self, scanInfo, daq):

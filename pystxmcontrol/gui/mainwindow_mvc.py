@@ -193,6 +193,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Image scan types
         self.imageScanTypes = ["ptychographyGrid", "ptychographySpiral", "rasterLine", "continuousLine", 'continuousSpiral', 'point']
+
+        # Track the last image scan type selected (used by Focus-to-Cursor to restore)
+        self._last_image_scan_type: str | None = None
+        # Track the scan type of the image currently displayed (used to detect mismatches)
+        self._displayed_scan_type: str | None = None
         
         # Load main.json from disk (independent of server connection)
         self._local_main_config = self._read_main_config_from_disk()
@@ -734,6 +739,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._update_ui_for_scan_type(scan_type)
         self._update_y_axis_label(scan_type)
 
+        # Remember the last image scan type (used to restore after Focus-to-Cursor)
+        if "Image" in scan_type and "Focus" not in scan_type:
+            self._last_image_scan_type = scan_type
+
         # Check the ROI checkbox for any scan type that supports it
         if self.ui.roiCheckbox.isEnabled():
             self.ui.roiCheckbox.setChecked(True)
@@ -758,7 +767,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Update scan ROIs for new scan type, positioned to fill the current field of view
         self._update_rois_from_regions(reset_to_view=True)
-        
+
+        # Disable ROI if the selected scan type doesn't match what's displayed
+        self._update_roi_for_scan_match()
+
     def on_begin_scan(self):
         """Handle begin scan button click."""
         # First compile scan configuration from UI widgets
@@ -1136,6 +1148,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.mainImage.removeItem(self.vertical_line)
             self.vertical_line = None
 
+        # Switch the combo back to the last image scan type.  on_scan_type_changed
+        # fires automatically and then calls _update_roi_for_scan_match, which will
+        # detect that the displayed image is still a Focus scan and disable the ROI.
+        if self._last_image_scan_type:
+            idx = self.ui.scanType.findText(self._last_image_scan_type)
+            if idx >= 0:
+                self.ui.scanType.setCurrentIndex(idx)
+
     def toggle_beam_position(self):
         """Toggle beam position display on image."""
         # This will be implemented when beam position ROI is created
@@ -1319,7 +1339,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.roiCheckbox.setEnabled(False)
         else:
             self.ui.roiCheckbox.setEnabled(True)
-        
+            # A point-type channel re-enabled ROI; still enforce scan-type match
+            self._update_roi_for_scan_match()
+
     def on_plot_type_changed(self):
         """Handle plot type change."""
         plot_type = self.ui.plotType.currentText()
@@ -1449,6 +1471,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         image_scale = image_model.get('image_scale', (0.7, 0.7))
 
         scan_type = image_model.get('scan_type', '')
+        # Track what scan type is currently displayed so ROI mismatch can be detected
+        self._displayed_scan_type = scan_type
 
         # Image scans: lock aspect ratio so physical proportions are preserved.
         # Focus scans: unlock so the image always stretches to fill the viewport.
@@ -1523,7 +1547,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     scale=image_scale
                 )
 
-            
+        # Disable ROI if the newly arrived image doesn't match the selected scan type
+        self._update_roi_for_scan_match()
+
     def update_scan_progress_display(self, progress_info: str):
         """Update scan progress display."""
         self.ui.imageCountText.setText(progress_info)
@@ -2631,6 +2657,25 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             ed.dwellTime.setText(dwell_val)
             ed.dwellTime.setEnabled(False)
 
+    def _update_roi_for_scan_match(self):
+        """Disable the ROI checkbox when an Image scan is selected but a Focus image is displayed.
+
+        The asymmetry is intentional:
+        - Focus selected, Image displayed → ROI is ALLOWED.  The Focus line ROI overlaid
+          on the image scan display is meaningful: it defines which part of the image the
+          focus scan will sweep.
+        - Image selected, Focus displayed → ROI is SUPPRESSED.  The image scan ROI has
+          no valid coordinate relationship to the focus scan axes.
+        """
+        if not self._displayed_scan_type:
+            return  # no image displayed yet — leave ROI state alone
+        selected = self.ui.scanType.currentText()
+        image_selected = "Image" in selected and "Focus" not in selected
+        focus_displayed = "Focus" in self._displayed_scan_type
+        if image_selected and focus_displayed:
+            self.ui.roiCheckbox.setChecked(False)
+            self.ui.roiCheckbox.setEnabled(False)
+
     def toggle_roi_display(self):
         """Toggle ROI display."""
         if self.ui.roiCheckbox.isChecked():
@@ -3079,7 +3124,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Try to get ESAF list from server
             try:
                 from pystxmcontrol.utils.alsapi import getCurrentEsafList
-                self.esaf_list, self.participants_list = getCurrentEsafList()
+                self.esaf_list, self.participants_list = getCurrentEsafList(
+                    beamline=self.controller.client.main_config["source"]["beamline"]
+                )
 
                 # Add each proposal to the combobox
                 for esaf in self.esaf_list:
