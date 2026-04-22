@@ -749,7 +749,6 @@ class Ui_MainWindow(object):
         font5 = QFont()
         font5.setPointSize(13)
         self.scaleBarLength.setFont(font5)
-        self.scaleBarLength.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.scaleBarLength)
 
@@ -768,7 +767,6 @@ class Ui_MainWindow(object):
         self.pixelSizeLabel.setMinimumSize(QSize(60, 0))
         self.pixelSizeLabel.setMaximumSize(QSize(60, 16777215))
         self.pixelSizeLabel.setFont(font5)
-        self.pixelSizeLabel.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.pixelSizeLabel)
 
@@ -789,7 +787,6 @@ class Ui_MainWindow(object):
         self.dwellTimeLabel.setMinimumSize(QSize(60, 0))
         self.dwellTimeLabel.setMaximumSize(QSize(60, 16777215))
         self.dwellTimeLabel.setFont(font5)
-        self.dwellTimeLabel.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.dwellTimeLabel)
 
@@ -808,7 +805,6 @@ class Ui_MainWindow(object):
         self.imageEnergyLabel.setMinimumSize(QSize(80, 0))
         self.imageEnergyLabel.setMaximumSize(QSize(80, 16777215))
         self.imageEnergyLabel.setFont(font5)
-        self.imageEnergyLabel.setAlignment(Qt.AlignCenter)
 
         self.horizontalLayout_8.addWidget(self.imageEnergyLabel)
 
@@ -1273,7 +1269,7 @@ class Ui_MainWindow(object):
         self.tab_7.setObjectName(u"tab_7")
         self.gridLayoutWidget_2 = QWidget(self.tab_7)
         self.gridLayoutWidget_2.setObjectName(u"gridLayoutWidget_2")
-        self.gridLayoutWidget_2.setGeometry(QRect(9, 9, 671, 241))
+        self.gridLayoutWidget_2.setGeometry(QRect(9, 9, 671, 305))
         self.gridLayout_7 = QGridLayout(self.gridLayoutWidget_2)
         self.gridLayout_7.setObjectName(u"gridLayout_7")
         self.gridLayout_7.setContentsMargins(0, 0, 0, 0)
@@ -1330,6 +1326,16 @@ class Ui_MainWindow(object):
 
 
         self.gridLayout_7.addLayout(self.horizontalLayout_4, 8, 0, 1, 1)
+
+        self.snapRoiToFovButton = QPushButton(self.gridLayoutWidget_2)
+        self.snapRoiToFovButton.setObjectName(u"snapRoiToFovButton")
+
+        self.gridLayout_7.addWidget(self.snapRoiToFovButton, 9, 0, 1, 1)
+
+        self.snapFovToRoiButton = QPushButton(self.gridLayoutWidget_2)
+        self.snapFovToRoiButton.setObjectName(u"snapFovToRoiButton")
+
+        self.gridLayout_7.addWidget(self.snapFovToRoiButton, 10, 0, 1, 1)
 
         self.autoscaleCheckbox = QCheckBox(self.gridLayoutWidget_2)
         self.autoscaleCheckbox.setObjectName(u"autoscaleCheckbox")
@@ -1487,6 +1493,9 @@ class Ui_MainWindow(object):
         self.motorMover1Minus.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.motorMover2Minus.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.motorPanelButton.setText(QCoreApplication.translate("MainWindow", u"Motor Panel", None))
+#if QT_CONFIG(tooltip)
+        self.motorPanelButton.setToolTip(QCoreApplication.translate("MainWindow", u"Open the motor inspection and history panel.", None))
+#endif // QT_CONFIG(tooltip)
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_4), QCoreApplication.translate("MainWindow", u"Move Motors", None))
         self.label_27.setText(QCoreApplication.translate("MainWindow", u"Center", None))
         self.label_29.setText(QCoreApplication.translate("MainWindow", u"Points", None))
@@ -1607,6 +1616,14 @@ class Ui_MainWindow(object):
         self.compositeImageCheckbox.setText(QCoreApplication.translate("MainWindow", u"Composite Image", None))
         self.clearImageButton.setText(QCoreApplication.translate("MainWindow", u"Clear All", None))
         self.removeLastImageButton.setText(QCoreApplication.translate("MainWindow", u"Remove Last", None))
+        self.snapRoiToFovButton.setText(QCoreApplication.translate("MainWindow", u"Snap ROI to FOV", None))
+#if QT_CONFIG(tooltip)
+        self.snapRoiToFovButton.setToolTip(QCoreApplication.translate("MainWindow", u"Resize the scan region ROI to fill the current image field of view and update the scan region parameters accordingly.", None))
+#endif // QT_CONFIG(tooltip)
+        self.snapFovToRoiButton.setText(QCoreApplication.translate("MainWindow", u"Snap FOV to ROI", None))
+#if QT_CONFIG(tooltip)
+        self.snapFovToRoiButton.setToolTip(QCoreApplication.translate("MainWindow", u"Pan and zoom the image display to match the current scan region ROI.", None))
+#endif // QT_CONFIG(tooltip)
         self.autoscaleCheckbox.setText(QCoreApplication.translate("MainWindow", u"Autoscale Image", None))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab_7), QCoreApplication.translate("MainWindow", u"Display", None))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab_8), QCoreApplication.translate("MainWindow", u"Console", None))

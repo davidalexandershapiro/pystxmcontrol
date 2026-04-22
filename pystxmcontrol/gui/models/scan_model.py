@@ -183,8 +183,8 @@ class ScanModel(BaseModel):
         # Calculate time per point from energy regions
         for region in energy_regions.values():
             dwell = region.get('dwell', 1.0)
-            energies = region.get('nEnergies', 1)
-            
+            energies = region.get('n_energies', 1)  # stored as 'n_energies' by compile_scan_from_view
+
             if "Ptychography" in scan_type:
                 if self.get('double_exposure'):
                     point_overhead = 0.2
@@ -198,10 +198,13 @@ class ScanModel(BaseModel):
                 time_per_point += (point_dwell / 1000.0 + point_overhead) * energies
             else:
                 time_per_point += (dwell / 1000.0 + point_overhead) * energies
-                
+
             n_energies += energies
-            
-        estimated_time = n_points * time_per_point + n_lines * line_overhead + (n_energies - 1) * energy_overhead
+
+        # Line overhead recurs for every energy sweep, not just once per scan
+        estimated_time = (n_points * time_per_point
+                          + n_lines * n_energies * line_overhead
+                          + (n_energies - 1) * energy_overhead)
         return estimated_time
     
     def get_energies(self) -> Optional[Dict[str, Any]]:

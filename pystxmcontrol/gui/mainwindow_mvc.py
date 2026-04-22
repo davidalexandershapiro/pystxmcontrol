@@ -349,6 +349,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.energyRegSpinbox.valueChanged.connect(self.update_energy_regions)
         self.ui.roiCheckbox.stateChanged.connect(self.toggle_roi_display)
         self.ui.showRangeFinder.stateChanged.connect(self.toggle_range_roi_display)
+        if hasattr(self.ui, 'snapRoiToFovButton'):
+            self.ui.snapRoiToFovButton.clicked.connect(self.on_snap_roi_to_fov)
+        if hasattr(self.ui, 'snapFovToRoiButton'):
+            self.ui.snapFovToRoiButton.clicked.connect(self.on_snap_fov_to_roi)
         
         # Energy list controls
         self.ui.energyListCheckbox.stateChanged.connect(self.toggle_energy_list)
@@ -446,6 +450,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Style the mainPlot
         self._initialize_main_plot()
+
+        # Populate A0 from motor config
+        self._refresh_a0_display()
 
     def _initialize_main_plot(self):
         """Configure mainPlot: custom sig-fig axis, bounding frame, grid, theme."""
@@ -765,8 +772,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Recreate range ROI with updated motor configuration
         self._recreate_range_roi()
 
-        # Update scan ROIs for new scan type, positioned to fill the current field of view
-        self._update_rois_from_regions(reset_to_view=True)
+        # Update scan ROIs: line scans reset to the FOV, image scans use the
+        # values already stored in the scan region widgets (same logic as the
+        # Show ROI checkbox so the two entry points behave identically).
+        self._update_rois_from_regions(reset_to_view=self._is_line_scan_type(scan_type))
 
         # Disable ROI if the selected scan type doesn't match what's displayed
         self._update_roi_for_scan_match()
@@ -893,6 +902,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         except ValueError:
             self.show_error_message("Invalid energy value")
             
+    def _refresh_a0_display(self):
+        """Populate A0Edit and A0Label from the current motor config."""
+        try:
+            motor_info = self.controller.client.motorInfo
+            a0 = motor_info.get("Energy", {}).get("A0")
+            if a0 is not None:
+                self.ui.A0Edit.setText(f"{a0:.4g}")
+                self.ui.A0Label.setText(f"{int(a0)}")
+        except Exception:
+            pass
+
     def on_a0_changed(self):
         """Handle A0 change."""
         try:
@@ -1136,6 +1156,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             print(f"setFocusZ: setting A0 to {new_a0:.3f}, SampleZ offset to {new_sample_z_offset:.3f}")
             self.controller.handle_motor_config_change("SampleZ", "offset", new_sample_z_offset)
             self.controller.handle_motor_config_change("Energy", "A0", new_a0)
+            self.ui.A0Edit.setText(f"{new_a0:.4g}")
+            self.ui.A0Label.setText(f"{int(new_a0)}")
 
         # Move ZonePlateZ to the calibration position
         self.controller.move_motor("ZonePlateZ", zone_plate_calibration)
@@ -1385,6 +1407,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if motor_name == "Energy":
             self.ui.energyLabel.setText(f"{position:.1f} eV")
             self.ui.energyLabel_2.setText(f"{position:.1f} eV")
+            # In single-energy mode the start energy always tracks the current energy
+            if self._single_energy_active and self.energy_region_widgets:
+                energy_str = f"{position:.3f}"
+                ed = self.energy_region_widgets[0].energyDef
+                ed.energyStart.setText(energy_str)
+                ed.energyStop.setText(energy_str)
         elif motor_name == "DISPERSIVE_SLIT":
             self.ui.dsLabel.setText(f"{position:.1f}")
         elif motor_name == "NONDISPERSIVE_SLIT":
@@ -1598,10 +1626,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.estimatedTime.setText(time_part)
             
     def update_estimated_time(self):
-        """Update estimated time by compiling current scan parameters.  Called by update_scan_regions
-        and update_energy_regions"""
+        """Update estimated time and velocity labels from current scan parameters."""
         try:
             self.controller.compile_scan_from_view(self)
+
+            estimated_time = self.controller.scan_model.calculate_estimated_time()
+            if estimated_time < 100:
+                time_str = f"{estimated_time:.2f} s"
+            elif estimated_time < 3600:
+                time_str = f"{estimated_time / 60:.2f} m"
+            else:
+                time_str = f"{estimated_time / 3600:.2f} hr"
+            self.ui.estimatedTime.setText(time_str)
+
             velocity = self.controller.scan_model.get_scan_velocity()
             self.ui.scanVelocity.setText(f"{velocity:.3f} mm/s")
             if velocity > self.maxVelocity:
@@ -2284,6 +2321,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             return
         self._update_server_address_display()
         self._populate_combo_boxes()
+        self._refresh_a0_display()
         # Re-fire scan-type change so motor combos, checkboxes, etc. reset to
         # reflect the current scanType selection with the refreshed config.
         self.on_scan_type_changed()
@@ -2382,6 +2420,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 # Region 1 is the dwell master — connect its return-press to propagate
                 widget.energyDef.dwellTime.setText(defaults['dwell'])
                 widget.energyDef.dwellTime.returnPressed.connect(self._propagate_dwell)
+                widget.energyDef.dwellTime.returnPressed.connect(self.update_estimated_time)
             else:
                 # Non-master regions mirror Region 1's dwell and are not editable
                 if self.energy_region_widgets:
@@ -2392,6 +2431,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 widget.energyDef.dwellTime.setEnabled(False)
                 defaults['dwell'] = dwell_val
 
+            widget.regionChanged.connect(self.update_estimated_time)
             self.ui.energyDefWidget.addWidget(widget.widget)
             self.energy_region_widgets.append(widget)
 
@@ -2647,6 +2687,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if not is_single_energy:
             self._propagate_dwell()
 
+        self.update_estimated_time()
+
     def _propagate_dwell(self):
         """Copy Region 1's dwell time to all other energy regions and disable their field."""
         if not self.energy_region_widgets:
@@ -2676,13 +2718,108 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.roiCheckbox.setChecked(False)
             self.ui.roiCheckbox.setEnabled(False)
 
+    def _is_line_scan_type(self, scan_type: str | None = None) -> bool:
+        """Return True when *scan_type* produces a line ROI (Focus / Line Spectrum).
+
+        When *scan_type* is None the current combo selection is used.
+        """
+        if scan_type is None:
+            scan_type = self.ui.scanType.currentText()
+        config_scan_type = "image"
+        if hasattr(self.controller, 'client') and self.controller.client \
+                and hasattr(self.controller.client, 'scanConfig'):
+            try:
+                config_scan_type = self.controller.client.scanConfig.get(
+                    scan_type, {}
+                ).get("type", "image")
+            except Exception:
+                pass
+        return "line" in config_scan_type.lower() or "focus" in scan_type.lower()
+
     def toggle_roi_display(self):
-        """Toggle ROI display."""
+        """Toggle ROI display.
+
+        Rectangle ROIs (Image / Ptychography): initialise from the scan region
+        widget values so the ROI reflects the configured scan area.
+        Line ROIs (Focus / Line Spectrum): span the current field of view so the
+        line is always visible regardless of what the scan region widgets say.
+        """
         if self.ui.roiCheckbox.isChecked():
-            self._update_rois_from_regions(reset_to_view=True)
+            self._update_rois_from_regions(reset_to_view=self._is_line_scan_type())
         else:
             self._hide_rois()
             
+    def on_snap_roi_to_fov(self):
+        """Snap the scan region ROI to the current image field of view.
+
+        For image/rectangle scans: reads the visible view range, writes those
+        bounds into every scan region widget, then redraws the ROI from those
+        values (so the text fields and the ROI are always in sync).
+        For line scans: spans the view horizontally at mid-height (same as the
+        reset_to_view path used by the checkbox).
+        """
+        try:
+            vr = self.ui.mainImage.getView().viewRange()
+            if not vr or len(vr) < 2:
+                return
+            x_min, x_max = vr[0]
+            y_min, y_max = vr[1]
+        except Exception:
+            return
+
+        if self._is_line_scan_type():
+            # Line scans — just reset to view (centre/length come from the FOV)
+            self._update_rois_from_regions(reset_to_view=True)
+            return
+
+        # Rectangle scans — push FOV bounds into scan region widgets first
+        x_center = (x_min + x_max) / 2.0
+        y_center = (y_min + y_max) / 2.0
+        x_range  = x_max - x_min
+        y_range  = y_max - y_min
+
+        for region_widget in self.scan_region_widgets:
+            try:
+                region_widget.ui.xCenter.setText(f"{x_center:.4g}")
+                region_widget.ui.yCenter.setText(f"{y_center:.4g}")
+                region_widget.ui.xRange.setText(f"{x_range:.4g}")
+                region_widget.ui.yRange.setText(f"{y_range:.4g}")
+            except Exception:
+                pass
+
+        # Redraw ROI from the now-updated widget values (reset_to_view=False)
+        self._update_rois_from_regions(reset_to_view=False)
+        if not self.ui.roiCheckbox.isChecked():
+            self.ui.roiCheckbox.setChecked(True)
+
+    def on_snap_fov_to_roi(self):
+        """Pan and zoom the image display to match the current scan region ROI.
+
+        Reads the first scan region widget's centre and range values and sets
+        the image view range accordingly, so the ROI fills the visible area.
+        """
+        if not self.scan_region_widgets:
+            return
+        try:
+            region_widget = self.scan_region_widgets[0]
+            x_center = float(region_widget.ui.xCenter.text() or 0)
+            y_center = float(region_widget.ui.yCenter.text() or 0)
+            x_range  = float(region_widget.ui.xRange.text()  or 70)
+            y_range  = float(region_widget.ui.yRange.text()  or 70)
+        except (ValueError, AttributeError):
+            return
+
+        padding = 0.05  # 5 % margin so the ROI border is visible
+        x_pad = x_range * padding
+        y_pad = y_range * padding
+        x_min = x_center - x_range / 2 - x_pad
+        x_max = x_center + x_range / 2 + x_pad
+        y_min = y_center - y_range / 2 - y_pad
+        y_max = y_center + y_range / 2 + y_pad
+
+        view = self.ui.mainImage.getView()
+        view.setRange(xRange=(x_min, x_max), yRange=(y_min, y_max), padding=0)
+
     def toggle_range_roi_display(self):
         """Toggle range ROI display."""
         if self.ui.showRangeFinder.isChecked():

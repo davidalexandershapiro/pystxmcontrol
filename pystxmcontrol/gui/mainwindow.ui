@@ -372,7 +372,7 @@
           </widget>
          </item>
          <item row="2" column="4" colspan="3">
-          <widget class="QPushButton" name="abortButton">
+          <widget class="QPushButton" name="motorPanelButton">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
              <horstretch>0</horstretch>
@@ -392,7 +392,10 @@
             </size>
            </property>
            <property name="text">
-            <string>ABORT</string>
+            <string>Motor Panel</string>
+           </property>
+           <property name="toolTip">
+            <string>Open the motor inspection and history panel.</string>
            </property>
           </widget>
          </item>
@@ -2631,7 +2634,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <x>9</x>
           <y>9</y>
           <width>671</width>
-          <height>241</height>
+          <height>305</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_7">
@@ -2701,6 +2704,26 @@ font: 75 11pt &quot;Ubuntu&quot;;
             </widget>
            </item>
           </layout>
+         </item>
+         <item row="9" column="0">
+          <widget class="QPushButton" name="snapRoiToFovButton">
+           <property name="text">
+            <string>Snap ROI to FOV</string>
+           </property>
+           <property name="toolTip">
+            <string>Resize the scan region ROI to fill the current image field of view and update the scan region parameters accordingly.</string>
+           </property>
+          </widget>
+         </item>
+         <item row="10" column="0">
+          <widget class="QPushButton" name="snapFovToRoiButton">
+           <property name="text">
+            <string>Snap FOV to ROI</string>
+           </property>
+           <property name="toolTip">
+            <string>Pan and zoom the image display to match the current scan region ROI.</string>
+           </property>
+          </widget>
          </item>
          <item row="3" column="0">
           <widget class="QCheckBox" name="autoscaleCheckbox">
