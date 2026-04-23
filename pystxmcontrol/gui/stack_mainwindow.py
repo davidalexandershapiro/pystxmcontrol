@@ -78,7 +78,6 @@ class Ui_stackViewer(object):
         sizePolicy3.setVerticalStretch(0)
         sizePolicy3.setHeightForWidth(self.specPlot.sizePolicy().hasHeightForWidth())
         self.specPlot.setSizePolicy(sizePolicy3)
-        self.specPlot.setMaximumHeight(560)
 
         self.horizontalLayout_plot.addWidget(self.specPlot)
 
@@ -88,11 +87,65 @@ class Ui_stackViewer(object):
         self.gridLayout_controls = QGridLayout()
         self.gridLayout_controls.setSpacing(4)
         self.gridLayout_controls.setObjectName(u"gridLayout_controls")
-        self.regionSelect = QComboBox(stackViewer)
-        self.regionSelect.addItem("")
-        self.regionSelect.setObjectName(u"regionSelect")
+        self.fileName = QLabel(stackViewer)
+        self.fileName.setObjectName(u"fileName")
 
-        self.gridLayout_controls.addWidget(self.regionSelect, 0, 0, 1, 1)
+        self.gridLayout_controls.addWidget(self.fileName, 3, 0, 1, 3)
+
+        self.darkLineEdit = QLineEdit(stackViewer)
+        self.darkLineEdit.setObjectName(u"darkLineEdit")
+        sizePolicy.setHeightForWidth(self.darkLineEdit.sizePolicy().hasHeightForWidth())
+        self.darkLineEdit.setSizePolicy(sizePolicy)
+
+        self.gridLayout_controls.addWidget(self.darkLineEdit, 4, 3, 1, 1)
+
+        self.autoButton = QPushButton(stackViewer)
+        self.autoButton.setObjectName(u"autoButton")
+        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        sizePolicy4.setHorizontalStretch(0)
+        sizePolicy4.setVerticalStretch(0)
+        sizePolicy4.setHeightForWidth(self.autoButton.sizePolicy().hasHeightForWidth())
+        self.autoButton.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.autoButton, 1, 0, 1, 1)
+
+        self.preEdgeBox = QCheckBox(stackViewer)
+        self.preEdgeBox.setObjectName(u"preEdgeBox")
+        sizePolicy4.setHeightForWidth(self.preEdgeBox.sizePolicy().hasHeightForWidth())
+        self.preEdgeBox.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.preEdgeBox, 2, 2, 1, 1)
+
+        self.clearROIButton = QPushButton(stackViewer)
+        self.clearROIButton.setObjectName(u"clearROIButton")
+        sizePolicy4.setHeightForWidth(self.clearROIButton.sizePolicy().hasHeightForWidth())
+        self.clearROIButton.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.clearROIButton, 0, 3, 1, 1)
+
+        self.registerButton = QPushButton(stackViewer)
+        self.registerButton.setObjectName(u"registerButton")
+        sizePolicy4.setHeightForWidth(self.registerButton.sizePolicy().hasHeightForWidth())
+        self.registerButton.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.registerButton, 2, 1, 1, 1)
+
+        self.resetButton = QPushButton(stackViewer)
+        self.resetButton.setObjectName(u"resetButton")
+
+        self.gridLayout_controls.addWidget(self.resetButton, 2, 0, 1, 1)
+
+        self.frameEnergy = QLabel(stackViewer)
+        self.frameEnergy.setObjectName(u"frameEnergy")
+
+        self.gridLayout_controls.addWidget(self.frameEnergy, 4, 0, 1, 1)
+
+        self.pcaButton = QPushButton(stackViewer)
+        self.pcaButton.setObjectName(u"pcaButton")
+        sizePolicy4.setHeightForWidth(self.pcaButton.sizePolicy().hasHeightForWidth())
+        self.pcaButton.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.pcaButton, 5, 3, 1, 1)
 
         self.spectraComboBox = QComboBox(stackViewer)
         self.spectraComboBox.addItem("")
@@ -103,41 +156,12 @@ class Ui_stackViewer(object):
 
         self.gridLayout_controls.addWidget(self.spectraComboBox, 0, 1, 1, 1)
 
-        self.addROIButton = QPushButton(stackViewer)
-        self.addROIButton.setObjectName(u"addROIButton")
-        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        sizePolicy4.setHorizontalStretch(0)
-        sizePolicy4.setVerticalStretch(0)
-        sizePolicy4.setHeightForWidth(self.addROIButton.sizePolicy().hasHeightForWidth())
-        self.addROIButton.setSizePolicy(sizePolicy4)
+        self.saveButton = QPushButton(stackViewer)
+        self.saveButton.setObjectName(u"saveButton")
+        sizePolicy4.setHeightForWidth(self.saveButton.sizePolicy().hasHeightForWidth())
+        self.saveButton.setSizePolicy(sizePolicy4)
 
-        self.gridLayout_controls.addWidget(self.addROIButton, 0, 2, 1, 1)
-
-        self.clearROIButton = QPushButton(stackViewer)
-        self.clearROIButton.setObjectName(u"clearROIButton")
-        sizePolicy4.setHeightForWidth(self.clearROIButton.sizePolicy().hasHeightForWidth())
-        self.clearROIButton.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.clearROIButton, 0, 3, 1, 1)
-
-        self.pcaButton = QPushButton(stackViewer)
-        self.pcaButton.setObjectName(u"pcaButton")
-        sizePolicy4.setHeightForWidth(self.pcaButton.sizePolicy().hasHeightForWidth())
-        self.pcaButton.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.pcaButton, 0, 4, 1, 1)
-
-        self.frameEnergy = QLabel(stackViewer)
-        self.frameEnergy.setObjectName(u"frameEnergy")
-
-        self.gridLayout_controls.addWidget(self.frameEnergy, 0, 5, 1, 1)
-
-        self.autoButton = QPushButton(stackViewer)
-        self.autoButton.setObjectName(u"autoButton")
-        sizePolicy4.setHeightForWidth(self.autoButton.sizePolicy().hasHeightForWidth())
-        self.autoButton.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.autoButton, 1, 0, 1, 1)
+        self.gridLayout_controls.addWidget(self.saveButton, 5, 1, 1, 1)
 
         self.filterButton = QPushButton(stackViewer)
         self.filterButton.setObjectName(u"filterButton")
@@ -146,51 +170,6 @@ class Ui_stackViewer(object):
 
         self.gridLayout_controls.addWidget(self.filterButton, 1, 1, 1, 1)
 
-        self.toggleOD = QCheckBox(stackViewer)
-        self.toggleOD.setObjectName(u"toggleOD")
-        sizePolicy4.setHeightForWidth(self.toggleOD.sizePolicy().hasHeightForWidth())
-        self.toggleOD.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.toggleOD, 1, 2, 1, 1)
-
-        self.label = QLabel(stackViewer)
-        self.label.setObjectName(u"label")
-
-        self.gridLayout_controls.addWidget(self.label, 1, 3, 1, 1, Qt.AlignRight)
-
-        self.darkLineEdit = QLineEdit(stackViewer)
-        self.darkLineEdit.setObjectName(u"darkLineEdit")
-        sizePolicy.setHeightForWidth(self.darkLineEdit.sizePolicy().hasHeightForWidth())
-        self.darkLineEdit.setSizePolicy(sizePolicy)
-
-        self.gridLayout_controls.addWidget(self.darkLineEdit, 1, 4, 1, 1)
-
-        self.mapButton = QPushButton(stackViewer)
-        self.mapButton.setObjectName(u"mapButton")
-        sizePolicy4.setHeightForWidth(self.mapButton.sizePolicy().hasHeightForWidth())
-        self.mapButton.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.mapButton, 1, 5, 1, 1)
-
-        self.resetButton = QPushButton(stackViewer)
-        self.resetButton.setObjectName(u"resetButton")
-
-        self.gridLayout_controls.addWidget(self.resetButton, 2, 0, 1, 1)
-
-        self.registerButton = QPushButton(stackViewer)
-        self.registerButton.setObjectName(u"registerButton")
-        sizePolicy4.setHeightForWidth(self.registerButton.sizePolicy().hasHeightForWidth())
-        self.registerButton.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.registerButton, 2, 1, 1, 1)
-
-        self.preEdgeBox = QCheckBox(stackViewer)
-        self.preEdgeBox.setObjectName(u"preEdgeBox")
-        sizePolicy4.setHeightForWidth(self.preEdgeBox.sizePolicy().hasHeightForWidth())
-        self.preEdgeBox.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.preEdgeBox, 2, 2, 1, 1)
-
         self.scaleBox = QCheckBox(stackViewer)
         self.scaleBox.setObjectName(u"scaleBox")
         sizePolicy4.setHeightForWidth(self.scaleBox.sizePolicy().hasHeightForWidth())
@@ -198,46 +177,71 @@ class Ui_stackViewer(object):
 
         self.gridLayout_controls.addWidget(self.scaleBox, 2, 3, 1, 1)
 
+        self.deleteButton = QPushButton(stackViewer)
+        self.deleteButton.setObjectName(u"deleteButton")
+
+        self.gridLayout_controls.addWidget(self.deleteButton, 3, 3, 1, 1)
+
         self.trackMouseBox = QCheckBox(stackViewer)
         self.trackMouseBox.setObjectName(u"trackMouseBox")
         sizePolicy4.setHeightForWidth(self.trackMouseBox.sizePolicy().hasHeightForWidth())
         self.trackMouseBox.setSizePolicy(sizePolicy4)
 
-        self.gridLayout_controls.addWidget(self.trackMouseBox, 2, 4, 1, 1)
-
-        self.bkgRemovalButton = QPushButton(stackViewer)
-        self.bkgRemovalButton.setObjectName(u"bkgRemovalButton")
-        sizePolicy4.setHeightForWidth(self.bkgRemovalButton.sizePolicy().hasHeightForWidth())
-        self.bkgRemovalButton.setSizePolicy(sizePolicy4)
-
-        self.gridLayout_controls.addWidget(self.bkgRemovalButton, 2, 5, 1, 1)
-
-        self.fileName = QLabel(stackViewer)
-        self.fileName.setObjectName(u"fileName")
-
-        self.gridLayout_controls.addWidget(self.fileName, 3, 0, 1, 3)
-
-        self.deleteButton = QPushButton(stackViewer)
-        self.deleteButton.setObjectName(u"deleteButton")
-
-        self.gridLayout_controls.addWidget(self.deleteButton, 3, 3, 1, 1)
+        self.gridLayout_controls.addWidget(self.trackMouseBox, 1, 3, 1, 1)
 
         self.stackLoadButton = QPushButton(stackViewer)
         self.stackLoadButton.setObjectName(u"stackLoadButton")
         sizePolicy4.setHeightForWidth(self.stackLoadButton.sizePolicy().hasHeightForWidth())
         self.stackLoadButton.setSizePolicy(sizePolicy4)
 
-        self.gridLayout_controls.addWidget(self.stackLoadButton, 3, 4, 1, 1)
+        self.gridLayout_controls.addWidget(self.stackLoadButton, 5, 0, 1, 1)
 
-        self.saveButton = QPushButton(stackViewer)
-        self.saveButton.setObjectName(u"saveButton")
-        sizePolicy4.setHeightForWidth(self.saveButton.sizePolicy().hasHeightForWidth())
-        self.saveButton.setSizePolicy(sizePolicy4)
+        self.mapButton = QPushButton(stackViewer)
+        self.mapButton.setObjectName(u"mapButton")
+        sizePolicy4.setHeightForWidth(self.mapButton.sizePolicy().hasHeightForWidth())
+        self.mapButton.setSizePolicy(sizePolicy4)
 
-        self.gridLayout_controls.addWidget(self.saveButton, 3, 5, 1, 1)
+        self.gridLayout_controls.addWidget(self.mapButton, 5, 2, 1, 1)
+
+        self.label = QLabel(stackViewer)
+        self.label.setObjectName(u"label")
+
+        self.gridLayout_controls.addWidget(self.label, 4, 2, 1, 1)
+
+        self.addROIButton = QPushButton(stackViewer)
+        self.addROIButton.setObjectName(u"addROIButton")
+        sizePolicy4.setHeightForWidth(self.addROIButton.sizePolicy().hasHeightForWidth())
+        self.addROIButton.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.addROIButton, 0, 2, 1, 1)
+
+        self.toggleOD = QCheckBox(stackViewer)
+        self.toggleOD.setObjectName(u"toggleOD")
+        sizePolicy4.setHeightForWidth(self.toggleOD.sizePolicy().hasHeightForWidth())
+        self.toggleOD.setSizePolicy(sizePolicy4)
+
+        self.gridLayout_controls.addWidget(self.toggleOD, 1, 2, 1, 1)
+
+        self.regionSelect = QComboBox(stackViewer)
+        self.regionSelect.addItem("")
+        self.regionSelect.setObjectName(u"regionSelect")
+
+        self.gridLayout_controls.addWidget(self.regionSelect, 0, 0, 1, 1)
 
 
         self.verticalLayout_right.addLayout(self.gridLayout_controls)
+
+        self.verticalLayout = QVBoxLayout()
+        self.verticalLayout.setObjectName(u"verticalLayout")
+
+        self.verticalLayout_right.addLayout(self.verticalLayout)
+
+        self.bkgRemovalButton = QPushButton(stackViewer)
+        self.bkgRemovalButton.setObjectName(u"bkgRemovalButton")
+        sizePolicy4.setHeightForWidth(self.bkgRemovalButton.sizePolicy().hasHeightForWidth())
+        self.bkgRemovalButton.setSizePolicy(sizePolicy4)
+
+        self.verticalLayout_right.addWidget(self.bkgRemovalButton)
 
         self.importButton = QPushButton(stackViewer)
         self.importButton.setObjectName(u"importButton")
@@ -263,32 +267,32 @@ class Ui_stackViewer(object):
     def retranslateUi(self, stackViewer):
         stackViewer.setWindowTitle(QCoreApplication.translate("stackViewer", u"Stack Viewer", None))
         self.live_display.setText(QCoreApplication.translate("stackViewer", u"Live Display", None))
-        self.regionSelect.setItemText(0, QCoreApplication.translate("stackViewer", u"Region 1", None))
-
+        self.fileName.setText(QCoreApplication.translate("stackViewer", u"Current File Name", None))
+        self.darkLineEdit.setText(QCoreApplication.translate("stackViewer", u"0", None))
+        self.autoButton.setText(QCoreApplication.translate("stackViewer", u"Auto", None))
+        self.preEdgeBox.setText(QCoreApplication.translate("stackViewer", u"Subtract Pre-edge", None))
+        self.clearROIButton.setText(QCoreApplication.translate("stackViewer", u"Remove", None))
+        self.registerButton.setText(QCoreApplication.translate("stackViewer", u"Register", None))
+        self.resetButton.setText(QCoreApplication.translate("stackViewer", u"Reset", None))
+        self.frameEnergy.setText(QCoreApplication.translate("stackViewer", u"Current Frame Energy", None))
+        self.pcaButton.setText(QCoreApplication.translate("stackViewer", u"PCA / Clustering", None))
         self.spectraComboBox.setItemText(0, QCoreApplication.translate("stackViewer", u"ROI", None))
         self.spectraComboBox.setItemText(1, QCoreApplication.translate("stackViewer", u"Point", None))
         self.spectraComboBox.setItemText(2, QCoreApplication.translate("stackViewer", u"I0", None))
 
-        self.addROIButton.setText(QCoreApplication.translate("stackViewer", u"Add", None))
-        self.clearROIButton.setText(QCoreApplication.translate("stackViewer", u"Remove", None))
-        self.pcaButton.setText(QCoreApplication.translate("stackViewer", u"PCA / Clustering", None))
-        self.frameEnergy.setText(QCoreApplication.translate("stackViewer", u"Current Frame Energy", None))
-        self.autoButton.setText(QCoreApplication.translate("stackViewer", u"Auto", None))
-        self.filterButton.setText(QCoreApplication.translate("stackViewer", u"Filter", None))
-        self.toggleOD.setText(QCoreApplication.translate("stackViewer", u"Optical Density", None))
-        self.label.setText(QCoreApplication.translate("stackViewer", u"Dark Signal", None))
-        self.darkLineEdit.setText(QCoreApplication.translate("stackViewer", u"0", None))
-        self.mapButton.setText(QCoreApplication.translate("stackViewer", u"Map", None))
-        self.resetButton.setText(QCoreApplication.translate("stackViewer", u"Reset", None))
-        self.registerButton.setText(QCoreApplication.translate("stackViewer", u"Register", None))
-        self.preEdgeBox.setText(QCoreApplication.translate("stackViewer", u"Subtract Pre-edge", None))
-        self.scaleBox.setText(QCoreApplication.translate("stackViewer", u"Scale", None))
-        self.trackMouseBox.setText(QCoreApplication.translate("stackViewer", u"Track Mouse", None))
-        self.bkgRemovalButton.setText(QCoreApplication.translate("stackViewer", u"BKG Removal", None))
-        self.fileName.setText(QCoreApplication.translate("stackViewer", u"Current File Name", None))
-        self.deleteButton.setText(QCoreApplication.translate("stackViewer", u"Delete Frame", None))
-        self.stackLoadButton.setText(QCoreApplication.translate("stackViewer", u"Load Stack", None))
         self.saveButton.setText(QCoreApplication.translate("stackViewer", u"Save Data", None))
+        self.filterButton.setText(QCoreApplication.translate("stackViewer", u"Filter", None))
+        self.scaleBox.setText(QCoreApplication.translate("stackViewer", u"Scale", None))
+        self.deleteButton.setText(QCoreApplication.translate("stackViewer", u"Delete Frame", None))
+        self.trackMouseBox.setText(QCoreApplication.translate("stackViewer", u"Track Mouse", None))
+        self.stackLoadButton.setText(QCoreApplication.translate("stackViewer", u"Load Stack", None))
+        self.mapButton.setText(QCoreApplication.translate("stackViewer", u"Map", None))
+        self.label.setText(QCoreApplication.translate("stackViewer", u"Dark Signal", None))
+        self.addROIButton.setText(QCoreApplication.translate("stackViewer", u"Add", None))
+        self.toggleOD.setText(QCoreApplication.translate("stackViewer", u"Optical Density", None))
+        self.regionSelect.setItemText(0, QCoreApplication.translate("stackViewer", u"Region 1", None))
+
+        self.bkgRemovalButton.setText(QCoreApplication.translate("stackViewer", u"BKG Removal", None))
         self.importButton.setText(QCoreApplication.translate("stackViewer", u"Import", None))
     # retranslateUi
 

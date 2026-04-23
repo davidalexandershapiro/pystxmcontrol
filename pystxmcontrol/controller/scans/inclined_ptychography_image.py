@@ -95,7 +95,7 @@ async def pointLoopSquareGrid(scan, scanInfo, positionList, dataHandler, control
             controller.moveMotor("ZonePlateZ", zPos[scanInfo['lineIndex']])
         scanInfo['zPos'] = zPos[scanInfo["lineIndex"]]
         #await asyncio.sleep(1)
-        print(f'{i} | Time: {time.time()}, SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[scanInfo['lineIndex']]}')
+        # print(f'{i} | Time: {time.time()}, SampleX: {xPos[i]}, SampleY: {yPos[i]}, ZonePlateZ: {zPos[scanInfo['lineIndex']]}')
         #await asyncio.sleep(18)
 
 

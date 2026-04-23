@@ -894,7 +894,7 @@ class MainController(QObject):
 
     def move_motor(self, motor_name: str, position: float) -> bool:
         """Move a motor to the specified position."""
-        if not self.motor_model.is_position_valid(motor_name, position):
+        if not self.motor_model.is_scan_position_valid(motor_name, position):
             self.error_occurred.emit(f"Position {position} out of range for {motor_name}")
             return False
             

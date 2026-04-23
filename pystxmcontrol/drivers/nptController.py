@@ -38,6 +38,8 @@ class nptController(hardwareController):
         self.dOffset = 0x730 # Derivative Gain
         self.sOffset = 0x084 # servo state: 1 closes the loop, 0 opens it.
         self.dsrOffset = 0x334 # digital sensor reading
+        self.rangeOffset = 0x078 #stage range
+        self.rangeTypeOffset = 0x044 #range type (microns=0, millimeters=1, uradians=2)
 
         #command prefixes
         self.readCom = 0xA0 # prepends all read commands
@@ -90,6 +92,12 @@ class nptController(hardwareController):
             pos = int(round(float(self.nmToSteps(pos * 1000.))))
             pos = int(self.signedIntToHex(pos),16)
             self.writeToDev4B(writeAddr, pos)
+
+    def setupStages(self, range = 100, rangeType = 'microns'):
+        self.writeToDev4B(self.axis1address + self.rangeOffset, range)
+        self.writeToDev4B(self.axis2address + self.rangeOffset, range)
+        self.writeToDev4B(self.axis1address + self.rangeTypeOffset, 0)
+        self.writeToDev4B(self.axis2address + self.rangeTypeOffset, 0)
 
     def getPos(self, axis = None):
         readAddr = self.dsrAddress(axis)
