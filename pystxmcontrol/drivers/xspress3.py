@@ -9,7 +9,7 @@ import h5py
 
 class xspress3(daq):
 
-    def __init__(self, address = 'XSP3_2Chan',simulation = False):
+    def __init__(self, address = 'XSP3_2Chan',simulation = False,port = None):
 
         self.address = address
         self.simulation = simulation
