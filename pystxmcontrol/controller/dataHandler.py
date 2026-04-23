@@ -493,7 +493,7 @@ class dataHandler:
             t0 = time.time()
             await self.getPoint(scanInfo)
             self.daq["default"].autoGateClosed()
-            self.controller.getMotorPositions(log = False) #this happens too frequently for logging
+            #self.controller.getMotorPositions(log = False) #this happens too frequently for logging
             scanInfo = await self.dataQueue.get()
             scanInfo['motorPositions'] = self.controller.allMotorPositions
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()

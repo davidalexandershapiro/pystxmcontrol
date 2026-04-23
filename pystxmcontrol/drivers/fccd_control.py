@@ -125,6 +125,8 @@ class fccd_control(daq):
                             self._bg = self.process_frame(frame)
                         self._framenum += 1
                         self.display_data = self.CCD2.assemble_nomask(self.process_frame(frame) - self._bg)
+                        self.display_data *= self.display_data > 0.
+                        self.display_data = np.log(self.display_data + 0.0001)/8.3
                         return self.frame_to_image(frame)
                 else:
                     return None
