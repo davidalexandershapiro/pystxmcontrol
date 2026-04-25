@@ -5,6 +5,9 @@ This demonstrates how to use the refactored MVC components.
 """
 
 import sys
+import faulthandler
+faulthandler.enable()   # print Python traceback to stderr on SIGSEGV/SIGFPE
+
 from PySide6.QtWidgets import QApplication
 from pystxmcontrol.gui.mainwindow_mvc import MainWindowMVC
 

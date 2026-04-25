@@ -420,21 +420,29 @@ class stack():
         for im in self.rawFrames:
             print(im.data.shape)
 
-    def alignFrames(self, sobelFilter = False, mode = 'manualtranslation', mask = False, threshold = 0., autocrop = True):
+    def alignFrames(self, sobelFilter = False, mode = 'manualtranslation', mask = False, threshold = 0., autocrop = True, progress_callback=None):
         """
         This is the top level call for aligning processedFrames.  It applies a sobel filter by default prior
         to alignment.
         :param sobelFilter: bool.  apply sobel filter prior to registration
-        :param mode: "translation", "affine", "rigid" and "homographic".
+        :param mode: "manualtranslation","translation", "affine", "rigid" and "homographic".
         :param progressBar: no idea.
         :param autocrop: bool. crop out wrapped pixels.
         :return:
         """
         self.lastFrames = self.processedFrames.copy()
         self.processedFrames = self.registerFrameStack(self.processedFrames, \
-            sobelFilter = sobelFilter, mode = mode, mask = mask, threshold = threshold, autocrop = autocrop)
+            sobelFilter = sobelFilter, mode = mode, mask = mask, threshold = threshold, autocrop = autocrop,
+            progress_callback=progress_callback)
         if mode not in ["translation","manualtranslation"]:
             self.processedFrames = self.processedFrames[:,5:-5,5:-5]
+        if autocrop:
+            avg = self.processedFrames.mean(axis=0)
+            # avg > 0 alone is insufficient: ndimage.shift with cubic spline (order=3)
+            # creates a ringing fringe at zero-fill boundaries, so those pixels are
+            # non-zero in the average.  Erode by the spline order to remove the fringe.
+            edge_mask = ndimage.binary_erosion(avg > 0, iterations=3)
+            self.processedFrames *= edge_mask
         self.shape = self.processedFrames.shape
         self.nEnergies, self.nY, self.nX = self.processedFrames.shape
 
@@ -574,7 +582,7 @@ class stack():
             src_image = self._ecc_align(dst_image, src_image, sobel = sobelFilter, mode = mode)
         return src_image
 
-    def registerFrameStack(self, frames, sobelFilter = False, mode = 'translation', mask = False, threshold = 0., autocrop = True):
+    def registerFrameStack(self, frames, sobelFilter = False, mode = 'translation', mask = False, threshold = 0., autocrop = True, progress_callback=None):
         """
         This is really just a management function.  It decides what to do based on the type of registration.
         The cropping for registrer_translation is different from ecc_align
@@ -611,6 +619,8 @@ class stack():
                                                         mask=mask, threshold=threshold, sobelFilter=sobelFilter)
                 shifts = self.warp_matrix[0,2],self.warp_matrix[1,2]
                 shiftList.append(shifts)
+                if progress_callback is not None:
+                    progress_callback(int((i + 1) / len(frames) * 100))
             shifts = np.array(shiftList)
             maxY, minY = abs(int(round(shifts[:,0].min()))), abs(int(round(shifts[:,0].max())))
             maxX, minX = abs(int(round(shifts[:,1].min()))), abs(int(round(shifts[:,1].max())))
@@ -623,6 +633,8 @@ class stack():
                 alignedFrames[i] = self._registerImages(frames[0],frames[i],sobelFilter = sobelFilter,mode = mode)
                 shifts = self.warp_matrix[0, 2], self.warp_matrix[1, 2]
                 shiftList.append(shifts)
+                if progress_callback is not None:
+                    progress_callback(int((i + 1) / len(frames) * 100))
             shifts = np.array(shiftList)
             maxY, minY = abs(int(round(shifts[:,0].min()))), abs(int(round(shifts[:,0].max())))
             maxX, minX = abs(int(round(shifts[:,1].min()))), abs(int(round(shifts[:,1].max())))
@@ -636,6 +648,8 @@ class stack():
             for i in range(0,len(frames)):
                 alignedFrames[i] = self._registerImages(frameMean, frames[i], sobelFilter = sobelFilter, mode = mode)
                 frameMean = (frameMean + alignedFrames[i]) * (alignedFrames[i] > 0.) / 2.
+                if progress_callback is not None:
+                    progress_callback(int((i + 1) / len(frames) * 100))
         return alignedFrames
 
     def setZeros(self):
@@ -695,7 +709,7 @@ class stack():
         self.gotOD = True
         self.preEdgeFrame = self.odFrames[0].copy()
 
-    def despike(self, sigma = 3., od = False):
+    def despike(self, kernel_size = 3, n_sigma = 5, od = False):
         """
         FIXME: sigma doesn't seem to work so it's hard coded below and this doesn't operate on the OD
         This applies a despike algorithm which is quite good in my humble opinion.  It works great for single
@@ -706,14 +720,14 @@ class stack():
         for i in range(len(self.energies)):
             if od:
                 d = self.odFrames[i].copy()
-                df = medfilt(d,kernel_size = 3)
-                idx = np.where(np.abs(df-d)>15.*(df-d).std())
+                df = medfilt(d,kernel_size = kernel_size)
+                idx = np.where(np.abs(df-d)>n_sigma*(df-d).std())
                 d[idx] = df[idx]
                 self.odFrames[i] = d
             else:
                 d = self.processedFrames[i].copy()
-                df = medfilt(d, kernel_size=3)
-                idx = np.where(np.abs(df - d) > 5. * (df - d).std())
+                df = medfilt(d, kernel_size=kernel_size)
+                idx = np.where(np.abs(df - d) > n_sigma * (df - d).std())
                 d[idx] = df[idx]
                 self.processedFrames[i] = d
             # peakIndices = np.where(np.abs(filteredFrames[i] - self.processedFrames[i]) > \
@@ -967,21 +981,76 @@ class stack():
             self.nnls(self.filteredImages, self.clusterSpectra)
             self.calcRFactor()
             
-    def calcNMF(self, iterations = 100000, nClusters = 4, clustering = 'kmeans'):
+    def calcNMF(self, n_components=4, n_clusters=4, max_iter=500, init='nndsvda',
+                progress_callback=None):
+        """
+        Non-negative matrix factorisation of the OD stack.
+
+        Factorises V (n_pixels × n_energies) ≈ W · H where
+          W  (n_pixels × n_components)  — pixel weights / spatial maps
+          H  (n_components × n_energies) — spectral components
+
+        Results stored on the stack object:
+          nmfMaps        (n_components, nY, nX)    — spatial weight maps
+          nmfComponents  (n_components, n_energies) — spectral components
+          filteredImages (n_components, nY, nX)    — alias for nmfMaps (for RGB map compat.)
+          clusters       (nY, nX)                  — kmeans labels on W
+          clusterSpectra list of (n_energies,)     — mean OD spectrum per cluster
+        """
         self.nEnergies, self.nY, self.nX = self.odFrames.shape
         self.nPixels = self.nY * self.nX
-        p = np.reshape(np.transpose(self.odFrames, axes = (1,2,0)), (self.nPixels, self.nEnergies), order = 'F')
-        self.model = NMF(init='random', max_iter = 1000, random_state=0)
-        self.W = self.model.fit_transform(X)
-        self.H = self.model.components_
-        
-        self.nmfImages = np.transpose(np.reshape(np.dot(p, ),(self.nY, self.nX, self.nEnergies), order = 'F'), axes = (2,0,1))
-        self.pca = PCA(n_components = nPC)
-        self.pca.fit(p)
-        c_pca = self.pca.transform(p)
-        self.filteredImages = self.pca.inverse_transform(c_pca)
-        self.filteredImages = np.transpose(np.reshape(self.filteredImages, (self.nY, self.nX, self.nEnergies), order = 'F'), axes = (2,0,1))
-    		
+
+        # Reshape OD to (n_pixels, n_energies); clip negatives — NMF requires ≥ 0
+        p = np.reshape(np.transpose(self.odFrames, axes=(1, 2, 0)),
+                       (self.nPixels, self.nEnergies), order='F')
+        p_nn = np.clip(p, 0, None)
+
+        if progress_callback:
+            progress_callback(5)
+
+        model = NMF(n_components=n_components, init=init,
+                    max_iter=max_iter, random_state=0)
+        self.W = model.fit_transform(p_nn)   # (n_pixels, n_components)
+        self.H = model.components_           # (n_components, n_energies)
+
+        if progress_callback:
+            progress_callback(60)
+
+        # Spatial maps: reshape W back to (n_components, nY, nX)
+        self.nmfMaps = np.transpose(
+            np.reshape(self.W, (self.nY, self.nX, n_components), order='F'),
+            axes=(2, 0, 1)
+        )
+        self.nmfComponents = self.H.copy()
+
+        # filteredImages = NMF reconstruction — keeps RGB Map button working
+        reconstruction = np.dot(self.W, self.H)
+        self.filteredImages = np.transpose(
+            np.reshape(reconstruction, (self.nY, self.nX, self.nEnergies), order='F'),
+            axes=(2, 0, 1)
+        )
+
+        if progress_callback:
+            progress_callback(75)
+
+        # Cluster pixels by their NMF weights (W matrix) using kmeans
+        from scipy.cluster.vq import kmeans2
+        _, labels = kmeans2(self.W, n_clusters, seed=0)
+        self.clusters = np.reshape(labels, (self.nY, self.nX), order='F')
+        self.clusterSpectra = []
+        for i in range(n_clusters):
+            mask = (self.clusters == i)
+            cnorm = mask.sum()
+            if cnorm > 0:
+                spec = (self.odFrames * mask).sum(axis=(1, 2)) / cnorm
+            else:
+                spec = np.zeros(self.nEnergies)
+            spec[np.isnan(spec)] = 0.
+            self.clusterSpectra.append(spec)
+
+        if progress_callback:
+            progress_callback(100)
+
 
     def kmeansClusters(self, nClusters = 3, pcaOffset = 0):
         """

@@ -256,6 +256,10 @@ class pcaWidget(QtWidgets.QDialog, Ui_pcaViewer):
 
 class stackViewerWidget(QtWidgets.QWidget):
 
+    stack_loaded = QtCore.Signal()        # emitted after a stack is fully loaded/updated
+    progress_updated = QtCore.Signal(int) # emitted during alignment with percent 0-100
+    auto_process_done = QtCore.Signal()   # emitted specifically after autoProcess (OD ready)
+
     def __init__(self, parent=None):
         super(stackViewerWidget, self).__init__(parent=parent)
 
@@ -642,6 +646,7 @@ class stackViewerWidget(QtWidgets.QWidget):
             self.clearROI()
         self.stack.I0rois = []
         self.stack.rois = []
+        self.stack_loaded.emit()
 
     def mouseMoved(self, pos):
         if self.haveStack:
@@ -684,12 +689,81 @@ class stackViewerWidget(QtWidgets.QWidget):
 
     def autoProcess(self):
         if self.haveStack:
+            self.progress_updated.emit(0)
             self.stack.subtractDarkField()
             self.stack.despike()
-            self.stack.alignFrames(mode = 'translation')
+            self.stack.alignFrames(mode='translation',
+                                   progress_callback=lambda pct: self.progress_updated.emit(pct))
             self.stack.calcOD()
             self.ui.toggleOD.setCheckState(QtCore.Qt.Checked)
             self.updateMainImage()
+            self.progress_updated.emit(100)
+            self.stack_loaded.emit()
+            self.auto_process_done.emit()
+
+    def subtractDarkLevel(self, value):
+        """Subtract a constant dark level from processedFrames (saves undo state first)."""
+        if self.haveStack:
+            self.stack.update()
+            self.stack.processedFrames = self.stack.processedFrames - value
+            self.stack_loaded.emit()
+
+    def undoFilter(self):
+        """Restore processedFrames from lastFrames via stack.undo()."""
+        if self.haveStack:
+            self.stack.undo()
+            self.stack_loaded.emit()
+
+    def applyMedianFilter(self, size):
+        """Apply median filter with given kernel size (saves undo state first)."""
+        if self.haveStack:
+            self.stack.medianFilter(size=size)
+            self.stack_loaded.emit()
+
+    def applyDespike(self, kernel_size, n_sigma):
+        """Apply despike with given kernel size and sigma threshold (saves undo state first)."""
+        if self.haveStack:
+            self.stack.despike(kernel_size=kernel_size, n_sigma=n_sigma)
+            self.stack_loaded.emit()
+
+    def applyPCA(self, n_components, n_clusters, reduce_mass_effects, remove_pre_edge):
+        """Run PCA and k-means clustering.  Optionally remove pre-edge background first."""
+        if not self.haveStack:
+            return
+        if self.stack.odFrames is None:
+            self.stack.calcOD()
+        pca_offset = 1 if reduce_mass_effects else 0
+        if remove_pre_edge:
+            self.stack.removePreEdge()
+        self.stack.calcPCA(nPC=n_components, pcaOffset=pca_offset, nClusters=n_clusters)
+        self.stack.rgbClusterImage = self.stack.rgbClusterMap()
+        self.stack_loaded.emit()
+
+    def applyRGBMap(self, cluster_indices):
+        """Compute the RGB map from the selected cluster spectra (1-based indices)."""
+        if not self.haveStack or not self.stack.clusterSpectra:
+            return
+        spectra = [self.stack.clusterSpectra[i - 1] for i in cluster_indices
+                   if 0 < i <= len(self.stack.clusterSpectra)]
+        n = len(spectra)
+        if n < 2:
+            return
+        rgb = [1] * n + [0] * (3 - n)
+        self.stack.rgbMap(spectra, rgb)
+        self.stack_loaded.emit()
+
+    def applyRegistration(self, mode, sobel_filter=False, autocrop=True):
+        """Run frame registration with the given mode and options."""
+        if self.haveStack:
+            self.progress_updated.emit(0)
+            self.stack.alignFrames(
+                mode=mode,
+                sobelFilter=sobel_filter,
+                autocrop=autocrop,
+                progress_callback=lambda pct: self.progress_updated.emit(pct)
+            )
+            self.progress_updated.emit(100)
+            self.stack_loaded.emit()
 
     def filterImages(self):
         if self.haveStack:
@@ -764,6 +838,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.updateMainImage()
         self.updateRegionCombo()
         self._populate_metadata()
+        self.stack_loaded.emit()
 
     def stack_from_nx(self,nxdata):
         self.stack = stack()
@@ -812,6 +887,7 @@ class stackViewerWidget(QtWidgets.QWidget):
             self.updateMainImage()
             self.updateRegionCombo()
             self._populate_metadata()
+            self.stack_loaded.emit()
 
     def updateRegionCombo(self):
         nItems = self.ui.regionSelect.count()
@@ -864,9 +940,9 @@ class stackViewerWidget(QtWidgets.QWidget):
                 self.stack.scaleBarLength(), self.stack.xpixelsize, color)
             if self.ui.scaleBox.isChecked(): self.ui.mainImage.addItem(self.scaleBar)
             if self.ui.toggleOD.isChecked():
-                self.ui.mainImage.setImage(self.stack.odFrames[self.ui.verticalSlider.value()].T)
+                self.ui.mainImage.setImage(np.ascontiguousarray(self.stack.odFrames[self.ui.verticalSlider.value()].T))
             else:
-                self.ui.mainImage.setImage(self.stack.processedFrames[self.ui.verticalSlider.value()].T)
+                self.ui.mainImage.setImage(np.ascontiguousarray(self.stack.processedFrames[self.ui.verticalSlider.value()].T))
 
 if __name__ == '__main__':
 
