@@ -1537,18 +1537,6 @@ class Ui_MainWindow(object):
 
         self.a2_process_buttons_layout.addWidget(self.a2_subtractPreEdgeButton)
 
-        self.a2_postEdgeCheckbox = QCheckBox(self.a2_tab_main)
-        self.a2_postEdgeCheckbox.setObjectName(u"a2_postEdgeCheckbox")
-        self.a2_postEdgeCheckbox.setEnabled(False)
-
-        self.a2_process_buttons_layout.addWidget(self.a2_postEdgeCheckbox)
-
-        self.a2_normalizePostEdgeButton = QPushButton(self.a2_tab_main)
-        self.a2_normalizePostEdgeButton.setObjectName(u"a2_normalizePostEdgeButton")
-        self.a2_normalizePostEdgeButton.setEnabled(False)
-
-        self.a2_process_buttons_layout.addWidget(self.a2_normalizePostEdgeButton)
-
 
         self.a2_tab_main_layout.addLayout(self.a2_process_buttons_layout)
 
@@ -2340,8 +2328,6 @@ class Ui_MainWindow(object):
         self.a2_resetButton.setText(QCoreApplication.translate("MainWindow", u"Reset", None))
         self.a2_preEdgeCheckbox.setText(QCoreApplication.translate("MainWindow", u"Select Pre-Edge", None))
         self.a2_subtractPreEdgeButton.setText(QCoreApplication.translate("MainWindow", u"Subtract Pre-Edge", None))
-        self.a2_postEdgeCheckbox.setText(QCoreApplication.translate("MainWindow", u"Select Post-Edge", None))
-        self.a2_normalizePostEdgeButton.setText(QCoreApplication.translate("MainWindow", u"Normalize Post-Edge", None))
         self.a2_trackMouseCheckbox.setText(QCoreApplication.translate("MainWindow", u"Track Mouse", None))
         self.a2_liveDisplayCheckbox.setText(QCoreApplication.translate("MainWindow", u"Live Display", None))
         self.a2_workflowTabs.setTabText(self.a2_workflowTabs.indexOf(self.a2_tab_main), QCoreApplication.translate("MainWindow", u"Main", None))
@@ -2426,7 +2412,7 @@ class Ui_MainWindow(object):
         self.menuSave.setTitle(QCoreApplication.translate("MainWindow", u"Save", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"Edit", None))
-        self.menuSettings_2.setTitle(QCoreApplication.translate("MainWindow", u"Settings", None))
+        self.menuSettings_2.setTitle(QCoreApplication.translate("MainWindow", u"Appearance", None))
         self.menuTheme_2.setTitle(QCoreApplication.translate("MainWindow", u"Theme", None))
         self.menuMain_Window.setTitle(QCoreApplication.translate("MainWindow", u"Main Window", None))
     # retranslateUi

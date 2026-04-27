@@ -450,7 +450,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.clickPoint = False
 
     def getFileName(self):
-        self.stack_file = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        self.stack_file = str(QtWidgets.QFileDialog.getOpenFileName(self, \
             'Open File', '/')[0])
         if self.stack_file != '':
             try: self.receiveStack(self.stack_file)

@@ -6,6 +6,7 @@ from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
 from pystxmcontrol.gui.motor_panel import MotorPanelWindow
 from PySide6 import QtWidgets, QtCore, QtGui
 import os
+import sys
 import pyqtgraph as pg
 import numpy as np
 import qdarktheme
@@ -387,12 +388,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             )
         if hasattr(self.ui, 'a2_preEdgeCheckbox'):
             self.ui.a2_preEdgeCheckbox.stateChanged.connect(self._on_a2_pre_edge_checkbox)
-        if hasattr(self.ui, 'a2_postEdgeCheckbox'):
-            self.ui.a2_postEdgeCheckbox.stateChanged.connect(self._on_a2_post_edge_checkbox)
         if hasattr(self.ui, 'a2_subtractPreEdgeButton'):
             self.ui.a2_subtractPreEdgeButton.clicked.connect(self._on_a2_subtract_pre_edge)
-        if hasattr(self.ui, 'a2_normalizePostEdgeButton'):
-            self.ui.a2_normalizePostEdgeButton.clicked.connect(self._on_a2_normalize_post_edge)
 
         # Analysis2 Clustering tab
         if hasattr(self.ui, 'a2_calcPCAButton'):
@@ -462,6 +459,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if hasattr(self.ui, 'a2_imageView'):
             self.ui.a2_imageView.scene.sigMouseMoved.connect(self._on_a2_mouse_moved)
             self.ui.a2_imageView.sigTimeChanged.connect(self._on_a2_frame_changed)
+            self._a2_scale_bar = pg.ScaleBar(
+                size=100,
+                width=6,
+                brush=pg.mkBrush(255, 255, 255, 220),
+                pen=pg.mkPen(color=(0, 0, 0, 160), width=1),
+                offset=(-15, -15),
+            )
+            self._a2_scale_bar.text.setText('')
+            self._a2_scale_bar.setParentItem(self.ui.a2_imageView.getView())
+            self._a2_scale_bar.hide()
         if hasattr(self.ui, 'a2_spectrumPlot'):
             self.ui.a2_spectrumPlot.scene().sigMouseMoved.connect(self._on_a2_spectrum_mouse_moved)
 
@@ -519,19 +526,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Create initial ROIs
         #self._update_rois_from_regions()
 
-        #set initial theme
-        self.set_light_theme()
-
         #set the jog/move buttons
         self.toggle_jog_mode()
         self.ui.showRangeFinder.setChecked(False)
         self.toggle_range_roi_display()
         if hasattr(self.ui, 'compositeImageCheckbox'):
             self.ui.compositeImageCheckbox.setChecked(False)
-        
+
         # Initialize energy list widget as hidden
         self.ui.energyListWidget.setVisible(False)
-        
+
         # Initialize the Browser tab
         self._initialize_browser()
 
@@ -540,6 +544,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Style the Analysis2 spectrum plot
         self._initialize_analysis2()
+
+        # Apply theme after plots are initialized so background colours are correct
+        if self._load_gui_theme() == 'dark':
+            self.set_dark_theme()
+        else:
+            self.set_light_theme()
 
         # Populate A0 from motor config
         self._refresh_a0_display()
@@ -613,7 +623,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._a2_od_frames = None        # cached OD array (n_e, ny, nx) or None
         self._a2_cluster_curves = []     # PlotDataItems for cluster/eigenvalue plot
         self._a2_pre_edge_region = None  # pg.LinearRegionItem for pre-edge selection
-        self._a2_post_edge_region = None # pg.LinearRegionItem for post-edge selection
+        self._a2_cursor_text = ""        # live cursor readout shown above energy line
+        self._a2_scale_bar = None        # pg.ScaleBar overlay on the imageView
 
     def _on_a2_stack_loaded(self):
         """Display the full stack in a2_imageView when a stack is loaded."""
@@ -657,6 +668,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if energy_idx > 0:
             self.ui.a2_imageView.setCurrentIndex(energy_idx)
         self._update_a2_info_panel(energy_idx)
+        self._update_a2_scale_bar()
         self._on_a2_roi_changed()
 
     def _update_a2_info_panel(self, index=0):
@@ -673,7 +685,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         energy_line = f"Energy {idx + 1} of {n}: {energies[idx]:.2f} eV"
 
         # Build file/scan metadata block
-        lines = [energy_line, "\u2500" * 44]
+        lines = [self._a2_cursor_text, energy_line, "\u2500" * 44]
         nx = getattr(sv.stack, 'nx', None)
         meta = getattr(nx, 'meta', {}) if nx is not None else {}
 
@@ -764,6 +776,57 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if 0 <= col < nx and 0 <= row < ny:
             spectrum = frames[:, row, col]
             self._a2_spec_curve.setData(energies, spectrum)
+
+        _cursor_tabs = {
+            getattr(self.ui, 'a2_tab_main', None),
+            getattr(self.ui, 'a2_tab_filtering', None),
+            getattr(self.ui, 'a2_tab_registration', None),
+        }
+        if (hasattr(self.ui, 'a2_workflowTabs')
+                and self.ui.a2_workflowTabs.currentWidget() in _cursor_tabs
+                and 0 <= col < nx and 0 <= row < ny):
+            frame_idx = max(0, min(self.ui.a2_imageView.currentIndex, n_e - 1))
+            val = frames[frame_idx, row, col]
+            self._a2_cursor_text = f"x={col:4d}  y={row:4d}  val={val:.4f}"
+            self._update_cursor_metadata_line()
+
+    def _update_cursor_metadata_line(self):
+        """Replace the first line of a2_metadataText with the current cursor readout."""
+        if not hasattr(self.ui, 'a2_metadataText'):
+            return
+        cursor = self.ui.a2_metadataText.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.Start)
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.EndOfLine,
+                            QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(self._a2_cursor_text)
+
+    def _update_a2_scale_bar(self):
+        """Resize the scale bar to a nice round µm length based on the loaded stack."""
+        if self._a2_scale_bar is None:
+            return
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            self._a2_scale_bar.hide()
+            return
+        dx = getattr(sv.stack, 'xpixelsize', None)
+        if not dx:
+            self._a2_scale_bar.hide()
+            return
+        _, _, nx_pts = sv.stack.processedFrames.shape
+        nice_um = self._a2_nice_scale_um(nx_pts * dx)
+        self._a2_scale_bar.size = nice_um / dx
+        label = (f"{nice_um * 1000:.4g} nm" if nice_um < 1
+                 else f"{nice_um:.4g} µm")
+        self._a2_scale_bar.text.setText(label)
+        self._a2_scale_bar.updateBar()
+        self._a2_scale_bar.show()
+
+    @staticmethod
+    def _a2_nice_scale_um(total_um):
+        """Return a round µm value suitable for a scale bar (~20% of image width)."""
+        target = total_um * 0.2
+        nice = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+        return min(nice, key=lambda v: abs(v - target))
 
     # ── Analysis2 ROI drawing ─────────────────────────────────────────────────
 
@@ -929,14 +992,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._a2_update_norm_button_state()
 
     def _a2_update_norm_button_state(self):
-        """Enable pre-edge controls when ≥1 Spectrum ROI exists; post-edge stays disabled."""
+        """Enable pre-edge controls whenever OD data is available."""
         if not hasattr(self.ui, 'a2_subtractPreEdgeButton'):
             return
         has_od = self._a2_od_frames is not None
-        has_spectrum_roi = any(e['type'] == 'Spectrum' for e in self._a2_rois)
-        self.ui.a2_preEdgeCheckbox.setEnabled(has_spectrum_roi)
-        self.ui.a2_subtractPreEdgeButton.setEnabled(has_od and has_spectrum_roi)
-        # post-edge intentionally left disabled until the workflow is defined
+        self.ui.a2_preEdgeCheckbox.setEnabled(has_od)
+        self.ui.a2_subtractPreEdgeButton.setEnabled(has_od)
 
     def _a2_update_map_button_state(self):
         """Enable Map button based on energy count and Spectrum ROI count."""
@@ -1022,6 +1083,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             pi.getAxis('left').enableAutoSIPrefix(True)
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
+        self._a2_update_norm_button_state()
 
     def _a2_refresh_image_view(self):
         """Push the current display frames (raw or OD) into a2_imageView."""
@@ -1449,12 +1511,18 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def _on_a2_calc_pca(self):
         """Run PCA + clustering, then enable the display/plot combos."""
         sv = self.ui.a2_stack_viewer
-        if not sv.haveStack or sv.stack.odFrames is None:
+        od = self._a2_od_frames if self._a2_od_frames is not None else (
+            sv.stack.odFrames if sv.haveStack else None
+        )
+        if not sv.haveStack or od is None:
             QtWidgets.QMessageBox.warning(
                 self, "Optical Density Required",
                 "Calculate optical density before clustering."
             )
             return
+        # Ensure stack.odFrames is populated so applyPCA can use it
+        if sv.stack.odFrames is None:
+            sv.stack.odFrames = od
         try:
             n_components = int(self.ui.a2_nComponentsEdit.text())
             n_clusters   = int(self.ui.a2_nClustersEdit.text())
@@ -1565,6 +1633,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                                           "At least 2 target spectra are required for an RGB map.")
             return
         sv.applyRGBMap(indices)
+        # applyRGBMap emits stack_loaded which disables the combos — re-enable them
+        self.ui.a2_clusterImageCombo.setEnabled(True)
+        self.ui.a2_clusterPlotCombo.setEnabled(True)
         # Switch display to RGB Map automatically
         if hasattr(self.ui, 'a2_clusterImageCombo'):
             idx = self.ui.a2_clusterImageCombo.findText('RGB Map')
@@ -1605,24 +1676,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
     def _on_a2_pre_edge_checkbox(self, state):
         if state:
-            # Uncheck post-edge without re-triggering this handler
-            self.ui.a2_postEdgeCheckbox.blockSignals(True)
-            self.ui.a2_postEdgeCheckbox.setChecked(False)
-            self.ui.a2_postEdgeCheckbox.blockSignals(False)
-            self._a2_remove_edge_region('post')
             self._a2_add_edge_region('pre')
         else:
             self._a2_remove_edge_region('pre')
-
-    def _on_a2_post_edge_checkbox(self, state):
-        if state:
-            self.ui.a2_preEdgeCheckbox.blockSignals(True)
-            self.ui.a2_preEdgeCheckbox.setChecked(False)
-            self.ui.a2_preEdgeCheckbox.blockSignals(False)
-            self._a2_remove_edge_region('pre')
-            self._a2_add_edge_region('post')
-        else:
-            self._a2_remove_edge_region('post')
 
     def _a2_frames_in_region(self, region):
         """Return indices of energies that fall within the LinearRegionItem bounds."""
@@ -1653,31 +1709,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
 
-    def _on_a2_normalize_post_edge(self):
-        """Divide odFrames by the mean image over the post-edge region."""
-        if self._a2_post_edge_region is None:
-            QtWidgets.QMessageBox.warning(
-                self, "No Post-Edge Selected",
-                "Check 'Select Post-Edge' and drag the region to the post-edge energies first."
-            )
-            return
-        sv = self.ui.a2_stack_viewer
-        idxs = self._a2_frames_in_region(self._a2_post_edge_region)
-        if len(idxs) == 0:
-            QtWidgets.QMessageBox.warning(self, "Empty Region",
-                                          "No energy frames fall within the post-edge region.")
-            return
-        od = self._a2_od_frames
-        ref = od[idxs].mean(axis=0)                         # (nY, nX)
-        ref = np.where(ref > 0, ref, np.nan)
-        with np.errstate(invalid='ignore'):
-            updated = od / ref[np.newaxis, :, :]
-        updated = np.where(np.isfinite(updated), updated, 0.0)
-        sv.stack.odFrames = updated
-        self._a2_od_frames = updated
-        self._a2_refresh_image_view()
-        self._on_a2_roi_changed()
-
     # ── Analysis2 workflow tab switching ─────────────────────────────────────
 
     def _a2_clear_cluster_curves(self):
@@ -1696,12 +1727,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             entry['curve'].setVisible(visible)
         self._a2_spec_curve.setVisible(visible)
 
+    def _a2_set_roi_overlays_visible(self, visible: bool):
+        """Show or hide freehand ROI overlays on the image view."""
+        for entry in self._a2_rois:
+            entry['roi'].setVisible(visible)
+
     def _a2_deactivate_edge_selection(self):
-        """Uncheck both edge-selection checkboxes and remove any region from the plot."""
+        """Uncheck the pre-edge checkbox and remove any region from the plot."""
         if hasattr(self.ui, 'a2_preEdgeCheckbox') and self.ui.a2_preEdgeCheckbox.isChecked():
             self.ui.a2_preEdgeCheckbox.setChecked(False)   # triggers handler → removes region
-        if hasattr(self.ui, 'a2_postEdgeCheckbox') and self.ui.a2_postEdgeCheckbox.isChecked():
-            self.ui.a2_postEdgeCheckbox.setChecked(False)
 
     def _on_a2_workflow_tab_changed(self, index):
         """Redraw the spectrum plot to match the newly selected workflow tab."""
@@ -1715,31 +1749,35 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self._a2_deactivate_edge_selection()
 
         if name == 'a2_tab_main':
-            # Clear analysis curves, restore ROI/hover curves
+            # Clear analysis curves, restore ROI/hover curves and overlays
             self._a2_clear_cluster_curves()
             self._a2_set_roi_curves_visible(True)
+            self._a2_set_roi_overlays_visible(True)
             self._on_a2_roi_changed()
 
         elif name == 'a2_tab_clustering':
-            # Hide ROI/hover curves, replot clustering results
+            # Hide ROI/hover curves and overlays, replot clustering results
             self._a2_set_roi_curves_visible(False)
+            self._a2_set_roi_overlays_visible(False)
             self._a2_clear_cluster_curves()
             sv = self.ui.a2_stack_viewer
             if sv.haveStack and self.ui.a2_clusterPlotCombo.isEnabled():
                 self._on_a2_cluster_plot_changed(self.ui.a2_clusterPlotCombo.currentText())
 
         elif name == 'a2_tab_nnmf':
-            # Hide ROI/hover curves, replot NMF results
+            # Hide ROI/hover curves and overlays, replot NMF results
             self._a2_set_roi_curves_visible(False)
+            self._a2_set_roi_overlays_visible(False)
             self._a2_clear_cluster_curves()
             sv = self.ui.a2_stack_viewer
             if sv.haveStack and self.ui.a2_nmfPlotCombo.isEnabled():
                 self._on_a2_nmf_plot_changed(self.ui.a2_nmfPlotCombo.currentText())
 
         else:
-            # Filtering, Registration — leave plot as-is but hide analysis curves
+            # Filtering, Registration — leave plot as-is but hide analysis curves and overlays
             self._a2_clear_cluster_curves()
             self._a2_set_roi_curves_visible(True)
+            self._a2_set_roi_overlays_visible(False)
 
     # ── Analysis2 NMF tab ─────────────────────────────────────────────────────
 
@@ -3774,6 +3812,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             color: #606060;
         }
     """
+
+    def _load_gui_theme(self):
+        try:
+            import json
+            cfg_path = os.path.join(sys.prefix, 'pystxmcontrol_cfg/main.json')
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            return cfg.get("gui", {}).get("theme", "light")
+        except Exception:
+            return "light"
 
     def set_light_theme(self):
         """Set light theme."""

@@ -54,6 +54,7 @@ pystxmcontrol/controller/scans/ptychography_image.py
 pystxmcontrol/controller/scans/scan_utils.py
 pystxmcontrol/controller/scans/single_motor_scan.py
 pystxmcontrol/controller/scans/spiral_image.py
+pystxmcontrol/controller/scans/spiral_ptychography_image.py
 pystxmcontrol/drivers/A33500B.py
 pystxmcontrol/drivers/E712Controller.py
 pystxmcontrol/drivers/E712Motor.py
@@ -80,8 +81,10 @@ pystxmcontrol/drivers/fccd_control.py
 pystxmcontrol/drivers/inclinedDerivedPiezo.py
 pystxmcontrol/drivers/inclinedSampleDerivedPiezo.py
 pystxmcontrol/drivers/keysight53230A.py
+pystxmcontrol/drivers/keysight53230A_2channel.py
 pystxmcontrol/drivers/keysightA33500B.py
 pystxmcontrol/drivers/keysightCounter.py
+pystxmcontrol/drivers/keysightCounter_2channel.py
 pystxmcontrol/drivers/keysightU2356A.py
 pystxmcontrol/drivers/mclController.py
 pystxmcontrol/drivers/mclMotor.py
@@ -97,11 +100,13 @@ pystxmcontrol/drivers/xerMotor.py
 pystxmcontrol/drivers/xpsController.py
 pystxmcontrol/drivers/xpsMotor.py
 pystxmcontrol/drivers/xspress3.py
+pystxmcontrol/drivers/zmqFrameReaderDAQ.py
 pystxmcontrol/gui/__init__.py
 pystxmcontrol/gui/app_mvc.py
 pystxmcontrol/gui/bkg_mainwindow.py
 pystxmcontrol/gui/bkgwindowwidget.py
 pystxmcontrol/gui/customwidget.py
+pystxmcontrol/gui/data_browser_widget.py
 pystxmcontrol/gui/energyDef.py
 pystxmcontrol/gui/energyDef_UI.py
 pystxmcontrol/gui/filter_mainwindow.py
@@ -111,6 +116,7 @@ pystxmcontrol/gui/linescanreaderwidget.py
 pystxmcontrol/gui/mainwindow.py
 pystxmcontrol/gui/mainwindow_UI.py
 pystxmcontrol/gui/mainwindow_mvc.py
+pystxmcontrol/gui/motor_panel.py
 pystxmcontrol/gui/pca_mainwindow.py
 pystxmcontrol/gui/regionDef_UI.py
 pystxmcontrol/gui/register_mainwindow.py
@@ -131,7 +137,9 @@ pystxmcontrol/utils/alsapi.py
 pystxmcontrol/utils/constants.py
 pystxmcontrol/utils/general.py
 pystxmcontrol/utils/image.py
+pystxmcontrol/utils/logbook.py
 pystxmcontrol/utils/logger.py
 pystxmcontrol/utils/stack.py
 pystxmcontrol/utils/test_sample.py
+pystxmcontrol/utils/thumbnail_cache.py
 pystxmcontrol/utils/writeNX.py

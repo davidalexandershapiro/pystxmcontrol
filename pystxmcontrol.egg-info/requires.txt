@@ -17,6 +17,7 @@ python-dotenv
 opencv-python-headless
 scikit-learn
 PIPython
+reportlab
 
 [dev]
 pytest>=7.0

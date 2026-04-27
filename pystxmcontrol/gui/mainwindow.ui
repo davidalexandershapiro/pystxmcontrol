@@ -3076,26 +3076,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
                   </property>
                  </widget>
                 </item>
-                <item>
-                 <widget class="QCheckBox" name="a2_postEdgeCheckbox">
-                  <property name="enabled">
-                   <bool>false</bool>
-                  </property>
-                  <property name="text">
-                   <string>Select Post-Edge</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="a2_normalizePostEdgeButton">
-                  <property name="enabled">
-                   <bool>false</bool>
-                  </property>
-                  <property name="text">
-                   <string>Normalize Post-Edge</string>
-                  </property>
-                 </widget>
-                </item>
+
                </layout>
               </item>
               <item>
@@ -4074,7 +4055,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
     </property>
     <widget class="QMenu" name="menuSettings_2">
      <property name="title">
-      <string>Settings</string>
+      <string>Appearance</string>
      </property>
      <widget class="QMenu" name="menuTheme_2">
       <property name="title">
