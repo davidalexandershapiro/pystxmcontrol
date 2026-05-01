@@ -557,6 +557,12 @@ class Ui_Analysis2Widget(object):
 
         self.a2_tab_clustering_layout.addLayout(self.a2_pca_options_layout)
 
+        self.a2_pcaMaskI0Checkbox = QCheckBox(self.a2_tab_clustering)
+        self.a2_pcaMaskI0Checkbox.setObjectName(u"a2_pcaMaskI0Checkbox")
+        self.a2_pcaMaskI0Checkbox.setEnabled(False)
+
+        self.a2_tab_clustering_layout.addWidget(self.a2_pcaMaskI0Checkbox)
+
         self.a2_calc_pca_layout = QHBoxLayout()
         self.a2_calc_pca_layout.setObjectName(u"a2_calc_pca_layout")
         self.a2_calcPCAButton = QPushButton(self.a2_tab_clustering)
@@ -708,6 +714,12 @@ class Ui_Analysis2Widget(object):
 
 
         self.a2_tab_nnmf_layout.addLayout(self.a2_nmf_params2_layout)
+
+        self.a2_nmfMaskI0Checkbox = QCheckBox(self.a2_tab_nnmf)
+        self.a2_nmfMaskI0Checkbox.setObjectName(u"a2_nmfMaskI0Checkbox")
+        self.a2_nmfMaskI0Checkbox.setEnabled(False)
+
+        self.a2_tab_nnmf_layout.addWidget(self.a2_nmfMaskI0Checkbox)
 
         self.a2_nmf_calc_layout = QHBoxLayout()
         self.a2_nmf_calc_layout.setObjectName(u"a2_nmf_calc_layout")
@@ -909,6 +921,7 @@ class Ui_Analysis2Widget(object):
         self.a2_nClustersEdit.setText(QCoreApplication.translate("Analysis2Widget", u"4", None))
         self.a2_reduceMassCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Reduce Mass Effects", None))
         self.a2_removePreEdgeCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Remove Pre-Edge", None))
+        self.a2_pcaMaskI0Checkbox.setText(QCoreApplication.translate("Analysis2Widget", u"Mask I0 Region", None))
         self.a2_calcPCAButton.setText(QCoreApplication.translate("Analysis2Widget", u"Calculate PCA", None))
         self.a2_clusterImageLabel.setText(QCoreApplication.translate("Analysis2Widget", u"Display:", None))
         self.a2_clusterImageCombo.setItemText(0, QCoreApplication.translate("Analysis2Widget", u"Transmission", None))
@@ -936,6 +949,7 @@ class Ui_Analysis2Widget(object):
         self.a2_nmfInitCombo.setItemText(0, QCoreApplication.translate("Analysis2Widget", u"NNDSVDA", None))
         self.a2_nmfInitCombo.setItemText(1, QCoreApplication.translate("Analysis2Widget", u"Random", None))
 
+        self.a2_nmfMaskI0Checkbox.setText(QCoreApplication.translate("Analysis2Widget", u"Mask I0 Region", None))
         self.a2_calcNMFButton.setText(QCoreApplication.translate("Analysis2Widget", u"Calculate NMF", None))
         self.a2_nmfDisplayLabel.setText(QCoreApplication.translate("Analysis2Widget", u"Display:", None))
         self.a2_nmfDisplayCombo.setItemText(0, QCoreApplication.translate("Analysis2Widget", u"NMF Components", None))

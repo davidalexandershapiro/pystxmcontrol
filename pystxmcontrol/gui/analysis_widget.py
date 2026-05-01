@@ -132,7 +132,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         ui.a2_saveDataButton.clicked.connect(self._on_a2_save_data)
         ui.a2_addToLogButton.clicked.connect(self._on_a2_add_to_log)
         ui.a2_savePngButton.clicked.connect(self._on_a2_save_png)
-        ui.a2_autoProcessButton.clicked.connect(ui.a2_stack_viewer.autoProcess)
+        ui.a2_autoProcessButton.clicked.connect(self._on_a2_auto_process)
         ui.a2_mapButton.clicked.connect(self._on_a2_map)
         ui.a2_resetButton.clicked.connect(self._on_a2_reset)
         ui.a2_drawRoiCheckbox.stateChanged.connect(self._on_a2_draw_roi_toggled)
@@ -218,6 +218,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_hist_curve = None           # step-mode PlotDataItem for histogram
         self._a2_i0_mask_overlay = None      # pg.ImageItem blue mask on imageView
         self._a2_i0_hist_spectrum = None     # (n_e,) I0 spectrum from histogram mask
+        self._a2_i0_mask = None              # (ny, nx) bool mask from histogram I0 selection
 
     def _on_a2_stack_loaded(self):
         """Display the full stack in a2_imageView when a stack is loaded."""
@@ -234,8 +235,10 @@ class Analysis2Widget(QtWidgets.QWidget):
                 self.ui.a2_selectI0FromHistogramCheckbox.blockSignals(True)
                 self.ui.a2_selectI0FromHistogramCheckbox.setChecked(False)
                 self.ui.a2_selectI0FromHistogramCheckbox.blockSignals(False)
-        # Reset OD state for the new stack
+        # Reset OD and I0 mask state for the new stack
         self._a2_od_frames = None
+        self._a2_i0_mask = None
+        self._a2_update_mask_checkbox_state()
         if hasattr(self.ui, 'a2_odCheckbox'):
             self.ui.a2_odCheckbox.setChecked(False)
             self.ui.a2_odCheckbox.setEnabled(False)
@@ -579,6 +582,14 @@ class Analysis2Widget(QtWidgets.QWidget):
         # deleteFrame calls stack.reset() which rebuilds processedFrames/energies;
         # reload the display so the removed frame is gone
         sv.stack_loaded.emit()
+
+    def _a2_update_mask_checkbox_state(self):
+        """Enable Mask I0 Region checkboxes when a histogram mask exists."""
+        has_mask = self._a2_i0_mask is not None
+        for cb_name in ('a2_pcaMaskI0Checkbox', 'a2_nmfMaskI0Checkbox'):
+            cb = getattr(self.ui, cb_name, None)
+            if cb is not None:
+                cb.setEnabled(has_mask)
 
     def _a2_update_od_checkbox_state(self):
         """Enable OD checkbox when an I0 ROI exists, histogram I0 is set, or stack-level OD is loaded."""
@@ -972,6 +983,91 @@ class Analysis2Widget(QtWidgets.QWidget):
         if energy_idx > 0:
             self.ui.a2_imageView.setCurrentIndex(energy_idx)
 
+    def _on_a2_auto_process(self):
+        """Dispatch Auto Process: special pipeline for 2/4/6-energy map scans, else default."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            return
+        if len(sv.stack.energies) in (2, 4, 6):
+            self._on_a2_map_scan_process()
+        else:
+            sv.autoProcess()
+
+    def _on_a2_map_scan_process(self):
+        """Despike → Circular Image align → OD → difference map display for 2/4/6-energy stacks."""
+        sv = self.ui.a2_stack_viewer
+        stack = sv.stack
+        n = len(stack.energies)
+        pb = self.ui.a2_progressBar
+
+        # ── Step 1: Despike ───────────────────────────────────────────────────
+        pb.setValue(0)
+        QtWidgets.QApplication.processEvents()
+        try:
+            kernel_size = int(self.ui.a2_despikeKernelEdit.text())
+            n_sigma = float(self.ui.a2_despikeNSigmaEdit.text())
+        except ValueError:
+            kernel_size, n_sigma = 3, 5
+        sv.applyDespike(kernel_size, n_sigma)
+        pb.setValue(20)
+        QtWidgets.QApplication.processEvents()
+
+        # ── Step 2: Circular Image alignment ─────────────────────────────────
+        stack.alignFrames(
+            mode='manualtranslation',
+            progress_callback=lambda pct: (
+                pb.setValue(20 + int(pct * 0.4)),
+                QtWidgets.QApplication.processEvents(),
+            )
+        )
+        pb.setValue(60)
+        QtWidgets.QApplication.processEvents()
+
+        # ── Step 3: Optical density ───────────────────────────────────────────
+        stack.calcOD()
+        self._a2_od_frames = stack.odFrames
+        self.ui.a2_odCheckbox.blockSignals(True)
+        self.ui.a2_odCheckbox.setEnabled(True)
+        self.ui.a2_odCheckbox.setChecked(True)
+        self.ui.a2_odCheckbox.blockSignals(False)
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        pi.setLabel('left', 'Optical Density')
+        pi.getAxis('left').enableAutoSIPrefix(False)
+        pb.setValue(80)
+        QtWidgets.QApplication.processEvents()
+
+        # ── Step 4: Difference maps ───────────────────────────────────────────
+        # Pairs: (0,1), (2,3), (4,5) — second minus first of each pair
+        od = stack.odFrames
+        diffs = [od[i + 1] - od[i] for i in range(0, n, 2)]
+
+        if n == 2:
+            self.ui.a2_imageView.setImage(np.ascontiguousarray(diffs[0].T))
+
+        elif n == 4:
+            # Pair 0 → green channel, pair 1 → red channel
+            nY, nX = diffs[0].shape
+            rgb = np.zeros((nY, nX, 3), dtype='uint8')
+            for diff, ch in zip(diffs, [1, 0]):   # green=1, red=0
+                clipped = np.clip(diff, 0, None)
+                ch_max = clipped.max()
+                if ch_max > 0:
+                    rgb[:, :, ch] = (255 * clipped / ch_max).astype('uint8')
+            self.ui.a2_imageView.setImage(np.ascontiguousarray(rgb.transpose(1, 0, 2)))
+
+        else:  # n == 6
+            # Pairs → R, G, B channels
+            nY, nX = diffs[0].shape
+            rgb = np.zeros((nY, nX, 3), dtype='uint8')
+            for diff, ch in zip(diffs, [0, 1, 2]):
+                clipped = np.clip(diff, 0, None)
+                ch_max = clipped.max()
+                if ch_max > 0:
+                    rgb[:, :, ch] = (255 * clipped / ch_max).astype('uint8')
+            self.ui.a2_imageView.setImage(np.ascontiguousarray(rgb.transpose(1, 0, 2)))
+
+        pb.setValue(100)
+
     # ── Analysis2 Save ───────────────────────────────────────────────────────
 
     def _on_a2_save_data(self):
@@ -1016,6 +1112,12 @@ class Analysis2Widget(QtWidgets.QWidget):
             _try_save("odFrames.tif",
                       lambda p=path, d=od: tif_imsave(p, d.astype('float32')))
 
+        # ── I0 histogram mask ─────────────────────────────────────────────────
+        if self._a2_i0_mask is not None:
+            path = os.path.join(save_dir, "i0Mask.tif")
+            _try_save("i0Mask.tif",
+                      lambda p=path, m=self._a2_i0_mask: tif_imsave(p, m.astype('uint8')))
+
         # ── ROI spectra (Spectrum ROIs drawn on the image) ───────────────────
         spectrum_entries = [e for e in self._a2_rois if e['type'] == 'Spectrum']
         if spectrum_entries and stack.processedFrames is not None:
@@ -1052,6 +1154,24 @@ class Analysis2Widget(QtWidgets.QWidget):
                     for i, v in enumerate(ev):
                         w.writerow([i + 1, float(v)])
             _try_save("eigenvalues.csv", _write_eigenvals)
+
+        # ── NMF component maps and spectra ───────────────────────────────────
+        if hasattr(stack, 'nmfMaps') and stack.nmfMaps is not None:
+            path = os.path.join(save_dir, "nmfMaps.tif")
+            _try_save("nmfMaps.tif",
+                      lambda p=path, m=stack.nmfMaps: tif_imsave(p, m.astype('float32')))
+
+        if hasattr(stack, 'nmfComponents') and stack.nmfComponents is not None:
+            path = os.path.join(save_dir, "nmfSpectra.csv")
+            energies = stack.energies
+            comps = stack.nmfComponents
+            def _write_nmf_spectra(p=path, e=energies, c=comps):
+                with open(p, 'w', newline='') as f:
+                    w = csv.writer(f)
+                    w.writerow(["Energy"] + [f"Component_{i+1}" for i in range(len(c))])
+                    for j, en in enumerate(e):
+                        w.writerow([en] + [c[i][j] for i in range(len(c))])
+            _try_save("nmfSpectra.csv", _write_nmf_spectra)
 
         # ── Cluster label map ─────────────────────────────────────────────────
         if hasattr(stack, 'clusters') and stack.clusters is not None:
@@ -1359,9 +1479,11 @@ class Analysis2Widget(QtWidgets.QWidget):
                 "Calculate optical density before clustering."
             )
             return
-        # Ensure stack.odFrames is populated so applyPCA can use it
-        if sv.stack.odFrames is None:
-            sv.stack.odFrames = od
+        # Ensure stack.odFrames is populated so applyPCA can use it.
+        # Apply inverse I0 mask if requested (zeros out the I0 region).
+        use_mask = (self.ui.a2_pcaMaskI0Checkbox.isChecked()
+                    and self._a2_i0_mask is not None)
+        sv.stack.odFrames = od * (~self._a2_i0_mask)[np.newaxis] if use_mask else od
         try:
             n_components = int(self.ui.a2_nComponentsEdit.text())
             n_clusters   = int(self.ui.a2_nClustersEdit.text())
@@ -1611,6 +1733,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         """Uncheck pre-edge selection then delegate to the stack viewer reset."""
         if hasattr(self.ui, 'a2_preEdgeCheckbox') and self.ui.a2_preEdgeCheckbox.isChecked():
             self.ui.a2_preEdgeCheckbox.setChecked(False)
+        self._a2_i0_mask = None
+        self._a2_update_mask_checkbox_state()
         self.ui.a2_stack_viewer.reset()
 
     # ── Analysis2 histogram I0 selection ─────────────────────────────────────
@@ -1712,10 +1836,13 @@ class Analysis2Widget(QtWidgets.QWidget):
         if n_selected > 0:
             i0 = frames[:, mask].mean(axis=1)          # (n_e,)
             self._a2_i0_hist_spectrum = i0
+            self._a2_i0_mask = mask                    # (ny, nx) bool — persisted for saving
             sv.stack.I0 = np.reshape(i0, (len(i0), 1, 1))
         else:
             self._a2_i0_hist_spectrum = None
+            self._a2_i0_mask = None
             sv.stack.I0 = None
+        self._a2_update_mask_checkbox_state()
 
         # Update OD checkbox state and recompute OD if it is currently active
         self._a2_update_od_checkbox_state()
@@ -1848,6 +1975,12 @@ class Analysis2Widget(QtWidgets.QWidget):
         def _progress(pct):
             pb.setValue(pct)
             QtWidgets.QApplication.processEvents()
+
+        # Apply inverse I0 mask if requested (zeros out the I0 region).
+        use_mask = (self.ui.a2_nmfMaskI0Checkbox.isChecked()
+                    and self._a2_i0_mask is not None)
+        if use_mask:
+            sv.stack.odFrames = sv.stack.odFrames * (~self._a2_i0_mask)[np.newaxis]
 
         try:
             sv.stack.calcNMF(
