@@ -138,6 +138,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         ui.a2_drawRoiCheckbox.stateChanged.connect(self._on_a2_draw_roi_toggled)
         ui.a2_deleteRoiButton.clicked.connect(self._on_a2_delete_roi)
         ui.a2_deleteFrameButton.clicked.connect(self._on_a2_delete_frame)
+        ui.a2_cropButton.clicked.connect(self._on_a2_crop)
+        ui.a2_roiTypeCombo.currentIndexChanged.connect(self._on_a2_roi_type_changed)
         ui.a2_odCheckbox.stateChanged.connect(self._on_a2_od_toggled)
         ui.a2_trackMouseCheckbox.stateChanged.connect(
             lambda state: self._a2_spec_curve.setData([], []) if not state else None
@@ -219,6 +221,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_i0_mask_overlay = None      # pg.ImageItem blue mask on imageView
         self._a2_i0_hist_spectrum = None     # (n_e,) I0 spectrum from histogram mask
         self._a2_i0_mask = None              # (ny, nx) bool mask from histogram I0 selection
+        self._a2_crop_roi = None             # pg.RectROI used for the Crop tool
 
     def _on_a2_stack_loaded(self):
         """Display the full stack in a2_imageView when a stack is loaded."""
@@ -265,6 +268,10 @@ class Analysis2Widget(QtWidgets.QWidget):
             pi.legend.scene().removeItem(pi.legend)
             pi.legend = None
         self._a2_clear_all_rois()   # also calls _a2_update_map_button_state via _a2_update_od_checkbox_state
+        self._a2_remove_crop_roi()
+        self.ui.a2_drawRoiCheckbox.blockSignals(True)
+        self.ui.a2_drawRoiCheckbox.setChecked(False)
+        self.ui.a2_drawRoiCheckbox.blockSignals(False)
         self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))  # → (n_e, nx, ny) for pg slider
         # Seek to the energy index that the stack viewer already has (e.g. from live data)
         energy_idx = sv.ui.verticalSlider.value()
@@ -453,7 +460,16 @@ class Analysis2Widget(QtWidgets.QWidget):
         return color
 
     def _on_a2_draw_roi_toggled(self, state):
+        roi_type = self.ui.a2_roiTypeCombo.currentText()
         viewport = self.ui.a2_imageView.ui.graphicsView.viewport()
+
+        if roi_type == 'Crop':
+            if bool(state):
+                self._a2_add_crop_roi()
+            else:
+                self._a2_remove_crop_roi()
+            return
+
         if bool(state):
             self._a2_drawing = False
             self._a2_draw_points = []
@@ -562,7 +578,13 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_update_od_checkbox_state()
 
     def _on_a2_delete_roi(self):
-        """Remove the most recently added ROI from the image and plot."""
+        """Remove the most recently added ROI (or the crop ROI) from the image."""
+        if self._a2_crop_roi is not None:
+            self._a2_remove_crop_roi()
+            self.ui.a2_drawRoiCheckbox.blockSignals(True)
+            self.ui.a2_drawRoiCheckbox.setChecked(False)
+            self.ui.a2_drawRoiCheckbox.blockSignals(False)
+            return
         if not self._a2_rois:
             return
         entry = self._a2_rois.pop()
@@ -582,6 +604,79 @@ class Analysis2Widget(QtWidgets.QWidget):
         # deleteFrame calls stack.reset() which rebuilds processedFrames/energies;
         # reload the display so the removed frame is gone
         sv.stack_loaded.emit()
+
+    # ── Crop ROI ──────────────────────────────────────────────────────────────
+
+    def _on_a2_roi_type_changed(self):
+        """Remove the crop ROI when the user switches away from the Crop type."""
+        if self.ui.a2_roiTypeCombo.currentText() != 'Crop' and self._a2_crop_roi is not None:
+            self._a2_remove_crop_roi()
+            self.ui.a2_drawRoiCheckbox.blockSignals(True)
+            self.ui.a2_drawRoiCheckbox.setChecked(False)
+            self.ui.a2_drawRoiCheckbox.blockSignals(False)
+
+    def _a2_add_crop_roi(self):
+        """Place a resizable RectROI over the image for crop selection."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            self.ui.a2_drawRoiCheckbox.blockSignals(True)
+            self.ui.a2_drawRoiCheckbox.setChecked(False)
+            self.ui.a2_drawRoiCheckbox.blockSignals(False)
+            return
+        if self._a2_crop_roi is not None:
+            return
+        _, h, w = sv.stack.processedFrames.shape
+        mx, my = w * 0.1, h * 0.1
+        self._a2_crop_roi = pg.RectROI(
+            [mx, my], [w * 0.8, h * 0.8],
+            pen=pg.mkPen('y', width=2), handlePen=pg.mkPen('y', width=1)
+        )
+        self.ui.a2_imageView.addItem(self._a2_crop_roi)
+        self._a2_update_crop_button_state()
+
+    def _a2_remove_crop_roi(self):
+        """Remove the crop RectROI from the image."""
+        if self._a2_crop_roi is not None:
+            self.ui.a2_imageView.removeItem(self._a2_crop_roi)
+            self._a2_crop_roi = None
+        self._a2_update_crop_button_state()
+
+    def _a2_update_crop_button_state(self):
+        self.ui.a2_cropButton.setEnabled(self._a2_crop_roi is not None)
+
+    def _on_a2_crop(self):
+        """Crop all frames and OD data to the bounds of the Crop RectROI."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack or self._a2_crop_roi is None:
+            return
+        frames = sv.stack.processedFrames  # (n_e, ny, nx)
+        n_e, ny, nx = frames.shape
+        img_item = self.ui.a2_imageView.getImageItem()
+        try:
+            # imageView shows frames transposed as (nx, ny); slices[0]=x/col, slices[1]=y/row
+            slices, _ = self._a2_crop_roi.getArraySlice(frames[0].T, img_item)
+            col_sl, row_sl = slices
+        except Exception:
+            return
+        # Validate that the crop region is non-empty
+        def _valid(sl, size):
+            start = sl.start if sl.start is not None else 0
+            stop  = sl.stop  if sl.stop  is not None else size
+            return stop > start
+        if not (_valid(col_sl, nx) and _valid(row_sl, ny)):
+            return
+        sv.stack.processedFrames = frames[:, row_sl, col_sl].copy()
+        if sv.stack.odFrames is not None:
+            sv.stack.odFrames = sv.stack.odFrames[:, row_sl, col_sl].copy()
+        if self._a2_od_frames is not None:
+            self._a2_od_frames = self._a2_od_frames[:, row_sl, col_sl].copy()
+        # Clean up
+        self._a2_remove_crop_roi()
+        self.ui.a2_drawRoiCheckbox.blockSignals(True)
+        self.ui.a2_drawRoiCheckbox.setChecked(False)
+        self.ui.a2_drawRoiCheckbox.blockSignals(False)
+        sv.stack_loaded.emit()
+
 
     def _a2_update_mask_checkbox_state(self):
         """Enable Mask I0 Region checkboxes when a histogram mask exists."""
@@ -1735,6 +1830,10 @@ class Analysis2Widget(QtWidgets.QWidget):
             self.ui.a2_preEdgeCheckbox.setChecked(False)
         self._a2_i0_mask = None
         self._a2_update_mask_checkbox_state()
+        self._a2_remove_crop_roi()
+        self.ui.a2_drawRoiCheckbox.blockSignals(True)
+        self.ui.a2_drawRoiCheckbox.setChecked(False)
+        self.ui.a2_drawRoiCheckbox.blockSignals(False)
         self.ui.a2_stack_viewer.reset()
 
     # ── Analysis2 histogram I0 selection ─────────────────────────────────────

@@ -307,6 +307,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._root_dir = ""
+        self._direct_day_dir = None   # set when user browses to a flat YYMMDD folder
         self._cards = {}      # filepath -> ThumbnailCard
         self._loader = None
         self._cache = ThumbnailCache()
@@ -515,10 +516,24 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 qdate = QtCore.QDate(yyyy, mm, dd)
                 if qdate.isValid():
                     self.date_edit.setDate(qdate)
-            # root is three levels up: …/root/YYYY/MM/YYMMDD
-            true_root = os.path.dirname(os.path.dirname(os.path.dirname(folder)))
-            self.set_root(true_root)
+            # Check whether folder sits in the expected root/YYYY/MM/YYMMDD hierarchy.
+            # If not (e.g. ~/Downloads/251106), store the path directly rather than
+            # walking 3 levels up and computing a wrong root.
+            parent_name = os.path.basename(os.path.dirname(folder))
+            grandparent_name = os.path.basename(os.path.dirname(os.path.dirname(folder)))
+            in_hierarchy = (
+                len(parent_name) == 2 and parent_name.isdigit() and
+                len(grandparent_name) == 4 and grandparent_name.isdigit()
+            )
+            if in_hierarchy:
+                self._direct_day_dir = None
+                true_root = os.path.dirname(os.path.dirname(os.path.dirname(folder)))
+                self.set_root(true_root)
+            else:
+                self._direct_day_dir = folder
+                self.set_root(folder)
         else:
+            self._direct_day_dir = None
             self.set_root(folder)
 
         self._load_for_date()
@@ -547,7 +562,11 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._cards.clear()
 
         date = self.date_edit.date()
-        day_dir = self._get_day_dir(date)
+        if self._direct_day_dir and os.path.isdir(self._direct_day_dir):
+            day_dir = self._direct_day_dir
+            self._direct_day_dir = None   # consumed; next Load uses normal hierarchy
+        else:
+            day_dir = self._get_day_dir(date)
 
         if not os.path.isdir(day_dir):
             self.status_label.setText("Not found")

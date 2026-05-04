@@ -116,6 +116,7 @@ class Ui_Analysis2Widget(object):
         self.a2_roiTypeCombo = QComboBox(self.a2_tab_main)
         self.a2_roiTypeCombo.addItem("")
         self.a2_roiTypeCombo.addItem("")
+        self.a2_roiTypeCombo.addItem("")
         self.a2_roiTypeCombo.setObjectName(u"a2_roiTypeCombo")
 
         self.a2_roi_type_layout.addWidget(self.a2_roiTypeCombo)
@@ -134,6 +135,12 @@ class Ui_Analysis2Widget(object):
         self.a2_deleteFrameButton.setObjectName(u"a2_deleteFrameButton")
 
         self.a2_roi_type_layout.addWidget(self.a2_deleteFrameButton)
+
+        self.a2_cropButton = QPushButton(self.a2_tab_main)
+        self.a2_cropButton.setObjectName(u"a2_cropButton")
+        self.a2_cropButton.setEnabled(False)
+
+        self.a2_roi_type_layout.addWidget(self.a2_cropButton)
 
         self.a2_roi_type_hSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
@@ -864,10 +871,12 @@ class Ui_Analysis2Widget(object):
         self.a2_roiTypeLabel.setText(QCoreApplication.translate("Analysis2Widget", u"ROI Type:", None))
         self.a2_roiTypeCombo.setItemText(0, QCoreApplication.translate("Analysis2Widget", u"I0", None))
         self.a2_roiTypeCombo.setItemText(1, QCoreApplication.translate("Analysis2Widget", u"Spectrum", None))
+        self.a2_roiTypeCombo.setItemText(2, QCoreApplication.translate("Analysis2Widget", u"Crop", None))
 
         self.a2_drawRoiCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Draw ROI", None))
         self.a2_deleteRoiButton.setText(QCoreApplication.translate("Analysis2Widget", u"Delete ROI", None))
         self.a2_deleteFrameButton.setText(QCoreApplication.translate("Analysis2Widget", u"Delete Frame", None))
+        self.a2_cropButton.setText(QCoreApplication.translate("Analysis2Widget", u"Crop", None))
         self.a2_odCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Optical Density", None))
         self.a2_autoProcessButton.setText(QCoreApplication.translate("Analysis2Widget", u"Auto Process", None))
         self.a2_mapButton.setText(QCoreApplication.translate("Analysis2Widget", u"Map", None))
