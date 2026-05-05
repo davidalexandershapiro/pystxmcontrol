@@ -2008,7 +2008,10 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._a2_clear_cluster_curves()
             self._a2_set_roi_curves_visible(True)
             self._a2_set_roi_overlays_visible(True)
-            self._on_a2_roi_changed()
+            # Refresh display from existing _a2_od_frames without recomputing OD,
+            # so post-OD modifications (e.g. pre-edge subtraction) are preserved.
+            self._a2_refresh_image_view()
+            self._a2_update_roi_curves()
             # Restore axis labels to match the current OD/Transmission state
             pi = self.ui.a2_spectrumPlot.getPlotItem()
             od_on = (hasattr(self.ui, 'a2_odCheckbox')
