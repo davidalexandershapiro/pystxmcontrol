@@ -497,7 +497,8 @@ class dataHandler:
             scanInfo = await self.dataQueue.get()
             scanInfo['motorPositions'] = self.controller.allMotorPositions
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
-            scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].offset
+            #this must be gotten from the current motor config so updates are applied
+            scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].config.get("offset")
             if "CCD" in scanInfo["daq_list"]:
                 #just subtract background from the monitor data which goes to the GUI
                 scanInfo["data"]["CCD"] = self.daq["CCD"].display_data

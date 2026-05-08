@@ -700,11 +700,19 @@ class MainController(QObject):
                 x_center = float(region_widget.ui.xCenter.text() or 0)
                 y_center = float(region_widget.ui.yCenter.text() or 0)
                 z_center = float(view.ui.focusCenterEdit.text())
-                x_range = float(region_widget.ui.xRange.text() or 10)
+                # For line-based focus scans, lineLengthEdit/linePointsEdit are authoritative;
+                # fall back to the region widget values if those widgets are absent.
+                if hasattr(view.ui, 'lineLengthEdit') and view.ui.lineLengthEdit.text():
+                    x_range = float(view.ui.lineLengthEdit.text())
+                else:
+                    x_range = float(region_widget.ui.xRange.text() or 10)
                 y_range = float(region_widget.ui.yRange.text() or 10)
                 z_range = float(view.ui.focusRangeEdit.text())
                 z_points = int(view.ui.focusStepsEdit.text())
-                x_points = int(region_widget.ui.xNPoints.text() or 100)
+                if hasattr(view.ui, 'linePointsEdit') and view.ui.linePointsEdit.text():
+                    x_points = int(view.ui.linePointsEdit.text())
+                else:
+                    x_points = int(region_widget.ui.xNPoints.text() or 100)
                 y_points = int(region_widget.ui.yNPoints.text() or 100)
                 x_step = x_range / x_points if x_points > 0 else 0.1
                 y_step = y_range / y_points if y_points > 0 else 0.1
@@ -986,11 +994,21 @@ class MainController(QObject):
         energy_idx = metadata.get('energy_index', '')
         parts = []
         if region not in ('', None):
-            parts.append(str(region))
+            n_regions = len(self.scan_model.get('scan_regions', {})) or 1
+            # Extract the 1-based number from region name (e.g. "Region2" → 2)
+            try:
+                region_num = int(''.join(filter(str.isdigit, str(region))))
+            except (ValueError, TypeError):
+                region_num = 1
+            parts.append(f"Region {region_num} of {n_regions}")
         if energy_idx not in ('', None):
-            parts.append(f"Energy {int(energy_idx) + 1}")
+            energy_regions = self.scan_model.get('energy_regions', {})
+            n_energies = sum(
+                v.get('n_energies', 1) for v in energy_regions.values()
+            ) if energy_regions else 1
+            parts.append(f"Energy {int(energy_idx) + 1} of {n_energies}")
         if parts:
-            self.scan_progress_updated.emit(' / '.join(parts))
+            self.scan_progress_updated.emit(' | '.join(parts))
 
         # Compute image geometry — prefer scan_regions dict (GUI), fall back to
         # per-message fields for tiled scans where the server generates sub-regions
