@@ -508,8 +508,8 @@ class dataHandler:
                 await scanQueue.get()
                 return
                 
-    def processFrame(self, frame):
-        point = ((frame>10) * frame).sum()
+    def processFrame(self, frame,threshold=0.1):
+        point = ((frame>threshold) * frame).sum()
         return point
 
     def zmq_start_event(self, scan, metadata=None):
