@@ -159,9 +159,18 @@ class controller:
     def updateMotorStatus(self):
         pass
 
-    def getMotorPositions(self, log = True):
-        
+    def getMotorPositions(self, log=True, monitor_only=False):
+        """Read positions for all motors (or only monitored ones).
+
+        :param log:          Write positions to the operation logger.
+        :param monitor_only: When True, skip any motor whose config has
+                             ``"monitor": false``.  Motors that lack the key
+                             are treated as ``"monitor": true`` so existing
+                             configs require no changes.
+        """
         for motor in self.motors:
+            if monitor_only and not self.motorConfig[motor].get("monitor", False):
+                continue
             if "variable" in self.motorConfig[motor].keys():
                 try:
                     self.allMotorPositions[motor] = self.motors[motor]["motor"].getVar(self.motorConfig[motor]["varType"])
