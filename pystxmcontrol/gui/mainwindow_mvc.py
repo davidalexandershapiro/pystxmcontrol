@@ -332,6 +332,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.linePointsEdit.textChanged.connect(self.update_line_parameters)
         self.ui.lineLengthEdit.textChanged.connect(self.update_line_parameters)
         self.ui.lineAngleEdit.textChanged.connect(self.update_line_parameters)
+        self.ui.linePointsEdit.textChanged.connect(self.update_estimated_time)
+        self.ui.lineLengthEdit.textChanged.connect(self.update_estimated_time)
         
         # Image interactions
         self.ui.mainImage.scene.sigMouseMoved.connect(self.on_mouse_moved)
@@ -460,8 +462,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         else:
             self.set_light_theme()
 
-        # Populate A0 from motor config
+        # Populate A0 and A1 from motor config; A1Edit starts disabled until staff access
+        if hasattr(self.ui, 'A1Edit'):
+            self.ui.A1Edit.setEnabled(False)
         self._refresh_a0_display()
+        self._refresh_a1_display()
 
     def _initialize_main_plot(self):
         """Configure mainPlot: custom sig-fig axis, bounding frame, grid, theme."""
@@ -927,6 +932,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         except Exception:
             pass
 
+    def _refresh_a1_display(self):
+        """Populate A1Edit and A1Label from the current motor config."""
+        if not hasattr(self.ui, 'A1Edit'):
+            return
+        try:
+            motor_info = self.controller.client.motorInfo
+            a1 = motor_info.get("Energy", {}).get("A1")
+            if a1 is not None:
+                self.ui.A1Edit.setText(f"{a1:.4g}")
+                if hasattr(self.ui, 'A1Label'):
+                    self.ui.A1Label.setText(f"{a1:.4g}")
+        except Exception:
+            pass
+
     def on_a0_changed(self):
         """Handle A0 change."""
         try:
@@ -941,6 +960,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         try:
             a1_value = float(self.ui.A1Edit.text())
             self.controller.handle_motor_config_change("Energy", "A1", a1_value)
+            if hasattr(self.ui, 'A1Label'):
+                self.ui.A1Label.setText(f"{a1_value:.4g}")
         except ValueError:
             self.show_error_message("Invalid A1 value")
 
@@ -1335,20 +1356,22 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._update_crosshair(x_real, y_real)
         
     def on_plot_mouse_moved(self, pos):
-        """Handle mouse movement over plot."""        
+        """Handle mouse movement over plot."""
         vb = self.ui.mainPlot.getPlotItem().vb
         idx = vb.mapSceneToView(pos).x()
+        xdata = idx
+        ydata = 0.0
         if self.ui.plotType.currentText() == "Motor Scan":
             motor_data = self.controller.get_image_model().get('motor_scan_data', [])
-            xdata = idx
-            ydata = np.interp(idx,motor_data[1],motor_data[0])
+            if len(motor_data) >= 2 and len(motor_data[1]) > 0:
+                ydata = np.interp(idx, motor_data[1], motor_data[0])
         elif self.ui.plotType.currentText() == "Monitor":
             _im = self.controller.get_image_model()
             monitor_data = _im.get_monitor_data(_im.get('channel_key', 'default'))
-            xdata = idx
-            ydata = np.interp(idx,np.arange(len(monitor_data)),monitor_data)
-        self.ui.xCursorPos.setText(str(round(xdata,3)))
-        self.ui.cursorIntensity.setText(str(round(ydata,3)))
+            if len(monitor_data) > 0:
+                ydata = np.interp(idx, np.arange(len(monitor_data)), monitor_data)
+        self.ui.xCursorPos.setText(str(round(xdata, 3)))
+        self.ui.cursorIntensity.setText(str(round(ydata, 3)))
         
     def on_channel_changed(self):
         """Handle channel selection change."""
