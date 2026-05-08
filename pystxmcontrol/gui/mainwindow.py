@@ -465,7 +465,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pass
 
     def openEnergyDefinition(self):
-        openFileName = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        openFileName = str(QtWidgets.QFileDialog.getOpenFileName(self, \
             'Open File', '/cosmic-dtn/groups/cosmic/Data/ScanDefinitions', 'JSON (*.json)')[0])
         if openFileName != '':
             try:
@@ -477,7 +477,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 print("Opened scan definition file %s" %openFileName)
 
     def openScanDefinition(self):
-        openFileName = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        openFileName = str(QtWidgets.QFileDialog.getOpenFileName(self, \
             'Open File', '/cosmic-dtn/groups/cosmic/Data/ScanDefinitions', 'JSON (*.json)')[0])
         if openFileName != '':
             try:
@@ -492,7 +492,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 print("Opened scan definition file %s" %openFileName)
 
     def saveScanDef(self):
-        saveFileName = str(QtWidgets.QFileDialog.getSaveFileName(QtWidgets.QWidget(), \
+        saveFileName = str(QtWidgets.QFileDialog.getSaveFileName(self, \
             'Save File', '/', 'JSON (*.json)')[0])
         if saveFileName != '':
             try:
@@ -1863,7 +1863,7 @@ class sampleScanWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             pass
 
     def getScanFile(self):
-        self.currentLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        self.currentLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(self, \
             'Open File', self.currentDataDir, 'NXstxm (*.stxm)')[0])
         if self.currentLoadFile != '':
             try:

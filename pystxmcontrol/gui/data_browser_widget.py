@@ -307,6 +307,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._root_dir = ""
+        self._direct_day_dir = None   # set when user browses to a flat YYMMDD folder
         self._cards = {}      # filepath -> ThumbnailCard
         self._loader = None
         self._cache = ThumbnailCache()
@@ -515,10 +516,24 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 qdate = QtCore.QDate(yyyy, mm, dd)
                 if qdate.isValid():
                     self.date_edit.setDate(qdate)
-            # root is three levels up: …/root/YYYY/MM/YYMMDD
-            true_root = os.path.dirname(os.path.dirname(os.path.dirname(folder)))
-            self.set_root(true_root)
+            # Check whether folder sits in the expected root/YYYY/MM/YYMMDD hierarchy.
+            # If not (e.g. ~/Downloads/251106), store the path directly rather than
+            # walking 3 levels up and computing a wrong root.
+            parent_name = os.path.basename(os.path.dirname(folder))
+            grandparent_name = os.path.basename(os.path.dirname(os.path.dirname(folder)))
+            in_hierarchy = (
+                len(parent_name) == 2 and parent_name.isdigit() and
+                len(grandparent_name) == 4 and grandparent_name.isdigit()
+            )
+            if in_hierarchy:
+                self._direct_day_dir = None
+                true_root = os.path.dirname(os.path.dirname(os.path.dirname(folder)))
+                self.set_root(true_root)
+            else:
+                self._direct_day_dir = folder
+                self.set_root(folder)
         else:
+            self._direct_day_dir = None
             self.set_root(folder)
 
         self._load_for_date()
@@ -547,7 +562,11 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._cards.clear()
 
         date = self.date_edit.date()
-        day_dir = self._get_day_dir(date)
+        if self._direct_day_dir and os.path.isdir(self._direct_day_dir):
+            day_dir = self._direct_day_dir
+            self._direct_day_dir = None   # consumed; next Load uses normal hierarchy
+        else:
+            day_dir = self._get_day_dir(date)
 
         if not os.path.isdir(day_dir):
             self.status_label.setText("Not found")
@@ -982,6 +1001,13 @@ class DataBrowserWidget(QtWidgets.QWidget):
         img_w = img_qimage.width()
         img_h = img_qimage.height()
 
+        # ── ALS logo ──────────────────────────────────────────────────────────
+        _here     = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(_here, '..', '..', 'icons', 'als-logo.png')
+        logo      = QtGui.QImage(logo_path)
+        logo_w    = logo.width()  if not logo.isNull() else 0
+        logo_h    = logo.height() if not logo.isNull() else 0
+
         # ── metadata bar ──────────────────────────────────────────────────────
         font   = QtGui.QFont("Monospace", 11)
         fm     = QtGui.QFontMetrics(font)
@@ -989,11 +1015,6 @@ class DataBrowserWidget(QtWidgets.QWidget):
         pad    = 12
 
         m = self._export_meta
-        row1_parts = [v for v in [
-            m.get("filename", ""),
-            m.get("date", ""),
-            m.get("time", ""),
-        ] if v]
         scan_type_str = m.get("scan_type", "")
         if page == 0:
             det = self.detector_combo.currentText()
@@ -1010,11 +1031,18 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 self.ptycho_selector.currentText()
             )
             scan_type_str = f"{scan_type_str.replace(' Image', '')} ({display_label})"
+
+        # scan_type moved to the end of row 1 to avoid overlapping the scale bar
+        row1_parts = [v for v in [
+            m.get("filename", ""),
+            m.get("date", ""),
+            m.get("time", ""),
+            scan_type_str,
+        ] if v]
         row2_parts = [v for v in [
             m.get("proposal", ""),
             m.get("source", ""),
             m.get("energy", ""),
-            scan_type_str,
         ] if v]
         meta_rows = []
         if row1_parts:
@@ -1022,7 +1050,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
         if row2_parts:
             meta_rows.append("   ".join(row2_parts))
 
-        bar_h = pad + len(meta_rows) * line_h + pad
+        text_h = pad + len(meta_rows) * line_h + pad
+        bar_h  = max(text_h, logo_h + 2 * pad) if logo_h else text_h
 
         # ── composite ─────────────────────────────────────────────────────────
         out = QtGui.QImage(img_w, img_h + bar_h, QtGui.QImage.Format_RGB32)
@@ -1030,11 +1059,18 @@ class DataBrowserWidget(QtWidgets.QWidget):
         painter = QtGui.QPainter(out)
         painter.drawImage(0, 0, img_qimage)
 
+        # Logo — vertically centred in the metadata bar
+        text_x = pad
+        if not logo.isNull():
+            logo_y = img_h + (bar_h - logo_h) // 2
+            painter.drawImage(pad, logo_y, logo)
+            text_x = pad + logo_w + pad
+
         painter.setPen(QtGui.QColor(255, 255, 255))
         painter.setFont(font)
         for i, row in enumerate(meta_rows):
             y = img_h + pad + i * line_h + fm.ascent()
-            painter.drawText(pad, y, row)
+            painter.drawText(text_x, y, row)
 
         if scale_bar is not None:
             bar_size_um = scale_bar.size

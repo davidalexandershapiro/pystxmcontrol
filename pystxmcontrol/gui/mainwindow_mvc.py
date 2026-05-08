@@ -4,7 +4,10 @@ from pystxmcontrol.gui.energyDef import energyDefWidget
 from pystxmcontrol.gui.scanDef import scanRegionDef
 from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
 from pystxmcontrol.gui.motor_panel import MotorPanelWindow
+from pystxmcontrol.gui.analysis_widget import Analysis2Widget
 from PySide6 import QtWidgets, QtCore, QtGui
+import os
+import sys
 import pyqtgraph as pg
 import numpy as np
 import qdarktheme
@@ -353,7 +356,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.snapRoiToFovButton.clicked.connect(self.on_snap_roi_to_fov)
         if hasattr(self.ui, 'snapFovToRoiButton'):
             self.ui.snapFovToRoiButton.clicked.connect(self.on_snap_fov_to_roi)
-        
+
         # Energy list controls
         self.ui.energyListCheckbox.stateChanged.connect(self.toggle_energy_list)
         self.ui.toggleSingleEnergy.stateChanged.connect(self.toggle_single_energy)
@@ -375,7 +378,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.scan_state_changed.connect(self._set_scan_ui_state)
         self.controller.elapsed_time_updated.connect(self.update_elapsed_time_display)
         self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
-        self.controller.live_data_ready.connect(self.ui.stack_viewer.recv_live_data)
         self.controller.external_scan_started.connect(self.on_external_scan_started)
 
     def _initialize_display(self):
@@ -432,24 +434,31 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Create initial ROIs
         #self._update_rois_from_regions()
 
-        #set initial theme
-        self.set_light_theme()
-
         #set the jog/move buttons
         self.toggle_jog_mode()
         self.ui.showRangeFinder.setChecked(False)
         self.toggle_range_roi_display()
         if hasattr(self.ui, 'compositeImageCheckbox'):
             self.ui.compositeImageCheckbox.setChecked(False)
-        
+
         # Initialize energy list widget as hidden
         self.ui.energyListWidget.setVisible(False)
-        
+
         # Initialize the Browser tab
         self._initialize_browser()
 
+        # Embed the standalone Analysis2Widget as a new tab
+        self._initialize_analysis2_tab()
+
         # Style the mainPlot
         self._initialize_main_plot()
+
+
+        # Apply theme after plots are initialized so background colours are correct
+        if self._load_gui_theme() == 'dark':
+            self.set_dark_theme()
+        else:
+            self.set_light_theme()
 
         # Populate A0 from motor config
         self._refresh_a0_display()
@@ -512,6 +521,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(self.ui.tab_13)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.browser_widget)
+
+    def _initialize_analysis2_tab(self):
+        """Embed Analysis2Widget as a new tab next to the existing Analysis tab."""
+        self._analysis2_tab = Analysis2Widget(parent=self, controller=self.controller)
+        self.ui.tabWidget_3.addTab(self._analysis2_tab, "Analysis")
 
     def _populate_combo_boxes(self):
         """Populate combo boxes with data from controller."""
@@ -2295,20 +2309,76 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.show_error_message(f"Failed to open scan definition: {filename}\nError: {str(e)}")
             
     # Theme and appearance
+    # Button style appended to whichever qdarktheme stylesheet is active.
+    # A 1 px border + very subtle tint makes buttons visible against flat
+    # backgrounds without clashing with the rest of the theme.
+    _BUTTON_STYLE_LIGHT = """
+        QPushButton {
+            border: 1px solid #a0a0a0;
+            border-radius: 3px;
+            background-color: #ebebeb;
+            padding: 2px 8px;
+        }
+        QPushButton:hover {
+            border-color: #707070;
+            background-color: #dcdcdc;
+        }
+        QPushButton:pressed {
+            background-color: #c8c8c8;
+        }
+        QPushButton:disabled {
+            border-color: #c8c8c8;
+            color: #a0a0a0;
+        }
+    """
+    _BUTTON_STYLE_DARK = """
+        QPushButton {
+            border: 1px solid #606060;
+            border-radius: 3px;
+            background-color: #3a3a3a;
+            padding: 2px 8px;
+        }
+        QPushButton:hover {
+            border-color: #909090;
+            background-color: #484848;
+        }
+        QPushButton:pressed {
+            background-color: #2a2a2a;
+        }
+        QPushButton:disabled {
+            border-color: #404040;
+            color: #606060;
+        }
+    """
+
+    def _load_gui_theme(self):
+        try:
+            import json
+            cfg_path = os.path.join(sys.prefix, 'pystxmcontrol_cfg/main.json')
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            return cfg.get("gui", {}).get("theme", "light")
+        except Exception:
+            return "light"
+
     def set_light_theme(self):
         """Set light theme."""
         self.static_style = "color: black;"
-        self.setStyleSheet(qdarktheme.load_stylesheet("light"))
+        self.setStyleSheet(qdarktheme.load_stylesheet("light") + self._BUTTON_STYLE_LIGHT)
         if hasattr(self, '_main_plot_pen'):
             self._apply_plot_theme(light=True)
+        if hasattr(self, '_analysis2_tab'):
+            self._analysis2_tab.set_light_theme()
 
     def set_dark_theme(self):
         """Set dark theme."""
         self.static_style = "color: white;"
-        self.setStyleSheet(qdarktheme.load_stylesheet())
+        self.setStyleSheet(qdarktheme.load_stylesheet() + self._BUTTON_STYLE_DARK)
         if hasattr(self, '_main_plot_pen'):
             self._apply_plot_theme(light=False)
-        
+        if hasattr(self, '_analysis2_tab'):
+            self._analysis2_tab.set_dark_theme()
+
     # Initialization methods
     def re_init(self):
         """Re-initialize the application: fetch latest config and rebuild the GUI."""

@@ -146,7 +146,7 @@ class lineScanReaderWidget(QtWidgets.QWidget, QtCore.QObject):
         self.updateMainImage()
 
     def getFileName(self):
-        self.currentLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        self.currentLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(self, \
             'Open File', '/')[0])
         try: self.openData()
         except IOError: print("No Such File or Directory.")

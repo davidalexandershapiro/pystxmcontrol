@@ -420,21 +420,29 @@ class stack():
         for im in self.rawFrames:
             print(im.data.shape)
 
-    def alignFrames(self, sobelFilter = False, mode = 'manualtranslation', mask = False, threshold = 0., autocrop = True):
+    def alignFrames(self, sobelFilter = False, mode = 'manualtranslation', mask = False, threshold = 0., autocrop = True, progress_callback=None):
         """
         This is the top level call for aligning processedFrames.  It applies a sobel filter by default prior
         to alignment.
         :param sobelFilter: bool.  apply sobel filter prior to registration
-        :param mode: "translation", "affine", "rigid" and "homographic".
+        :param mode: "manualtranslation","translation", "affine", "rigid" and "homographic".
         :param progressBar: no idea.
         :param autocrop: bool. crop out wrapped pixels.
         :return:
         """
         self.lastFrames = self.processedFrames.copy()
         self.processedFrames = self.registerFrameStack(self.processedFrames, \
-            sobelFilter = sobelFilter, mode = mode, mask = mask, threshold = threshold, autocrop = autocrop)
+            sobelFilter = sobelFilter, mode = mode, mask = mask, threshold = threshold, autocrop = autocrop,
+            progress_callback=progress_callback)
         if mode not in ["translation","manualtranslation"]:
             self.processedFrames = self.processedFrames[:,5:-5,5:-5]
+        if autocrop:
+            avg = self.processedFrames.mean(axis=0)
+            # avg > 0 alone is insufficient: ndimage.shift with cubic spline (order=3)
+            # creates a ringing fringe at zero-fill boundaries, so those pixels are
+            # non-zero in the average.  Erode by the spline order to remove the fringe.
+            edge_mask = ndimage.binary_erosion(avg > 0, iterations=3)
+            self.processedFrames *= edge_mask
         self.shape = self.processedFrames.shape
         self.nEnergies, self.nY, self.nX = self.processedFrames.shape
 
@@ -451,6 +459,91 @@ class stack():
         self.lastFrames = self.processedFrames.copy()
         self.odFrames = self.registerFrameStack(self.odFrames, sobelFilter = sobelFilter, mode = mode, \
                                                          autocrop = autocrop)
+
+    def alignFramesCustom(self, mode='translation', align_method='sequential',
+                           reference_idx=0, thresholded=False, threshold=0.0,
+                           sobelFilter=False, autocrop=True, progress_callback=None):
+        """
+        Align processedFrames with configurable reference-frame and threshold options.
+
+        :param mode:          'translation' or 'manualtranslation'
+        :param align_method:  'sequential'  — each frame aligned to the previous aligned frame
+                              'reference'   — each frame aligned to processedFrames[reference_idx]
+        :param reference_idx: frame index used when align_method='reference'
+        :param thresholded:   mask pixels below threshold before computing shifts
+        :param threshold:     cutoff value (transmission: pixels < threshold are excluded)
+        :param sobelFilter:   apply Sobel edge filter prior to registration
+        :param autocrop:      trim border artefacts after alignment
+        :param progress_callback: callable(int pct)
+        """
+        self.lastFrames = self.processedFrames.copy()
+        aligned = self.processedFrames.copy()
+        # aligned_ref: same as aligned but borders filled with nearest edge value so the
+        # manualtranslation mask (img > 0) doesn't shrink as zero-padding accumulates.
+        aligned_ref = self.processedFrames.copy()
+        n = len(self.processedFrames)
+        shift_list = []
+
+        ref_img = self.processedFrames[reference_idx] if align_method == 'reference' else None
+
+        for i in range(n):
+            src = self.processedFrames[i]
+            if align_method == 'sequential':
+                dst = aligned_ref[i - 1] if i > 0 else src
+            else:
+                dst = ref_img
+
+            if i == 0 and align_method == 'sequential':
+                self.warp_matrix = np.eye(2, 3, dtype=np.float32)
+                shift_list.append((0., 0.))
+                if progress_callback is not None:
+                    progress_callback(int(1 / n * 100))
+                continue
+
+            if thresholded and mode == 'manualtranslation':
+                # Pre-mask both images; the manualtranslation algorithm uses > 0 as its mask.
+                dst_reg = dst * (dst > threshold)
+                src_reg = src * (src > threshold)
+                self._registerImages(dst_reg, src_reg, mode=mode, sobelFilter=sobelFilter)
+                totshift = (self.warp_matrix[0, 2], self.warp_matrix[1, 2])
+                aligned[i] = ndimage.shift(src, totshift)
+            else:
+                thr = threshold if thresholded else 0.
+                aligned[i] = self._registerImages(dst, src, mode=mode,
+                                                   threshold=thr, sobelFilter=sobelFilter)
+
+            # Build the reference frame for the next sequential step.
+            # Use nearest-fill (manualtranslation) so the >0 mask doesn't shrink each step,
+            # or roll (translation) to match what _registerImages actually stored in aligned[i].
+            totshift_i = (self.warp_matrix[0, 2], self.warp_matrix[1, 2])
+            if mode == 'translation':
+                aligned_ref[i] = np.roll(src, (round(totshift_i[0]), round(totshift_i[1])), axis=(0, 1))
+            else:
+                aligned_ref[i] = ndimage.shift(src, totshift_i, mode='nearest')
+            shift_list.append(totshift_i)
+            if progress_callback is not None:
+                progress_callback(int((i + 1) / n * 100))
+
+        if autocrop and len(shift_list) > 1:
+            shifts_arr = np.array(shift_list)
+            # Each frame is registered against the previous *aligned* frame (which sits at the
+            # frame-0 origin), so every shift_list entry is already the total displacement from
+            # frame 0 — for both sequential and reference modes.  No cumsum needed.
+            effective = shifts_arr
+            maxY = abs(int(round(effective[:, 0].min())))
+            minY = abs(int(round(effective[:, 0].max())))
+            maxX = abs(int(round(effective[:, 1].min())))
+            minX = abs(int(round(effective[:, 1].max())))
+            if maxX == 0: maxX = 1
+            if maxY == 0: maxY = 1
+            if minX == 0: minX = 1
+            if minY == 0: minY = 1
+            aligned = aligned[:, minY:-maxY, minX:-maxX]
+
+        self.processedFrames = aligned
+        self.shape = self.processedFrames.shape
+        self.nEnergies, self.nY, self.nX = self.processedFrames.shape
+        self.shifts = shift_list
 
     def _registerImages(self, dst_image, src_image, mode = 'translation', mask = False, threshold = 0., sobelFilter = False):
         """
@@ -479,7 +572,6 @@ class stack():
                 #shifts = register_translation(dst_image, src_image, \
                 #                              reference_mask=dst_image > threshold, \
                 #                              moving_mask=src_image > threshold)
-                print(shifts[0])
             temp = src_image.min()
             #src_image = ndimage.interpolation.shift(src_image, shifts, mode = 'wrap')
             src_image = np.roll(src_image, (round(shifts[0]),round(shifts[1])),axis = (0,1))
@@ -497,62 +589,62 @@ class stack():
             self.warp_matrix[0,2],self.warp_matrix[1,2] = shifts
             
         elif mode == 'manualtranslation':
-            #Manual version of scipy phase cross correlation which allows for upsampling of masked images.
-            #First do the rough translation.
-            #Pad each image with zeros so you can shift them without losing pixels.
-            newsize = np.max((dst_image.shape[0]+src_image.shape[0]-1,dst_image.shape[1]+src_image.shape[1]-1))
-            shp = (newsize,newsize)
-            center = np.fix(np.array(shp)/2)
-            dst_im_pad = np.pad(dst_image,[(0,newsize-dst_image.shape[0]),(0,newsize-dst_image.shape[1])])
-            src_im_pad = np.pad(src_image,[(0,newsize-src_image.shape[0]),(0,newsize-src_image.shape[1])])
+            from scipy.fft import fft2 as sfft2, ifft2 as sifft2, next_fast_len
+            # Pad to the next FFT-friendly length per dimension independently
+            # (no need to force square; next_fast_len avoids slow prime sizes).
+            nh = next_fast_len(dst_image.shape[0] + src_image.shape[0] - 1)
+            nw = next_fast_len(dst_image.shape[1] + src_image.shape[1] - 1)
+            shp = (nh, nw)
+            center = np.fix(np.array(shp) / 2)
+            dst_im_pad = np.pad(dst_image, [(0, nh - dst_image.shape[0]),
+                                             (0, nw - dst_image.shape[1])])
+            src_im_pad = np.pad(src_image, [(0, nh - src_image.shape[0]),
+                                             (0, nw - src_image.shape[1])])
             dst_mask_pad = dst_im_pad > 0
             src_mask_pad = src_im_pad > 0
-            
-            #These are the fourier transforms corresponding to the sums in 10.1109/TIP.2011.2181402
-            
-            f1 = np.fft.fft2(dst_im_pad)
-            f2 = np.fft.fft2(src_im_pad).conj()
-            f21 = np.fft.fft2(dst_im_pad*dst_im_pad)
-            f22 = np.fft.fft2(src_im_pad*src_im_pad).conj()
-            m1 = np.fft.fft2(dst_mask_pad)
-            m2 = np.fft.fft2(src_mask_pad).conj()
-            
-            #These are the pieces of the overall correlation. ovl is the overlap of the two masks and is used in several places.
-            #This is required to be greater than 0.5 times its maximum to keep the correlation at reasonable pixel shifts.
-            #Other inverse fourier transforms could be calculated once to make it faster probably.
-            ovl = np.fft.ifft2(m1*m2)
-            ovl_req = 0.5
-            
-            num = np.fft.ifft2(f1*f2)-(np.fft.ifft2(f1*m2)*np.fft.ifft2(m1*f2))/ovl
-            den1 = np.fft.ifft2(f21*m2)-np.fft.ifft2(f1*m2)**2/ovl
-            den2 = np.fft.ifft2(f22*m1)-np.fft.ifft2(f2*m1)**2/ovl
-            
-            roughcc = np.where(ovl>np.max(ovl)*ovl_req,num/np.sqrt(den1*den2),0)
-            
-            #The shift is then the maximum of this cross correlation.
-            roughshift = np.array(np.unravel_index(np.argmax(np.abs(roughcc)),shp))
-            roughshift[roughshift>center] -= np.array(shp)[roughshift>center]
-            
-            #We are upsampling by 100 in this second part which just means we have to use the upsampled_dft from scipy to do the iffts.
-            upsample = 100
-            upsampled_region_size = upsample*2
-            #This is to take into account the existing rough shift so we don't have to upsample the whole image.
-            upsampled_shift = np.fix(upsampled_region_size/2)-roughshift*upsample
-            #Here is our upsampling function. I don't think this is slow?
+
+            # FFTs (scipy is faster than numpy for non-power-of-2 sizes)
+            f1  = sfft2(dst_im_pad)
+            f2  = sfft2(src_im_pad).conj()
+            f21 = sfft2(dst_im_pad * dst_im_pad)
+            f22 = sfft2(src_im_pad * src_im_pad).conj()
+            m1  = sfft2(dst_mask_pad)
+            m2  = sfft2(src_mask_pad).conj()
+
+            # Cache cross-terms used in multiple expressions (saves 2 IFFTs)
+            ovl     = sifft2(m1 * m2)
+            c_f1_m2 = sifft2(f1 * m2)   # appears in num and den1
+            c_f2_m1 = sifft2(f2 * m1)   # appears in num (as m1*f2) and den2
+
+            num     = sifft2(f1 * f2) - (c_f1_m2 * c_f2_m1) / ovl
+            den1    = sifft2(f21 * m2) - c_f1_m2**2 / ovl
+            den2    = sifft2(f22 * m1) - c_f2_m1**2 / ovl
+
+            roughcc = np.where(ovl > np.max(ovl) * 0.5, num / np.sqrt(den1 * den2), 0)
+
+            roughshift = np.array(np.unravel_index(np.argmax(np.abs(roughcc)), shp))
+            roughshift[roughshift > center] -= np.array(shp)[roughshift > center]
+
+            upsample              = 100
+            upsampled_region_size = upsample * 2
+            upsampled_shift       = np.fix(upsampled_region_size / 2) - roughshift * upsample
+
             def upsampled_ifft2(im):
-                return(_upsampled_dft(im.conj(),upsampled_region_size,upsample,upsampled_shift).conj())
-        
-            #This is all the same, just using the new inverse fft.
-            fineovl = upsampled_ifft2(m1*m2)
-            finenum = upsampled_ifft2(f1*f2)-(upsampled_ifft2(f1*m2)*upsampled_ifft2(m1*f2))/fineovl
-            fineden1 = upsampled_ifft2(f21*m2)-upsampled_ifft2(f1*m2)**2/fineovl
-            fineden2 = upsampled_ifft2(f22*m1)-upsampled_ifft2(f2*m1)**2/fineovl
-        
-            #We don't worry about overlap here, assume that has been taken care of in the rough shift.
-            finecc = finenum/np.sqrt(fineden1*fineden2)
-            fineshift = np.array(np.unravel_index(np.argmax(np.abs(finecc)),(upsampled_region_size,upsampled_region_size)))
-            #Finally we add back in the rough shift.
-            totshift = (fineshift-upsampled_shift)/upsample
+                return _upsampled_dft(im.conj(), upsampled_region_size, upsample, upsampled_shift).conj()
+
+            # Cache fine cross-terms as well (saves 2 more upsampled DFTs)
+            fineovl    = upsampled_ifft2(m1 * m2)
+            fine_f1_m2 = upsampled_ifft2(f1 * m2)   # used in finenum and fineden1
+            fine_f2_m1 = upsampled_ifft2(f2 * m1)   # used in finenum and fineden2
+
+            finenum  = upsampled_ifft2(f1 * f2) - (fine_f1_m2 * fine_f2_m1) / fineovl
+            fineden1 = upsampled_ifft2(f21 * m2) - fine_f1_m2**2 / fineovl
+            fineden2 = upsampled_ifft2(f22 * m1) - fine_f2_m1**2 / fineovl
+
+            finecc    = finenum / np.sqrt(fineden1 * fineden2)
+            fineshift = np.array(np.unravel_index(np.argmax(np.abs(finecc)),
+                                                   (upsampled_region_size, upsampled_region_size)))
+            totshift  = (fineshift - upsampled_shift) / upsample
             
             #shp = dst_image.shape
             #center = np.fix(np.array(shp)/2)
@@ -574,7 +666,7 @@ class stack():
             src_image = self._ecc_align(dst_image, src_image, sobel = sobelFilter, mode = mode)
         return src_image
 
-    def registerFrameStack(self, frames, sobelFilter = False, mode = 'translation', mask = False, threshold = 0., autocrop = True):
+    def registerFrameStack(self, frames, sobelFilter = False, mode = 'translation', mask = False, threshold = 0., autocrop = True, progress_callback=None):
         """
         This is really just a management function.  It decides what to do based on the type of registration.
         The cropping for registrer_translation is different from ecc_align
@@ -611,6 +703,8 @@ class stack():
                                                         mask=mask, threshold=threshold, sobelFilter=sobelFilter)
                 shifts = self.warp_matrix[0,2],self.warp_matrix[1,2]
                 shiftList.append(shifts)
+                if progress_callback is not None:
+                    progress_callback(int((i + 1) / len(frames) * 100))
             shifts = np.array(shiftList)
             maxY, minY = abs(int(round(shifts[:,0].min()))), abs(int(round(shifts[:,0].max())))
             maxX, minX = abs(int(round(shifts[:,1].min()))), abs(int(round(shifts[:,1].max())))
@@ -623,6 +717,8 @@ class stack():
                 alignedFrames[i] = self._registerImages(frames[0],frames[i],sobelFilter = sobelFilter,mode = mode)
                 shifts = self.warp_matrix[0, 2], self.warp_matrix[1, 2]
                 shiftList.append(shifts)
+                if progress_callback is not None:
+                    progress_callback(int((i + 1) / len(frames) * 100))
             shifts = np.array(shiftList)
             maxY, minY = abs(int(round(shifts[:,0].min()))), abs(int(round(shifts[:,0].max())))
             maxX, minX = abs(int(round(shifts[:,1].min()))), abs(int(round(shifts[:,1].max())))
@@ -636,6 +732,8 @@ class stack():
             for i in range(0,len(frames)):
                 alignedFrames[i] = self._registerImages(frameMean, frames[i], sobelFilter = sobelFilter, mode = mode)
                 frameMean = (frameMean + alignedFrames[i]) * (alignedFrames[i] > 0.) / 2.
+                if progress_callback is not None:
+                    progress_callback(int((i + 1) / len(frames) * 100))
         return alignedFrames
 
     def setZeros(self):
@@ -695,7 +793,7 @@ class stack():
         self.gotOD = True
         self.preEdgeFrame = self.odFrames[0].copy()
 
-    def despike(self, sigma = 3., od = False):
+    def despike(self, kernel_size = 3, n_sigma = 5, od = False):
         """
         FIXME: sigma doesn't seem to work so it's hard coded below and this doesn't operate on the OD
         This applies a despike algorithm which is quite good in my humble opinion.  It works great for single
@@ -706,14 +804,14 @@ class stack():
         for i in range(len(self.energies)):
             if od:
                 d = self.odFrames[i].copy()
-                df = medfilt(d,kernel_size = 3)
-                idx = np.where(np.abs(df-d)>15.*(df-d).std())
+                df = medfilt(d,kernel_size = kernel_size)
+                idx = np.where(np.abs(df-d)>n_sigma*(df-d).std())
                 d[idx] = df[idx]
                 self.odFrames[i] = d
             else:
                 d = self.processedFrames[i].copy()
-                df = medfilt(d, kernel_size=3)
-                idx = np.where(np.abs(df - d) > 5. * (df - d).std())
+                df = medfilt(d, kernel_size=kernel_size)
+                idx = np.where(np.abs(df - d) > n_sigma * (df - d).std())
                 d[idx] = df[idx]
                 self.processedFrames[i] = d
             # peakIndices = np.where(np.abs(filteredFrames[i] - self.processedFrames[i]) > \
@@ -967,21 +1065,76 @@ class stack():
             self.nnls(self.filteredImages, self.clusterSpectra)
             self.calcRFactor()
             
-    def calcNMF(self, iterations = 100000, nClusters = 4, clustering = 'kmeans'):
+    def calcNMF(self, n_components=4, n_clusters=4, max_iter=500, init='nndsvda',
+                progress_callback=None):
+        """
+        Non-negative matrix factorisation of the OD stack.
+
+        Factorises V (n_pixels × n_energies) ≈ W · H where
+          W  (n_pixels × n_components)  — pixel weights / spatial maps
+          H  (n_components × n_energies) — spectral components
+
+        Results stored on the stack object:
+          nmfMaps        (n_components, nY, nX)    — spatial weight maps
+          nmfComponents  (n_components, n_energies) — spectral components
+          filteredImages (n_components, nY, nX)    — alias for nmfMaps (for RGB map compat.)
+          clusters       (nY, nX)                  — kmeans labels on W
+          clusterSpectra list of (n_energies,)     — mean OD spectrum per cluster
+        """
         self.nEnergies, self.nY, self.nX = self.odFrames.shape
         self.nPixels = self.nY * self.nX
-        p = np.reshape(np.transpose(self.odFrames, axes = (1,2,0)), (self.nPixels, self.nEnergies), order = 'F')
-        self.model = NMF(init='random', max_iter = 1000, random_state=0)
-        self.W = self.model.fit_transform(X)
-        self.H = self.model.components_
-        
-        self.nmfImages = np.transpose(np.reshape(np.dot(p, ),(self.nY, self.nX, self.nEnergies), order = 'F'), axes = (2,0,1))
-        self.pca = PCA(n_components = nPC)
-        self.pca.fit(p)
-        c_pca = self.pca.transform(p)
-        self.filteredImages = self.pca.inverse_transform(c_pca)
-        self.filteredImages = np.transpose(np.reshape(self.filteredImages, (self.nY, self.nX, self.nEnergies), order = 'F'), axes = (2,0,1))
-    		
+
+        # Reshape OD to (n_pixels, n_energies); clip negatives — NMF requires ≥ 0
+        p = np.reshape(np.transpose(self.odFrames, axes=(1, 2, 0)),
+                       (self.nPixels, self.nEnergies), order='F')
+        p_nn = np.clip(p, 0, None)
+
+        if progress_callback:
+            progress_callback(5)
+
+        model = NMF(n_components=n_components, init=init,
+                    max_iter=max_iter, random_state=0)
+        self.W = model.fit_transform(p_nn)   # (n_pixels, n_components)
+        self.H = model.components_           # (n_components, n_energies)
+
+        if progress_callback:
+            progress_callback(60)
+
+        # Spatial maps: reshape W back to (n_components, nY, nX)
+        self.nmfMaps = np.transpose(
+            np.reshape(self.W, (self.nY, self.nX, n_components), order='F'),
+            axes=(2, 0, 1)
+        )
+        self.nmfComponents = self.H.copy()
+
+        # filteredImages = NMF reconstruction — keeps RGB Map button working
+        reconstruction = np.dot(self.W, self.H)
+        self.filteredImages = np.transpose(
+            np.reshape(reconstruction, (self.nY, self.nX, self.nEnergies), order='F'),
+            axes=(2, 0, 1)
+        )
+
+        if progress_callback:
+            progress_callback(75)
+
+        # Cluster pixels by their NMF weights (W matrix) using kmeans
+        from scipy.cluster.vq import kmeans2
+        _, labels = kmeans2(self.W, n_clusters, seed=0)
+        self.clusters = np.reshape(labels, (self.nY, self.nX), order='F')
+        self.clusterSpectra = []
+        for i in range(n_clusters):
+            mask = (self.clusters == i)
+            cnorm = mask.sum()
+            if cnorm > 0:
+                spec = (self.odFrames * mask).sum(axis=(1, 2)) / cnorm
+            else:
+                spec = np.zeros(self.nEnergies)
+            spec[np.isnan(spec)] = 0.
+            self.clusterSpectra.append(spec)
+
+        if progress_callback:
+            progress_callback(100)
+
 
     def kmeansClusters(self, nClusters = 3, pcaOffset = 0):
         """

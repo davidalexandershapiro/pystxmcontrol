@@ -250,7 +250,7 @@ class bkgWindowWidget(QtWidgets.QDialog, Ui_bkgWindow):
                
         
     def read_bkg_file(self):
-        self.bkgLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(QtWidgets.QWidget(), \
+        self.bkgLoadFile = str(QtWidgets.QFileDialog.getOpenFileName(self, \
             'Open File', '/')[0])
         if self.bkgLoadFile is not '':
             try: 

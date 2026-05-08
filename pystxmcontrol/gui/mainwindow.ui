@@ -391,11 +391,11 @@
              <height>16777215</height>
             </size>
            </property>
-           <property name="text">
-            <string>Motor Panel</string>
-           </property>
            <property name="toolTip">
             <string>Open the motor inspection and history panel.</string>
+           </property>
+           <property name="text">
+            <string>Motor Panel</string>
            </property>
           </widget>
          </item>
@@ -2707,21 +2707,21 @@ font: 75 11pt &quot;Ubuntu&quot;;
          </item>
          <item row="9" column="0">
           <widget class="QPushButton" name="snapRoiToFovButton">
-           <property name="text">
-            <string>Snap ROI to FOV</string>
-           </property>
            <property name="toolTip">
             <string>Resize the scan region ROI to fill the current image field of view and update the scan region parameters accordingly.</string>
+           </property>
+           <property name="text">
+            <string>Snap ROI to FOV</string>
            </property>
           </widget>
          </item>
          <item row="10" column="0">
           <widget class="QPushButton" name="snapFovToRoiButton">
-           <property name="text">
-            <string>Snap FOV to ROI</string>
-           </property>
            <property name="toolTip">
             <string>Pan and zoom the image display to match the current scan region ROI.</string>
+           </property>
+           <property name="text">
+            <string>Snap FOV to ROI</string>
            </property>
           </widget>
          </item>
@@ -2773,85 +2773,6 @@ font: 75 11pt &quot;Ubuntu&quot;;
       </widget>
      </widget>
     </widget>
-    <widget class="QWidget" name="tab_10">
-     <attribute name="title">
-      <string>Analysis</string>
-     </attribute>
-     <layout class="QVBoxLayout" name="tab_10_layout">
-      <property name="spacing">
-       <number>0</number>
-      </property>
-      <property name="leftMargin">
-       <number>0</number>
-      </property>
-      <property name="topMargin">
-       <number>0</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
-      <item>
-       <widget class="QTabWidget" name="tabWidget_4">
-        <property name="currentIndex">
-         <number>1</number>
-        </property>
-        <widget class="QWidget" name="tab_14">
-         <attribute name="title">
-          <string>Line Spectrum</string>
-         </attribute>
-         <layout class="QVBoxLayout" name="tab_14_layout">
-          <property name="spacing">
-           <number>0</number>
-          </property>
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="lineScanReaderWidget" name="linescan_viewer" native="true"/>
-          </item>
-         </layout>
-        </widget>
-        <widget class="QWidget" name="tab_15">
-         <attribute name="title">
-          <string>Stack</string>
-         </attribute>
-         <layout class="QVBoxLayout" name="tab_15_layout">
-          <property name="spacing">
-           <number>0</number>
-          </property>
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="stackViewerWidget" name="stack_viewer" native="true"/>
-          </item>
-         </layout>
-        </widget>
-       </widget>
-      </item>
-     </layout>
-    </widget>
     <widget class="QWidget" name="tab_13">
      <attribute name="title">
       <string>Browser</string>
@@ -2902,7 +2823,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
     </property>
     <widget class="QMenu" name="menuSettings_2">
      <property name="title">
-      <string>Settings</string>
+      <string>Appearance</string>
      </property>
      <widget class="QMenu" name="menuTheme_2">
       <property name="title">
@@ -3025,12 +2946,6 @@ font: 75 11pt &quot;Ubuntu&quot;;
    <class>customWidget</class>
    <extends>QWidget</extends>
    <header>pystxmcontrol/gui/customwidget.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>lineScanReaderWidget</class>
-   <extends>QWidget</extends>
-   <header>pystxmcontrol/gui/linescanreaderwidget.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

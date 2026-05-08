@@ -148,9 +148,8 @@ def regenerate_pdf(folder: str, entries: list = None):
     page_w, page_h = A4
     margin = 2 * cm
     usable_w = page_w - 2 * margin
-    # Image takes up to 60 % of the usable width; metadata fills the rest via text
-    img_max_w = usable_w * 0.55
-    img_max_h = page_h * 0.45
+    img_max_w = usable_w        # fill the full usable page width
+    img_max_h = page_h * 0.75  # up to 75 % of page height
 
     story = []
     snaps = _snaps_dir(folder)

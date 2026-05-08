@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame,
 
 from pyqtgraph import (ImageView, PlotWidget)
 from pystxmcontrol.gui.customwidget import customWidget
-from pystxmcontrol.gui.linescanreaderwidget import lineScanReaderWidget
 from pystxmcontrol.gui.stackviewerwidget import stackViewerWidget
 
 class Ui_MainWindow(object):
@@ -1363,42 +1362,6 @@ class Ui_MainWindow(object):
         self.scrollArea.setWidget(self.scrollAreaWidgetContents)
         self.tabWidget_2.addTab(self.tab_8, "")
         self.tabWidget_3.addTab(self.tab_9, "")
-        self.tab_10 = QWidget()
-        self.tab_10.setObjectName(u"tab_10")
-        self.tab_10_layout = QVBoxLayout(self.tab_10)
-        self.tab_10_layout.setSpacing(0)
-        self.tab_10_layout.setObjectName(u"tab_10_layout")
-        self.tab_10_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabWidget_4 = QTabWidget(self.tab_10)
-        self.tabWidget_4.setObjectName(u"tabWidget_4")
-        self.tab_14 = QWidget()
-        self.tab_14.setObjectName(u"tab_14")
-        self.tab_14_layout = QVBoxLayout(self.tab_14)
-        self.tab_14_layout.setSpacing(0)
-        self.tab_14_layout.setObjectName(u"tab_14_layout")
-        self.tab_14_layout.setContentsMargins(0, 0, 0, 0)
-        self.linescan_viewer = lineScanReaderWidget(self.tab_14)
-        self.linescan_viewer.setObjectName(u"linescan_viewer")
-
-        self.tab_14_layout.addWidget(self.linescan_viewer)
-
-        self.tabWidget_4.addTab(self.tab_14, "")
-        self.tab_15 = QWidget()
-        self.tab_15.setObjectName(u"tab_15")
-        self.tab_15_layout = QVBoxLayout(self.tab_15)
-        self.tab_15_layout.setSpacing(0)
-        self.tab_15_layout.setObjectName(u"tab_15_layout")
-        self.tab_15_layout.setContentsMargins(0, 0, 0, 0)
-        self.stack_viewer = stackViewerWidget(self.tab_15)
-        self.stack_viewer.setObjectName(u"stack_viewer")
-
-        self.tab_15_layout.addWidget(self.stack_viewer)
-
-        self.tabWidget_4.addTab(self.tab_15, "")
-
-        self.tab_10_layout.addWidget(self.tabWidget_4)
-
-        self.tabWidget_3.addTab(self.tab_10, "")
         self.tab_13 = QWidget()
         self.tab_13.setObjectName(u"tab_13")
         self.tabWidget_3.addTab(self.tab_13, "")
@@ -1452,7 +1415,6 @@ class Ui_MainWindow(object):
         self.tabWidget.setCurrentIndex(0)
         self.tabWidget_5.setCurrentIndex(0)
         self.tabWidget_2.setCurrentIndex(0)
-        self.tabWidget_4.setCurrentIndex(1)
 
 
         QMetaObject.connectSlotsByName(MainWindow)
@@ -1492,10 +1454,10 @@ class Ui_MainWindow(object):
         self.jogToggleButton.setText(QCoreApplication.translate("MainWindow", u"Jog/Move", None))
         self.motorMover1Minus.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.motorMover2Minus.setText(QCoreApplication.translate("MainWindow", u"-", None))
-        self.motorPanelButton.setText(QCoreApplication.translate("MainWindow", u"Motor Panel", None))
 #if QT_CONFIG(tooltip)
         self.motorPanelButton.setToolTip(QCoreApplication.translate("MainWindow", u"Open the motor inspection and history panel.", None))
 #endif // QT_CONFIG(tooltip)
+        self.motorPanelButton.setText(QCoreApplication.translate("MainWindow", u"Motor Panel", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_4), QCoreApplication.translate("MainWindow", u"Move Motors", None))
         self.label_27.setText(QCoreApplication.translate("MainWindow", u"Center", None))
         self.label_29.setText(QCoreApplication.translate("MainWindow", u"Points", None))
@@ -1616,28 +1578,25 @@ class Ui_MainWindow(object):
         self.compositeImageCheckbox.setText(QCoreApplication.translate("MainWindow", u"Composite Image", None))
         self.clearImageButton.setText(QCoreApplication.translate("MainWindow", u"Clear All", None))
         self.removeLastImageButton.setText(QCoreApplication.translate("MainWindow", u"Remove Last", None))
-        self.snapRoiToFovButton.setText(QCoreApplication.translate("MainWindow", u"Snap ROI to FOV", None))
 #if QT_CONFIG(tooltip)
         self.snapRoiToFovButton.setToolTip(QCoreApplication.translate("MainWindow", u"Resize the scan region ROI to fill the current image field of view and update the scan region parameters accordingly.", None))
 #endif // QT_CONFIG(tooltip)
-        self.snapFovToRoiButton.setText(QCoreApplication.translate("MainWindow", u"Snap FOV to ROI", None))
+        self.snapRoiToFovButton.setText(QCoreApplication.translate("MainWindow", u"Snap ROI to FOV", None))
 #if QT_CONFIG(tooltip)
         self.snapFovToRoiButton.setToolTip(QCoreApplication.translate("MainWindow", u"Pan and zoom the image display to match the current scan region ROI.", None))
 #endif // QT_CONFIG(tooltip)
+        self.snapFovToRoiButton.setText(QCoreApplication.translate("MainWindow", u"Snap FOV to ROI", None))
         self.autoscaleCheckbox.setText(QCoreApplication.translate("MainWindow", u"Autoscale Image", None))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab_7), QCoreApplication.translate("MainWindow", u"Display", None))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab_8), QCoreApplication.translate("MainWindow", u"Console", None))
         self.tabWidget_3.setTabText(self.tabWidget_3.indexOf(self.tab_9), QCoreApplication.translate("MainWindow", u"Acquisition", None))
-        self.tabWidget_4.setTabText(self.tabWidget_4.indexOf(self.tab_14), QCoreApplication.translate("MainWindow", u"Line Spectrum", None))
-        self.tabWidget_4.setTabText(self.tabWidget_4.indexOf(self.tab_15), QCoreApplication.translate("MainWindow", u"Stack", None))
-        self.tabWidget_3.setTabText(self.tabWidget_3.indexOf(self.tab_10), QCoreApplication.translate("MainWindow", u"Analysis", None))
         self.tabWidget_3.setTabText(self.tabWidget_3.indexOf(self.tab_13), QCoreApplication.translate("MainWindow", u"Browser", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"File", None))
         self.menuOpen.setTitle(QCoreApplication.translate("MainWindow", u"Open", None))
         self.menuSave.setTitle(QCoreApplication.translate("MainWindow", u"Save", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))
         self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"Edit", None))
-        self.menuSettings_2.setTitle(QCoreApplication.translate("MainWindow", u"Settings", None))
+        self.menuSettings_2.setTitle(QCoreApplication.translate("MainWindow", u"Appearance", None))
         self.menuTheme_2.setTitle(QCoreApplication.translate("MainWindow", u"Theme", None))
         self.menuMain_Window.setTitle(QCoreApplication.translate("MainWindow", u"Main Window", None))
     # retranslateUi
