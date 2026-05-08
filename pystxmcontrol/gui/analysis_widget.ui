@@ -169,6 +169,11 @@
                  <string>Spectrum</string>
                 </property>
                </item>
+               <item>
+                <property name="text">
+                 <string>Crop</string>
+                </property>
+               </item>
               </widget>
              </item>
              <item>
@@ -189,6 +194,16 @@
               <widget class="QPushButton" name="a2_deleteFrameButton">
                <property name="text">
                 <string>Delete Frame</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="a2_cropButton">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>Crop</string>
                </property>
               </widget>
              </item>
