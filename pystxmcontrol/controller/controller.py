@@ -169,7 +169,7 @@ class controller:
                              configs require no changes.
         """
         for motor in self.motors:
-            if monitor_only and not self.motorConfig[motor].get("monitor", False):
+            if monitor_only and not self.motorConfig[motor].get("monitor", True):
                 continue
             if "variable" in self.motorConfig[motor].keys():
                 try:
