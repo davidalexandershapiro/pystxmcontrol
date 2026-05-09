@@ -249,8 +249,6 @@ class MainController(QObject):
             
     def _handle_client_response(self, response):
         """Handle responses from client commands."""
-        # Emit response for any views that need it
-        status_message = response["command"] + ": " + str(response["status"])
         if response["status"]:
             pass
         else:
