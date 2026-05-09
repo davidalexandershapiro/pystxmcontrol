@@ -2025,17 +2025,24 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if not monitor_data:
             return
 
+        daq_cfg = getattr(self.controller.client, 'daqConfig', {})
+        daq_type = daq_cfg.get(channel_key, {}).get('type', 'point')
         data_array = np.array(monitor_data)
 
-        if self.current_plot is None:
-            self.current_plot = self.ui.mainPlot.plot(
-                data_array,
-                pen=self._main_plot_pen,
-            )
+        if daq_type == 'spectrum':
+            x_data = np.arange(len(data_array))
+            if self.current_plot is None:
+                self.current_plot = self.ui.mainPlot.plot(x_data, data_array, pen=self._main_plot_pen)
+            else:
+                self.current_plot.setData(x_data, data_array)
+            self.ui.mainPlot.setLabel("bottom", "Channel")
         else:
-            self.current_plot.setData(data_array)
+            if self.current_plot is None:
+                self.current_plot = self.ui.mainPlot.plot(data_array, pen=self._main_plot_pen)
+            else:
+                self.current_plot.setData(data_array)
+            self.ui.mainPlot.setLabel("bottom", "Monitor")
 
-        self.ui.mainPlot.setLabel("bottom", "Monitor")
         self.ui.mainPlot.setLabel("left", channel_key)
         self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
             
