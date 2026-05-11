@@ -304,6 +304,9 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
     THUMB_COLS = 3
 
+    # Emitted when the user clicks a thumbnail card — carries the file path.
+    file_selected = QtCore.Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._root_dir = ""
@@ -627,6 +630,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
         for fp, card in self._cards.items():
             card.set_selected(fp == filepath)
         self._show_detail(filepath)
+        self.file_selected.emit(filepath)
 
     @staticmethod
     def _find_recon_file(stxm_path):

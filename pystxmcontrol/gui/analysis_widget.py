@@ -81,6 +81,10 @@ class Analysis2Widget(QtWidgets.QWidget):
         """Wire controller signals — call after __init__ when embedding in main window."""
         controller.live_data_ready.connect(self.ui.a2_stack_viewer.recv_live_data)
 
+    def load_file(self, filepath: str):
+        """Load a .stxm file directly — called by the browser when a file is selected."""
+        self.ui.a2_stack_viewer.receiveStack(filepath)
+
     # ── Theme ─────────────────────────────────────────────────────────────────
 
     def _load_gui_theme(self):

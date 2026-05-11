@@ -11,6 +11,13 @@ setup(  name = 'pystxmcontrol',
         author_email = 'dashapiro@lbl.gov',
         packages = ['pystxmcontrol','pystxmcontrol.gui','pystxmcontrol.controller',\
             'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans'],
+        entry_points = {
+            'console_scripts': [
+                'stxmcontrol = pystxmcontrol.stxmcontrol:main',
+                'stxmserver   = pystxmcontrol.controller.server:main',
+                'stxmbrowser  = pystxmcontrol.gui.browser_analysis_app:main',
+            ],
+        },
         data_files = [('pystxmcontrol_cfg',['config/daq.json','config/main.json',\
                                  'config/motor.json','config/scan.json','config/log.txt',\
                                  'config/xeryon_default.txt'])],
