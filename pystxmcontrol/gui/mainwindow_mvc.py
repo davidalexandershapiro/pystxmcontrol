@@ -1540,16 +1540,27 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._displayed_scan_type = scan_type
 
         # Image scans: lock aspect ratio so physical proportions are preserved.
-        # Focus scans: unlock so the image always stretches to fill the viewport.
-        self.ui.mainImage.getView().setAspectLocked("Focus" not in scan_type)
+        # Focus/Spectrum scans: unlock so the image always stretches to fill the viewport.
+        self.ui.mainImage.getView().setAspectLocked(
+            "Focus" not in scan_type and "Spectrum" not in scan_type
+        )
 
         if "Spectrum" in scan_type:
             energies = np.array(image_model.get('energy_list', [700, 720]))
-            if energies.size > 0:
-                image_scale = [image_model.get('x_pts', 50)/energies.size, 1.0]
-                y_center = 0.0
-                y_range = energies.max() - energies.min()
-                image_data = image_data.T
+            if energies.size > 1 and image_data.ndim == 2:
+                n_energies, spatial_pts = image_data.shape
+                energy_range = float(energies.max() - energies.min())
+                spatial_range = x_range   # physical extent of the scan line (µm)
+                spatial_center = x_center # centre of the scan line (µm)
+                image_scale = [energy_range / n_energies,
+                               spatial_range / spatial_pts if spatial_pts > 0 else 1.0]
+                # Remap so pos is computed uniformly below:
+                # x → energy axis, y → spatial axis along the line
+                x_center = float((energies.min() + energies.max()) / 2.0)
+                x_range  = energy_range
+                y_center = spatial_center
+                y_range  = spatial_range
+            image_data = image_data.T
 
         # Calculate position to center the image at the motor coordinate center
         pos = (x_center - x_range / 2.0, y_center - y_range / 2.0)
@@ -2025,17 +2036,24 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if not monitor_data:
             return
 
+        daq_cfg = getattr(self.controller.client, 'daqConfig', {})
+        daq_type = daq_cfg.get(channel_key, {}).get('type', 'point')
         data_array = np.array(monitor_data)
 
-        if self.current_plot is None:
-            self.current_plot = self.ui.mainPlot.plot(
-                data_array,
-                pen=self._main_plot_pen,
-            )
+        if daq_type == 'spectrum':
+            x_data = np.arange(len(data_array))
+            if self.current_plot is None:
+                self.current_plot = self.ui.mainPlot.plot(x_data, data_array, pen=self._main_plot_pen)
+            else:
+                self.current_plot.setData(x_data, data_array)
+            self.ui.mainPlot.setLabel("bottom", "Channel")
         else:
-            self.current_plot.setData(data_array)
+            if self.current_plot is None:
+                self.current_plot = self.ui.mainPlot.plot(data_array, pen=self._main_plot_pen)
+            else:
+                self.current_plot.setData(data_array)
+            self.ui.mainPlot.setLabel("bottom", "Monitor")
 
-        self.ui.mainPlot.setLabel("bottom", "Monitor")
         self.ui.mainPlot.setLabel("left", channel_key)
         self.ui.mainPlot.getPlotItem().getViewBox().autoRange()
             

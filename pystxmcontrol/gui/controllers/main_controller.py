@@ -249,8 +249,6 @@ class MainController(QObject):
             
     def _handle_client_response(self, response):
         """Handle responses from client commands."""
-        # Emit response for any views that need it
-        status_message = response["command"] + ": " + str(response["status"])
         if response["status"]:
             pass
         else:
@@ -324,12 +322,16 @@ class MainController(QObject):
                             if data is None:
                                 continue
                             daq_type = daq_cfg.get(daq_key, {}).get('type', 'point')
-                            if daq_type == 'image':
+                            if daq_type == 'spectrum':
+                                monitor_data[daq_key] = list(data)
+                            elif daq_type == 'image':
                                 value = float(np.sum(data))
+                                buf = monitor_data.get(daq_key, []) + [value]
+                                monitor_data[daq_key] = buf[-500:]
                             else:
                                 value = float(data[0])
-                            buf = monitor_data.get(daq_key, []) + [value]
-                            monitor_data[daq_key] = buf[-500:]
+                                buf = monitor_data.get(daq_key, []) + [value]
+                                monitor_data[daq_key] = buf[-500:]
                     if self.PROFILE_IMAGE_UPDATE:
                         self._prof_tick('2a_monitor_data_accumulate', time.perf_counter() - _t0)
                         _t0 = time.perf_counter()

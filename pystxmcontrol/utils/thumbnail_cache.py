@@ -49,11 +49,11 @@ def _normalize(arr):
 
 
 def _downscale(arr, size=THUMB_SIZE):
-    """Decimate arr so it fits within size×size using stride sub-sampling."""
+    """Resample arr to exactly size×size using nearest-neighbour indexing."""
     h, w = arr.shape
-    sh = max(1, h // size)
-    sw = max(1, w // size)
-    return arr[::sh, ::sw][:size, :size]
+    row_idx = np.round(np.linspace(0, h - 1, size)).astype(int)
+    col_idx = np.round(np.linspace(0, w - 1, size)).astype(int)
+    return arr[np.ix_(row_idx, col_idx)]
 
 
 def make_thumbnail_array(raw):

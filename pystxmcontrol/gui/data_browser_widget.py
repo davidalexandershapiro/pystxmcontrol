@@ -3,7 +3,7 @@ import numpy as np
 import h5py
 from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
-from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache
+from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache, make_thumbnail_array
 
 
 # ─────────────────────────── helpers ──────────────────────────────────────────
@@ -87,9 +87,17 @@ def _load_preview(filepath):
                             data = f[data_path][()]
                             if data.ndim == 3:
                                 n_frames = data.shape[0]
-                                arr = data[0]
+                                if "Spectrum" in scan_type and data.shape[1] == 1:
+                                    # (n_energies, 1, x_pts) → transpose to
+                                    # (x_pts, n_energies): spatial rows, energy cols
+                                    arr = data[:, 0, :].T
+                                else:
+                                    arr = data[0]
                             elif data.ndim == 2:
-                                arr = data
+                                if "Spectrum" in scan_type:
+                                    arr = data.T  # (n_energies, x_pts) → (x_pts, n_energies)
+                                else:
+                                    arr = data
                             break
             except Exception:
                 pass
@@ -120,9 +128,12 @@ def _load_preview(filepath):
                 data = f["entry0/counter0/data"][()]
                 if data.ndim == 3:
                     n_frames = data.shape[0]
-                    arr = data[0]
+                    if "Spectrum" in scan_type and data.shape[1] == 1:
+                        arr = data[:, 0, :].T
+                    else:
+                        arr = data[0]
                 elif data.ndim == 2:
-                    arr = data
+                    arr = data.T if "Spectrum" in scan_type else data
             except Exception:
                 pass
             try:
@@ -204,7 +215,8 @@ class ThumbnailLoader(QtCore.QThread):
             if self.cache is not None:
                 self.cache.put(fp, arr, scan_type, start_time, x_range_um)
 
-            self.thumbnail_ready.emit(fp, arr, scan_type, start_time, x_range_um)
+            thumb = make_thumbnail_array(arr) if arr is not None else None
+            self.thumbnail_ready.emit(fp, thumb, scan_type, start_time, x_range_um)
             self.progress.emit(i + 1, total)
 
 
@@ -698,21 +710,42 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
                 # find all photon detectors: instrument groups with type='photon'
                 # that also have a matching NXdata group at entry0 level
+                scan_type_str = self._export_meta.get("scan_type", "")
+                is_spectrum = "Spectrum" in scan_type_str
                 for det_name in hf.get("entry0/instrument", {}).keys():
                     instr_grp = hf[f"entry0/instrument/{det_name}"]
                     is_photon = instr_grp.attrs.get("type", b"").decode() == "photon"
                     data_path = f"entry0/{det_name}/data"
                     if is_photon and data_path in hf:
                         data = hf[data_path][()]
-                        if data.ndim == 3:
-                            _, n_ypx, n_xpx = data.shape
-                        elif data.ndim == 2:
-                            n_ypx, n_xpx = data.shape
+                        if is_spectrum:
+                            # Collapse to 2D (n_energies, x_pts) then pre-transpose so
+                            # _on_detector_changed's .T gives (n_energies, x_pts) to
+                            # pyqtgraph → energy on x-axis, spatial on y-axis.
+                            if data.ndim == 3:
+                                data_2d = data[:, 0, :]       # (n_energies, x_pts)
+                            elif data.ndim == 2:
+                                data_2d = data                 # already (n_energies, x_pts)
+                            else:
+                                data_2d = data.reshape(1, -1)
+                            n_energies, x_pts = data_2d.shape
+                            e_range = (float(energies.max() - energies.min())
+                                       if energies.size > 1 else 1.0)
+                            x_scale = e_range / n_energies if n_energies > 0 else 1.0
+                            y_scale = x_range_um / x_pts if x_pts > 0 and x_range_um > 0 else 1.0
+                            self._stxm_detector_data[det_name] = (
+                                data_2d.T, x_scale, y_scale, x_range_um
+                            )
                         else:
-                            n_ypx = n_xpx = 1
-                        x_scale = x_range_um / n_xpx if n_xpx > 0 and x_range_um > 0 else 1.0
-                        y_scale = y_range_um / n_ypx if n_ypx > 0 and y_range_um > 0 else 1.0
-                        self._stxm_detector_data[det_name] = (data, x_scale, y_scale, x_range_um)
+                            if data.ndim == 3:
+                                _, n_ypx, n_xpx = data.shape
+                            elif data.ndim == 2:
+                                n_ypx, n_xpx = data.shape
+                            else:
+                                n_ypx = n_xpx = 1
+                            x_scale = x_range_um / n_xpx if n_xpx > 0 and x_range_um > 0 else 1.0
+                            y_scale = y_range_um / n_ypx if n_ypx > 0 and y_range_um > 0 else 1.0
+                            self._stxm_detector_data[det_name] = (data, x_scale, y_scale, x_range_um)
 
             if not self._stxm_detector_data:
                 self.detail_text.setPlainText("No photon detector data found.")
@@ -804,6 +837,9 @@ class DataBrowserWidget(QtWidgets.QWidget):
         if not det_name or det_name not in self._stxm_detector_data:
             return
         data, x_scale, y_scale, x_range_um = self._stxm_detector_data[det_name]
+
+        is_spectrum = "Spectrum" in self._export_meta.get("scan_type", "")
+        self.detail_image.getView().setAspectLocked(not is_spectrum)
 
         if data.ndim == 3:
             self.detail_image.setImage(
