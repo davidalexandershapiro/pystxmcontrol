@@ -531,6 +531,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Embed Analysis2Widget as a new tab next to the existing Analysis tab."""
         self._analysis2_tab = Analysis2Widget(parent=self, controller=self.controller)
         self.ui.tabWidget_3.addTab(self._analysis2_tab, "Analysis")
+        self.browser_widget.send_to_analysis.connect(self._on_send_to_analysis)
+
+    def _on_send_to_analysis(self, filepath: str):
+        """Load a file into the Analysis tab and switch to it."""
+        self._analysis2_tab.load_file(filepath)
+        self.ui.tabWidget_3.setCurrentWidget(self._analysis2_tab)
 
     def _populate_combo_boxes(self):
         """Populate combo boxes with data from controller."""
