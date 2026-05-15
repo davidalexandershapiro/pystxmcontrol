@@ -47,10 +47,10 @@ class BrowserAnalysisWindow(QtWidgets.QMainWindow):
 
         self._tabs = tabs
 
-        # When a file is selected in the browser, load it in the analysis tab.
-        self.browser.file_selected.connect(self._on_file_selected)
+        # Load into analysis only when the user explicitly clicks "Send to Analysis".
+        self.browser.send_to_analysis.connect(self._on_send_to_analysis)
 
-    def _on_file_selected(self, filepath: str):
+    def _on_send_to_analysis(self, filepath: str):
         self.analysis.load_file(filepath)
         self._tabs.setCurrentWidget(self.analysis)
 

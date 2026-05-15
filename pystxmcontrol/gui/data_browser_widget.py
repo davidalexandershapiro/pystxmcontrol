@@ -29,6 +29,19 @@ def _array_to_pixmap(arr, width=128, height=128):
     )
 
 
+def _h5str(val) -> str:
+    """Return a plain str from an h5py scalar that may be bytes or str.
+
+    h5py 2.x returns bytes for string datasets; h5py 3.x returns str.
+    Both cases are handled here so callers don't need .decode().
+    """
+    if isinstance(val, (list, np.ndarray)):
+        val = val[0]
+    if isinstance(val, (bytes, np.bytes_)):
+        return val.decode()
+    return str(val)
+
+
 def _get_version(f):
     """Return the numeric nexus version from an open h5py.File."""
     try:
@@ -67,11 +80,11 @@ def _load_preview(filepath):
 
         if version >= 3.0:
             try:
-                scan_type = f["entry0/default/stxm_scan_type"][0].decode()
+                scan_type = _h5str(f["entry0/default/stxm_scan_type"][0])
             except Exception:
                 pass
             try:
-                start_time = f["entry0/start_time"][()].decode()
+                start_time = _h5str(f["entry0/start_time"][()])
             except Exception:
                 pass
             # find first photon detector and use its interpolated data
@@ -80,7 +93,7 @@ def _load_preview(filepath):
                     grp = f[f"entry0/instrument/{key}"]
                     if (
                         "type" in grp.attrs
-                        and grp.attrs["type"].decode() == "photon"
+                        and _h5str(grp.attrs["type"]) == "photon"
                     ):
                         data_path = f"entry0/{key}/data"
                         if data_path in f:
@@ -109,19 +122,11 @@ def _load_preview(filepath):
 
         else:
             try:
-                scan_type = f["entry0/counter0/stxm_scan_type"][()][0].decode()
+                scan_type = _h5str(f["entry0/counter0/stxm_scan_type"][()][0])
             except Exception:
                 pass
             try:
-                st = f["entry0/start_time"][()]
-                if isinstance(st, (list, np.ndarray)):
-                    start_time = (
-                        st[0].decode() if isinstance(st[0], bytes) else str(st[0])
-                    )
-                else:
-                    start_time = (
-                        st.decode() if isinstance(st, bytes) else str(st)
-                    )
+                start_time = _h5str(f["entry0/start_time"][()])
             except Exception:
                 pass
             try:
@@ -318,6 +323,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
     # Emitted when the user clicks a thumbnail card — carries the file path.
     file_selected = QtCore.Signal(str)
+    # Emitted when the user clicks "Send to Analysis" — carries the file path.
+    send_to_analysis = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -478,6 +485,12 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self.log_comment_edit = QtWidgets.QLineEdit()
         self.log_comment_edit.setPlaceholderText("Comment for logbook…")
         export_bar.addWidget(self.log_comment_edit, stretch=1)
+
+        self.send_analysis_btn = QtWidgets.QPushButton("Send to Analysis")
+        self.send_analysis_btn.setFixedWidth(130)
+        self.send_analysis_btn.setEnabled(False)
+        self.send_analysis_btn.clicked.connect(self._on_send_to_analysis)
+        export_bar.addWidget(self.send_analysis_btn)
 
         detail_layout.addLayout(export_bar)
 
@@ -642,7 +655,12 @@ class DataBrowserWidget(QtWidgets.QWidget):
         for fp, card in self._cards.items():
             card.set_selected(fp == filepath)
         self._show_detail(filepath)
+        self.send_analysis_btn.setEnabled(True)
         self.file_selected.emit(filepath)
+
+    def _on_send_to_analysis(self):
+        if self._current_filepath:
+            self.send_to_analysis.emit(self._current_filepath)
 
     @staticmethod
     def _find_recon_file(stxm_path):
@@ -672,7 +690,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
             energy_str  = ""
             try:
                 with h5py.File(filepath, "r") as _f:
-                    source_name = _f["entry0/instrument/source/name"][()].decode()
+                    source_name = _h5str(_f["entry0/instrument/source/name"][()])
             except Exception:
                 pass
             try:
@@ -714,7 +732,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 is_spectrum = "Spectrum" in scan_type_str
                 for det_name in hf.get("entry0/instrument", {}).keys():
                     instr_grp = hf[f"entry0/instrument/{det_name}"]
-                    is_photon = instr_grp.attrs.get("type", b"").decode() == "photon"
+                    is_photon = _h5str(instr_grp.attrs.get("type", b"")) == "photon"
                     data_path = f"entry0/{det_name}/data"
                     if is_photon and data_path in hf:
                         data = hf[data_path][()]
@@ -786,11 +804,11 @@ class DataBrowserWidget(QtWidgets.QWidget):
                     except Exception:
                         dwell_val = None
                     try:
-                        x_motor = hf["entry0/default/motor_name_x"][()].decode()
+                        x_motor = _h5str(hf["entry0/default/motor_name_x"][()])
                     except Exception:
                         x_motor = nx.meta.get("x_motor", "")
                     try:
-                        y_motor = hf["entry0/default/motor_name_y"][()].decode()
+                        y_motor = _h5str(hf["entry0/default/motor_name_y"][()])
                     except Exception:
                         y_motor = nx.meta.get("y_motor", "")
 
@@ -909,19 +927,19 @@ class DataBrowserWidget(QtWidgets.QWidget):
             # ── collect export metadata from the stxm file ────────────────────
             try:
                 with h5py.File(stxm_path, "r") as _sf:
-                    start = _sf["entry0/start_time"][()].decode()
+                    start = _h5str(_sf["entry0/start_time"][()])
                     date_str = start[:10] if len(start) >= 10 else start
                     time_str = start[11:19] if len(start) >= 19 else ""
                     try:
-                        source_name = _sf["entry0/instrument/source/name"][()].decode()
+                        source_name = _h5str(_sf["entry0/instrument/source/name"][()])
                     except Exception:
                         source_name = ""
                     try:
-                        proposal = _sf["entry0/title"][()].decode()
+                        proposal = _h5str(_sf["entry0/title"][()])
                     except Exception:
                         proposal = ""
                     try:
-                        scan_type = _sf["entry0/default/stxm_scan_type"][0].decode()
+                        scan_type = _h5str(_sf["entry0/default/stxm_scan_type"][0])
                     except Exception:
                         scan_type = "Ptychography Image"
                 self._export_meta = {
