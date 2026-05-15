@@ -280,6 +280,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
         # Energy controls
         self.ui.energyEdit.returnPressed.connect(self.on_energy_changed)
+        self.ui.epuEnergyEdit.returnPressed.connect(self.on_epu_energy_changed)
         self.ui.A0Edit.returnPressed.connect(self.on_a0_changed)
 
         # Additional beamline motor controls
@@ -926,6 +927,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.controller.move_motor("Energy", energy)
         except ValueError:
             self.show_error_message("Invalid energy value")
+
+    def on_epu_energy_changed(self):
+        """Handle energy change from the EPU tab energy edit."""
+        try:
+            energy = float(self.ui.epuEnergyEdit.text())
+            self.controller.move_motor("Energy", energy)
+        except ValueError:
+            self.show_error_message("Invalid energy value")
             
     def _refresh_a0_display(self):
         """Populate A0Edit and A0Label from the current motor config."""
@@ -999,9 +1008,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Handle feedback offset change."""
         try:
             value = float(self.ui.fbkEdit.text())
-            self.controller.move_motor("FBKOFFSET", value)
         except ValueError:
             self.show_error_message("Invalid feedback offset value")
+            return
+        lo, hi = self.controller.motor_model.get_motor_limits("FBKOFFSET")
+        if not (lo <= value <= hi):
+            self.show_error_message(
+                f"Feedback Offset {value} is outside limits [{lo}, {hi}]"
+            )
+            return
+        self.controller.move_motor("FBKOFFSET", value)
 
     def on_pol_changed(self):
         """Handle polarization change."""
@@ -1015,9 +1031,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Handle EPU offset change."""
         try:
             value = float(self.ui.epuEdit.text())
-            self.controller.move_motor("EPUOFFSET", value)
         except ValueError:
             self.show_error_message("Invalid EPU offset value")
+            return
+        lo, hi = self.controller.motor_model.get_motor_limits("EPUOFFSET")
+        if not (lo <= value <= hi):
+            self.show_error_message(
+                f"EPU Offset {value} is outside limits [{lo}, {hi}]"
+            )
+            return
+        self.controller.move_motor("EPUOFFSET", value)
 
     def on_harmonic_changed(self):
         """Handle harmonic change."""
@@ -1451,6 +1474,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if motor_name == "Energy":
             self.ui.energyLabel.setText(f"{position:.1f} eV")
             self.ui.energyLabel_2.setText(f"{position:.1f} eV")
+            self.ui.epuEnergyLabel.setText(f"{position:.1f} eV")
             # In single-energy mode the start energy always tracks the current energy
             if self._single_energy_active and self.energy_region_widgets:
                 energy_str = f"{position:.3f}"
@@ -1495,6 +1519,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if motor_name == "Energy":
             self.ui.energyLabel.setStyleSheet(style)
             self.ui.energyLabel_2.setStyleSheet(style)
+            self.ui.epuEnergyLabel.setStyleSheet(style)
         elif motor_name == "DISPERSIVE_SLIT":
             self.ui.dsLabel.setStyleSheet(style)
         elif motor_name == "NONDISPERSIVE_SLIT":

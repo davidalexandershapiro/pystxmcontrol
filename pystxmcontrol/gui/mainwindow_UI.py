@@ -942,7 +942,7 @@ class Ui_MainWindow(object):
         self.epuTab.setObjectName(u"epuTab")
         self.gridLayoutWidget_5 = QWidget(self.epuTab)
         self.gridLayoutWidget_5.setObjectName(u"gridLayoutWidget_5")
-        self.gridLayoutWidget_5.setGeometry(QRect(10, 10, 291, 161))
+        self.gridLayoutWidget_5.setGeometry(QRect(10, 10, 291, 195))
         self.gridLayout_6 = QGridLayout(self.gridLayoutWidget_5)
         self.gridLayout_6.setObjectName(u"gridLayout_6")
         self.gridLayout_6.setContentsMargins(0, 0, 0, 0)
@@ -1035,6 +1035,24 @@ class Ui_MainWindow(object):
         self.polLabel.setObjectName(u"polLabel")
 
         self.gridLayout_6.addWidget(self.polLabel, 0, 3, 1, 1)
+
+        self.label_epu_energy = QLabel(self.gridLayoutWidget_5)
+        self.label_epu_energy.setObjectName(u"label_epu_energy")
+
+        self.gridLayout_6.addWidget(self.label_epu_energy, 5, 2, 1, 1)
+
+        self.epuEnergyLabel = QLabel(self.gridLayoutWidget_5)
+        self.epuEnergyLabel.setObjectName(u"epuEnergyLabel")
+
+        self.gridLayout_6.addWidget(self.epuEnergyLabel, 5, 3, 1, 1)
+
+        self.epuEnergyEdit = QLineEdit(self.gridLayoutWidget_5)
+        self.epuEnergyEdit.setObjectName(u"epuEnergyEdit")
+        sizePolicy.setHeightForWidth(self.epuEnergyEdit.sizePolicy().hasHeightForWidth())
+        self.epuEnergyEdit.setSizePolicy(sizePolicy)
+        self.epuEnergyEdit.setMaximumSize(QSize(80, 16777215))
+
+        self.gridLayout_6.addWidget(self.epuEnergyEdit, 5, 4, 1, 1)
 
         self.tabWidget_5.addTab(self.epuTab, "")
         self.tab_2 = QWidget()
@@ -1545,6 +1563,8 @@ class Ui_MainWindow(object):
         self.fbkLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.m101Label.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.polLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
+        self.label_epu_energy.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Energy</span></p></body></html>", None))
+        self.epuEnergyLabel.setText(QCoreApplication.translate("MainWindow", u"None", None))
         self.tabWidget_5.setTabText(self.tabWidget_5.indexOf(self.epuTab), QCoreApplication.translate("MainWindow", u"EPU", None))
         self.label_35.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:700;\">Zone Plate A1</span></p></body></html>", None))
         self.A1Label.setText(QCoreApplication.translate("MainWindow", u"None", None))

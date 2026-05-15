@@ -2001,7 +2001,7 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <x>10</x>
           <y>10</y>
           <width>291</width>
-          <height>161</height>
+          <height>195</height>
          </rect>
         </property>
         <layout class="QGridLayout" name="gridLayout_6">
@@ -2166,6 +2166,36 @@ font: 75 11pt &quot;Ubuntu&quot;;
           <widget class="QLabel" name="polLabel">
            <property name="text">
             <string>None</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="2">
+          <widget class="QLabel" name="label_epu_energy">
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Energy&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="3">
+          <widget class="QLabel" name="epuEnergyLabel">
+           <property name="text">
+            <string>None</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="4">
+          <widget class="QLineEdit" name="epuEnergyEdit">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>80</width>
+             <height>16777215</height>
+            </size>
            </property>
           </widget>
          </item>

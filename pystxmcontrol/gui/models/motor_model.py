@@ -64,10 +64,16 @@ class MotorModel(BaseModel):
         return min_val, max_val
         
     def get_scan_limits(self, motor_name: str) -> tuple:
-        """Get the min/max scan limits for a motor."""
+        """Get the min/max scan limits for a motor.
+
+        Falls back to minValue/maxValue when scan-specific limits are not
+        configured (e.g. offset motors like FBKOFFSET and EPUOFFSET).
+        """
         motor_info = self.get('motor_info', {}).get(motor_name, {})
-        min_val = motor_info.get('minScanValue', 0.0)
-        max_val = motor_info.get('maxScanValue', 100.0)
+        hw_min = motor_info.get('minValue', 0.0)
+        hw_max = motor_info.get('maxValue', 100.0)
+        min_val = motor_info.get('minScanValue', hw_min)
+        max_val = motor_info.get('maxScanValue', hw_max)
         return min_val, max_val
         
     def is_position_valid(self, motor_name: str, position: float) -> bool:
