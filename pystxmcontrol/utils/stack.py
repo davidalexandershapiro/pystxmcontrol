@@ -199,6 +199,43 @@ class stack():
             self.rawFrames.pop(frameIdx)
             self.reset()
 
+    def deleteFrameInPlace(self, energy):
+        """Delete the frame nearest to *energy* without resetting other arrays.
+
+        Unlike deleteFrame(), this preserves all prior processing (OD, registration,
+        filtering) on the remaining frames.  lastFrames is cleared because its shape
+        would no longer match.
+        :param energy: float — target energy in eV
+        """
+        if self.processedFrames is None or len(self.energies) <= 2:
+            return
+        idx = find_nearest(self.energies, energy)
+        if self.rawFrames and idx < len(self.rawFrames):
+            self.rawFrames.pop(idx)
+        self.processedFrames = np.delete(self.processedFrames, idx, axis=0)
+        self.energies = np.delete(self.energies, idx)
+        if self.odFrames is not None:
+            self.odFrames = np.delete(self.odFrames, idx, axis=0)
+        self.lastFrames = None
+        self.shape = self.processedFrames.shape
+
+    def cropFrames(self, row_slice, col_slice):
+        """Crop processedFrames (and odFrames if present) to the given slices.
+
+        Slices are in array coordinates: rows index the Y axis, cols the X axis.
+        After cropping, rawFrames no longer match the array shape; calling reset()
+        would undo the crop.
+        :param row_slice: slice — row (Y) range
+        :param col_slice: slice — column (X) range
+        """
+        if self.processedFrames is None:
+            return
+        self.processedFrames = self.processedFrames[:, row_slice, col_slice].copy()
+        if self.odFrames is not None:
+            self.odFrames = self.odFrames[:, row_slice, col_slice].copy()
+        self.lastFrames = None
+        self.shape = self.processedFrames.shape
+
     def indexFromEnergy(self, energy):
         return find_nearest(self.energies, energy)
 
@@ -278,6 +315,44 @@ class stack():
         if self.dataIsNormalized: self.odFrames += self.preEdgeFrame
         self.dataIsNormalized = False
         self.preEdgeFrame = 0.
+
+    def subtractPreEdgeBackground(self, energy_lo, energy_hi):
+        """Subtract the mean OD frame over the pre-edge energy window from all OD frames.
+
+        Averages odFrames over every frame whose energy falls in [energy_lo, energy_hi]
+        and subtracts that background image from every frame in the stack.
+        :param energy_lo: float — lower bound of the pre-edge region (eV)
+        :param energy_hi: float — upper bound of the pre-edge region (eV)
+        """
+        if self.odFrames is None:
+            raise ValueError("No OD frames — compute OD before subtracting pre-edge.")
+        idxs = np.where((self.energies >= energy_lo) & (self.energies <= energy_hi))[0]
+        if len(idxs) == 0:
+            raise ValueError(f"No energy frames in range [{energy_lo}, {energy_hi}] eV.")
+        bg = self.odFrames[idxs].mean(axis=0)       # (nY, nX)
+        self.odFrames = self.odFrames - bg[np.newaxis, :, :]
+
+    def detrendPreEdge(self, energy_lo, energy_hi):
+        """Remove a per-pixel linear trend estimated from the pre-edge energy window.
+
+        Fits a line to each pixel's OD spectrum over the pre-edge region and subtracts
+        the slope-driven drift across the full stack.  The fit is anchored at energies[0]
+        so frame 0 is unchanged.
+        :param energy_lo: float — lower bound of the pre-edge region (eV)
+        :param energy_hi: float — upper bound of the pre-edge region (eV)
+        """
+        if self.odFrames is None:
+            raise ValueError("No OD frames — compute OD before detrending.")
+        idxs = np.where((self.energies >= energy_lo) & (self.energies <= energy_hi))[0]
+        if len(idxs) == 0:
+            raise ValueError(f"No energy frames in range [{energy_lo}, {energy_hi}] eV.")
+        pre_e  = self.energies[idxs]                # (n_pre,)
+        pre_od = self.odFrames[idxs]                # (n_pre, nY, nX)
+        ec     = pre_e - pre_e.mean()               # centred energies
+        denom  = (ec ** 2).sum()
+        slope  = (ec[:, np.newaxis, np.newaxis] * pre_od).sum(axis=0) / denom  # (nY, nX)
+        de     = (self.energies - self.energies[0])[:, np.newaxis, np.newaxis]  # (n_e, 1, 1)
+        self.odFrames = self.odFrames - slope[np.newaxis, :, :] * de
 
     def subtractDarkField(self):
         """
@@ -792,6 +867,55 @@ class stack():
         self.odFrames[np.isinf(self.odFrames)] = 0.
         self.gotOD = True
         self.preEdgeFrame = self.odFrames[0].copy()
+
+    def computeODFromSpectrum(self, i0_spectrum):
+        """Compute OD = -log(I / I0) using an explicitly supplied I0 spectrum.
+
+        :param i0_spectrum: array-like of shape (n_energies,) — I0 intensity at each energy
+        :return: odFrames array (n_e, nY, nX), also stored in self.odFrames
+        """
+        i0 = np.asarray(i0_spectrum, dtype=float)
+        if i0.shape[0] != self.processedFrames.shape[0]:
+            raise ValueError(
+                f"i0_spectrum length {i0.shape[0]} != stack n_energies {self.processedFrames.shape[0]}"
+            )
+        self.I0 = np.reshape(i0, (len(i0), 1, 1))
+        i0_safe = np.where(i0 > 0, i0, np.nan)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            od = -np.log(self.processedFrames / i0_safe[:, np.newaxis, np.newaxis])
+        self.odFrames = np.where(np.isfinite(od), od, 0.0)
+        self.gotOD = True
+        return self.odFrames
+
+    def computeODFromHistogramMask(self, mask_2d):
+        """Compute I0 as the mean of pixels selected by a 2-D boolean mask, then compute OD.
+
+        The mask is typically derived from a brightness-histogram selection of the brightest
+        (substrate) pixels.  The resulting I0 spectrum and I0 mask are both stored on the stack.
+        :param mask_2d: bool array of shape (nY, nX) — True for pixels to include in I0
+        :return: odFrames array (n_e, nY, nX), also stored in self.odFrames
+        """
+        mask = np.asarray(mask_2d, dtype=bool)
+        n_selected = mask.sum()
+        if n_selected == 0:
+            raise ValueError("Histogram mask selects no pixels.")
+        i0 = self.processedFrames[:, mask].mean(axis=1)   # (n_e,)
+        self.i0Mask = mask
+        return self.computeODFromSpectrum(i0)
+
+    def computeODFromHistogramBounds(self, intensity_lo, intensity_hi):
+        """Select I0 pixels by intensity range on the mean frame, then compute OD.
+
+        Pixels whose mean-frame value falls in [intensity_lo, intensity_hi] are averaged
+        to form the I0 spectrum.  This is the scripted equivalent of the GUI histogram
+        region selector.
+        :param intensity_lo: float — lower intensity bound for I0 pixel selection
+        :param intensity_hi: float — upper intensity bound for I0 pixel selection
+        :return: odFrames array (n_e, nY, nX), also stored in self.odFrames
+        """
+        mean_frame = self.processedFrames.mean(axis=0)   # (nY, nX)
+        mask = (mean_frame >= intensity_lo) & (mean_frame <= intensity_hi)
+        return self.computeODFromHistogramMask(mask)
 
     def despike(self, kernel_size = 3, n_sigma = 5, od = False):
         """

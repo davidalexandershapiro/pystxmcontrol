@@ -124,6 +124,23 @@
               </widget>
              </item>
              <item>
+              <widget class="QPushButton" name="a2_recordButton">
+               <property name="text">
+                <string>Record</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="a2_exportScriptButton">
+               <property name="text">
+                <string>Export Script</string>
+               </property>
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
               <spacer name="horizontalSpacer_2">
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>

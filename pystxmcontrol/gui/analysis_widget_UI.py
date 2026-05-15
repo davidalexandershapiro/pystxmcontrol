@@ -92,6 +92,17 @@ class Ui_Analysis2Widget(object):
 
         self.a2_main_buttons_layout.addWidget(self.a2_savePngButton)
 
+        self.a2_recordButton = QPushButton(self.a2_tab_main)
+        self.a2_recordButton.setObjectName(u"a2_recordButton")
+
+        self.a2_main_buttons_layout.addWidget(self.a2_recordButton)
+
+        self.a2_exportScriptButton = QPushButton(self.a2_tab_main)
+        self.a2_exportScriptButton.setObjectName(u"a2_exportScriptButton")
+        self.a2_exportScriptButton.setEnabled(False)
+
+        self.a2_main_buttons_layout.addWidget(self.a2_exportScriptButton)
+
         self.horizontalSpacer_2 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.a2_main_buttons_layout.addItem(self.horizontalSpacer_2)
@@ -868,6 +879,8 @@ class Ui_Analysis2Widget(object):
         self.a2_saveDataButton.setText(QCoreApplication.translate("Analysis2Widget", u"Save Data", None))
         self.a2_addToLogButton.setText(QCoreApplication.translate("Analysis2Widget", u"Add to Log", None))
         self.a2_savePngButton.setText(QCoreApplication.translate("Analysis2Widget", u"Save PNG", None))
+        self.a2_recordButton.setText(QCoreApplication.translate("Analysis2Widget", u"Record", None))
+        self.a2_exportScriptButton.setText(QCoreApplication.translate("Analysis2Widget", u"Export Script", None))
         self.a2_roiTypeLabel.setText(QCoreApplication.translate("Analysis2Widget", u"ROI Type:", None))
         self.a2_roiTypeCombo.setItemText(0, QCoreApplication.translate("Analysis2Widget", u"I0", None))
         self.a2_roiTypeCombo.setItemText(1, QCoreApplication.translate("Analysis2Widget", u"Spectrum", None))
