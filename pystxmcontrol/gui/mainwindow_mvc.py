@@ -1184,9 +1184,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         if "OSA" in scan_type or not a0_calibrated:
             # Adjust ZonePlateZ offset to bring clicked position to calibration point
-            offset_delta = zone_plate_calibration - a0 - cursor_focus_z
+            offset_delta = zone_plate_calibration - cursor_focus_z
             new_offset = zone_plate_offset + offset_delta
-            print(f"setFocusZ: setting ZonePlateZ offset to {new_offset:.3f}")
+            #print(f"[setFocusZ] current offset: {zone_plate_offset}, a0: {a0}, calibrated position: {zone_plate_calibration}, cursor Z: {cursor_focus_z}")
+            #print(f"[setFocusZ] setting ZonePlateZ offset to {new_offset:.3f}")
             self.controller.handle_motor_config_change("ZonePlateZ", "offset", new_offset)
         else:
             # Calibrated A0 path: adjust A0 and SampleZ offset

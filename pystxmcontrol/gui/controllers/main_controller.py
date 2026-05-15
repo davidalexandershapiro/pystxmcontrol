@@ -1004,10 +1004,16 @@ class MainController(QObject):
                 region_num = 1
             parts.append(f"Region {region_num} of {n_regions}")
         if energy_idx not in ('', None):
-            energy_regions = self.scan_model.get('energy_regions', {})
-            n_energies = sum(
-                v.get('n_energies', 1) for v in energy_regions.values()
-            ) if energy_regions else 1
+            # Prefer the live stxm object (created once at scan-start from the
+            # compiled config) so that recompiles of scan_model triggered by UI
+            # interactions during the scan cannot produce a stale total.
+            try:
+                n_energies = len(self._live_stxm.energies["default"])
+            except (AttributeError, KeyError, TypeError):
+                energy_regions = self.scan_model.get('energy_regions', {})
+                n_energies = sum(
+                    v.get('n_energies', 1) for v in energy_regions.values()
+                ) if energy_regions else 1
             parts.append(f"Energy {int(energy_idx) + 1} of {n_energies}")
         if parts:
             self.scan_progress_updated.emit(' | '.join(parts))
