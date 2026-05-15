@@ -229,6 +229,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_i0_mask = None              # (ny, nx) bool mask from histogram I0 selection
         self._a2_crop_roi = None             # pg.RectROI used for the Crop tool
         self._recorder = ScriptRecorder()
+        self._initialize_ls_tab()
 
     # ── Single source of truth for OD frames ─────────────────────────────────
 
@@ -2107,6 +2108,10 @@ class Analysis2Widget(QtWidgets.QWidget):
         if name != 'a2_tab_main':
             self._a2_deactivate_edge_selection()
 
+        # Hide the line-spectrum ROI whenever we leave the LS tab
+        if name != 'a2_tab_metadata':
+            self._ls_hide()
+
         if name == 'a2_tab_main':
             # Clear analysis curves, restore ROI/hover curves and overlays
             self._a2_clear_cluster_curves()
@@ -2145,6 +2150,13 @@ class Analysis2Widget(QtWidgets.QWidget):
             sv = self.ui.a2_stack_viewer
             if sv.haveStack and self.ui.a2_nmfPlotCombo.isEnabled():
                 self._on_a2_nmf_plot_changed(self.ui.a2_nmfPlotCombo.currentText())
+
+        elif name == 'a2_tab_metadata':
+            # Line Spectrum tab — hide stack ROIs, show LS data and ROI
+            self._a2_set_roi_curves_visible(False)
+            self._a2_set_roi_overlays_visible(False)
+            self._a2_clear_cluster_curves()
+            self._ls_show()
 
         else:
             # Filtering, Registration — leave plot as-is but hide analysis curves and overlays
@@ -2335,6 +2347,337 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._plot_nmf_cluster_spectra()
 
     # ── end Analysis2 ROI drawing ─────────────────────────────────────────────
+
+    # ── Line Spectrum tab ─────────────────────────────────────────────────────
+
+    def _initialize_ls_tab(self):
+        """Build the Line Spectrum tab toolbar programmatically and init state."""
+        layout = self.ui.a2_tab_metadata_layout
+
+        bar = QtWidgets.QHBoxLayout()
+
+        self._ls_load_btn = QtWidgets.QPushButton("Load Scan")
+        self._ls_load_btn.setFixedWidth(100)
+        bar.addWidget(self._ls_load_btn)
+
+        bar.addSpacing(16)
+
+        self._ls_i0_cb = QtWidgets.QCheckBox("Select I0")
+        self._ls_i0_cb.setEnabled(False)
+        bar.addWidget(self._ls_i0_cb)
+
+        bar.addSpacing(8)
+
+        self._ls_od_cb = QtWidgets.QCheckBox("Optical Density")
+        self._ls_od_cb.setEnabled(False)
+        bar.addWidget(self._ls_od_cb)
+
+        bar.addStretch(1)
+
+        self._ls_save_btn = QtWidgets.QPushButton("Save Spectra")
+        self._ls_save_btn.setEnabled(False)
+        bar.addWidget(self._ls_save_btn)
+
+        layout.addLayout(bar)
+        layout.addStretch(1)
+
+        # state
+        self._ls_data     = None   # (n_spatial, n_energies) raw counts
+        self._ls_energies = None   # (n_energies,)
+        self._ls_i0       = None   # (n_energies,) I0 spectrum
+        self._ls_roi      = None   # pg.LinearRegionItem added to imageView when tab active
+
+        # dedicated spectrum curve (hidden until LS tab active)
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        self._ls_curve = pi.plot([], [], pen=pg.mkPen('c', width=1.5))
+        self._ls_curve.setVisible(False)
+
+        self._ls_load_btn.clicked.connect(self._on_ls_load)
+        self._ls_i0_cb.stateChanged.connect(self._on_ls_i0_toggled)
+        self._ls_od_cb.stateChanged.connect(self._on_ls_od_toggled)
+        self._ls_save_btn.clicked.connect(self._on_ls_save)
+
+    def _on_ls_load(self):
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Open Line Spectrum Scan", "", "STXM files (*.stxm);;All files (*)"
+        )
+        if not filepath:
+            return
+        try:
+            data, energies, scan_type = self._ls_read_stxm(filepath)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Load Error", f"Could not read file:\n{exc}")
+            return
+        if "spectrum" not in scan_type.lower():
+            QtWidgets.QMessageBox.warning(
+                self, "Wrong Scan Type",
+                f"Expected a Line Spectrum scan but got: '{scan_type}'\n\nFile not loaded."
+            )
+            return
+        self._ls_data     = data
+        self._ls_energies = energies
+        self._ls_i0       = None
+        self._ls_od_cb.blockSignals(True)
+        self._ls_od_cb.setChecked(False)
+        self._ls_od_cb.setEnabled(False)
+        self._ls_od_cb.blockSignals(False)
+        self._ls_i0_cb.blockSignals(True)
+        self._ls_i0_cb.setChecked(False)
+        self._ls_i0_cb.setEnabled(True)
+        self._ls_i0_cb.blockSignals(False)
+        self._ls_save_btn.setEnabled(True)
+        # Refresh immediately if the LS tab is already visible
+        current = self.ui.a2_workflowTabs.currentWidget()
+        if current and current.objectName() == 'a2_tab_metadata':
+            self._ls_show()
+
+    def _ls_read_stxm(self, filepath):
+        """Read a .stxm file; return (data, energies, scan_type).
+
+        data      — (n_spatial, n_energies) float64
+        energies  — (n_energies,) float64 (index-based if not found in file)
+        scan_type — string from file metadata
+        """
+        import h5py
+
+        def _s(val):
+            if isinstance(val, (list, np.ndarray)):
+                val = val[0]
+            return val.decode() if isinstance(val, (bytes, np.bytes_)) else str(val)
+
+        with h5py.File(filepath, 'r') as f:
+            try:
+                defn    = _s(f["entry0/definition"][()])
+                version = float(f["entry0/version"][()]) if defn == "NXstxm" else float(defn)
+            except Exception:
+                version = 0.0
+
+            if version >= 3.0:
+                scan_type = ""
+                data      = None
+                energies  = None
+                try:
+                    scan_type = _s(f["entry0/default/stxm_scan_type"][0])
+                except Exception:
+                    pass
+                try:
+                    for key in f["entry0/instrument"].keys():
+                        grp = f[f"entry0/instrument/{key}"]
+                        if "type" in grp.attrs and _s(grp.attrs["type"]) == "photon":
+                            path = f"entry0/{key}/data"
+                            if path in f:
+                                data = f[path][()].astype(float)
+                                break
+                except Exception:
+                    pass
+                for epath in ("entry0/default/energy", "entry0/energy",
+                              "entry0/instrument/mono/energy"):
+                    try:
+                        e = np.asarray(f[epath][()], dtype=float).ravel()
+                        if e.size > 1:
+                            energies = e
+                            break
+                    except Exception:
+                        pass
+            else:
+                scan_type = ""
+                data      = None
+                energies  = None
+                try:
+                    scan_type = _s(f["entry0/counter0/stxm_scan_type"][()][0])
+                except Exception:
+                    pass
+                try:
+                    data = f["entry0/counter0/data"][()].astype(float)
+                except Exception:
+                    pass
+                for epath in ("entry0/counter0/energy", "entry0/energy"):
+                    try:
+                        e = np.asarray(f[epath][()], dtype=float).ravel()
+                        if e.size > 1:
+                            energies = e
+                            break
+                    except Exception:
+                        pass
+
+        if data is None:
+            raise ValueError("No detector data found in file.")
+        if data.ndim == 3:
+            data = data[:, 0, :]     # (n_energies, 1, n_spatial) → (n_energies, n_spatial)
+        if data.ndim != 2:
+            raise ValueError(f"Unexpected data shape {data.shape}.")
+        data = data.T                # → (n_spatial, n_energies)
+
+        n_energies = data.shape[1]
+        if energies is None or energies.size == 0:
+            energies = np.arange(n_energies, dtype=float)
+        elif energies.size != n_energies:
+            energies = np.linspace(energies[0], energies[-1], n_energies)
+
+        return data, energies, scan_type
+
+    def _ls_show(self):
+        """Display LS data in the shared imageView and add the selection ROI."""
+        if self._ls_data is None:
+            return
+        n_spatial, _ = self._ls_data.shape
+        self._ls_update_image_view()
+        # (Re-)create the ROI
+        self._ls_remove_roi()
+        lo = n_spatial / 3.0
+        hi = 2.0 * n_spatial / 3.0
+        self._ls_roi = pg.LinearRegionItem(orientation='horizontal', values=[lo, hi])
+        self._ls_roi.sigRegionChanged.connect(self._on_ls_roi_changed)
+        self.ui.a2_imageView.getView().addItem(self._ls_roi)
+        # Set spectrum plot axes
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        pi.setLabel('bottom', 'Energy', units='eV')
+        if self._ls_od_cb.isChecked():
+            pi.setLabel('left', 'Optical Density')
+            pi.getAxis('left').enableAutoSIPrefix(False)
+        else:
+            pi.setLabel('left', 'Counts')
+            pi.getAxis('left').enableAutoSIPrefix(True)
+        self._ls_curve.setVisible(True)
+        self._ls_update_spectrum()
+
+    def _ls_hide(self):
+        """Remove the LS ROI and hide the LS spectrum curve."""
+        self._ls_remove_roi()
+        if self._ls_curve is not None:
+            self._ls_curve.setVisible(False)
+
+    def _ls_remove_roi(self):
+        if self._ls_roi is not None:
+            try:
+                self.ui.a2_imageView.getView().removeItem(self._ls_roi)
+            except Exception:
+                pass
+            self._ls_roi = None
+
+    def _ls_update_image_view(self):
+        """Display raw counts or OD image depending on checkbox state."""
+        if self._ls_data is None:
+            return
+        if self._ls_od_cb.isChecked() and self._ls_i0 is not None:
+            i0 = self._ls_i0.copy()
+            i0[i0 <= 0] = np.nan
+            od = -np.log(self._ls_data / i0[np.newaxis, :])
+            od = np.nan_to_num(od, nan=0.0, posinf=0.0, neginf=0.0)
+            display = np.ascontiguousarray(od.T)       # (n_energies, n_spatial)
+        else:
+            display = np.ascontiguousarray(self._ls_data.T)
+        self.ui.a2_imageView.setImage(display)
+
+    def _on_ls_roi_changed(self):
+        self._ls_update_spectrum()
+
+    def _ls_get_roi_slice(self):
+        """Return (idx0, idx1) for the selected spatial rows, or None."""
+        if self._ls_roi is None or self._ls_data is None:
+            return None
+        n_spatial = self._ls_data.shape[0]
+        y0, y1 = self._ls_roi.getRegion()
+        idx0 = max(0, int(np.floor(y0)))
+        idx1 = min(n_spatial, int(np.ceil(y1)))
+        return (idx0, idx1) if idx0 < idx1 else None
+
+    def _ls_update_spectrum(self):
+        """Recompute the spectrum for the current ROI and display mode."""
+        if self._ls_data is None or self._ls_energies is None or self._ls_curve is None:
+            return
+        sl = self._ls_get_roi_slice()
+        if sl is None:
+            self._ls_curve.setData([], [])
+            return
+        idx0, idx1 = sl
+
+        if self._ls_od_cb.isChecked() and self._ls_i0 is not None:
+            i0 = self._ls_i0.copy()
+            i0[i0 <= 0] = np.nan
+            od = -np.log(self._ls_data / i0[np.newaxis, :])
+            od = np.nan_to_num(od, nan=0.0, posinf=0.0, neginf=0.0)
+            spectrum = od[idx0:idx1, :].mean(axis=0)
+        else:
+            spectrum = self._ls_data[idx0:idx1, :].mean(axis=0)
+            # Live-update I0 while Select I0 is active
+            if self._ls_i0_cb.isChecked():
+                self._ls_i0 = spectrum.copy()
+                self._ls_od_cb.setEnabled(True)
+
+        self._ls_curve.setData(self._ls_energies, spectrum)
+
+    def _on_ls_i0_toggled(self, state):
+        if not state:
+            return
+        self._ls_od_cb.blockSignals(True)
+        self._ls_od_cb.setChecked(False)
+        self._ls_od_cb.blockSignals(False)
+        self._ls_update_image_view()
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        pi.setLabel('left', 'Counts')
+        pi.getAxis('left').enableAutoSIPrefix(True)
+        self._ls_update_spectrum()
+
+    def _on_ls_od_toggled(self, state):
+        if state:
+            if self._ls_i0 is None:
+                self._ls_od_cb.blockSignals(True)
+                self._ls_od_cb.setChecked(False)
+                self._ls_od_cb.blockSignals(False)
+                return
+            self._ls_i0_cb.blockSignals(True)
+            self._ls_i0_cb.setChecked(False)
+            self._ls_i0_cb.blockSignals(False)
+            pi = self.ui.a2_spectrumPlot.getPlotItem()
+            pi.setLabel('left', 'Optical Density')
+            pi.getAxis('left').enableAutoSIPrefix(False)
+        else:
+            pi = self.ui.a2_spectrumPlot.getPlotItem()
+            pi.setLabel('left', 'Counts')
+            pi.getAxis('left').enableAutoSIPrefix(True)
+        self._ls_update_image_view()
+        self._ls_update_spectrum()
+
+    def _on_ls_save(self):
+        if self._ls_data is None or self._ls_energies is None:
+            return
+        sl = self._ls_get_roi_slice()
+        if sl is None:
+            QtWidgets.QMessageBox.warning(
+                self, "No Selection", "Adjust the ROI to select a region first."
+            )
+            return
+        idx0, idx1 = sl
+        if self._ls_od_cb.isChecked() and self._ls_i0 is not None:
+            i0 = self._ls_i0.copy()
+            i0[i0 <= 0] = np.nan
+            od = -np.log(self._ls_data / i0[np.newaxis, :])
+            od = np.nan_to_num(od, nan=0.0, posinf=0.0, neginf=0.0)
+            spectrum = od[idx0:idx1, :].mean(axis=0)
+            col_label = "OD"
+        else:
+            spectrum = self._ls_data[idx0:idx1, :].mean(axis=0)
+            col_label = "Counts"
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Spectrum", "", "CSV files (*.csv);;All files (*)"
+        )
+        if not filepath:
+            return
+        if not filepath.lower().endswith(".csv"):
+            filepath += ".csv"
+        try:
+            np.savetxt(
+                filepath,
+                np.column_stack([self._ls_energies, spectrum]),
+                delimiter=",",
+                header=f"Energy_eV,{col_label}",
+                comments="",
+            )
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Save Error", f"Could not save:\n{exc}")
+
+    # ── end Line Spectrum tab ─────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
