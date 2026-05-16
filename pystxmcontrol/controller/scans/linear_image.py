@@ -288,7 +288,8 @@ class LinearImageScan(BaseScan):
         y_motor_name = self.scan["y_motor"]
         x_coarse, _ = self.scanInfo["offset"]
         start_x = self.scanInfo["start_position_x"]
-        wait_time = geometry["xPoints"] * 0.0001
+        base_wait = self.controller.main_config["geometry"].get("line_wait_time", 0.02)
+        wait_time = base_wait + geometry["xPoints"] * 0.0001
 
         for line_index, y_pos in enumerate(geometry["yPos"]):
             # Check for abort
