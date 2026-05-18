@@ -322,12 +322,16 @@ class MainController(QObject):
                             if data is None:
                                 continue
                             daq_type = daq_cfg.get(daq_key, {}).get('type', 'point')
-                            if daq_type == 'image':
+                            if daq_type == 'spectrum':
+                                monitor_data[daq_key] = list(data)
+                            elif daq_type == 'image':
                                 value = float(np.sum(data))
+                                buf = monitor_data.get(daq_key, []) + [value]
+                                monitor_data[daq_key] = buf[-500:]
                             else:
                                 value = float(data[0])
-                            buf = monitor_data.get(daq_key, []) + [value]
-                            monitor_data[daq_key] = buf[-500:]
+                                buf = monitor_data.get(daq_key, []) + [value]
+                                monitor_data[daq_key] = buf[-500:]
                     if self.PROFILE_IMAGE_UPDATE:
                         self._prof_tick('2a_monitor_data_accumulate', time.perf_counter() - _t0)
                         _t0 = time.perf_counter()
@@ -1000,10 +1004,16 @@ class MainController(QObject):
                 region_num = 1
             parts.append(f"Region {region_num} of {n_regions}")
         if energy_idx not in ('', None):
-            energy_regions = self.scan_model.get('energy_regions', {})
-            n_energies = sum(
-                v.get('n_energies', 1) for v in energy_regions.values()
-            ) if energy_regions else 1
+            # Prefer the live stxm object (created once at scan-start from the
+            # compiled config) so that recompiles of scan_model triggered by UI
+            # interactions during the scan cannot produce a stale total.
+            try:
+                n_energies = len(self._live_stxm.energies["default"])
+            except (AttributeError, KeyError, TypeError):
+                energy_regions = self.scan_model.get('energy_regions', {})
+                n_energies = sum(
+                    v.get('n_energies', 1) for v in energy_regions.values()
+                ) if energy_regions else 1
             parts.append(f"Energy {int(energy_idx) + 1} of {n_energies}")
         if parts:
             self.scan_progress_updated.emit(' | '.join(parts))

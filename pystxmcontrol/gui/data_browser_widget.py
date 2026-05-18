@@ -3,7 +3,7 @@ import numpy as np
 import h5py
 from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
-from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache
+from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache, make_thumbnail_array
 
 
 # ─────────────────────────── helpers ──────────────────────────────────────────
@@ -27,6 +27,19 @@ def _array_to_pixmap(arr, width=128, height=128):
     return pixmap.scaled(
         width, height, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
     )
+
+
+def _h5str(val) -> str:
+    """Return a plain str from an h5py scalar that may be bytes or str.
+
+    h5py 2.x returns bytes for string datasets; h5py 3.x returns str.
+    Both cases are handled here so callers don't need .decode().
+    """
+    if isinstance(val, (list, np.ndarray)):
+        val = val[0]
+    if isinstance(val, (bytes, np.bytes_)):
+        return val.decode()
+    return str(val)
 
 
 def _get_version(f):
@@ -67,11 +80,11 @@ def _load_preview(filepath):
 
         if version >= 3.0:
             try:
-                scan_type = f["entry0/default/stxm_scan_type"][0].decode()
+                scan_type = _h5str(f["entry0/default/stxm_scan_type"][0])
             except Exception:
                 pass
             try:
-                start_time = f["entry0/start_time"][()].decode()
+                start_time = _h5str(f["entry0/start_time"][()])
             except Exception:
                 pass
             # find first photon detector and use its interpolated data
@@ -80,16 +93,24 @@ def _load_preview(filepath):
                     grp = f[f"entry0/instrument/{key}"]
                     if (
                         "type" in grp.attrs
-                        and grp.attrs["type"].decode() == "photon"
+                        and _h5str(grp.attrs["type"]) == "photon"
                     ):
                         data_path = f"entry0/{key}/data"
                         if data_path in f:
                             data = f[data_path][()]
                             if data.ndim == 3:
                                 n_frames = data.shape[0]
-                                arr = data[0]
+                                if "Spectrum" in scan_type and data.shape[1] == 1:
+                                    # (n_energies, 1, x_pts) → transpose to
+                                    # (x_pts, n_energies): spatial rows, energy cols
+                                    arr = data[:, 0, :].T
+                                else:
+                                    arr = data[0]
                             elif data.ndim == 2:
-                                arr = data
+                                if "Spectrum" in scan_type:
+                                    arr = data.T  # (n_energies, x_pts) → (x_pts, n_energies)
+                                else:
+                                    arr = data
                             break
             except Exception:
                 pass
@@ -101,28 +122,23 @@ def _load_preview(filepath):
 
         else:
             try:
-                scan_type = f["entry0/counter0/stxm_scan_type"][()][0].decode()
+                scan_type = _h5str(f["entry0/counter0/stxm_scan_type"][()][0])
             except Exception:
                 pass
             try:
-                st = f["entry0/start_time"][()]
-                if isinstance(st, (list, np.ndarray)):
-                    start_time = (
-                        st[0].decode() if isinstance(st[0], bytes) else str(st[0])
-                    )
-                else:
-                    start_time = (
-                        st.decode() if isinstance(st, bytes) else str(st)
-                    )
+                start_time = _h5str(f["entry0/start_time"][()])
             except Exception:
                 pass
             try:
                 data = f["entry0/counter0/data"][()]
                 if data.ndim == 3:
                     n_frames = data.shape[0]
-                    arr = data[0]
+                    if "Spectrum" in scan_type and data.shape[1] == 1:
+                        arr = data[:, 0, :].T
+                    else:
+                        arr = data[0]
                 elif data.ndim == 2:
-                    arr = data
+                    arr = data.T if "Spectrum" in scan_type else data
             except Exception:
                 pass
             try:
@@ -204,7 +220,8 @@ class ThumbnailLoader(QtCore.QThread):
             if self.cache is not None:
                 self.cache.put(fp, arr, scan_type, start_time, x_range_um)
 
-            self.thumbnail_ready.emit(fp, arr, scan_type, start_time, x_range_um)
+            thumb = make_thumbnail_array(arr) if arr is not None else None
+            self.thumbnail_ready.emit(fp, thumb, scan_type, start_time, x_range_um)
             self.progress.emit(i + 1, total)
 
 
@@ -303,6 +320,11 @@ class DataBrowserWidget(QtWidgets.QWidget):
     """
 
     THUMB_COLS = 3
+
+    # Emitted when the user clicks a thumbnail card — carries the file path.
+    file_selected = QtCore.Signal(str)
+    # Emitted when the user clicks "Send to Analysis" — carries the file path.
+    send_to_analysis = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -463,6 +485,12 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self.log_comment_edit = QtWidgets.QLineEdit()
         self.log_comment_edit.setPlaceholderText("Comment for logbook…")
         export_bar.addWidget(self.log_comment_edit, stretch=1)
+
+        self.send_analysis_btn = QtWidgets.QPushButton("Send to Analysis")
+        self.send_analysis_btn.setFixedWidth(130)
+        self.send_analysis_btn.setEnabled(False)
+        self.send_analysis_btn.clicked.connect(self._on_send_to_analysis)
+        export_bar.addWidget(self.send_analysis_btn)
 
         detail_layout.addLayout(export_bar)
 
@@ -627,6 +655,12 @@ class DataBrowserWidget(QtWidgets.QWidget):
         for fp, card in self._cards.items():
             card.set_selected(fp == filepath)
         self._show_detail(filepath)
+        self.send_analysis_btn.setEnabled(True)
+        self.file_selected.emit(filepath)
+
+    def _on_send_to_analysis(self):
+        if self._current_filepath:
+            self.send_to_analysis.emit(self._current_filepath)
 
     @staticmethod
     def _find_recon_file(stxm_path):
@@ -656,7 +690,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
             energy_str  = ""
             try:
                 with h5py.File(filepath, "r") as _f:
-                    source_name = _f["entry0/instrument/source/name"][()].decode()
+                    source_name = _h5str(_f["entry0/instrument/source/name"][()])
             except Exception:
                 pass
             try:
@@ -694,21 +728,42 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
                 # find all photon detectors: instrument groups with type='photon'
                 # that also have a matching NXdata group at entry0 level
+                scan_type_str = self._export_meta.get("scan_type", "")
+                is_spectrum = "Spectrum" in scan_type_str
                 for det_name in hf.get("entry0/instrument", {}).keys():
                     instr_grp = hf[f"entry0/instrument/{det_name}"]
-                    is_photon = instr_grp.attrs.get("type", b"").decode() == "photon"
+                    is_photon = _h5str(instr_grp.attrs.get("type", b"")) == "photon"
                     data_path = f"entry0/{det_name}/data"
                     if is_photon and data_path in hf:
                         data = hf[data_path][()]
-                        if data.ndim == 3:
-                            _, n_ypx, n_xpx = data.shape
-                        elif data.ndim == 2:
-                            n_ypx, n_xpx = data.shape
+                        if is_spectrum:
+                            # Collapse to 2D (n_energies, x_pts) then pre-transpose so
+                            # _on_detector_changed's .T gives (n_energies, x_pts) to
+                            # pyqtgraph → energy on x-axis, spatial on y-axis.
+                            if data.ndim == 3:
+                                data_2d = data[:, 0, :]       # (n_energies, x_pts)
+                            elif data.ndim == 2:
+                                data_2d = data                 # already (n_energies, x_pts)
+                            else:
+                                data_2d = data.reshape(1, -1)
+                            n_energies, x_pts = data_2d.shape
+                            e_range = (float(energies.max() - energies.min())
+                                       if energies.size > 1 else 1.0)
+                            x_scale = e_range / n_energies if n_energies > 0 else 1.0
+                            y_scale = x_range_um / x_pts if x_pts > 0 and x_range_um > 0 else 1.0
+                            self._stxm_detector_data[det_name] = (
+                                data_2d.T, x_scale, y_scale, x_range_um
+                            )
                         else:
-                            n_ypx = n_xpx = 1
-                        x_scale = x_range_um / n_xpx if n_xpx > 0 and x_range_um > 0 else 1.0
-                        y_scale = y_range_um / n_ypx if n_ypx > 0 and y_range_um > 0 else 1.0
-                        self._stxm_detector_data[det_name] = (data, x_scale, y_scale, x_range_um)
+                            if data.ndim == 3:
+                                _, n_ypx, n_xpx = data.shape
+                            elif data.ndim == 2:
+                                n_ypx, n_xpx = data.shape
+                            else:
+                                n_ypx = n_xpx = 1
+                            x_scale = x_range_um / n_xpx if n_xpx > 0 and x_range_um > 0 else 1.0
+                            y_scale = y_range_um / n_ypx if n_ypx > 0 and y_range_um > 0 else 1.0
+                            self._stxm_detector_data[det_name] = (data, x_scale, y_scale, x_range_um)
 
             if not self._stxm_detector_data:
                 self.detail_text.setPlainText("No photon detector data found.")
@@ -749,11 +804,11 @@ class DataBrowserWidget(QtWidgets.QWidget):
                     except Exception:
                         dwell_val = None
                     try:
-                        x_motor = hf["entry0/default/motor_name_x"][()].decode()
+                        x_motor = _h5str(hf["entry0/default/motor_name_x"][()])
                     except Exception:
                         x_motor = nx.meta.get("x_motor", "")
                     try:
-                        y_motor = hf["entry0/default/motor_name_y"][()].decode()
+                        y_motor = _h5str(hf["entry0/default/motor_name_y"][()])
                     except Exception:
                         y_motor = nx.meta.get("y_motor", "")
 
@@ -800,6 +855,9 @@ class DataBrowserWidget(QtWidgets.QWidget):
         if not det_name or det_name not in self._stxm_detector_data:
             return
         data, x_scale, y_scale, x_range_um = self._stxm_detector_data[det_name]
+
+        is_spectrum = "Spectrum" in self._export_meta.get("scan_type", "")
+        self.detail_image.getView().setAspectLocked(not is_spectrum)
 
         if data.ndim == 3:
             self.detail_image.setImage(
@@ -869,19 +927,19 @@ class DataBrowserWidget(QtWidgets.QWidget):
             # ── collect export metadata from the stxm file ────────────────────
             try:
                 with h5py.File(stxm_path, "r") as _sf:
-                    start = _sf["entry0/start_time"][()].decode()
+                    start = _h5str(_sf["entry0/start_time"][()])
                     date_str = start[:10] if len(start) >= 10 else start
                     time_str = start[11:19] if len(start) >= 19 else ""
                     try:
-                        source_name = _sf["entry0/instrument/source/name"][()].decode()
+                        source_name = _h5str(_sf["entry0/instrument/source/name"][()])
                     except Exception:
                         source_name = ""
                     try:
-                        proposal = _sf["entry0/title"][()].decode()
+                        proposal = _h5str(_sf["entry0/title"][()])
                     except Exception:
                         proposal = ""
                     try:
-                        scan_type = _sf["entry0/default/stxm_scan_type"][0].decode()
+                        scan_type = _h5str(_sf["entry0/default/stxm_scan_type"][0])
                     except Exception:
                         scan_type = "Ptychography Image"
                 self._export_meta = {

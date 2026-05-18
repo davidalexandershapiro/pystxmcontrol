@@ -7,6 +7,7 @@ import numpy as np
 import qdarktheme
 
 from pystxmcontrol.gui.analysis_widget_UI import Ui_Analysis2Widget
+from pystxmcontrol.utils.script_recorder import ScriptRecorder, records
 
 
 class Analysis2Widget(QtWidgets.QWidget):
@@ -81,6 +82,10 @@ class Analysis2Widget(QtWidgets.QWidget):
         """Wire controller signals — call after __init__ when embedding in main window."""
         controller.live_data_ready.connect(self.ui.a2_stack_viewer.recv_live_data)
 
+    def load_file(self, filepath: str):
+        """Load a .stxm file directly — called by the browser when a file is selected."""
+        self.ui.a2_stack_viewer.receiveStack(filepath)
+
     # ── Theme ─────────────────────────────────────────────────────────────────
 
     def _load_gui_theme(self):
@@ -132,6 +137,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         ui.a2_saveDataButton.clicked.connect(self._on_a2_save_data)
         ui.a2_addToLogButton.clicked.connect(self._on_a2_add_to_log)
         ui.a2_savePngButton.clicked.connect(self._on_a2_save_png)
+        ui.a2_recordButton.clicked.connect(self._on_a2_record_toggle)
+        ui.a2_exportScriptButton.clicked.connect(self._on_a2_export_script)
         ui.a2_autoProcessButton.clicked.connect(self._on_a2_auto_process)
         ui.a2_mapButton.clicked.connect(self._on_a2_map)
         ui.a2_resetButton.clicked.connect(self._on_a2_reset)
@@ -211,7 +218,6 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_rubber_band = None      # live PlotCurveItem shown while drawing
         self._a2_pending_color = None
         self._a2_pending_roi = None      # kept for toggle-cleanup only
-        self._a2_od_frames = None        # cached OD array (n_e, ny, nx) or None
         self._a2_cluster_curves = []     # PlotDataItems for cluster/eigenvalue plot
         self._a2_pre_edge_region = None  # pg.LinearRegionItem for pre-edge selection
         self._a2_cursor_text = ""        # live cursor readout shown above energy line
@@ -222,6 +228,22 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_i0_hist_spectrum = None     # (n_e,) I0 spectrum from histogram mask
         self._a2_i0_mask = None              # (ny, nx) bool mask from histogram I0 selection
         self._a2_crop_roi = None             # pg.RectROI used for the Crop tool
+        self._recorder = ScriptRecorder()
+        self._initialize_ls_tab()
+
+    # ── Single source of truth for OD frames ─────────────────────────────────
+
+    @property
+    def _a2_od_frames(self):
+        """Delegates directly to sv.stack.odFrames — one array, no copies."""
+        sv = self.ui.a2_stack_viewer
+        return sv.stack.odFrames if sv.haveStack else None
+
+    @_a2_od_frames.setter
+    def _a2_od_frames(self, value):
+        sv = self.ui.a2_stack_viewer
+        if sv.haveStack:
+            sv.stack.odFrames = value
 
     def _on_a2_stack_loaded(self):
         """Display the full stack in a2_imageView when a stack is loaded."""
@@ -238,28 +260,45 @@ class Analysis2Widget(QtWidgets.QWidget):
                 self.ui.a2_selectI0FromHistogramCheckbox.blockSignals(True)
                 self.ui.a2_selectI0FromHistogramCheckbox.setChecked(False)
                 self.ui.a2_selectI0FromHistogramCheckbox.blockSignals(False)
-        # Reset OD and I0 mask state for the new stack
-        self._a2_od_frames = None
+        # Sync OD checkbox with sv.stack.odFrames — do NOT clear sv.stack.odFrames here,
+        # because stack_loaded is also emitted after operations that just computed OD
+        # (e.g. autoProcess).  For a fresh file load sv.stack.odFrames is already None
+        # (reset() sets it to None), so the checkbox will be disabled correctly.
+        has_od = sv.stack.odFrames is not None
         self._a2_i0_mask = None
         self._a2_update_mask_checkbox_state()
         if hasattr(self.ui, 'a2_odCheckbox'):
-            self.ui.a2_odCheckbox.setChecked(False)
-            self.ui.a2_odCheckbox.setEnabled(False)
-        # Reset clustering combos — only re-enable after Calculate PCA
+            self.ui.a2_odCheckbox.blockSignals(True)
+            self.ui.a2_odCheckbox.setEnabled(has_od)
+            if not has_od:
+                self.ui.a2_odCheckbox.setChecked(False)
+            self.ui.a2_odCheckbox.blockSignals(False)
+        # Reset clustering/decomposition combos only when results no longer exist.
+        # stack_loaded fires both on new file load AND after operations (applyPCA, align,
+        # etc.).  For a new load the stack's arrays are None; for a post-op signal they
+        # may still be valid and should not be cleared from the UI.
+        stack = sv.stack
+        has_pca = getattr(stack, 'pcaImages', None) is not None
+        has_nmf = getattr(stack, 'nmfMaps', None) is not None
         if hasattr(self.ui, 'a2_clusterImageCombo'):
-            self.ui.a2_clusterImageCombo.setEnabled(False)
-            self.ui.a2_clusterImageCombo.setCurrentIndex(0)
+            if not has_pca:
+                self.ui.a2_clusterImageCombo.setEnabled(False)
+                self.ui.a2_clusterImageCombo.setCurrentIndex(0)
         if hasattr(self.ui, 'a2_clusterPlotCombo'):
-            self.ui.a2_clusterPlotCombo.setEnabled(False)
-            self.ui.a2_clusterPlotCombo.setCurrentIndex(0)
+            if not has_pca:
+                self.ui.a2_clusterPlotCombo.setEnabled(False)
+                self.ui.a2_clusterPlotCombo.setCurrentIndex(0)
         if hasattr(self.ui, 'a2_nmfDisplayCombo'):
-            self.ui.a2_nmfDisplayCombo.setEnabled(False)
-            self.ui.a2_nmfDisplayCombo.setCurrentIndex(0)
+            if not has_nmf:
+                self.ui.a2_nmfDisplayCombo.setEnabled(False)
+                self.ui.a2_nmfDisplayCombo.setCurrentIndex(0)
         if hasattr(self.ui, 'a2_nmfPlotCombo'):
-            self.ui.a2_nmfPlotCombo.setEnabled(False)
-            self.ui.a2_nmfPlotCombo.setCurrentIndex(0)
+            if not has_nmf:
+                self.ui.a2_nmfPlotCombo.setEnabled(False)
+                self.ui.a2_nmfPlotCombo.setCurrentIndex(0)
         if hasattr(self.ui, 'a2_nmfProgressBar'):
-            self.ui.a2_nmfProgressBar.setValue(0)
+            if not has_nmf:
+                self.ui.a2_nmfProgressBar.setValue(0)
         pi = self.ui.a2_spectrumPlot.getPlotItem()
         for curve in self._a2_cluster_curves:
             pi.removeItem(curve)
@@ -464,6 +503,13 @@ class Analysis2Widget(QtWidgets.QWidget):
         viewport = self.ui.a2_imageView.ui.graphicsView.viewport()
 
         if roi_type == 'Crop':
+            # Ensure the freehand event filter is never active in Crop mode
+            viewport.removeEventFilter(self)
+            self._a2_drawing = False
+            self._a2_draw_points = []
+            if self._a2_rubber_band is not None:
+                self.ui.a2_imageView.removeItem(self._a2_rubber_band)
+                self._a2_rubber_band = None
             if bool(state):
                 self._a2_add_crop_roi()
             else:
@@ -593,27 +639,58 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_update_od_checkbox_state()
         self._on_a2_roi_changed()
 
+    @records("delete_frame")
     def _on_a2_delete_frame(self):
-        """Delete the currently displayed frame from the stack."""
+        """Delete the currently displayed energy frame without a full stack reset."""
         sv = self.ui.a2_stack_viewer
         if not sv.haveStack:
             return
-        idx = self.ui.a2_imageView.currentIndex
-        energy = sv.stack.energies[idx]
-        sv.stack.deleteFrame(energy)
-        # deleteFrame calls stack.reset() which rebuilds processedFrames/energies;
-        # reload the display so the removed frame is gone
-        sv.stack_loaded.emit()
+        n_e = sv.stack.processedFrames.shape[0]
+        if n_e <= 2:
+            return
+        idx = max(0, min(self.ui.a2_imageView.currentIndex, n_e - 1))
+        energy = float(sv.stack.energies[idx])
+
+        sv.stack.deleteFrameInPlace(energy)
+
+        # Sync stack viewer slider
+        new_n = sv.stack.processedFrames.shape[0]
+        sv.ui.verticalSlider.setMaximum(new_n - 1)
+        sv.ui.verticalSlider.setValue(min(sv.ui.verticalSlider.value(), new_n - 1))
+
+        new_idx = min(idx, new_n - 1)
+        self._a2_refresh_image_view()
+        self.ui.a2_imageView.setCurrentIndex(new_idx)
+        self._a2_update_roi_curves()
+        return {"energy": energy}
+        self._a2_update_od_checkbox_state()
 
     # ── Crop ROI ──────────────────────────────────────────────────────────────
 
     def _on_a2_roi_type_changed(self):
-        """Remove the crop ROI when the user switches away from the Crop type."""
-        if self.ui.a2_roiTypeCombo.currentText() != 'Crop' and self._a2_crop_roi is not None:
-            self._a2_remove_crop_roi()
-            self.ui.a2_drawRoiCheckbox.blockSignals(True)
-            self.ui.a2_drawRoiCheckbox.setChecked(False)
-            self.ui.a2_drawRoiCheckbox.blockSignals(False)
+        """Sync event filter and crop ROI whenever the ROI type combo changes."""
+        roi_type = self.ui.a2_roiTypeCombo.currentText()
+        viewport = self.ui.a2_imageView.ui.graphicsView.viewport()
+        is_checked = self.ui.a2_drawRoiCheckbox.isChecked()
+
+        if roi_type == 'Crop':
+            # Remove freehand event filter — it must not intercept RectROI mouse events
+            viewport.removeEventFilter(self)
+            self._a2_drawing = False
+            self._a2_draw_points = []
+            if self._a2_rubber_band is not None:
+                self.ui.a2_imageView.removeItem(self._a2_rubber_band)
+                self._a2_rubber_band = None
+            # Add crop ROI if the checkbox was already checked
+            if is_checked:
+                self._a2_add_crop_roi()
+        else:
+            # Switching away from Crop — tear down the crop ROI
+            if self._a2_crop_roi is not None:
+                self._a2_remove_crop_roi()
+                self.ui.a2_drawRoiCheckbox.blockSignals(True)
+                self.ui.a2_drawRoiCheckbox.setChecked(False)
+                self.ui.a2_drawRoiCheckbox.blockSignals(False)
 
     def _a2_add_crop_roi(self):
         """Place a resizable RectROI over the image for crop selection."""
@@ -644,6 +721,7 @@ class Analysis2Widget(QtWidgets.QWidget):
     def _a2_update_crop_button_state(self):
         self.ui.a2_cropButton.setEnabled(self._a2_crop_roi is not None)
 
+    @records("crop_frames")
     def _on_a2_crop(self):
         """Crop all frames and OD data to the bounds of the Crop RectROI."""
         sv = self.ui.a2_stack_viewer
@@ -665,17 +743,23 @@ class Analysis2Widget(QtWidgets.QWidget):
             return stop > start
         if not (_valid(col_sl, nx) and _valid(row_sl, ny)):
             return
-        sv.stack.processedFrames = frames[:, row_sl, col_sl].copy()
-        if sv.stack.odFrames is not None:
-            sv.stack.odFrames = sv.stack.odFrames[:, row_sl, col_sl].copy()
-        if self._a2_od_frames is not None:
-            self._a2_od_frames = self._a2_od_frames[:, row_sl, col_sl].copy()
+        r0 = row_sl.start if row_sl.start is not None else 0
+        r1 = row_sl.stop  if row_sl.stop  is not None else ny
+        c0 = col_sl.start if col_sl.start is not None else 0
+        c1 = col_sl.stop  if col_sl.stop  is not None else nx
+        xstep = getattr(sv.stack, 'xpixelsize', 1.0)
+        ystep = getattr(sv.stack, 'ypixelsize', 1.0)
+        comment = (f"crop: x={c0*xstep:.2f}–{c1*xstep:.2f} µm, "
+                   f"y={r0*ystep:.2f}–{r1*ystep:.2f} µm")
+        sv.stack.cropFrames(row_sl, col_sl)
         # Clean up
         self._a2_remove_crop_roi()
         self.ui.a2_drawRoiCheckbox.blockSignals(True)
         self.ui.a2_drawRoiCheckbox.setChecked(False)
         self.ui.a2_drawRoiCheckbox.blockSignals(False)
         sv.stack_loaded.emit()
+        return {"row_start": r0, "row_stop": r1, "col_start": c0, "col_stop": c1,
+                "comment": comment}
 
 
     def _a2_update_mask_checkbox_state(self):
@@ -750,10 +834,6 @@ class Analysis2Widget(QtWidgets.QWidget):
         if not i0_entries:
             if self._a2_i0_hist_spectrum is not None:
                 i0 = self._a2_i0_hist_spectrum
-            elif sv.stack.odFrames is not None and self._a2_od_frames is None:
-                # Preserve OD from Auto Process; don't wipe it just because there's no ROI
-                self._a2_od_frames = sv.stack.odFrames
-                return
             else:
                 return
         else:
@@ -767,11 +847,7 @@ class Analysis2Widget(QtWidgets.QWidget):
                 return
 
         try:
-            i0 = np.where(np.asarray(i0) > 0, i0, np.nan)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                od = -np.log(raw / i0[:, np.newaxis, np.newaxis])
-            od = np.where(np.isfinite(od), od, 0.0)
-            self._a2_od_frames = od
+            sv.stack.computeODFromSpectrum(i0)
         except Exception:
             self._a2_od_frames = None
 
@@ -782,8 +858,12 @@ class Analysis2Widget(QtWidgets.QWidget):
         if not sv.haveStack:
             return
         od_on = bool(state)
+        hist_bounds = None
         if od_on:
             if self._a2_histogram_mode:
+                # Capture histogram bounds before _a2_exit_histogram_mode destroys the region
+                hist_bounds = (self._a2_i0_hist_region.getRegion()
+                               if self._a2_i0_hist_region is not None else None)
                 # Compute OD while _a2_i0_hist_spectrum is still alive, THEN dismiss
                 # histogram mode.  Dismissing first would clear the spectrum and make OD
                 # unavailable, causing _a2_update_od_checkbox_state to disable the checkbox.
@@ -803,8 +883,6 @@ class Analysis2Widget(QtWidgets.QWidget):
                 idx = self.ui.a2_roiTypeCombo.findText('Spectrum')
                 if idx >= 0:
                     self.ui.a2_roiTypeCombo.setCurrentIndex(idx)
-        else:
-            self._a2_od_frames = None
         # Show/hide the I0 ROI and its spectrum curve
         for entry in self._a2_rois:
             if entry['type'] == 'I0':
@@ -821,6 +899,16 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
         self._a2_update_norm_button_state()
+        # Record only when turning OD on — turning it off is not a scripted action
+        if od_on and sv.stack.I0 is not None:
+            if hist_bounds is not None:
+                self._recorder.record("compute_od_histogram",
+                                      intensity_lo=float(hist_bounds[0]),
+                                      intensity_hi=float(hist_bounds[1]))
+            else:
+                self._recorder.record("compute_od",
+                                      i0_spectrum=list(np.asarray(sv.stack.I0.ravel(),
+                                                                   dtype=float)))
 
     def _a2_refresh_image_view(self):
         """Push the current display frames (raw or OD) into a2_imageView."""
@@ -928,9 +1016,7 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         sv.progress_updated.emit(0)
         if use_od:
-            sv.stack.odFrames = self._a2_od_frames
             sv.stack.alignODFrames(sobelFilter=sobel, mode=mode, autocrop=autocrop)
-            self._a2_od_frames = sv.stack.odFrames
         elif use_custom:
             sv.stack.alignFramesCustom(
                 mode=mode,
@@ -966,6 +1052,17 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._update_a2_info_panel(energy_idx)
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
+        if use_od:
+            self._recorder.record("align_od_frames",
+                                  mode=mode, sobel=sobel, autocrop=autocrop)
+        elif use_custom:
+            self._recorder.record("align_frames_custom",
+                                  mode=mode, align_method=align_method,
+                                  reference_idx=reference_idx, thresholded=thresholded,
+                                  threshold=threshold, sobel=sobel, autocrop=autocrop)
+        else:
+            self._recorder.record("align_frames",
+                                  mode=mode, sobel=sobel, autocrop=autocrop)
 
     def _on_a2_reg_undo(self):
         self.ui.a2_stack_viewer.undoFilter()
@@ -987,6 +1084,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         if hasattr(self.ui, 'a2_subtractDarkButton'):
             self.ui.a2_subtractDarkButton.setEnabled(True)
 
+    @records("median_filter")
     def _on_a2_median_filter(self):
         """Apply median filter with kernel size from text edit."""
         try:
@@ -994,7 +1092,9 @@ class Analysis2Widget(QtWidgets.QWidget):
         except ValueError:
             return
         self.ui.a2_stack_viewer.applyMedianFilter(size)
+        return {"size": size, "axis": 2}
 
+    @records("despike")
     def _on_a2_despike(self):
         """Apply despike with kernel size and N sigma from text edits."""
         try:
@@ -1003,6 +1103,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         except ValueError:
             return
         self.ui.a2_stack_viewer.applyDespike(kernel_size, n_sigma)
+        return {"kernel_size": kernel_size, "n_sigma": n_sigma}
 
     # ── Analysis2 Map button ─────────────────────────────────────────────────
 
@@ -1059,8 +1160,6 @@ class Analysis2Widget(QtWidgets.QWidget):
         sv = self.ui.a2_stack_viewer
         if not sv.haveStack or sv.stack.odFrames is None:
             return
-        # Populate _a2_od_frames so hover and ROI spectra read OD data
-        self._a2_od_frames = sv.stack.odFrames
         # Enable and check the OD checkbox without triggering _on_a2_od_toggled
         if hasattr(self.ui, 'a2_odCheckbox'):
             self.ui.a2_odCheckbox.blockSignals(True)
@@ -1120,7 +1219,6 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         # ── Step 3: Optical density ───────────────────────────────────────────
         stack.calcOD()
-        self._a2_od_frames = stack.odFrames
         self.ui.a2_odCheckbox.blockSignals(True)
         self.ui.a2_odCheckbox.setEnabled(True)
         self.ui.a2_odCheckbox.setChecked(True)
@@ -1201,7 +1299,7 @@ class Analysis2Widget(QtWidgets.QWidget):
                       lambda: tif_imsave(path, stack.processedFrames.astype('float32')))
 
         # ── OD frames ────────────────────────────────────────────────────────
-        od = self._a2_od_frames if self._a2_od_frames is not None else stack.odFrames
+        od = self._a2_od_frames
         if od is not None:
             path = os.path.join(save_dir, "odFrames.tif")
             _try_save("odFrames.tif",
@@ -1408,6 +1506,36 @@ class Analysis2Widget(QtWidgets.QWidget):
         painter.end()
         return out
 
+    def _on_a2_record_toggle(self):
+        """Start or stop recording analysis actions."""
+        if self._recorder.recording:
+            self._recorder.stop()
+            self.ui.a2_recordButton.setText("Record")
+            self.ui.a2_recordButton.setStyleSheet("")
+            self.ui.a2_exportScriptButton.setEnabled(self._recorder.has_actions)
+        else:
+            sv = self.ui.a2_stack_viewer
+            self._recorder.start()
+            # Auto-prepend load_stack so the exported script is self-contained
+            if sv.haveStack:
+                filepath = getattr(sv.stack, 'fileName', None) or getattr(sv.stack, 'nxFile', '')
+                region   = getattr(sv.stack, 'iRegion', 0)
+                self._recorder.record("load_stack", filepath=filepath, region=region)
+            self.ui.a2_recordButton.setText("Stop")
+            self.ui.a2_recordButton.setStyleSheet("color: red; font-weight: bold;")
+
+    def _on_a2_export_script(self):
+        """Show a save dialog and write the recorded script to disk."""
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export Analysis Script", "", "Python Script (*.py)"
+        )
+        if not path:
+            return
+        if not path.endswith(".py"):
+            path += ".py"
+        self._recorder.export_script(path)
+        QtWidgets.QMessageBox.information(self, "Script Exported", f"Saved to:\n{path}")
+
     def _on_a2_save_png(self):
         """Save the current image and/or spectrum plot as a PNG file."""
         sv = self.ui.a2_stack_viewer
@@ -1562,12 +1690,11 @@ class Analysis2Widget(QtWidgets.QWidget):
 
     # ── Analysis2 Clustering tab ─────────────────────────────────────────────
 
+    @records("calc_pca")
     def _on_a2_calc_pca(self):
         """Run PCA + clustering, then enable the display/plot combos."""
         sv = self.ui.a2_stack_viewer
-        od = self._a2_od_frames if self._a2_od_frames is not None else (
-            sv.stack.odFrames if sv.haveStack else None
-        )
+        od = self._a2_od_frames
         if not sv.haveStack or od is None:
             QtWidgets.QMessageBox.warning(
                 self, "Optical Density Required",
@@ -1606,6 +1733,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         # Enable combos now that PCA results exist
         self.ui.a2_clusterImageCombo.setEnabled(True)
         self.ui.a2_clusterPlotCombo.setEnabled(True)
+        return {"n_components": n_components, "n_clusters": n_clusters}
 
     def _on_a2_cluster_image_changed(self, text):
         """Switch the image view to show the selected data type."""
@@ -1759,6 +1887,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         energies = np.asarray(sv.stack.energies)
         return np.where((energies >= lo) & (energies <= hi))[0]
 
+    @records("subtract_pre_edge")
     def _on_a2_subtract_pre_edge(self):
         """Average odFrames over the pre-edge region and subtract from all OD frames."""
         if self._a2_pre_edge_region is None:
@@ -1768,26 +1897,19 @@ class Analysis2Widget(QtWidgets.QWidget):
             )
             return
         sv = self.ui.a2_stack_viewer
-        idxs = self._a2_frames_in_region(self._a2_pre_edge_region)
-        if len(idxs) == 0:
+        if len(self._a2_frames_in_region(self._a2_pre_edge_region)) == 0:
             QtWidgets.QMessageBox.warning(self, "Empty Region",
                                           "No energy frames fall within the pre-edge region.")
             return
-        od = self._a2_od_frames
-        bg = od[idxs].mean(axis=0)                          # (nY, nX)
-        updated = od - bg[np.newaxis, :, :]
-        sv.stack.odFrames = updated
-        self._a2_od_frames = updated
+        energy_lo, energy_hi = self._a2_pre_edge_region.getRegion()
+        sv.stack.subtractPreEdgeBackground(energy_lo, energy_hi)
         self._a2_refresh_image_view()
         self._a2_update_roi_curves()
+        return {"energy_lo": float(energy_lo), "energy_hi": float(energy_hi)}
 
+    @records("detrend_pre_edge")
     def _on_a2_detrend(self):
-        """Fit a line to the pre-edge OD region and remove that linear trend from every pixel.
-
-        The slope comes from a linear fit to the mean spectrum in the pre-edge energy window.
-        The per-pixel intercept is anchored to the first energy frame so frame 0 is unchanged
-        and only the slope-driven drift is subtracted across the stack.
-        """
+        """Fit a per-pixel linear trend to the pre-edge OD region and remove it from the stack."""
         if self._a2_pre_edge_region is None:
             QtWidgets.QMessageBox.warning(
                 self, "No Pre-Edge Selected",
@@ -1795,34 +1917,15 @@ class Analysis2Widget(QtWidgets.QWidget):
             )
             return
         sv = self.ui.a2_stack_viewer
-        idxs = self._a2_frames_in_region(self._a2_pre_edge_region)
-        if len(idxs) == 0:
+        if len(self._a2_frames_in_region(self._a2_pre_edge_region)) == 0:
             QtWidgets.QMessageBox.warning(self, "Empty Region",
                                           "No energy frames fall within the pre-edge region.")
             return
-
-        od       = self._a2_od_frames              # (n_e, nY, nX)
-        energies = sv.stack.energies               # (n_e,)
-
-        # Per-pixel linear fit over the pre-edge energy window.
-        # Centre energies for numerical stability; the slope formula reduces to a
-        # simple weighted sum — fully vectorised, no pixel-by-pixel loop needed.
-        pre_e  = energies[idxs]                    # (n_pre,)
-        pre_od = od[idxs]                          # (n_pre, nY, nX)
-        ec     = pre_e - pre_e.mean()              # centred energies
-        denom  = (ec ** 2).sum()                   # scalar
-        # slope[y, x] = Σ( ec[i] * od[i,y,x] ) / Σ( ec[i]² )
-        slope  = (ec[:, np.newaxis, np.newaxis] * pre_od).sum(axis=0) / denom  # (nY, nX)
-
-        # Remove the per-pixel linear trend, anchoring at energy[0] so frame 0 is unchanged.
-        e0      = energies[0]
-        de      = (energies - e0)[:, np.newaxis, np.newaxis]   # (n_e, 1, 1)
-        updated = od - slope[np.newaxis, :, :] * de
-
-        sv.stack.odFrames = updated
-        self._a2_od_frames = updated
+        energy_lo, energy_hi = self._a2_pre_edge_region.getRegion()
+        sv.stack.detrendPreEdge(energy_lo, energy_hi)
         self._a2_refresh_image_view()
         self._a2_update_roi_curves()
+        return {"energy_lo": float(energy_lo), "energy_hi": float(energy_hi)}
 
     def _on_a2_reset(self):
         """Uncheck pre-edge selection then delegate to the stack viewer reset."""
@@ -1937,10 +2040,12 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._a2_i0_hist_spectrum = i0
             self._a2_i0_mask = mask                    # (ny, nx) bool — persisted for saving
             sv.stack.I0 = np.reshape(i0, (len(i0), 1, 1))
+            sv.stack.i0Mask = mask
         else:
             self._a2_i0_hist_spectrum = None
             self._a2_i0_mask = None
             sv.stack.I0 = None
+            sv.stack.i0Mask = None
         self._a2_update_mask_checkbox_state()
 
         # Update OD checkbox state and recompute OD if it is currently active
@@ -2003,6 +2108,10 @@ class Analysis2Widget(QtWidgets.QWidget):
         if name != 'a2_tab_main':
             self._a2_deactivate_edge_selection()
 
+        # Hide the line-spectrum ROI whenever we leave the LS tab
+        if name != 'a2_tab_metadata':
+            self._ls_hide()
+
         if name == 'a2_tab_main':
             # Clear analysis curves, restore ROI/hover curves and overlays
             self._a2_clear_cluster_curves()
@@ -2042,6 +2151,13 @@ class Analysis2Widget(QtWidgets.QWidget):
             if sv.haveStack and self.ui.a2_nmfPlotCombo.isEnabled():
                 self._on_a2_nmf_plot_changed(self.ui.a2_nmfPlotCombo.currentText())
 
+        elif name == 'a2_tab_metadata':
+            # Line Spectrum tab — hide stack ROIs, show LS data and ROI
+            self._a2_set_roi_curves_visible(False)
+            self._a2_set_roi_overlays_visible(False)
+            self._a2_clear_cluster_curves()
+            self._ls_show()
+
         else:
             # Filtering, Registration — leave plot as-is but hide analysis curves and overlays
             self._a2_clear_cluster_curves()
@@ -2052,6 +2168,7 @@ class Analysis2Widget(QtWidgets.QWidget):
 
     _NMF_INIT_MAP = {'NNDSVDA': 'nndsvda', 'Random': 'random'}
 
+    @records("calc_nmf")
     def _on_a2_calc_nmf(self):
         """Run NMF decomposition, then enable the display/plot combos."""
         sv = self.ui.a2_stack_viewer
@@ -2107,6 +2224,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         self.ui.a2_nmfPlotCombo.setCurrentIndex(0)
         self._show_nmf_components()
         self._plot_nmf_component_spectra()
+        return {"n_components": n_components, "n_clusters": n_clusters,
+                "max_iter": max_iter, "init": init}
 
     def _show_nmf_components(self):
         """Display the NMF spatial weight maps in the image view."""
@@ -2228,6 +2347,337 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._plot_nmf_cluster_spectra()
 
     # ── end Analysis2 ROI drawing ─────────────────────────────────────────────
+
+    # ── Line Spectrum tab ─────────────────────────────────────────────────────
+
+    def _initialize_ls_tab(self):
+        """Build the Line Spectrum tab toolbar programmatically and init state."""
+        layout = self.ui.a2_tab_metadata_layout
+
+        bar = QtWidgets.QHBoxLayout()
+
+        self._ls_load_btn = QtWidgets.QPushButton("Load Scan")
+        self._ls_load_btn.setFixedWidth(100)
+        bar.addWidget(self._ls_load_btn)
+
+        bar.addSpacing(16)
+
+        self._ls_i0_cb = QtWidgets.QCheckBox("Select I0")
+        self._ls_i0_cb.setEnabled(False)
+        bar.addWidget(self._ls_i0_cb)
+
+        bar.addSpacing(8)
+
+        self._ls_od_cb = QtWidgets.QCheckBox("Optical Density")
+        self._ls_od_cb.setEnabled(False)
+        bar.addWidget(self._ls_od_cb)
+
+        bar.addStretch(1)
+
+        self._ls_save_btn = QtWidgets.QPushButton("Save Spectra")
+        self._ls_save_btn.setEnabled(False)
+        bar.addWidget(self._ls_save_btn)
+
+        layout.addLayout(bar)
+        layout.addStretch(1)
+
+        # state
+        self._ls_data     = None   # (n_spatial, n_energies) raw counts
+        self._ls_energies = None   # (n_energies,)
+        self._ls_i0       = None   # (n_energies,) I0 spectrum
+        self._ls_roi      = None   # pg.LinearRegionItem added to imageView when tab active
+
+        # dedicated spectrum curve (hidden until LS tab active)
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        self._ls_curve = pi.plot([], [], pen=pg.mkPen('c', width=1.5))
+        self._ls_curve.setVisible(False)
+
+        self._ls_load_btn.clicked.connect(self._on_ls_load)
+        self._ls_i0_cb.stateChanged.connect(self._on_ls_i0_toggled)
+        self._ls_od_cb.stateChanged.connect(self._on_ls_od_toggled)
+        self._ls_save_btn.clicked.connect(self._on_ls_save)
+
+    def _on_ls_load(self):
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Open Line Spectrum Scan", "", "STXM files (*.stxm);;All files (*)"
+        )
+        if not filepath:
+            return
+        try:
+            data, energies, scan_type = self._ls_read_stxm(filepath)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Load Error", f"Could not read file:\n{exc}")
+            return
+        if "spectrum" not in scan_type.lower():
+            QtWidgets.QMessageBox.warning(
+                self, "Wrong Scan Type",
+                f"Expected a Line Spectrum scan but got: '{scan_type}'\n\nFile not loaded."
+            )
+            return
+        self._ls_data     = data
+        self._ls_energies = energies
+        self._ls_i0       = None
+        self._ls_od_cb.blockSignals(True)
+        self._ls_od_cb.setChecked(False)
+        self._ls_od_cb.setEnabled(False)
+        self._ls_od_cb.blockSignals(False)
+        self._ls_i0_cb.blockSignals(True)
+        self._ls_i0_cb.setChecked(False)
+        self._ls_i0_cb.setEnabled(True)
+        self._ls_i0_cb.blockSignals(False)
+        self._ls_save_btn.setEnabled(True)
+        # Refresh immediately if the LS tab is already visible
+        current = self.ui.a2_workflowTabs.currentWidget()
+        if current and current.objectName() == 'a2_tab_metadata':
+            self._ls_show()
+
+    def _ls_read_stxm(self, filepath):
+        """Read a .stxm file; return (data, energies, scan_type).
+
+        data      — (n_spatial, n_energies) float64
+        energies  — (n_energies,) float64 (index-based if not found in file)
+        scan_type — string from file metadata
+        """
+        import h5py
+
+        def _s(val):
+            if isinstance(val, (list, np.ndarray)):
+                val = val[0]
+            return val.decode() if isinstance(val, (bytes, np.bytes_)) else str(val)
+
+        with h5py.File(filepath, 'r') as f:
+            try:
+                defn    = _s(f["entry0/definition"][()])
+                version = float(f["entry0/version"][()]) if defn == "NXstxm" else float(defn)
+            except Exception:
+                version = 0.0
+
+            if version >= 3.0:
+                scan_type = ""
+                data      = None
+                energies  = None
+                try:
+                    scan_type = _s(f["entry0/default/stxm_scan_type"][0])
+                except Exception:
+                    pass
+                try:
+                    for key in f["entry0/instrument"].keys():
+                        grp = f[f"entry0/instrument/{key}"]
+                        if "type" in grp.attrs and _s(grp.attrs["type"]) == "photon":
+                            path = f"entry0/{key}/data"
+                            if path in f:
+                                data = f[path][()].astype(float)
+                                break
+                except Exception:
+                    pass
+                for epath in ("entry0/default/energy", "entry0/energy",
+                              "entry0/instrument/mono/energy"):
+                    try:
+                        e = np.asarray(f[epath][()], dtype=float).ravel()
+                        if e.size > 1:
+                            energies = e
+                            break
+                    except Exception:
+                        pass
+            else:
+                scan_type = ""
+                data      = None
+                energies  = None
+                try:
+                    scan_type = _s(f["entry0/counter0/stxm_scan_type"][()][0])
+                except Exception:
+                    pass
+                try:
+                    data = f["entry0/counter0/data"][()].astype(float)
+                except Exception:
+                    pass
+                for epath in ("entry0/counter0/energy", "entry0/energy"):
+                    try:
+                        e = np.asarray(f[epath][()], dtype=float).ravel()
+                        if e.size > 1:
+                            energies = e
+                            break
+                    except Exception:
+                        pass
+
+        if data is None:
+            raise ValueError("No detector data found in file.")
+        if data.ndim == 3:
+            data = data[:, 0, :]     # (n_energies, 1, n_spatial) → (n_energies, n_spatial)
+        if data.ndim != 2:
+            raise ValueError(f"Unexpected data shape {data.shape}.")
+        data = data.T                # → (n_spatial, n_energies)
+
+        n_energies = data.shape[1]
+        if energies is None or energies.size == 0:
+            energies = np.arange(n_energies, dtype=float)
+        elif energies.size != n_energies:
+            energies = np.linspace(energies[0], energies[-1], n_energies)
+
+        return data, energies, scan_type
+
+    def _ls_show(self):
+        """Display LS data in the shared imageView and add the selection ROI."""
+        if self._ls_data is None:
+            return
+        n_spatial, _ = self._ls_data.shape
+        self._ls_update_image_view()
+        # (Re-)create the ROI
+        self._ls_remove_roi()
+        lo = n_spatial / 3.0
+        hi = 2.0 * n_spatial / 3.0
+        self._ls_roi = pg.LinearRegionItem(orientation='horizontal', values=[lo, hi])
+        self._ls_roi.sigRegionChanged.connect(self._on_ls_roi_changed)
+        self.ui.a2_imageView.getView().addItem(self._ls_roi)
+        # Set spectrum plot axes
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        pi.setLabel('bottom', 'Energy', units='eV')
+        if self._ls_od_cb.isChecked():
+            pi.setLabel('left', 'Optical Density')
+            pi.getAxis('left').enableAutoSIPrefix(False)
+        else:
+            pi.setLabel('left', 'Counts')
+            pi.getAxis('left').enableAutoSIPrefix(True)
+        self._ls_curve.setVisible(True)
+        self._ls_update_spectrum()
+
+    def _ls_hide(self):
+        """Remove the LS ROI and hide the LS spectrum curve."""
+        self._ls_remove_roi()
+        if self._ls_curve is not None:
+            self._ls_curve.setVisible(False)
+
+    def _ls_remove_roi(self):
+        if self._ls_roi is not None:
+            try:
+                self.ui.a2_imageView.getView().removeItem(self._ls_roi)
+            except Exception:
+                pass
+            self._ls_roi = None
+
+    def _ls_update_image_view(self):
+        """Display raw counts or OD image depending on checkbox state."""
+        if self._ls_data is None:
+            return
+        if self._ls_od_cb.isChecked() and self._ls_i0 is not None:
+            i0 = self._ls_i0.copy()
+            i0[i0 <= 0] = np.nan
+            od = -np.log(self._ls_data / i0[np.newaxis, :])
+            od = np.nan_to_num(od, nan=0.0, posinf=0.0, neginf=0.0)
+            display = np.ascontiguousarray(od.T)       # (n_energies, n_spatial)
+        else:
+            display = np.ascontiguousarray(self._ls_data.T)
+        self.ui.a2_imageView.setImage(display)
+
+    def _on_ls_roi_changed(self):
+        self._ls_update_spectrum()
+
+    def _ls_get_roi_slice(self):
+        """Return (idx0, idx1) for the selected spatial rows, or None."""
+        if self._ls_roi is None or self._ls_data is None:
+            return None
+        n_spatial = self._ls_data.shape[0]
+        y0, y1 = self._ls_roi.getRegion()
+        idx0 = max(0, int(np.floor(y0)))
+        idx1 = min(n_spatial, int(np.ceil(y1)))
+        return (idx0, idx1) if idx0 < idx1 else None
+
+    def _ls_update_spectrum(self):
+        """Recompute the spectrum for the current ROI and display mode."""
+        if self._ls_data is None or self._ls_energies is None or self._ls_curve is None:
+            return
+        sl = self._ls_get_roi_slice()
+        if sl is None:
+            self._ls_curve.setData([], [])
+            return
+        idx0, idx1 = sl
+
+        if self._ls_od_cb.isChecked() and self._ls_i0 is not None:
+            i0 = self._ls_i0.copy()
+            i0[i0 <= 0] = np.nan
+            od = -np.log(self._ls_data / i0[np.newaxis, :])
+            od = np.nan_to_num(od, nan=0.0, posinf=0.0, neginf=0.0)
+            spectrum = od[idx0:idx1, :].mean(axis=0)
+        else:
+            spectrum = self._ls_data[idx0:idx1, :].mean(axis=0)
+            # Live-update I0 while Select I0 is active
+            if self._ls_i0_cb.isChecked():
+                self._ls_i0 = spectrum.copy()
+                self._ls_od_cb.setEnabled(True)
+
+        self._ls_curve.setData(self._ls_energies, spectrum)
+
+    def _on_ls_i0_toggled(self, state):
+        if not state:
+            return
+        self._ls_od_cb.blockSignals(True)
+        self._ls_od_cb.setChecked(False)
+        self._ls_od_cb.blockSignals(False)
+        self._ls_update_image_view()
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
+        pi.setLabel('left', 'Counts')
+        pi.getAxis('left').enableAutoSIPrefix(True)
+        self._ls_update_spectrum()
+
+    def _on_ls_od_toggled(self, state):
+        if state:
+            if self._ls_i0 is None:
+                self._ls_od_cb.blockSignals(True)
+                self._ls_od_cb.setChecked(False)
+                self._ls_od_cb.blockSignals(False)
+                return
+            self._ls_i0_cb.blockSignals(True)
+            self._ls_i0_cb.setChecked(False)
+            self._ls_i0_cb.blockSignals(False)
+            pi = self.ui.a2_spectrumPlot.getPlotItem()
+            pi.setLabel('left', 'Optical Density')
+            pi.getAxis('left').enableAutoSIPrefix(False)
+        else:
+            pi = self.ui.a2_spectrumPlot.getPlotItem()
+            pi.setLabel('left', 'Counts')
+            pi.getAxis('left').enableAutoSIPrefix(True)
+        self._ls_update_image_view()
+        self._ls_update_spectrum()
+
+    def _on_ls_save(self):
+        if self._ls_data is None or self._ls_energies is None:
+            return
+        sl = self._ls_get_roi_slice()
+        if sl is None:
+            QtWidgets.QMessageBox.warning(
+                self, "No Selection", "Adjust the ROI to select a region first."
+            )
+            return
+        idx0, idx1 = sl
+        if self._ls_od_cb.isChecked() and self._ls_i0 is not None:
+            i0 = self._ls_i0.copy()
+            i0[i0 <= 0] = np.nan
+            od = -np.log(self._ls_data / i0[np.newaxis, :])
+            od = np.nan_to_num(od, nan=0.0, posinf=0.0, neginf=0.0)
+            spectrum = od[idx0:idx1, :].mean(axis=0)
+            col_label = "OD"
+        else:
+            spectrum = self._ls_data[idx0:idx1, :].mean(axis=0)
+            col_label = "Counts"
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Spectrum", "", "CSV files (*.csv);;All files (*)"
+        )
+        if not filepath:
+            return
+        if not filepath.lower().endswith(".csv"):
+            filepath += ".csv"
+        try:
+            np.savetxt(
+                filepath,
+                np.column_stack([self._ls_energies, spectrum]),
+                delimiter=",",
+                header=f"Energy_eV,{col_label}",
+                comments="",
+            )
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Save Error", f"Could not save:\n{exc}")
+
+    # ── end Line Spectrum tab ─────────────────────────────────────────────────
 
 
 if __name__ == "__main__":

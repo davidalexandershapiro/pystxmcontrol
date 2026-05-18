@@ -159,8 +159,20 @@ class nptMotor(motor):
 
     def getPos(self):
         if not(self.simulation):
-            pos = self.controller.getPos(axis = self._axis)
-            self.position = pos * self.config["units"] + self.config["offset"]
+            min_val = self.config["minValue"]
+            max_val = self.config["maxValue"]
+            travel_range = max_val - min_val
+            lower_bound = min_val - travel_range
+            upper_bound = max_val + travel_range
+            for attempt in range(5):
+                pos = self.controller.getPos(axis=self._axis)
+                converted = pos * self.config["units"] + self.config["offset"]
+                if lower_bound <= converted <= upper_bound:
+                    self.position = converted
+                    return self.position
+                if attempt < 4:
+                    time.sleep(0.02)
+            print(f"[nptMotor] getPos: encoder outlier on axis {self.axis} after 5 attempts, returning last known position {self.position:.3f}")
             return self.position
         else:
             return self.position
