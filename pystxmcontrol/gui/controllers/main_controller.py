@@ -643,6 +643,8 @@ class MainController(QObject):
                 self.scan_model.set('single_energy', False)
                 self.scan_model.set('energy_list', energies)
             else:
+                self.scan_model.set('energy_list', None)
+                self.scan_model.set('single_energy', view.ui.toggleSingleEnergy.isChecked())
                 for i, energy_widget in enumerate(view.energy_region_widgets):
                     region_name = f"EnergyRegion{i + 1}"
                     energy_data = self._extract_energy_region_data(energy_widget, view)
