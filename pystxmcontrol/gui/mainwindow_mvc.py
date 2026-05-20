@@ -103,6 +103,7 @@ class _SigFigAxisItem(pg.AxisItem):
         self._annotating = False
 
 
+
 class MainWindowMVC(QtWidgets.QMainWindow):
     """
     Main window class refactored to follow MVC architecture.
@@ -161,7 +162,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.currentRPIData = None
         self.ptychoXpixm = 1.0
         self.ptychoYpixm = 1.0
-        self.scaleBarLength = 0.0
         self.currentLoadFile = ''
         self.currentDataDir = ''
         self.currentFile = ''
@@ -411,6 +411,44 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Invert Y axis so that moving the ROI upward gives more negative Y,
         # matching the microscope convention (moving sample down = field of view moves up).
         self.ui.mainImage.getView().invertY(True)
+
+        # Unified background bar behind both the metadata text and scale bar.
+        self._meta_bar_bg = QtWidgets.QGraphicsRectItem()
+        self._meta_bar_bg.setBrush(pg.mkBrush(0, 0, 0, 180))
+        self._meta_bar_bg.setPen(pg.mkPen(None))
+        self._meta_bar_bg.setZValue(5)
+        self.ui.mainImage.getView().addItem(self._meta_bar_bg, ignoreBounds=True)
+        self._meta_bar_bg.setVisible(False)
+
+        # Scale bar — physical size is set when image data arrives; pyqtgraph
+        # automatically adjusts the bar's pixel width as you zoom.
+        self._main_scale_bar = pg.ScaleBar(size=10, suffix='µm', offset=(-20, -20),
+                                               brush=pg.mkBrush('w'), pen=pg.mkPen('w'))
+        self._main_scale_bar.text.setColor('w')
+        self._main_scale_bar.setParentItem(self.ui.mainImage.getView())
+        self._main_scale_bar.setZValue(10)
+        self._main_scale_bar.setVisible(False)
+
+        # ALS logo — scaled to fit the bar height, drawn at fixed pixel size.
+        _logo_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), '..', '..', 'icons', 'als-logo.png'))
+        _logo_pix = QtGui.QPixmap(_logo_path)
+        if not _logo_pix.isNull():
+            _logo_pix = _logo_pix.scaledToHeight(30, QtCore.Qt.SmoothTransformation)
+        self._logo_item = QtWidgets.QGraphicsPixmapItem(_logo_pix)
+        self._logo_item.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations, True)
+        self._logo_item.setZValue(10)
+        self.ui.mainImage.getView().addItem(self._logo_item, ignoreBounds=True)
+        self._logo_item.setVisible(False)
+        self._logo_px_width = _logo_pix.width() if not _logo_pix.isNull() else 0
+
+        # Metadata text — pinned to the bottom-left of the visible view range.
+        self._meta_text = pg.TextItem(text='', anchor=(0, 1), color=(220, 220, 220))
+        self._meta_text.setFont(QtGui.QFont("Monospace", 8))
+        self._meta_text.setZValue(10)
+        self.ui.mainImage.getView().addItem(self._meta_text, ignoreBounds=True)
+        self._meta_text.setVisible(False)
+        self.ui.mainImage.getView().sigRangeChanged.connect(self._reposition_meta_text)
         
         # Set up default values
         self.ui.focusRangeEdit.setText('100')
@@ -1288,19 +1326,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.xCursorPos.setText(f"{x_real:.3f}")
         self.ui.yCursorPos.setText(f"{y_real:.3f}")
 
-        # Calculate and update scale bar using the ImageItem's actual pixel size
-        if hasattr(self.ui, 'scaleBarLength'):
-            try:
-                um_per_screen_px = self.ui.mainImage.getView().viewPixelSize()[0]
-                if um_per_screen_px > 0:
-                    self.scaleBarLength = np.round(100. * um_per_screen_px, 3)
-                    if self.scaleBarLength < 1.:
-                        scale_text = f"{self.scaleBarLength * 1000.} nm"
-                    else:
-                        scale_text = f"{self.scaleBarLength} um"
-                    self.ui.scaleBarLength.setText(scale_text)
-            except:
-                pass
 
         # Read image intensity at cursor position (needs pixel coords from ImageItem)
         scene_pos = self.ui.mainImage.getImageItem().mapFromScene(pos)
@@ -1453,14 +1478,66 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     # View update methods (called by controller signals)
 
-    def _update_image_labels(self, pixel_size=None, dwell=None, energy=None):
-        """Update the pixel-size / dwell-time / energy labels below the image."""
+
+    def _reposition_meta_text(self):
+        """Keep the bottom bar (background + text) pinned to the visual bottom of the view."""
+        vb = self.ui.mainImage.getView()
+        r = vb.viewRange()
+        px_w, px_h = vb.viewPixelSize()
+
+        bar_h_data = 48 * abs(px_h)
+        x0, x1 = r[0][0], r[0][1]
+        y_bottom = r[1][1]           # visual bottom with invertY
+
+        x_pad = (x1 - x0) * 0.01
+        y_pad = (r[1][1] - r[1][0]) * 0.01
+
+        self._meta_bar_bg.setRect(x0, y_bottom - bar_h_data, x1 - x0, bar_h_data)
+
+        # Logo: bottom-aligned with the text
+        if self._logo_px_width > 0:
+            logo_h_data = 30 * abs(px_h)
+            self._logo_item.setPos(x0 + x_pad, y_bottom - logo_h_data - 1.5*y_pad)
+            logo_gap_data = (self._logo_px_width + 6) * abs(px_w)
+        else:
+            logo_gap_data = 0
+
+        self._meta_text.setPos(x0 + logo_gap_data + x_pad, y_bottom - y_pad)
+
+    def _update_image_overlays(self, x_range: float, pixel_size=None,
+                               dwell=None, energy=None, channel=None):
+        """Refresh scale bar size and metadata text from current scan model."""
+        # Scale bar
+        bar_um = round(max(1.0, x_range / 5.0), 1)
+        self._main_scale_bar.size = bar_um
+        self._main_scale_bar.updateBar()
+        self._main_scale_bar.text.setText(f"{bar_um:g} µm")
+        self._main_scale_bar.setVisible(True)
+
+        # Metadata text — two lines
+        m = self.controller.scan_model
+        row1 = '   '.join(p for p in [
+            m.get('proposal', ''),
+            m.get('scan_type', ''),
+            m.get('sample', ''),
+            f"Channel: {channel}" if channel else '',
+        ] if p)
+        row2_parts = []
         if pixel_size is not None:
-            self.ui.pixelSizeLabel.setText(f"{pixel_size:.3f} um")
+            row2_parts.append(f"Pixel Size: {pixel_size:.3f} µm")
         if dwell is not None:
-            self.ui.dwellTimeLabel.setText(f"{dwell} ms")
+            row2_parts.append(f"Dwell: {dwell} ms")
         if energy is not None:
-            self.ui.imageEnergyLabel.setText(f"{energy:.1f} eV")
+            row2_parts.append(f"Energy: {energy:.1f} eV")
+        row2 = '   '.join(row2_parts)
+
+        lines = [l for l in [row1, row2] if l]
+        self._meta_text.setText('\n'.join(lines))
+        visible = bool(lines)
+        self._meta_text.setVisible(visible)
+        self._meta_bar_bg.setVisible(visible)
+        self._logo_item.setVisible(visible and self._logo_px_width > 0)
+        self._reposition_meta_text()
 
     def update_motor_position_display(self, motor_name: str, position: float):
         """Update motor position display."""
@@ -1555,17 +1632,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Get current image geometry settings to maintain coordinate system
         image_model = self.controller.get_image_model()
 
-        # Update the scan-info labels from values already stored in the model
-        self._update_image_labels(
-            pixel_size=image_model.get('pixel_size'),
-            dwell=image_model.get('current_dwell'),
-            energy=image_model.get('current_energy'),
-        )
         x_center = image_model.get('x_center', 0.0)
         y_center = image_model.get('y_center', 0.0)
         x_range = image_model.get('x_range', 70.0)
         y_range = image_model.get('y_range', 70.0)
         image_scale = image_model.get('image_scale', (0.7, 0.7))
+
+        self._update_image_overlays(
+            x_range,
+            pixel_size=image_model.get('pixel_size'),
+            dwell=image_model.get('current_dwell'),
+            energy=image_model.get('current_energy'),
+            channel=image_model.get('channel_key', ''),
+        )
 
         scan_type = image_model.get('scan_type', '')
         # Track what scan type is currently displayed so ROI mismatch can be detected
@@ -1982,8 +2061,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 else:
                     dwell = energy = None
 
-                self._update_image_labels(pixel_size=pixel_size,
-                                          dwell=dwell, energy=energy)
             except (ValueError, AttributeError):
                 pass
 
