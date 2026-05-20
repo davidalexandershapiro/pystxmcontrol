@@ -1289,11 +1289,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.yCursorPos.setText(f"{y_real:.3f}")
 
         # Calculate and update scale bar using the ImageItem's actual pixel size
-        if hasattr(self.ui, 'scaleBarLength') and hasattr(self.ui.mainImage, 'imageItem'):
+        if hasattr(self.ui, 'scaleBarLength'):
             try:
-                pixel_size = self.ui.mainImage.imageItem.pixelSize()[0]
-                if pixel_size > 0:
-                    self.scaleBarLength = np.round(100. / pixel_size, 3)
+                um_per_screen_px = self.ui.mainImage.getView().viewPixelSize()[0]
+                if um_per_screen_px > 0:
+                    self.scaleBarLength = np.round(100. * um_per_screen_px, 3)
                     if self.scaleBarLength < 1.:
                         scale_text = f"{self.scaleBarLength * 1000.} nm"
                     else:

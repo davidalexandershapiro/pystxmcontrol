@@ -606,7 +606,12 @@ class dataHandler:
                 scanInfo["data"] = {}
                 scanInfo["image"] = {}
                 processor_name = self._DATA_PROCESSORS.get(scanInfo["mode"], "_process_continuous")
-                getattr(self, processor_name)(scanInfo)
+                # Run the processor in a thread executor so that blocking file I/O
+                # (h5py writes to NFS mounts) does not stall the event loop and delay
+                # asyncio.sleep callbacks in the scan loop, causing timing errors.
+                await asyncio.get_event_loop().run_in_executor(
+                    None, getattr(self, processor_name), scanInfo
+                )
                 await self.sendDataToSock(scanInfo)
 
     async def sendDataToSock(self, scan_info):

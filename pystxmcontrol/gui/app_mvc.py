@@ -11,8 +11,12 @@ import faulthandler
 faulthandler.enable()   # print Python traceback to stderr on SIGSEGV/SIGFPE
 
 import qdarktheme
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSplashScreen
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import Qt
 from pystxmcontrol.gui.mainwindow_mvc import MainWindowMVC
+
+_ICONS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'icons'))
 
 
 def _load_gui_theme():
@@ -29,12 +33,23 @@ def main():
     """Main application entry point."""
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet(_load_gui_theme()))
+    app.setWindowIcon(QIcon(os.path.join(_ICONS_DIR, 'pystxmcontrol_icon.png')))
+    app.setDesktopFileName('pystxmcontrol')
 
-    # Create and show the main window
+    splash = QSplashScreen(
+        QPixmap(os.path.join(_ICONS_DIR, 'pystxmcontrol_splash.png')),
+        Qt.WindowStaysOnTopHint,
+    )
+    splash.show()
+    splash.raise_()
+    for i in range(10000):
+        app.processEvents()
+    splash.repaint()
+
     window = MainWindowMVC()
     window.show()
+    splash.finish(window)
 
-    # Start the application event loop
     sys.exit(app.exec())
 
 
