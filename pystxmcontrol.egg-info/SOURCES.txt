@@ -11,6 +11,13 @@ config/scan.json
 config/xeryon_default.txt
 pystxmcontrol/__init__.py
 pystxmcontrol/stxmcontrol.py
+pystxmcontrol.egg-info/._PKG-INFO
+pystxmcontrol.egg-info/._SOURCES.txt
+pystxmcontrol.egg-info/._dependency_links.txt
+pystxmcontrol.egg-info/._entry_points.txt
+pystxmcontrol.egg-info/._not-zip-safe
+pystxmcontrol.egg-info/._requires.txt
+pystxmcontrol.egg-info/._top_level.txt
 pystxmcontrol.egg-info/PKG-INFO
 pystxmcontrol.egg-info/SOURCES.txt
 pystxmcontrol.egg-info/dependency_links.txt
@@ -102,9 +109,12 @@ pystxmcontrol/drivers/xpsMotor.py
 pystxmcontrol/drivers/xspress3.py
 pystxmcontrol/drivers/zmqFrameReaderDAQ.py
 pystxmcontrol/gui/__init__.py
+pystxmcontrol/gui/analysis_widget.py
+pystxmcontrol/gui/analysis_widget_UI.py
 pystxmcontrol/gui/app_mvc.py
 pystxmcontrol/gui/bkg_mainwindow.py
 pystxmcontrol/gui/bkgwindowwidget.py
+pystxmcontrol/gui/browser_analysis_app.py
 pystxmcontrol/gui/customwidget.py
 pystxmcontrol/gui/data_browser_widget.py
 pystxmcontrol/gui/energyDef.py
@@ -139,6 +149,7 @@ pystxmcontrol/utils/general.py
 pystxmcontrol/utils/image.py
 pystxmcontrol/utils/logbook.py
 pystxmcontrol/utils/logger.py
+pystxmcontrol/utils/script_recorder.py
 pystxmcontrol/utils/stack.py
 pystxmcontrol/utils/test_sample.py
 pystxmcontrol/utils/thumbnail_cache.py

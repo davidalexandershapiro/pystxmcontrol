@@ -56,9 +56,11 @@ class ZMQPublisher:
     def _setup_ccd_publisher(self, config):
         """Setup CCD frame publisher socket"""
         #This is actually a misnomer because it publishes everything except the data going to the STXM GUI
-        host = config.get("host", "localhost")
+        host = config.get("zmq_publish_address", "localhost")
         port = config.get("ccd_data_port", 9997)
 
+        host = config.get("ccd_address", "127.0.0.1")
+        port = config.get("ccd_data_port", 9998)
         self.ccd_pub_address = f'tcp://{host}:{port}'
         self.ccd_pub_socket = self.context.socket(zmq.PUB)
         self.ccd_pub_socket.set_hwm(2000)  # High water mark for buffering
@@ -70,9 +72,8 @@ class ZMQPublisher:
 
     def _setup_stxm_publisher(self, config):
         """Setup STXM data publisher socket"""
-        host = config.get("host", "localhost")
+        host = config.get("stxm_address", "127.0.0.1")
         port = config.get("stxm_data_port", 9998)
-
         self.stxm_pub_address = f'tcp://{host}:{port}'
         self.stxm_pub_socket = self.context.socket(zmq.PUB)
         self.stxm_pub_socket.bind(self.stxm_pub_address)
