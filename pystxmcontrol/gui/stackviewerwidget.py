@@ -1,11 +1,6 @@
 from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 from .stack_mainwindow import Ui_stackViewer
-from .filterwindowwidget import filterWindowWidget
-from .registerwindowwidget import registerWindowWidget
-from .pca_mainwindow import Ui_pcaViewer
-from .stackImportwindowwidget import stackImportWindow
-from .bkgwindowwidget import bkgWindowWidget
 from pystxmcontrol.utils.general import find_nearest
 from pystxmcontrol.utils.stack import stack
 from pystxmcontrol.utils.image import image
@@ -13,8 +8,6 @@ from skimage.io import imsave
 import os
 import numpy as np
 import calendar, time
-from skimage.io import imsave
-import scipy.misc
 import ntpath
 import matplotlib.pyplot as plt
 
@@ -67,192 +60,6 @@ class scaleBar(pg.GraphicsObject):
 
     def boundingRect(self):
         return QtCore.QRectF(self.picture.boundingRect())
-
-class pcaWidget(QtWidgets.QDialog, Ui_pcaViewer):
-    def __init__(self,parent=None):
-        QtWidgets.QDialog.__init__(self,parent)
-        self.setupUi(self)
-        self.stack = None
-        self.stackSlider.valueChanged.connect(self.updateImageDisplays)
-        self.pcaSlider.valueChanged.connect(self.updateImageDisplays)
-        self.calcButton.clicked.connect(self.calculatePCA)
-        self.mapButton.clicked.connect(self.componentsToRGB)
-        self.pcaCombo.currentIndexChanged.connect(self.updateGUI)
-        self.stackCombo.currentIndexChanged.connect(self.updateGUI)
-        self.plotCombo.currentIndexChanged.connect(self.updateSpectrumPlot)
-        self.spectraBin = []
-        self.spectraBinPlots = []
-        self.penColors = [(255,0,0),(0,255,0),(0,0,255),(255,255,0),(255,0,255),(0,255,255)]
-        self.penStyles = [QtCore.Qt.SolidLine, QtCore.Qt.DashLine]
-        self.stackMaps.scene.sigMouseMoved.connect(self.mouseMoved)
-        self.mouseY, self.mouseX = 0,0
-        self.nPCCombo.setCurrentIndex(4)
-        self.nClustersCombo.setCurrentIndex(2)
-        self.targetSpectra = []
-        self.preEdgeButton.stateChanged.connect(self.togglePreEdge)
-        self.saveButton.clicked.connect(self.saveAll)
-        self.resize(1200,750)
-
-    def saveAll(self):
-        self.stack.saveAll(filePrefix = "test")
-
-    def togglePreEdge(self):
-        if self.stack.filteredImages is not None:
-            if self.preEdgeButton.isChecked(): self.stack.removePreEdge()
-            else: self.stack.addPreEdge()
-            self.calculatePCA()
-
-    def mouseMoved(self, pos):
-        data = self.stackMaps.image  # or use a self.data member
-        sh = data.shape
-        if len(sh) == 2: nRows, nCols = sh
-        elif len(sh) == 3: nRows, nCols, c = sh
-
-        scenePos = self.stackMaps.getImageItem().mapFromScene(pos)
-        self.mouseY, self.mouseX = int(scenePos.y()), int(scenePos.x())
-
-        if (0 <= self.mouseX < nRows - 1) and (0 <= self.mouseY < nCols - 1):
-            self.updateSpectrumPlot()
-        else:
-            self.mouseY, self.mouseX = 0,0
-            self.updateSpectrumPlot()
-
-    def calculatePCA(self):
-        pcaOffset = int(self.massCheckBox.isChecked())
-        try:
-            self.stack.calcPCA(nPC = int(self.nPCCombo.currentIndex() + 1), \
-                nClusters = int(self.nClustersCombo.currentIndex()) + 1, pcaOffset = pcaOffset)
-        except:
-            print("Clustering failed.  Try fewer clusters.")
-        else:
-            self.spectraBin = self.stack.targetSpectra
-            self.updateRGBCombos()
-            self.clustersToRGB()
-            self.componentsToRGB()
-            self.updateGUI()
-            self.updateImageDisplays()
-            self.updateSpectrumPlot()
-
-    def updateRGBCombos(self):
-        itemList = ['None'] + ['Cluster ' + str(i + 1) for i in range(int(self.nClustersCombo.currentIndex()) + 1)]
-        self.redCombo.clear(); self.redCombo.addItems(itemList)
-        self.greenCombo.clear(); self.greenCombo.addItems(itemList)
-        self.blueCombo.clear(); self.blueCombo.addItems(itemList)
-
-    def getTargetSpectra(self):
-        """
-        Select target spectra from the RGB combo boxes.  These are a subset of
-        the stack.clusterSpectra which are determined from all clusters.
-        """
-        if self.stack.pcaImages is not None:
-            self.targetSpectra = []
-            self.rgb = [0,0,0]
-            if self.redCombo.currentIndex() != 0:
-                self.rgb[0] = 1
-                self.targetSpectra.append(self.stack.clusterSpectra[self.redCombo.currentIndex() - 1])
-            if self.greenCombo.currentIndex() != 0:
-                self.rgb[1] = 1
-                self.targetSpectra.append(self.stack.clusterSpectra[self.greenCombo.currentIndex() - 1])
-            if self.blueCombo.currentIndex() != 0:
-                self.rgb[2] = 1
-                self.targetSpectra.append(self.stack.clusterSpectra[self.blueCombo.currentIndex() - 1])
-
-    def componentsToRGB(self):
-        if self.stack.pcaImages is not None:
-            self.getTargetSpectra()
-            if self.targetSpectra == []:
-                targetSpectra = self.stack.clusterSpectra[0:3]
-                self.rgb = [1,1,1]
-            else: targetSpectra = self.targetSpectra
-            print(len(targetSpectra), len(self.targetSpectra), self.rgb)
-            self.stack.rgbMap(targetSpectra, self.rgb)
-            self.updateImageDisplays()
-
-    def updateGUI(self):
-        if self.stack is not None:
-            if self.stackCombo.currentText() == "Stack Frames":
-                self.stackSlider.setValue(0)
-                self.stackSlider.setMaximum(len(self.stack.rawFrames) - 1)
-            if self.stack.pcaImages is not None:
-                self.pcaSlider.setValue(0)
-                if self.pcaCombo.currentText() == 'PCA Images':
-                    self.pcaSlider.setMaximum(len(self.stack.pcaImages) - 1)
-                elif self.pcaCombo.currentText() == 'Clusters':
-                    self.pcaSlider.setMaximum(0)
-                if self.stackCombo.currentText() == "R-factor Map":
-                    self.stackSlider.setValue(0)
-                    self.stackSlider.setMaximum(0)
-                elif self.stackCombo.currentText() == "RGB Map":
-                    self.stackSlider.setValue(0)
-                    self.stackSlider.setMaximum(0)
-                elif self.stackCombo.currentText() == "PCA Filtered Stack Frames":
-                    self.stackSlider.setValue(0)
-                    self.stackSlider.setMaximum(len(self.stack.filteredImages) - 1)
-                elif self.stackCombo.currentText() == "Component Maps":
-                    self.stackSlider.setValue(0)
-                    self.stackSlider.setMaximum(len(self.stack.targetSVDmaps) - 1)
-        self.updateImageDisplays()
-
-    def updateImageDisplays(self):
-        if self.stack is not None:
-            if self.stackCombo.currentText() == "Stack Frames":
-                self.stackMaps.setImage(self.stack.odFrames[self.stackSlider.value()].T)
-            if self.stack.pcaImages is not None:
-                if self.pcaCombo.currentText() == 'PCA Images':
-                    self.pcaMaps.setImage(self.stack.pcaImages[self.pcaSlider.value()].T)
-                elif self.pcaCombo.currentText() == 'Clusters':
-                    self.pcaMaps.setImage(self.rgbClusterImage)
-                if self.stackCombo.currentText() == 'PCA Filtered Stack Frames':
-                    self.stackMaps.setImage(self.stack.filteredImages[self.stackSlider.value()].T)
-                elif self.stackCombo.currentText() == 'R-factor Map':
-                    self.stackMaps.setImage(self.stack.rMap.T)
-                elif self.stackCombo.currentText() == 'Component Maps':
-                    self.stackMaps.setImage(self.stack.targetSVDmaps[self.stackSlider.value()].T)
-                elif self.stackCombo.currentText() == 'RGB Map':
-                    self.stackMaps.setImage(np.transpose(self.stack.rgbImage, axes = (1,0,2)))
-
-    def showClusterMap(self):
-        a = pg.image(self.rgbClusterImage.T)
-
-    def clearPlots(self):
-        while len(self.spectraBinPlots) > 0:
-            self.spectraPlot.removeItem(self.spectraBinPlots[0])
-            del(self.spectraBinPlots[0])
-
-    def clustersToRGB(self):
-        #self.rgbClusterImage = np.transpose(self.rgbClusterImage * 255. / self.rgbClusterImage.max(), axes = (1,0,2))
-        self.rgbClusterImage = np.transpose(self.stack.rgbClusterMap(), axes = (1,0,2))
-
-    def addPlots(self):
-        try:
-            self.legend.scene().removeItem(self.legend)
-        except: pass
-
-        if self.plotCombo.currentText() == 'Cluster Spectra':
-            i = 0
-            for spectrum in self.spectraBin:
-                colorIndex = int(i % len(self.penColors))
-                styleIndex = int((i / len(self.penColors)) % 2)
-                pen = pg.mkPen(self.penColors[colorIndex],\
-                   width = 2, style = self.penStyles[styleIndex])
-                self.spectraBinPlots.append(self.spectraPlot.plot(self.stack.energies, \
-                    spectrum, pen = pen, name = 'Cluster ' + str(i + 1)))
-                i += 1
-        elif self.plotCombo.currentText() == 'Eigen Values':
-            self.spectraBinPlots.append(self.spectraPlot.plot(np.log(self.stack.eigenVals[:-1]), \
-            pen = None, symbol = 'o', name = 'Eigen Values'))
-        elif self.plotCombo.currentText() == 'Point Spectrum':
-            self.spectraBinPlots.append(self.spectraPlot.plot(self.stack.odFrames[:,self.mouseY, self.mouseX],\
-                pen = None, symbol = 'o', name = 'Point Spectrum'))
-            self.spectraBinPlots.append(self.spectraPlot.plot(self.stack.filteredImages[:,self.mouseY, self.mouseX],
-                pen = pg.mkPen('w', width = 2, style = QtCore.Qt.SolidLine), name = 'PCA Fit'))
-        self.legend = self.spectraPlot.addLegend()
-
-    def updateSpectrumPlot(self):
-        if self.stack.pcaImages is not None:
-            self.clearPlots()
-            self.addPlots()
-
 
 class stackViewerWidget(QtWidgets.QWidget):
 
@@ -329,8 +136,6 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.ui.mainImage.scene.sigMouseClicked.connect(self.mouseClicked)
         self.ui.addROIButton.clicked.connect(self.createROI)
         self.ui.clearROIButton.clicked.connect(self.clearROI)
-        self.ui.registerButton.clicked.connect(self.registerWindow)
-        self.ui.filterButton.clicked.connect(self.filterWindow)
         self.ui.specPlot.scene().sigMouseMoved.connect(self.mouseEnergySelectFromPlot)
         self.ui.mapButton.clicked.connect(self.mapROIspectra)
         self.ui.saveButton.clicked.connect(self.saveAllData)
@@ -342,12 +147,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.ui.trackMouseBox.stateChanged.connect(self.toggleTrackMouse)
         self.ui.toggleOD.stateChanged.connect(self.toggleOD)
         self.ui.preEdgeBox.stateChanged.connect(self.togglePreEdge)
-        self.ui.pcaButton.clicked.connect(self.pcaWindow)
-        self.stackImportWindow = stackImportWindow()
-        self.ui.bkgRemovalButton.clicked.connect(self.bkgWindow)
-        self.bkgWindow = bkgWindowWidget()
         self.ui.regionSelect.currentIndexChanged.connect(self.changeRegion)
-        self.ui.importButton.clicked.connect(self.importWindow)
         self.ui.deleteButton.clicked.connect(self.deleteFrame)
         self.ui.darkLineEdit.textChanged.connect(self.updateDark)
 
@@ -369,13 +169,6 @@ class stackViewerWidget(QtWidgets.QWidget):
             if sliderVal > 0: self.ui.verticalSlider.setValue(sliderVal - 1)
             else: self.ui.verticalSlider.setValue(0)
             self.updateMainImage()
-
-    def importWindow(self):
-        if self.haveStack:
-            self.stackImportWindow.baseStack = self.stack
-            self.stackImportWindow.importStack = None
-            self.stackImportWindow.updateGUI()
-            self.stackImportWindow.exec_()
 
     def changeRegion(self):
         self.reset()
@@ -537,42 +330,6 @@ class stackViewerWidget(QtWidgets.QWidget):
                 plt.title(self.stack_file)
                 plt.savefig(os.path.join(saveDir,'I0.png'), dpi = 100)
                 plt.clf()
-
-    def filterWindow(self):
-        window = filterWindowWidget()
-        if self.haveStack:
-            window.stack = self.stack
-            window.updateGUI()
-        window.exec_()
-        # if self.haveStack:
-        #     self.filterWindow.stack = self.stack
-        #     self.filterWindow.updateGUI()
-        # self.filterWindow.exec_()
-        self.updateMainImage()
-
-    def pcaWindow(self):
-        window = pcaWidget()
-        if self.haveStack and (self.stack.odFrames is not None):
-            window.stack = self.stack
-            window.updateGUI()
-            window.exec_()
-
-    def registerWindow(self):
-        window = registerWindowWidget()
-        if self.haveStack:
-            window.stack = self.stack
-            window.updateGUI()
-        window.exec_()
-        self.updateMainImage()
-        
-    def bkgWindow(self):
-        if self.haveStack :
-            self.bkgWindow.stack = self.stack   
-            self.bkgWindow.viewFrames = self.stack.rawFrames.copy()
-            self.bkgWindow.stack_file = self.stack_file
-            self.bkgWindow.updateGUI()
-        self.bkgWindow.exec_()
-        
 
     def clearROI(self):
         if str(self.ui.spectraComboBox.currentText()) == 'I0':

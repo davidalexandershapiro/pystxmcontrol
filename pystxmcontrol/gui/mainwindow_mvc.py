@@ -429,9 +429,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._main_scale_bar.setZValue(10)
         self._main_scale_bar.setVisible(False)
 
-        # ALS logo — scaled to fit the bar height, drawn at fixed pixel size.
+        # Facility logo — filename from main_config['gui']['logo'], falls back to als-logo.png.
+        _logo_filename = (self.controller.client.main_config
+                          .get('gui', {}).get('logo', 'als-logo.png'))
         _logo_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), '..', '..', 'icons', 'als-logo.png'))
+            os.path.join(os.path.dirname(__file__), '..', '..', 'icons', _logo_filename))
         _logo_pix = QtGui.QPixmap(_logo_path)
         if not _logo_pix.isNull():
             _logo_pix = _logo_pix.scaledToHeight(30, QtCore.Qt.SmoothTransformation)
