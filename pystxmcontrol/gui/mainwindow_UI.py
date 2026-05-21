@@ -16,22 +16,21 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QIcon, QImage, QKeySequence, QLinearGradient,
     QPainter, QPalette, QPixmap, QRadialGradient,
     QTransform)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QMenu, QMenuBar, QPushButton,
-    QScrollArea, QSizePolicy, QSpinBox, QStatusBar,
-    QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QMenu, QMenuBar, QPushButton, QScrollArea,
+    QSizePolicy, QSpinBox, QStatusBar, QTabWidget,
+    QTextEdit, QVBoxLayout, QWidget)
 
 from pyqtgraph import (ImageView, PlotWidget)
 from pystxmcontrol.gui.customwidget import customWidget
-from pystxmcontrol.gui.stackviewerwidget import stackViewerWidget
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.setEnabled(True)
-        MainWindow.resize(1550, 1080)
+        MainWindow.resize(1499, 1080)
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -72,7 +71,7 @@ class Ui_MainWindow(object):
         self.centralwidget.setObjectName(u"centralwidget")
         self.tabWidget_3 = QTabWidget(self.centralwidget)
         self.tabWidget_3.setObjectName(u"tabWidget_3")
-        self.tabWidget_3.setGeometry(QRect(0, 0, 1521, 1031))
+        self.tabWidget_3.setGeometry(QRect(0, 0, 1491, 1031))
         self.tabWidget_3.setTabPosition(QTabWidget.North)
         self.tabWidget_3.setTabShape(QTabWidget.Rounded)
         self.tabWidget_3.setDocumentMode(False)
@@ -653,19 +652,6 @@ class Ui_MainWindow(object):
 
         self.gridLayout_9.addWidget(self.cursorIntensity, 4, 1, 1, 1)
 
-        self.line = QFrame(self.tab_9)
-        self.line.setObjectName(u"line")
-        self.line.setGeometry(QRect(710, 970, 100, 10))
-        sizePolicy.setHeightForWidth(self.line.sizePolicy().hasHeightForWidth())
-        self.line.setSizePolicy(sizePolicy)
-        self.line.setMinimumSize(QSize(100, 10))
-        self.line.setSizeIncrement(QSize(0, 10))
-        self.line.setBaseSize(QSize(0, 10))
-        self.line.setAutoFillBackground(False)
-        self.line.setStyleSheet(u"background-color: rgb(246, 211, 45);")
-        self.line.setLineWidth(10)
-        self.line.setFrameShape(QFrame.Shape.VLine)
-        self.line.setFrameShadow(QFrame.Shadow.Sunken)
         self.mainPlot = PlotWidget(self.tab_9)
         self.mainPlot.setObjectName(u"mainPlot")
         self.mainPlot.setGeometry(QRect(710, 60, 771, 281))
@@ -732,81 +718,7 @@ class Ui_MainWindow(object):
 
         self.mainImage = ImageView(self.tab_9)
         self.mainImage.setObjectName(u"mainImage")
-        self.mainImage.setGeometry(QRect(710, 348, 771, 611))
-        self.horizontalLayoutWidget = QWidget(self.tab_9)
-        self.horizontalLayoutWidget.setObjectName(u"horizontalLayoutWidget")
-        self.horizontalLayoutWidget.setGeometry(QRect(823, 959, 651, 31))
-        self.horizontalLayout_8 = QHBoxLayout(self.horizontalLayoutWidget)
-        self.horizontalLayout_8.setObjectName(u"horizontalLayout_8")
-        self.horizontalLayout_8.setContentsMargins(0, 0, 0, 0)
-        self.scaleBarLength = QLabel(self.horizontalLayoutWidget)
-        self.scaleBarLength.setObjectName(u"scaleBarLength")
-        sizePolicy2.setHeightForWidth(self.scaleBarLength.sizePolicy().hasHeightForWidth())
-        self.scaleBarLength.setSizePolicy(sizePolicy2)
-        self.scaleBarLength.setMinimumSize(QSize(80, 0))
-        self.scaleBarLength.setMaximumSize(QSize(80, 16777215))
-        font5 = QFont()
-        font5.setPointSize(13)
-        self.scaleBarLength.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.scaleBarLength)
-
-        self.label_44 = QLabel(self.horizontalLayoutWidget)
-        self.label_44.setObjectName(u"label_44")
-        sizePolicy2.setHeightForWidth(self.label_44.sizePolicy().hasHeightForWidth())
-        self.label_44.setSizePolicy(sizePolicy2)
-        self.label_44.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.label_44)
-
-        self.pixelSizeLabel = QLabel(self.horizontalLayoutWidget)
-        self.pixelSizeLabel.setObjectName(u"pixelSizeLabel")
-        sizePolicy2.setHeightForWidth(self.pixelSizeLabel.sizePolicy().hasHeightForWidth())
-        self.pixelSizeLabel.setSizePolicy(sizePolicy2)
-        self.pixelSizeLabel.setMinimumSize(QSize(60, 0))
-        self.pixelSizeLabel.setMaximumSize(QSize(60, 16777215))
-        self.pixelSizeLabel.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.pixelSizeLabel)
-
-        self.label_38 = QLabel(self.horizontalLayoutWidget)
-        self.label_38.setObjectName(u"label_38")
-        sizePolicy2.setHeightForWidth(self.label_38.sizePolicy().hasHeightForWidth())
-        self.label_38.setSizePolicy(sizePolicy2)
-        self.label_38.setMinimumSize(QSize(100, 0))
-        self.label_38.setMaximumSize(QSize(100, 16777215))
-        self.label_38.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.label_38)
-
-        self.dwellTimeLabel = QLabel(self.horizontalLayoutWidget)
-        self.dwellTimeLabel.setObjectName(u"dwellTimeLabel")
-        sizePolicy2.setHeightForWidth(self.dwellTimeLabel.sizePolicy().hasHeightForWidth())
-        self.dwellTimeLabel.setSizePolicy(sizePolicy2)
-        self.dwellTimeLabel.setMinimumSize(QSize(60, 0))
-        self.dwellTimeLabel.setMaximumSize(QSize(60, 16777215))
-        self.dwellTimeLabel.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.dwellTimeLabel)
-
-        self.label_9 = QLabel(self.horizontalLayoutWidget)
-        self.label_9.setObjectName(u"label_9")
-        sizePolicy2.setHeightForWidth(self.label_9.sizePolicy().hasHeightForWidth())
-        self.label_9.setSizePolicy(sizePolicy2)
-        self.label_9.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.label_9)
-
-        self.imageEnergyLabel = QLabel(self.horizontalLayoutWidget)
-        self.imageEnergyLabel.setObjectName(u"imageEnergyLabel")
-        sizePolicy2.setHeightForWidth(self.imageEnergyLabel.sizePolicy().hasHeightForWidth())
-        self.imageEnergyLabel.setSizePolicy(sizePolicy2)
-        self.imageEnergyLabel.setMinimumSize(QSize(80, 0))
-        self.imageEnergyLabel.setMaximumSize(QSize(80, 16777215))
-        self.imageEnergyLabel.setFont(font5)
-
-        self.horizontalLayout_8.addWidget(self.imageEnergyLabel)
-
+        self.mainImage.setGeometry(QRect(710, 348, 771, 641))
         self.tabWidget_5 = QTabWidget(self.tab_9)
         self.tabWidget_5.setObjectName(u"tabWidget_5")
         self.tabWidget_5.setGeometry(QRect(10, 690, 311, 301))
@@ -1386,7 +1298,7 @@ class Ui_MainWindow(object):
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
-        self.menubar.setGeometry(QRect(0, 0, 1550, 23))
+        self.menubar.setGeometry(QRect(0, 0, 1499, 23))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuOpen = QMenu(self.menuFile)
@@ -1531,13 +1443,6 @@ class Ui_MainWindow(object):
         self.channelSelect.setItemText(2, QCoreApplication.translate("MainWindow", u"RPI", None))
 
         self.plotClearButton.setText(QCoreApplication.translate("MainWindow", u"Clear", None))
-        self.scaleBarLength.setText("")
-        self.label_44.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Pixel Size:</span></p></body></html>", None))
-        self.pixelSizeLabel.setText("")
-        self.label_38.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Dwell Time:</span></p></body></html>", None))
-        self.dwellTimeLabel.setText("")
-        self.label_9.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" font-weight:600;\">Energy:</span></p></body></html>", None))
-        self.imageEnergyLabel.setText("")
         self.experimentersLineEdit.setText("")
         self.label_32.setText(QCoreApplication.translate("MainWindow", u"Experimenters", None))
         self.sampleLineEdit.setText("")
