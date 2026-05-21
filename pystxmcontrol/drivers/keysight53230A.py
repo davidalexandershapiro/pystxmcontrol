@@ -31,6 +31,7 @@ class keysight53230A(daq):
         self.dwell = dwell
 
     def config(self, dwell, count=1, samples=1, trigger='BUS', output = 'OFF'):
+        #print(f"[keysight] configured with {count} points and {samples} samples per point")
         if isinstance(dwell, list):
             self.dwell,self.dwell2 = dwell
         else:

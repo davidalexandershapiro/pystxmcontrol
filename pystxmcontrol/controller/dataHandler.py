@@ -493,6 +493,8 @@ class dataHandler:
             t0 = time.time()
             await self.getPoint(scanInfo)
             self.daq["default"].autoGateClosed()
+
+            #self.controller.getMotorPositions(log = False) #this happens too frequently for logging
             self.controller.getMotorPositions(log=False, monitor_only=True)  # too frequent to log; respects "monitor" flag in motorConfig
             scanInfo = await self.dataQueue.get()
             scanInfo['motorPositions'] = self.controller.allMotorPositions
@@ -507,7 +509,7 @@ class dataHandler:
             else:
                 await scanQueue.get()
                 return
-                
+
     def processFrame(self, frame,threshold=0.1):
         point = ((frame>threshold) * frame).sum()
         return point
