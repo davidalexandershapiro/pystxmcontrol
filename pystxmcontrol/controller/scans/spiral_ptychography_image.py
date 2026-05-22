@@ -32,6 +32,7 @@ All other keys (``scan_regions``, ``doubleExposure``, ``n_repeats``,
 import asyncio
 import datetime
 import os
+import time as _time
 
 import numpy as np
 
@@ -208,6 +209,10 @@ class SpiralPtychographyScan(BaseScan):
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"]       = dataHandler.data.dwells[energyIndex]
 
+        _scan_start = _time.time()
+        _total_exposure_pts = 0   # refined after first region is computed
+        _completed_exposure_pts = 0
+
         if scan["doubleExposure"]:
             dwell1 = round(scanInfo["dwell"] * 10.0)
             dwell2 = round(scanInfo["dwell"])
@@ -268,6 +273,10 @@ class SpiralPtychographyScan(BaseScan):
                 print(f"[spiral_ptychography_image] {scanRegion}: "
                       f"{n_spiral} spiral positions "
                       f"(FOV {x_range:.2f} × {y_range:.2f} µm, step {step:.3f} µm)")
+
+                # Refine total-point estimate on first region; use for subsequent regions
+                if _total_exposure_pts == 0:
+                    _total_exposure_pts = n_spiral * nScanRegions * len(energies)
 
                 # Update scanInfo arrays so DataHandler can size its buffers
                 if energy == energies[0]:
@@ -448,7 +457,11 @@ class SpiralPtychographyScan(BaseScan):
                     dataHandler, controller, queue,
                     shutter=True, scanRegion=scanRegion,
                     grid_indices=spiral_grid_indices,
+                    scan_start_time=_scan_start,
+                    completed_points_offset=_completed_exposure_pts,
+                    total_points=_total_exposure_pts,
                 ):
+                    _completed_exposure_pts += n_spiral
                     await dataHandler.dataQueue.put("endOfRegion")
                     while not dataHandler.dataQueue.empty():
                         await asyncio.sleep(0.1)

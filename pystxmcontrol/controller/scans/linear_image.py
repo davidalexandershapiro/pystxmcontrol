@@ -52,6 +52,13 @@ class LinearImageScan(BaseScan):
         energies = self.dataHandler.data.energies["default"]
         n_scan_regions = len(self.dataHandler.data.xPos)
 
+        total_lines = len(energies) * sum(
+            len(self.dataHandler.data.yPos[r]) for r in range(n_scan_regions)
+        )
+        self.scanInfo["_total_lines"] = total_lines
+        self.scanInfo["_completed_lines"] = 0
+        self.scanInfo["_scan_start_time"] = time()
+
         for energy_index, energy in enumerate(energies):
             # Handle energy and timing
             success = await self.process_energy(energy, energy_index, energies)
@@ -323,6 +330,14 @@ class LinearImageScan(BaseScan):
                 # Trigger missed - skip line with zeros in data
                 # Could add retry logic here if desired
                 pass
+
+            # Update remaining-time estimate after each line
+            self.scanInfo["_completed_lines"] += 1
+            completed = self.scanInfo["_completed_lines"]
+            elapsed = time() - self.scanInfo["_scan_start_time"]
+            remaining = self.scanInfo["_total_lines"] - completed
+            if completed > 0 and remaining >= 0:
+                self.scanInfo["time_remaining"] = elapsed / completed * remaining
 
         return True
 

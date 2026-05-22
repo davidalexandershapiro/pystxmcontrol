@@ -380,6 +380,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.daq_value_updated.connect(self.update_daq_value_display)
         self.controller.scan_state_changed.connect(self._set_scan_ui_state)
         self.controller.elapsed_time_updated.connect(self.update_elapsed_time_display)
+        self.controller.estimated_time_updated.connect(self.update_estimated_time_remaining)
         self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
         self.controller.external_scan_started.connect(self.on_external_scan_started)
 
@@ -1834,10 +1835,25 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 time_str = f"{elapsed_seconds / 60:.2f} m"
             else:
                 time_str = f"{elapsed_seconds / 3600:.2f} hr"
-                
+
             self.ui.elapsedTime.setText(time_str)
+            self._last_elapsed_seconds = elapsed_seconds
         except Exception as e:
             print(f"Error updating elapsed time display: {e}")
+
+    def update_estimated_time_remaining(self, remaining_seconds: float):
+        """Update the estimated time display with elapsed + remaining = updated total estimate."""
+        try:
+            total = getattr(self, '_last_elapsed_seconds', 0.0) + remaining_seconds
+            if total < 100:
+                time_str = f"{total:.1f} s"
+            elif total < 3600:
+                time_str = f"{total / 60:.1f} m"
+            else:
+                time_str = f"{total / 3600:.1f} hr"
+            self.ui.estimatedTime.setText(time_str)
+        except Exception as e:
+            print(f"Error updating estimated time remaining: {e}")
 
     def _set_focus_widgets(self,value: bool):
         self.ui.focusCenterEdit.setEnabled(value)

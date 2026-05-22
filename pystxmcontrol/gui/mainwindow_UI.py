@@ -555,6 +555,7 @@ class Ui_MainWindow(object):
         self.estimatedTime = QLabel(self.layoutWidget2)
         self.estimatedTime.setObjectName(u"estimatedTime")
         self.estimatedTime.setFont(font1)
+        self.estimatedTime.setAlignment(Qt.AlignRight|Qt.AlignTrailing|Qt.AlignVCenter)
 
         self.horizontalLayout_7.addWidget(self.estimatedTime)
 
@@ -566,6 +567,7 @@ class Ui_MainWindow(object):
         self.elapsedTime = QLabel(self.layoutWidget2)
         self.elapsedTime.setObjectName(u"elapsedTime")
         self.elapsedTime.setFont(font1)
+        self.elapsedTime.setAlignment(Qt.AlignRight|Qt.AlignTrailing|Qt.AlignVCenter)
 
         self.horizontalLayout_7.addWidget(self.elapsedTime)
 
@@ -1411,7 +1413,7 @@ class Ui_MainWindow(object):
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_11), QCoreApplication.translate("MainWindow", u"Scan Loop", None))
         self.label.setText(QCoreApplication.translate("MainWindow", u"Current Energy:", None))
         self.energyLabel.setText(QCoreApplication.translate("MainWindow", u"<html><head/><body><p><span style=\" color:#73d216;\">Energy</span></p></body></html>", None))
-        self.label_7.setText(QCoreApplication.translate("MainWindow", u"Scan Velocity", None))
+        self.label_7.setText(QCoreApplication.translate("MainWindow", u"Velocity", None))
         self.scanVelocity.setText(QCoreApplication.translate("MainWindow", u"0.0 mm/s", None))
         self.label_19.setText(QCoreApplication.translate("MainWindow", u"Estimated Time:", None))
         self.estimatedTime.setText(QCoreApplication.translate("MainWindow", u"0.0 s", None))

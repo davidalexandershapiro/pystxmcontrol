@@ -17,9 +17,13 @@ async def retractSTXMDetector(controller):
     controller.moveMotor("Detector Y", -6000)
     await asyncio.sleep(5)
 
-async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queue, shutter=True, scanRegion="Region1", grid_indices=None):
+async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queue,
+                     shutter=True, scanRegion="Region1", grid_indices=None,
+                     scan_start_time=None, completed_points_offset=0, total_points=None):
 
     xPos, yPos, zPos = positionList
+    _t0 = scan_start_time if scan_start_time is not None else time.time()
+    _n_total = total_points if total_points is not None else len(yPos)
     if shutter == True:
         n_repeats = scanInfo["n_repeats"]
     else:
@@ -57,6 +61,14 @@ async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queu
         else:
             scanInfo["lineIndex"]   = i // xpts
             scanInfo["columnIndex"] = i % xpts
+
+        # Per-point time-remaining estimate
+        completed = completed_points_offset + i
+        if completed > 0:
+            elapsed = time.time() - _t0
+            remaining = _n_total - completed
+            if remaining >= 0:
+                scanInfo["time_remaining"] = elapsed / completed * remaining
 
         ##need to also be able to request measured positions
         scanInfo["xVal"], scanInfo["yVal"] = xPos[i], yPos[i] * np.ones(len(xPos))

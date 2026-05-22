@@ -171,7 +171,7 @@ class ScanModel(BaseModel):
         
         # Calculate points and lines based on scan type
         for region in scan_regions.values():
-            if "Image" in scan_type:
+            if "Image" in scan_type or "Ptychography" in scan_type:
                 n_points += region.get('xPoints', 1) * region.get('yPoints', 1)
                 n_lines += region.get('yPoints', 1)
             elif "Focus" in scan_type:

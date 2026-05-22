@@ -362,6 +362,9 @@ class MainController(QObject):
                 elapsed_time = message['elapsedTime']
                 if elapsed_time is not None:
                     self.elapsed_time_updated.emit(float(elapsed_time))
+                time_remaining = message.get('time_remaining')
+                if time_remaining is not None:
+                    self.estimated_time_updated.emit(float(time_remaining))
                 
             # Handle Single Motor scan — data arrives as rawData points, not images
             if (message.get('mode') == 'point' and
