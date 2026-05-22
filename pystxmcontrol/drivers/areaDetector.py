@@ -5,7 +5,7 @@ from epics import caget, caput, cainfo
 import asyncio
 
 class areaDetector(daq):
-    def __init__(self, address = "BL7ANDOR1", simulation = False):
+    def __init__(self, address = "BL7ANDOR1", port = None, simulation = False):
         self.address = address
         self.simulation = simulation
         self.timeout = 1
