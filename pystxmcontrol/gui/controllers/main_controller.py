@@ -856,9 +856,8 @@ class MainController(QObject):
     def get_geometry_flags(self) -> dict:
         """Return the geometry feature flags from main_config.
 
-        Keys: ``enable_coarse_only`` (bool), ``enable_tiled_scan`` (bool).
-        Defaults to True for both so that behaviour is unchanged when the
-        keys are absent from the config.
+        Keys: ``enable_coarse_only`` (bool).
+        Defaults to True so that behaviour is unchanged when the key is absent.
         """
         geometry = {}
         try:
@@ -867,7 +866,6 @@ class MainController(QObject):
             pass
         return {
             "enable_coarse_only": bool(geometry.get("enable_coarse_only", True)),
-            "enable_tiled_scan":  bool(geometry.get("enable_tiled_scan",  True)),
         }
 
     def start_scan(self) -> bool:
@@ -880,7 +878,6 @@ class MainController(QObject):
         ok, msg = self.scan_model.validate_ranges(
             self.motor_model,
             enable_coarse_only=flags["enable_coarse_only"],
-            enable_tiled_scan=flags["enable_tiled_scan"],
         )
         if not ok:
             self.error_occurred.emit(f"Scan range error: {msg}")

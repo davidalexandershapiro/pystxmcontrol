@@ -1983,10 +1983,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self._set_focus_widgets(False)
             self._set_line_widgets(False)
 
-            # Tiled scan checkbox: only enable when the instrument config allows it
+            # Tiled scan checkbox: enable only when scan.json declares "tiled": true
             if hasattr(self.ui, 'tiledCheckbox'):
-                flags = self.controller.get_geometry_flags()
-                if flags["enable_tiled_scan"]:
+                if _scan_cfg.get(scan_type, {}).get('tiled', False):
                     self.ui.tiledCheckbox.setEnabled(True)
                 else:
                     self.ui.tiledCheckbox.setChecked(False)
@@ -3595,12 +3594,6 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if hasattr(reg, 'setEnabled'):
                     reg.setEnabled(True)
 
-        # Tiled scan: permanently disable if not supported by this instrument
-        if hasattr(self.ui, 'tiledCheckbox'):
-            flags = self.controller.get_geometry_flags()
-            if not flags["enable_tiled_scan"]:
-                self.ui.tiledCheckbox.setChecked(False)
-                self.ui.tiledCheckbox.setEnabled(False)
 
         # Enable other controls based on scan type
         self.on_scan_type_changed()

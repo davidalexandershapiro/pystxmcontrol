@@ -43,7 +43,6 @@
         "rebin": 1,
         "oversampling_factor": 1,
         "enable_coarse_only": true,
-        "enable_tiled_scan": true,
         "A0_calibrated": true,
         "line overhead": 0.1,
         "energy overhead": 1,

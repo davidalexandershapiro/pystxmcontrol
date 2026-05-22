@@ -65,8 +65,7 @@ class ScanModel(BaseModel):
         return True
 
     def validate_ranges(self, motor_model,
-                        enable_coarse_only: bool = True,
-                        enable_tiled_scan: bool = True) -> tuple:
+                        enable_coarse_only: bool = True) -> tuple:
         """Check that each scan region fits within the motor travel limits.
 
         Returns (True, '') on success or (False, error_message) on failure.
@@ -74,15 +73,11 @@ class ScanModel(BaseModel):
 
         Behaviour when a scan range exceeds the physical motor travel
         (maxValue – minValue):
-          - tiled=True  and enable_tiled_scan=True  → allowed (server tiles it)
-          - tiled=True  and enable_tiled_scan=False  → error
+          - tiled=True                              → allowed (server tiles it)
           - tiled=False and enable_coarse_only=True  → set coarse_only=True, allowed
           - tiled=False and enable_coarse_only=False → error
         """
         tiled = bool(self.get('tiled'))
-
-        if tiled and not enable_tiled_scan:
-            return (False, "Tiled scans are not enabled for this instrument.")
 
         if tiled:
             # Server handles sub-region tiling; skip range checks.
