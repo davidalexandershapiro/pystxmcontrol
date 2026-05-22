@@ -172,7 +172,7 @@ class stxm_client(QtCore.QThread):
         self.listen = False
         self.lock = threading.Lock()
         self.client_config = json.loads(open(MAINCONFIGFILE).read())
-        self.server_address = self.client_config["server"]["stxm_address"]
+        self.server_address = self.client_config["server"].get("stxm_address","127.0.0.1")
         self.command_port = self.client_config["server"]["command_port"]
         self.data_port = self.client_config["server"]["stxm_data_port"]
         self.monitor_threads = []
