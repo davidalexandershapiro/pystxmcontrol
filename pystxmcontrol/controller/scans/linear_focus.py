@@ -36,7 +36,6 @@ class LinearFocusScan(BaseScan):
             "coarse_only": self.scan.get("coarse_only", False),
             "include_return": self.controller.scanConfig[self.scan["scan_type"]]["include_return"]
         })
-        print(self.controller.scanConfig)
 
     async def execute_scan(self) -> bool:
         """
