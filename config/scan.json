@@ -9,7 +9,8 @@
     "include_return": false,
     "daq_list": "default",
     "mode": "continuousLine",
-    "display": true
+    "display": true,
+    "tiled": true
   },
   "Focus": {
     "index": 1,

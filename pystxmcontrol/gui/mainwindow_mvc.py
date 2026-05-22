@@ -1894,8 +1894,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if y_motor:
                     self.ui.yMotorCombo.setCurrentText(y_motor)
         
-        # Tiled scan is only applicable to Image scans; disable for all others
-        if "Image" not in scan_type and hasattr(self.ui, 'tiledCheckbox'):
+        # Tiled scan: disable for scan types that don't declare "tiled": true in scan.json
+        _scan_cfg = getattr(self.controller.client, 'scanConfig', {})
+        if not _scan_cfg.get(scan_type, {}).get('tiled', False) and hasattr(self.ui, 'tiledCheckbox'):
             self.ui.tiledCheckbox.setChecked(False)
             self.ui.tiledCheckbox.setEnabled(False)
 
