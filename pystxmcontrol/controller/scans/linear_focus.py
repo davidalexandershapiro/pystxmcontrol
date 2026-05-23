@@ -152,14 +152,6 @@ class LinearFocusScan(BaseScan):
         if energy == energies[0]:
             self.dataHandler.data.updateArrays(region_index, self.scanInfo)
 
-        # # Configure DAQs
-        # self.configure_daqs(
-        #     dwell=self.scanInfo["dwell"],
-        #     count=self.scanInfo["numLineDAQPoints"],
-        #     samples= 1, #the controller multiplies by oversampling
-        #     trigger="EXT"
-        # )
-
         if self.controller.daq["default"].meta.get("trigger_mode","line") == "point":
             self.scanInfo["trigger_count"] = self.scanInfo["numLineDAQPoints"]
             self.scanInfo["trigger_samples"] = 1
@@ -226,7 +218,7 @@ class LinearFocusScan(BaseScan):
         motor = self.controller.motors[x_motor_name]["motor"]
 
         # Calculate pixel dwell from motor dwell
-        pixel_dwell = self.scanInfo["_motor_dwell"] / self.scanInfo["oversampling_factor"]
+        pixel_dwell = self.scanInfo["_motor_dwell"]
 
         if not coarse_only:
             # Fine motor trajectory
