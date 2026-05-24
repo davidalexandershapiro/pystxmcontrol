@@ -16,7 +16,7 @@ def _install_desktop_file():
         f.write(
             '[Desktop Entry]\n'
             'Name=pystxmControl\n'
-            'Exec=python -m pystxmcontrol.gui.app_mvc\n'
+            'Exec=python -m pystxmcontrol.gui.main\n'
             f'Icon={icon_path}\n'
             'Type=Application\n'
             'Categories=Science;\n'
@@ -50,7 +50,7 @@ setup(  name = 'pystxmcontrol',
             'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans'],
         entry_points = {
             'console_scripts': [
-                'stxmcontrol = pystxmcontrol.stxmcontrol:main',
+                'stxmcontrol = pystxmcontrol.gui.main:main',
                 'stxmserver   = pystxmcontrol.controller.server:main',
                 'stxmbrowser  = pystxmcontrol.gui.browser_analysis_app:main',
             ],
