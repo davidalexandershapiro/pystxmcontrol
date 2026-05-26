@@ -119,6 +119,7 @@ class stxmServer:
                 except Exception as e:
                     message['data'] = str(e)
                     message['status'] = False
+                    error_msg = str(e)
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)
@@ -132,6 +133,14 @@ class stxmServer:
                     error_message=error_msg,
                     duration=time.time() - cmd_start_time
                 )
+                # Intelligence: manual motor move (controller.moveMotor already records
+                # key motors; this catches the user-initiated context explicitly)
+                if not scanning:
+                    self.controller.dataHandler.record_event(
+                        "manual_motor_move",
+                        motor=message.get("axis"), target=message.get("pos"),
+                        success=message["status"],
+                    )
             elif message["command"] == "stop_monitor":
                 message["status"] = True
                 error_msg = None
@@ -193,6 +202,13 @@ class stxmServer:
                     status=message["status"],
                     mode=message["mode"],
                     duration=time.time() - cmd_start_time
+                )
+                # Intelligence: manual measurement records shutter state explicitly
+                self.controller.dataHandler.record_event(
+                    "manual_measurement",
+                    daq=message.get("daq"),
+                    dwell=message.get("dwell"),
+                    shutter=message.get("shutter"),
                 )
             elif message["command"] == "getMotorPositions":
                 message["status"] = True
@@ -335,6 +351,7 @@ class stxmServer:
                 if self.controller.scanning:
                     message["status"] = True
                     message["mode"] = "idle"
+                    self.controller.dataHandler.record_event("scan_cancelled")
                     self.controller.end_scan()
                 else:
                     message["status"] = False
@@ -355,6 +372,9 @@ class stxmServer:
                     message["status"] = True
                     message["mode"] = "idle"
                     self.controller.pause = not (self.controller.pause)
+                    self.controller.dataHandler.record_event(
+                        "scan_paused" if self.controller.pause else "scan_resumed"
+                    )
                 else:
                     message["status"] = False
                     message["mode"] = "idle"
@@ -421,14 +441,12 @@ class stxmServer:
                 self.command_sock.send_pyobj(message)
 
             elif message["command"] == "setGate":
+                message["status"] = True
                 if message["mode"] == "open":
-                    status = True
                     self.controller.daq["default"].gate.mode = "open"
                 elif message["mode"] == "closed":
-                    status = False
                     self.controller.daq["default"].gate.mode = "close"
                 elif message["mode"] == "auto":
-                    status = False
                     self.controller.daq["default"].gate.mode = "auto"
                 message["time"] = str(datetime.datetime.now())
                 self.controller.daq["default"].gate.setStatus()
@@ -442,6 +460,24 @@ class stxmServer:
                     mode="idle",
                     duration=time.time() - cmd_start_time
                 )
+                self.controller.dataHandler.record_event(
+                    "shutter_changed",
+                    mode=message.get("mode"),
+                    during_scan=scanning,
+                )
+            elif message["command"] == "agent_query":
+                message["status"] = True
+                message["mode"] = "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+                query_text = message.get("query", "")
+                intel = getattr(self.controller.dataHandler, "intelligence", None)
+                if intel and intel.enabled and intel._agent:
+                    recent = intel.recorder.recent("events", 30)
+                    publish_fn = self.controller.dataHandler.zmq_publisher.publish_stxm_data
+                    asyncio.create_task(
+                        intel._agent.query(query_text, recent, publish_fn=publish_fn)
+                    )
             else:
                 message["status"] = False
                 message["mode"] = "idle"

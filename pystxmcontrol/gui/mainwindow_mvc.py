@@ -141,6 +141,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Other randos
         self.consoleStr = ''
+        self._proposal_banner_text = ""   # proposal-level warning (lower priority)
+        self._alarm_active = False        # True when an anomaly alarm is showing
         self.static_style = "color: white;"
         self.moving_style = "color: red;"
         self.lineAngle = 0.0
@@ -383,6 +385,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.estimated_time_updated.connect(self.update_estimated_time_remaining)
         self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
         self.controller.external_scan_started.connect(self.on_external_scan_started)
+        self.controller.shutter_state_changed.connect(self._on_shutter_state_changed)
 
     def _initialize_display(self):
         """Initialize the display elements."""
@@ -494,6 +497,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Embed the standalone Analysis2Widget as a new tab
         self._initialize_analysis2_tab()
 
+        # Embed the AI agent panel next to the Console tab
+        self._initialize_intelligence_tab()
+
         # Style the mainPlot
         self._initialize_main_plot()
 
@@ -579,6 +585,35 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Load a file into the Analysis tab and switch to it."""
         self._analysis2_tab.load_file(filepath)
         self.ui.tabWidget_3.setCurrentWidget(self._analysis2_tab)
+
+    def _initialize_intelligence_tab(self):
+        """Embed IntelligenceWidget as a new tab next to the Console tab."""
+        from pystxmcontrol.gui.intelligence_widget import IntelligenceWidget
+        self._intelligence_tab = IntelligenceWidget(parent=self)
+        self.ui.tabWidget_2.addTab(self._intelligence_tab, "Agent")
+        self.controller.intelligence_suggestion_received.connect(
+            self._intelligence_tab.add_suggestion
+        )
+        self.controller.intelligence_suggestion_received.connect(
+            self._on_intelligence_suggestion
+        )
+        self._intelligence_tab.query_submitted.connect(self._on_agent_query)
+        self._intelligence_tab.action_requested.connect(self._on_agent_action)
+
+    def _on_agent_query(self, text: str):
+        self.controller.send_agent_query(text)
+
+    def _on_agent_action(self, action: str):
+        _action_map = {
+            "open_shutter":  lambda: self.controller.set_gate("open"),
+            "close_shutter": lambda: self.controller.set_gate("closed"),
+            "abort_scan":    lambda: self.controller.cancel_scan(),
+            "move_to_focus": lambda: self.controller.client.move_to_focus(),
+            "clear_alert":   lambda: self._clear_alarm_banner(),
+        }
+        fn = _action_map.get(action)
+        if fn:
+            fn()
 
     def _populate_combo_boxes(self):
         """Populate combo boxes with data from controller."""
@@ -1100,6 +1135,22 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         else:
             return
         self.controller.set_gate(mode)
+
+    _GATE_MODE_TO_TEXT = {"open": "Shutter Open", "close": "Shutter Closed", "auto": "Shutter Auto"}
+
+    def _on_shutter_state_changed(self, mode: str) -> None:
+        """Sync the shutter combobox to the actual hardware gate mode."""
+        if not hasattr(self.ui, 'shutterComboBox'):
+            return
+        text = self._GATE_MODE_TO_TEXT.get(mode)
+        if text is None:
+            return
+        cb = self.ui.shutterComboBox
+        idx = cb.findText(text)
+        if idx >= 0 and idx != cb.currentIndex():
+            cb.blockSignals(True)
+            cb.setCurrentIndex(idx)
+            cb.blockSignals(False)
             
     def update_focus_step_size(self):
         """Update focus step size label when range or steps change."""
@@ -1510,11 +1561,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def _update_image_overlays(self, x_range: float, pixel_size=None,
                                dwell=None, energy=None, channel=None):
         """Refresh scale bar size and metadata text from current scan model."""
-        # Scale bar
-        bar_um = round(max(1.0, x_range / 5.0), 1)
+        # Scale bar — pick a "nice" value ~1/5 of x_range
+        _nice = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+        target = x_range / 5.0
+        bar_um = min(_nice, key=lambda v: abs(v - target))
         self._main_scale_bar.size = bar_um
         self._main_scale_bar.updateBar()
-        self._main_scale_bar.text.setText(f"{bar_um:g} µm")
+        if bar_um < 1.0:
+            self._main_scale_bar.text.setText(f"{bar_um * 1000:g} nm")
+        else:
+            self._main_scale_bar.text.setText(f"{bar_um:g} µm")
         self._main_scale_bar.setVisible(True)
 
         # Metadata text — two lines
@@ -3750,14 +3806,47 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if hasattr(self.ui, 'serverConnectButton'):
             self.ui.serverConnectButton.setEnabled(False)
         
+    # Brief display text per anomaly type for the alarm banner
+    _ALARM_TEXT = {
+        "intensity_drop":  "Beam Lost",
+        "intensity_drift": "Signal Drifting",
+        "focus_decline":   "Focus Lost",
+        "daq_timeout":     "DAQ Timeout",
+    }
+
     def _set_warning_banner(self, warning_text):
-        """Set or clear the warning banner."""
-        if warning_text:
+        """Set or clear the proposal-level warning banner (lower priority than alarm)."""
+        self._proposal_banner_text = warning_text or ""
+        if not self._alarm_active:
+            self._apply_banner()
+
+    def _set_alarm_banner(self, anomaly_type: str):
+        """Show a critical alarm on the banner, overriding the proposal warning."""
+        label = self._ALARM_TEXT.get(anomaly_type, "Anomaly Detected")
+        self._alarm_active = True
+        self.ui.warningLabel.setStyleSheet(
+            "color: white; background-color: #c62828; font-weight: bold;"
+        )
+        self.ui.warningLabel.setText(f"⚠  {label}  —  see Agent tab")
+
+    def _clear_alarm_banner(self):
+        """Dismiss the alarm and restore any pending proposal warning."""
+        self._alarm_active = False
+        self._apply_banner()
+
+    def _apply_banner(self):
+        """Render current proposal warning (called when no alarm is active)."""
+        if self._proposal_banner_text:
             self.ui.warningLabel.setStyleSheet("color: red; background-color: yellow")
-            self.ui.warningLabel.setText(warning_text)
+            self.ui.warningLabel.setText(self._proposal_banner_text)
         else:
             self.ui.warningLabel.setStyleSheet("")
             self.ui.warningLabel.setText("")
+
+    def _on_intelligence_suggestion(self, message: dict):
+        """Trigger the alarm banner for critical anomalies."""
+        if message.get("severity") == "critical" and message.get("anomaly_type") != "user_query":
+            self._set_alarm_banner(message.get("anomaly_type", ""))
         
     def test_monitor_plot(self):
         """Test method to add sample monitor data for testing."""

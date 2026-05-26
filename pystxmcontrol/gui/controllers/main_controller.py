@@ -56,7 +56,9 @@ class MainController(QObject):
     motor_scan_updated = Signal()                # single motor scan data ready to plot
     live_data_ready = Signal(object, object)     # (stxm object, raw message dict) for stack viewer
     external_scan_started = Signal(str)          # scan started externally (carries scan_type string)
-    
+    intelligence_suggestion_received = Signal(dict)  # agent suggestion or anomaly diagnosis
+    shutter_state_changed = Signal(str)             # gate mode changed: "open", "close", "auto"
+
     def __init__(self):
         super().__init__()
         
@@ -74,6 +76,7 @@ class MainController(QObject):
         self.scanning = False
         self.server_status = False
         self.exiting = False
+        self._gate_mode = ""
 
         # Display throttle — limit image redraws to this interval (seconds).
         # Scan data is always stored in the model; only the display is rate-limited.
@@ -274,7 +277,18 @@ class MainController(QObject):
         if not isinstance(message, dict):
             return
 
+        # Intelligence agent suggestion — route directly, skip scan data processing
+        if message.get("type") == "intelligence_suggestion":
+            self.intelligence_suggestion_received.emit(message)
+            return
+
         try:
+            # Gate/shutter state — emit when it changes
+            gate_mode = message.get("gate_mode")
+            if gate_mode and gate_mode != self._gate_mode:
+                self._gate_mode = gate_mode
+                self.shutter_state_changed.emit(gate_mode)
+
             # Extract motor positions and status
             if 'motorPositions' in message:
                 motor_positions = message['motorPositions']
@@ -926,6 +940,10 @@ class MainController(QObject):
     def set_gate(self, mode: str):
         """Set the shutter/gate mode. mode must be 'auto', 'open', or 'closed'."""
         self.message_queue.put({"command": "setGate", "mode": mode})
+
+    def send_agent_query(self, text: str):
+        """Send a free-form query to the AI agent. Response arrives via intelligence_suggestion_received."""
+        self.message_queue.put({"command": "agent_query", "query": text})
 
     def move_motor(self, motor_name: str, position: float) -> bool:
         """Move a motor to the specified position."""

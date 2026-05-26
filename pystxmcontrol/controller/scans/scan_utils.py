@@ -50,7 +50,7 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         scanInfo["offset"], coarse_only = scan["coarse_only"],axes=axes)
     scanInfo["line_positions"] = controller.motors[scan["x_motor"]]["motor"].positions
     controller.daq["default"].autoGateClosed()
-    try: 
+    try:
         #this will timeout if there is a missed trigger.  That can happen at the start of
         #big scans or some reason.
         await dataHandler.getLine(scanInfo.copy())
@@ -58,12 +58,19 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         #by default, if a trigger is missed we end up here, restart the daq and return False.  The scan routine
         #can decide if it wants to retry.
         print("[scan utils] DAQ timeout.  Restarting DAQ and moving on.")
+        dataHandler.record_event(
+            "daq_timeout",
+            line_index=scanInfo.get("lineIndex"),
+            region=scanInfo.get("scanRegion"),
+            energy_index=scanInfo.get("energyIndex"),
+            error=str(e),
+        )
         controller.daq["default"].stop()
         controller.daq["default"].start()
-        controller.config_daqs(dwell = scanInfo["dwell"], 
-                               count = scanInfo["trigger_count"], 
+        controller.config_daqs(dwell = scanInfo["dwell"],
+                               count = scanInfo["trigger_count"],
                                samples = scanInfo["trigger_samples"],
-                               trigger = "EXT", 
+                               trigger = "EXT",
                                daq_list=scanInfo["daq_list"])
         return False
     return True

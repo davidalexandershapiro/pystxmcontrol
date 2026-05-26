@@ -1,0 +1,491 @@
+"""
+IntelligenceModule — passive server-side observer that computes image quality
+metrics, detects anomalies, and calls an AI agent for diagnosis.
+
+Enable/disable via main_config["intelligence"]["enabled"].
+Hook into dataHandler by setting dataHandler.intelligence = IntelligenceModule(...).
+
+EventRecorder uses named channels:
+    "events"  — scan lifecycle + anomalies + agent suggestions  (default max 500)
+    "metrics" — per-line mean, per-point value                  (default max 200)
+
+Anomaly rules (all configurable via main_config["intelligence"]["anomaly"]):
+    intensity_drop  — z-score of current line mean vs rolling baseline
+    intensity_drift — negative slope across recent N line means
+    focus_decline   — focus score drops > threshold % between regions
+
+Agent call (requires main_config["intelligence"]["agent"]["enabled"] = true
+and ANTHROPIC_API_KEY env var):
+    Triggered on anomaly, debounced by cooldown_seconds.
+    Runs non-blocking via asyncio.create_task / run_in_executor.
+    Result stored in EventRecorder and published via publish_fn callback.
+"""
+
+from collections import deque
+import asyncio
+import time
+import numpy as np
+
+_DEFAULT_CHANNELS = {
+    "events": 500,
+    "metrics": 200,
+}
+
+_SYSTEM_PROMPT = """\
+You are an expert scientist monitoring a scanning transmission X-ray microscopy \
+(STXM) instrument at a synchrotron beamline. Your role is to diagnose anomalies \
+and suggest corrective actions based on instrument events."""
+
+
+# ---------------------------------------------------------------------------
+# EventRecorder
+# ---------------------------------------------------------------------------
+
+class EventRecorder:
+    """Named-channel rolling log of semantic session events.
+
+    Each channel is an independent deque with its own maxlen.  When a channel
+    is full the oldest entry is silently dropped.
+
+    Parameters
+    ----------
+    channels : dict[str, int]
+        Mapping of channel name → maximum number of entries to retain.
+    """
+
+    def __init__(self, channels: dict | None = None):
+        cfg = channels if channels is not None else dict(_DEFAULT_CHANNELS)
+        self._channels: dict[str, deque] = {
+            name: deque(maxlen=maxlen) for name, maxlen in cfg.items()
+        }
+
+    def record(self, channel: str, event_type: str, **kwargs) -> None:
+        if channel not in self._channels:
+            self._channels[channel] = deque()
+        event = {"type": event_type, "timestamp": time.time()}
+        event.update(kwargs)
+        self._channels[channel].append(event)
+
+    def recent(self, channel: str, n: int = 30) -> list:
+        buf = self._channels.get(channel, deque())
+        events = list(buf)
+        return events[-n:]
+
+    def all(self, channel: str) -> list:
+        return list(self._channels.get(channel, deque()))
+
+    def channel_names(self) -> list:
+        return list(self._channels.keys())
+
+    def clear(self, channel: str | None = None) -> None:
+        if channel is None:
+            for buf in self._channels.values():
+                buf.clear()
+        elif channel in self._channels:
+            self._channels[channel].clear()
+
+    def __len__(self) -> int:
+        return sum(len(buf) for buf in self._channels.values())
+
+    def len(self, channel: str) -> int:
+        return len(self._channels.get(channel, deque()))
+
+
+# ---------------------------------------------------------------------------
+# Image metrics helpers
+# ---------------------------------------------------------------------------
+
+def _laplacian_variance(image: np.ndarray) -> float:
+    """Focus score: variance of discrete Laplacian. Higher = sharper."""
+    if image.ndim != 2 or image.size == 0:
+        return 0.0
+    lap = (
+        np.roll(image, 1, 0) + np.roll(image, -1, 0)
+        + np.roll(image, 1, 1) + np.roll(image, -1, 1)
+        - 4.0 * image
+    )
+    return float(np.var(lap))
+
+
+# ---------------------------------------------------------------------------
+# AnomalyDetector
+# ---------------------------------------------------------------------------
+
+class AnomalyDetector:
+    """Stateful anomaly checker for STXM scan metrics.
+
+    Checks three rules in order of immediacy:
+    1. intensity_drop  — current line mean is > zscore_threshold sigma below
+                         the rolling baseline (sudden events: beam dump, shutter)
+    2. intensity_drift — linear slope of last drift_window means is more
+                         negative than drift_threshold (fractional per line)
+    3. focus_decline   — focus score drops > focus_decline_pct % vs previous
+                         region (thermal drift of zone plate / stage)
+
+    All thresholds are configurable via the ``anomaly`` config dict.
+    """
+
+    def __init__(self, cfg: dict):
+        self.zscore_threshold = cfg.get("zscore_threshold", 3.0)
+        self.zscore_window = cfg.get("zscore_window", 20)
+        self.drift_window = cfg.get("drift_window", 15)
+        self.drift_threshold = cfg.get("drift_threshold", -0.05)
+        self.focus_decline_pct = cfg.get("focus_decline_pct", 30.0)
+
+        self._baseline: deque = deque(maxlen=self.zscore_window)
+        self._prev_focus: float | None = None
+
+    def check_line(self, line_mean: float) -> dict | None:
+        """Check a new line mean. Returns anomaly dict or None."""
+        self._baseline.append(line_mean)
+
+        min_baseline = max(5, self.zscore_window // 2)
+        if len(self._baseline) < min_baseline + 1:
+            return None
+
+        history = np.array(list(self._baseline)[:-1])
+        mu = float(np.mean(history))
+        sigma = float(np.std(history))
+
+        if sigma < 1e-9:
+            return None
+
+        z = (line_mean - mu) / sigma
+
+        if z < -self.zscore_threshold:
+            severity = "critical" if z < -self.zscore_threshold * 1.5 else "warn"
+            return {
+                "type": "intensity_drop",
+                "severity": severity,
+                "line_mean": round(line_mean, 4),
+                "baseline_mean": round(mu, 4),
+                "baseline_std": round(sigma, 4),
+                "z_score": round(z, 2),
+            }
+
+        if len(self._baseline) >= self.drift_window:
+            recent = np.array(list(self._baseline)[-self.drift_window:])
+            x = np.arange(len(recent), dtype=float)
+            slope = float(np.polyfit(x, recent, 1)[0])
+            if mu > 0 and (slope / mu) < self.drift_threshold:
+                return {
+                    "type": "intensity_drift",
+                    "severity": "warn",
+                    "slope_per_line": round(slope, 6),
+                    "fractional_slope": round(slope / mu, 4),
+                    "baseline_mean": round(mu, 4),
+                }
+
+        return None
+
+    def check_focus(self, focus_score: float) -> dict | None:
+        """Check focus score after a region completes. Returns anomaly or None."""
+        if self._prev_focus is None or self._prev_focus < 1e-9:
+            self._prev_focus = focus_score
+            return None
+
+        prev = self._prev_focus
+        pct_change = (focus_score - prev) / prev * 100.0
+        self._prev_focus = focus_score
+
+        if pct_change < -self.focus_decline_pct:
+            return {
+                "type": "focus_decline",
+                "severity": "warn",
+                "focus_score": round(focus_score, 4),
+                "prev_focus_score": round(prev, 4),
+                "pct_change": round(pct_change, 1),
+            }
+        return None
+
+    def reset(self) -> None:
+        self._baseline.clear()
+        self._prev_focus = None
+
+
+# ---------------------------------------------------------------------------
+# AgentInterface
+# ---------------------------------------------------------------------------
+
+class AgentInterface:
+    """Async interface to the Claude API for anomaly diagnosis.
+
+    Calls are:
+    - Debounced: at most one call per ``cooldown_seconds``
+    - Non-blocking: uses asyncio.create_task + run_in_executor
+    - Context-aware: receives recent events from EventRecorder
+
+    Requires ANTHROPIC_API_KEY environment variable.
+    """
+
+    def __init__(self, main_config: dict):
+        cfg = main_config.get("intelligence", {}).get("agent", {})
+        self.model = cfg.get("model", "claude-haiku-4-5-20251001")
+        self.cooldown_seconds = cfg.get("cooldown_seconds", 60)
+        self.max_context_events = cfg.get("max_context_events", 30)
+        self._last_call_time = 0.0
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            import anthropic
+            self._client = anthropic.Anthropic()
+        return self._client
+
+    def in_cooldown(self) -> bool:
+        return time.time() - self._last_call_time < self.cooldown_seconds
+
+    async def dispatch(self, anomaly: dict, recent_events: list,
+                       publish_fn=None) -> dict | None:
+        """Call the agent asynchronously. Returns suggestion dict or None."""
+        if self.in_cooldown():
+            return None
+        self._last_call_time = time.time()
+
+        prompt = self._format_prompt(anomaly, recent_events)
+        loop = asyncio.get_event_loop()
+        try:
+            text = await loop.run_in_executor(None, self._call_api, prompt)
+        except Exception as exc:
+            text = f"[Agent unavailable: {exc}]"
+
+        suggestion = {
+            "type": "intelligence_suggestion",
+            "anomaly_type": anomaly.get("type"),
+            "severity": anomaly.get("severity"),
+            "suggestion": text,
+            "timestamp": time.time(),
+        }
+        print(suggestion)
+
+        if publish_fn is not None:
+            try:
+                publish_fn(suggestion)
+            except Exception:
+                pass
+
+        return suggestion
+
+    def _call_api(self, prompt: str) -> str:
+        client = self._get_client()
+        msg = client.messages.create(
+            model=self.model,
+            max_tokens=256,
+            system=_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text
+
+    async def query(self, text: str, recent_events: list,
+                    publish_fn=None) -> dict | None:
+        """Handle a free-form operator query. Not subject to cooldown."""
+        prompt = self._format_query_prompt(text, recent_events)
+        loop = asyncio.get_event_loop()
+        try:
+            response_text = await loop.run_in_executor(None, self._call_api, prompt)
+        except Exception as exc:
+            response_text = f"[Agent unavailable: {exc}]"
+
+        result = {
+            "type": "intelligence_suggestion",
+            "anomaly_type": "user_query",
+            "query": text,
+            "suggestion": response_text,
+            "timestamp": time.time(),
+        }
+        if publish_fn is not None:
+            try:
+                publish_fn(result)
+            except Exception:
+                pass
+        return result
+
+    def _format_query_prompt(self, text: str, recent_events: list) -> str:
+        event_lines = []
+        t0 = recent_events[0].get("timestamp", 0) if recent_events else 0
+        for e in recent_events[-self.max_context_events:]:
+            elapsed = f"+{e.get('timestamp', t0) - t0:.1f}s"
+            etype = e.get("type", "?")
+            details = {k: v for k, v in e.items() if k not in ("type", "timestamp")}
+            detail_str = "  ".join(f"{k}={v}" for k, v in details.items())
+            event_lines.append(f"  {elapsed:>8}  [{etype}]  {detail_str}")
+
+        events_text = "\n".join(event_lines) if event_lines else "  (none)"
+        return (
+            f"Recent session events (oldest first):\n{events_text}\n\n"
+            f"Operator question: {text}\n\n"
+            f"Please answer concisely based on the event history and your "
+            f"knowledge of STXM instrumentation."
+        )
+
+    def _format_prompt(self, anomaly: dict, recent_events: list) -> str:
+        event_lines = []
+        for e in recent_events[-self.max_context_events:]:
+            ts = e.get("timestamp", 0)
+            elapsed = f"+{ts - recent_events[0].get('timestamp', ts):.1f}s" if recent_events else ""
+            etype = e.get("type", "?")
+            details = {k: v for k, v in e.items() if k not in ("type", "timestamp")}
+            detail_str = "  ".join(f"{k}={v}" for k, v in details.items())
+            event_lines.append(f"  {elapsed:>8}  [{etype}]  {detail_str}")
+
+        events_text = "\n".join(event_lines) if event_lines else "  (none)"
+        anomaly_lines = "\n".join(f"  {k}: {v}" for k, v in anomaly.items())
+
+        return (
+            f"Anomaly detected during scan:\n{anomaly_lines}\n\n"
+            f"Recent session events (oldest first):\n{events_text}\n\n"
+            f"What is the most likely cause and what corrective action should "
+            f"the operator take? Respond in 2-3 sentences, being specific about "
+            f"the likely cause given the event history."
+        )
+
+
+# ---------------------------------------------------------------------------
+# IntelligenceModule
+# ---------------------------------------------------------------------------
+
+class IntelligenceModule:
+    """Passive observer attached to dataHandler.
+
+    Responsibilities
+    ----------------
+    - Compute per-line and per-frame image quality metrics
+    - Detect anomalies via AnomalyDetector
+    - Dispatch agent calls via AgentInterface when anomalies occur
+    - Record all events and metrics in EventRecorder
+
+    Usage
+    -----
+    Instantiate once and attach to the dataHandler::
+
+        dh.intelligence = IntelligenceModule(main_config, event_recorder, publish_fn)
+
+    publish_fn receives suggestion dicts and should forward them via ZMQ.
+    """
+
+    def __init__(self, main_config: dict, event_recorder: EventRecorder | None = None,
+                 publish_fn=None):
+        cfg = main_config.get("intelligence", {})
+        self.enabled: bool = bool(cfg.get("enabled", False))
+        self._recorder = (
+            event_recorder if event_recorder is not None
+            else EventRecorder(channels=cfg.get("channels", _DEFAULT_CHANNELS))
+        )
+        self._detector = AnomalyDetector(cfg.get("anomaly", {}))
+        agent_cfg = cfg.get("agent", {})
+        self._agent = AgentInterface(main_config) if agent_cfg.get("enabled", False) else None
+        self._publish_fn = publish_fn
+        self._line_means: list[float] = []
+        self._current_scan_type: str | None = None
+
+    @property
+    def recorder(self) -> EventRecorder:
+        return self._recorder
+
+    # ------------------------------------------------------------------
+    # Hooks called from dataHandler
+    # ------------------------------------------------------------------
+
+    def on_scan_start(self, scan: dict) -> None:
+        self._line_means = []
+        self._current_scan_type = scan.get("scan_type")
+        self._detector.reset()
+        self._recorder.record(
+            "events", "scan_start",
+            scan_type=self._current_scan_type,
+            scan_id=scan.get("file_name"),
+        )
+
+    def on_scan_data(self, scanInfo: dict) -> None:
+        mode = scanInfo.get("mode", "")
+        metrics: dict = {}
+        if mode == "continuousLine":
+            metrics = self._line_metrics(scanInfo)
+            if metrics:
+                anomaly = self._detector.check_line(metrics["line_mean"])
+                if anomaly:
+                    self._handle_anomaly(anomaly, scanInfo)
+        elif mode in ("continuousSpiral", "point", "ptychographyGrid", "ptychographySpiral"):
+            metrics = self._point_metrics(scanInfo)
+
+        if metrics:
+            self._recorder.record(
+                "metrics", "scan_data",
+                mode=mode,
+                region=scanInfo.get("scanRegion"),
+                energy_index=scanInfo.get("energyIndex"),
+                line_index=scanInfo.get("lineIndex"),
+                **metrics,
+            )
+            scanInfo["intelligence"] = metrics
+
+    def on_region_complete(self, image: np.ndarray, scan_type: str,
+                           region: str, energy_index: int) -> None:
+        if image is None or image.size == 0:
+            return
+        arr = np.asarray(image, dtype=float)
+        metrics = {
+            "frame_mean": float(np.mean(arr)),
+            "frame_min": float(np.min(arr)),
+            "frame_max": float(np.max(arr)),
+            "frame_std": float(np.std(arr)),
+            "focus_score": _laplacian_variance(arr),
+        }
+        if self._line_means:
+            metrics["line_mean_trend"] = self._line_means.copy()
+            self._line_means = []
+
+        self._recorder.record(
+            "events", "region_complete",
+            scan_type=scan_type,
+            region=region,
+            energy_index=energy_index,
+            **metrics,
+        )
+
+        focus_anomaly = self._detector.check_focus(metrics["focus_score"])
+        if focus_anomaly:
+            self._handle_anomaly(focus_anomaly)
+
+    def on_scan_complete(self, scan_id: str | None = None) -> None:
+        self._recorder.record("events", "scan_complete", scan_id=scan_id)
+        self._line_means = []
+
+    def on_scan_aborted(self, scan_id: str | None = None) -> None:
+        self._recorder.record("events", "scan_aborted", scan_id=scan_id)
+        self._line_means = []
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _handle_anomaly(self, anomaly: dict, scanInfo: dict | None = None) -> None:
+        self._recorder.record(
+            "events", "anomaly",
+            scan_type=self._current_scan_type,
+            region=scanInfo.get("scanRegion") if scanInfo else None,
+            energy_index=scanInfo.get("energyIndex") if scanInfo else None,
+            anomaly=anomaly,
+        )
+        if self._agent and not self._agent.in_cooldown():
+            recent = self._recorder.recent("events", 30)
+            asyncio.create_task(
+                self._agent.dispatch(anomaly, recent, publish_fn=self._publish_fn)
+            )
+
+    def _line_metrics(self, scanInfo: dict) -> dict:
+        data = scanInfo.get("data", {}).get("default")
+        if data is None:
+            return {}
+        arr = np.asarray(data, dtype=float)
+        mean = float(np.mean(arr))
+        self._line_means.append(mean)
+        return {"line_mean": mean}
+
+    def _point_metrics(self, scanInfo: dict) -> dict:
+        data = scanInfo.get("data", {}).get("default")
+        if data is None:
+            return {}
+        arr = np.asarray(data)
+        val = float(arr.flat[0]) if arr.size else 0.0
+        return {"point_value": val}

@@ -7,6 +7,7 @@ from pystxmcontrol.drivers.derivedEnergy import derivedEnergy
 from pystxmcontrol.controller.dataHandler import dataHandler
 from pystxmcontrol.controller.scans import *
 from pystxmcontrol.controller.operation_logger import OperationLogger
+from pystxmcontrol.controller.intelligence import IntelligenceModule, EventRecorder
 import asyncio
 import atexit
 import numpy as np
@@ -49,7 +50,16 @@ class controller:
         self.readConfig()
         self.initialize()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
-        self.operation_logger.start() 
+        self.operation_logger.start()
+        intel_cfg = self.main_config.get("intelligence", {})
+        self._event_recorder = EventRecorder(
+            channels=intel_cfg.get("channels", None)
+        )
+        self.dataHandler.intelligence = IntelligenceModule(
+            self.main_config,
+            self._event_recorder,
+            publish_fn=self.dataHandler.zmq_publisher.publish_stxm_data,
+        )
         time.sleep(1)
         self._confirm_motor_positions()
         self.startMonitor()
@@ -190,12 +200,16 @@ class controller:
                     self.operation_logger.log_motor_position(motor,self.allMotorPositions[motor],
                                                          motor_offset = self.motors[motor]["motor"].config["offset"])
 
+    # Motors worth recording to the intelligence event log regardless of scan state.
+    # Fine piezos (SampleX/Y) are excluded — they move every line during a scan.
+    _INTEL_MOTORS = {"Energy", "ZonePlateZ", "SampleZ"}
+
     def moveMotor(self, axis, pos, log=True, **kwargs):
 
         # Determine if we should log this move
         # If log is explicitly set, use that. Otherwise, auto-detect: log if NOT scanning
         should_log = log if log is not None else not self.scanning or self.main_config["server"]["log motors while scanning"]
- 
+
         # Log the move start
         if should_log:
             self.operation_logger.log_motor_move(axis, pos)
@@ -224,6 +238,20 @@ class controller:
                     axis, actual_position=actual_pos,
                     motor_offset = self.motors[axis]["motor"].config.get("offset",0)
                 )
+
+            # Record to intelligence event log for key motors and all manual moves
+            record_intel = axis in self._INTEL_MOTORS or not self.scanning
+            if record_intel:
+                try:
+                    actual_pos = self.motors[axis]["motor"].getPos()
+                except Exception:
+                    actual_pos = None
+                self.dataHandler.record_event(
+                    "motor_moved",
+                    motor=axis, target=pos, actual=actual_pos,
+                    during_scan=self.scanning,
+                )
+
         except Exception as e:
             # Log failed move
             print(e)

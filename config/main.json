@@ -49,6 +49,26 @@
         "point overhead": 0.0,
         "max line length": 100
     },
+    "intelligence": {
+        "enabled": false,
+        "channels": {
+            "events": 500,
+            "metrics": 200
+        },
+        "anomaly": {
+            "zscore_threshold": 3.0,
+            "zscore_window": 20,
+            "drift_window": 15,
+            "drift_threshold": -0.05,
+            "focus_decline_pct": 30.0
+        },
+        "agent": {
+            "enabled": false,
+            "model": "claude-haiku-4-5-20251001",
+            "cooldown_seconds": 60,
+            "max_context_events": 30
+        }
+    },
     "lastScan": {
         "Image": {
             "driver": "derived_line_image",

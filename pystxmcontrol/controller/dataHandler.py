@@ -457,6 +457,10 @@ class dataHandler:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
         scan["start_time"] = datetime.datetime.now().isoformat()
+        self._current_scan_type = scan.get("scan_type", "")
+        intel = getattr(self, 'intelligence', None)
+        if intel and intel.enabled:
+            intel.on_scan_start(scan)
         self.data = stxm(scan)
         #for DAQs that define the energy range, like energy dispersives, get their energy list
         #into the data structure
@@ -498,6 +502,7 @@ class dataHandler:
             self.controller.getMotorPositions(log=False, monitor_only=True)  # too frequent to log; respects "monitor" flag in motorConfig
             scanInfo = await self.dataQueue.get()
             scanInfo['motorPositions'] = self.controller.allMotorPositions
+            scanInfo['gate_mode'] = self.controller.daq["default"].gate.mode
             scanInfo['zonePlateCalibration'] = self.controller.motors["Energy"]["motor"].getZonePlateCalibration()
             #this must be gotten from the current motor config so updates are applied
             scanInfo['zonePlateOffset'] = self.controller.motors["ZonePlateZ"]["motor"].config.get("offset")
@@ -589,19 +594,32 @@ class dataHandler:
     async def sendScanData(self, event):
         t0 = time.time()
         self._ptycho_point_data = 0.
+        intel = getattr(self, 'intelligence', None)
         event.set()  # asyncio.Event from the controller to synchronize with the scan routine
         while True:
             scanInfo = await self.dataQueue.get()
             if scanInfo == "endOfScan":
                 self.regionComplete = True
                 self.zmq_publisher.publish_stxm_data("scan_complete")
+                if intel and intel.enabled:
+                    intel.on_scan_complete(scan_id=getattr(self, 'currentScanID', None))
                 return
             elif scanInfo == "endOfRegion":
                 self.regionComplete = True
                 self.data.saveRegion(region)
+                if intel and intel.enabled:
+                    image = self.data.interp_counts.get("default", [None])[region]
+                    if image is not None and len(image) > 0:
+                        intel.on_region_complete(
+                            image=image[last_energy_index] if image.ndim == 3 else image,
+                            scan_type=getattr(self, '_current_scan_type', ''),
+                            region=f"Region{region + 1}",
+                            energy_index=last_energy_index,
+                        )
             else:
                 self.regionComplete = False
                 region = int(scanInfo["scanRegion"].split("Region")[1]) - 1
+                last_energy_index = scanInfo.get("energyIndex", 0)
                 scanInfo["elapsedTime"] = time.time() - t0
                 scanInfo["data"] = {}
                 scanInfo["image"] = {}
@@ -612,10 +630,13 @@ class dataHandler:
                 await asyncio.get_event_loop().run_in_executor(
                     None, getattr(self, processor_name), scanInfo
                 )
+                if intel and intel.enabled:
+                    intel.on_scan_data(scanInfo)
                 await self.sendDataToSock(scanInfo)
 
     async def sendDataToSock(self, scan_info):
         scan_info["scanID"] = self.currentScanID
+        scan_info.setdefault("gate_mode", self.controller.daq["default"].gate.mode)
         self.zmq_publisher.publish_stxm_data(scan_info)
 
     async def getPoint(self, scanInfo):
@@ -666,7 +687,11 @@ class dataHandler:
             x_size = scanInfo["xPoints"]
             pixel_size = scanInfo["xStep"]
             dwell = scanInfo["dwell"]
-            scanInfo["rawData"]["default"]["data"] = test_sample(row_index,column_index,y_size,x_size,
+            if self.controller.daq["default"].gate.mode != "close":
+                shutter = 1
+            else:
+                shutter = 0
+            scanInfo["rawData"]["default"]["data"] = shutter * test_sample(row_index,column_index,y_size,x_size,
                                                                  pixel_size,dwell,y_center,x_center)
 
         await self.dataQueue.put(deepcopy(scanInfo))
@@ -676,6 +701,12 @@ class dataHandler:
     def updateDwells(self, scanInfo):
         self.data.DAQdwell = scanInfo['DAQDwell']
         self.data.motdwell = scanInfo['motorDwell']
+
+    def record_event(self, event_type: str, **kwargs) -> None:
+        """Record a semantic event to the intelligence event recorder if enabled."""
+        intel = getattr(self, 'intelligence', None)
+        if intel and intel.enabled:
+            intel.recorder.record('events', event_type, **kwargs)
 
     def cleanup(self):
         """

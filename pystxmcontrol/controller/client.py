@@ -259,3 +259,7 @@ class stxm_client(QtCore.QThread):
         response = self.send_message(message)
         return response
 
+    def send_agent_query(self, text: str):
+        message = {"command": "agent_query", "query": text}
+        return self.send_message(message)
+
