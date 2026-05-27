@@ -42,6 +42,8 @@ Requires-Dist: opencv-python-headless
 Requires-Dist: scikit-learn
 Requires-Dist: PIPython
 Requires-Dist: reportlab
+Requires-Dist: anthropic
+Requires-Dist: openai
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-cov; extra == "dev"

@@ -307,6 +307,8 @@ class LinearSpectrumScan(BaseScan):
 
         if await self.check_abort():
             return await self.handle_abort(region_index, "x_motor", "Flyscan aborted.")
+        if not await self.check_pause():
+            return await self.handle_abort(region_index, "x_motor", "Scan terminated — pause timeout.")
 
         # Move to line position
         #Force the vertical move to use coarse motors for large scans

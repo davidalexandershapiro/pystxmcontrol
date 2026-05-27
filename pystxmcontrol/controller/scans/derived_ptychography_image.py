@@ -75,6 +75,9 @@ async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queu
         scanInfo['xPos'] = xPos[i]
         scanInfo['yPos'] = yPos[i]
         scanInfo['isDoubleExposure'] = scan['doubleExposure']
+        if not await async_check_pause(controller, queue):
+            await dataHandler.dataQueue.put('endOfScan')
+            return False
         if queue.empty():
             if scan["doubleExposure"]:
                 scanInfo['dwell'] = dwell2

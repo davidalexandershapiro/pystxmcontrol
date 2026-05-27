@@ -208,28 +208,52 @@ class AnomalyDetector:
 # ---------------------------------------------------------------------------
 
 class AgentInterface:
-    """Async interface to the Claude API for anomaly diagnosis.
+    """Async interface to a configurable LLM API for anomaly diagnosis.
 
     Calls are:
     - Debounced: at most one call per ``cooldown_seconds``
     - Non-blocking: uses asyncio.create_task + run_in_executor
     - Context-aware: receives recent events from EventRecorder
 
-    Requires ANTHROPIC_API_KEY environment variable.
+    Supported providers (set via main_config["intelligence"]["agent"]["provider"]):
+      "anthropic"  — Anthropic Claude API (requires ANTHROPIC_API_KEY or api_key_env)
+      "openai"     — OpenAI or any compatible endpoint; set base_url for local LLMs
+                     (requires OPENAI_API_KEY or api_key_env)
     """
+
+    _PROVIDER_DEFAULT_ENV = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai":    "OPENAI_API_KEY",
+    }
 
     def __init__(self, main_config: dict):
         cfg = main_config.get("intelligence", {}).get("agent", {})
         self.model = cfg.get("model", "claude-haiku-4-5-20251001")
         self.cooldown_seconds = cfg.get("cooldown_seconds", 60)
         self.max_context_events = cfg.get("max_context_events", 30)
+        self.provider = cfg.get("provider", "anthropic")
+        self.base_url = cfg.get("base_url", None)
+        default_env = self._PROVIDER_DEFAULT_ENV.get(self.provider, "OPENAI_API_KEY")
+        self._api_key_env = cfg.get("api_key_env", default_env)
         self._last_call_time = 0.0
         self._client = None
 
     def _get_client(self):
-        if self._client is None:
+        import os
+        if self._client is not None:
+            return self._client
+        api_key = os.environ.get(self._api_key_env) if self._api_key_env else None
+        if self.provider == "anthropic":
             import anthropic
-            self._client = anthropic.Anthropic()
+            self._client = anthropic.Anthropic(api_key=api_key)
+        else:
+            import openai
+            kwargs = {}
+            if api_key:
+                kwargs["api_key"] = api_key
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
+            self._client = openai.OpenAI(**kwargs)
         return self._client
 
     def in_cooldown(self) -> bool:
@@ -268,13 +292,24 @@ class AgentInterface:
 
     def _call_api(self, prompt: str) -> str:
         client = self._get_client()
-        msg = client.messages.create(
-            model=self.model,
-            max_tokens=256,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text
+        if self.provider == "anthropic":
+            msg = client.messages.create(
+                model=self.model,
+                max_tokens=256,
+                system=_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text
+        else:
+            msg = client.chat.completions.create(
+                model=self.model,
+                max_tokens=256,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ],
+            )
+            return msg.choices[0].message.content
 
     async def query(self, text: str, recent_events: list,
                     publish_fn=None) -> dict | None:

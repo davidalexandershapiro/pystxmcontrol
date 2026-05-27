@@ -68,9 +68,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     query_submitted = Signal(str)
     action_requested = Signal(str)
+    cancel_requested = Signal()
+    clear_history_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._task_running = False
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -82,10 +85,24 @@ class IntelligenceWidget(QtWidgets.QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header label
+        # Header row: label + Clear button
+        header_row = QtWidgets.QHBoxLayout()
+        header_row.setSpacing(4)
         header = QtWidgets.QLabel("AI Agent")
         header.setStyleSheet("color: #aaaaaa; font-size: 11px; font-weight: bold;")
-        layout.addWidget(header)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        self._clear_btn = QtWidgets.QPushButton("New Topic")
+        self._clear_btn.setFixedWidth(72)
+        self._clear_btn.setStyleSheet(
+            "QPushButton { background-color: #333333; color: #aaaaaa; "
+            "border: 1px solid #555555; padding: 2px 6px; border-radius: 3px; font-size: 10px; }"
+            "QPushButton:hover { background-color: #444444; color: #cccccc; }"
+        )
+        self._clear_btn.setToolTip("Clear conversation history and start a new topic")
+        self._clear_btn.clicked.connect(self._on_clear)
+        header_row.addWidget(self._clear_btn)
+        layout.addLayout(header_row)
 
         # Message history
         self._browser = QtWidgets.QTextBrowser()
@@ -102,7 +119,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
         input_row.setSpacing(4)
 
         self._query_input = QtWidgets.QLineEdit()
-        self._query_input.setPlaceholderText("Ask the agent…")
+        self._query_input.setPlaceholderText("Describe a goal for the agent…")
         self._query_input.setStyleSheet(
             "QLineEdit { background-color: #2a2a2a; color: #e0e0e0; "
             "border: 1px solid #3a3a3a; padding: 4px; border-radius: 3px; }"
@@ -137,6 +154,53 @@ class IntelligenceWidget(QtWidgets.QWidget):
             self._append_agent_response(text, message.get("query", ""))
         else:
             self._append_anomaly_suggestion(anomaly_type, severity, text)
+
+    def set_task_running(self, running: bool) -> None:
+        """Switch the Send button to Stop while a task is in flight."""
+        self._task_running = running
+        self._query_input.setEnabled(not running)
+        if running:
+            self._send_btn.setText("Stop")
+            self._send_btn.setStyleSheet(
+                "QPushButton { background-color: #c62828; color: #ffcdd2; "
+                "border: none; padding: 4px 8px; border-radius: 3px; }"
+                "QPushButton:hover { background-color: #d32f2f; }"
+                "QPushButton:pressed { background-color: #b71c1c; }"
+            )
+            self._query_input.setPlaceholderText("Agent is running…")
+        else:
+            self._send_btn.setText("Send")
+            self._send_btn.setStyleSheet(
+                "QPushButton { background-color: #1565c0; color: #e3f2fd; "
+                "border: none; padding: 4px 8px; border-radius: 3px; }"
+                "QPushButton:hover { background-color: #1976d2; }"
+                "QPushButton:pressed { background-color: #0d47a1; }"
+            )
+            self._query_input.setPlaceholderText("Describe a goal for the agent…")
+
+    def add_task_status(self, msg: str) -> None:
+        """Display a TaskAgent trace line (tool calls, results, progress)."""
+        if msg.startswith("Starting:"):
+            color, icon = "#80cbc4", "▶"
+        elif msg.startswith("Tool:"):
+            color, icon = "#80cbc4", "⚙"
+        elif msg.startswith("  →"):
+            color, icon = "#757575", ""
+        elif msg.startswith("[Done"):
+            color, icon = "#888888", "✓"
+        else:
+            color, icon = "#888888", ""
+        prefix = f"{icon} " if icon else ""
+        html = (
+            f'<span style="color:{color}; font-size:11px; font-family:monospace;">'
+            f'{prefix}{self._escape(msg)}</span>'
+        )
+        self._browser.append(html)
+        self._scroll_to_bottom()
+
+    def add_task_result(self, text: str) -> None:
+        """Display the final TaskAgent response as a prominent agent message."""
+        self._append_agent_response(text)
 
     def add_user_message(self, text: str) -> None:
         """Display the operator's query in the history before the response arrives."""
@@ -213,11 +277,18 @@ class IntelligenceWidget(QtWidgets.QWidget):
     # Interaction handlers
     # ------------------------------------------------------------------
 
+    def _on_clear(self) -> None:
+        self._browser.clear()
+        self.clear_history_requested.emit()
+
     def _on_anchor_clicked(self, url: QUrl) -> None:
         if url.scheme() == "action":
             self.action_requested.emit(url.host())
 
     def _submit_query(self) -> None:
+        if self._task_running:
+            self.cancel_requested.emit()
+            return
         text = self._query_input.text().strip()
         if not text:
             return

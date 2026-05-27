@@ -14,9 +14,28 @@ from ...controller.client import stxm_client
 from ...utils.writeNX import stxm
 
 
+class TaskAgentThread(QThread):
+    """Runs TaskAgent.run() in a background thread."""
+
+    message = Signal(str)        # streaming status/trace lines
+    finished_text = Signal(str)  # final text response
+
+    def __init__(self, agent, goal: str):
+        QThread.__init__(self)
+        self._agent = agent
+        self._goal = goal
+
+    def cancel(self):
+        self._agent.cancel()
+
+    def run(self):
+        result = self._agent.run(self._goal, publish_fn=lambda msg: self.message.emit(msg))
+        self.finished_text.emit(result)
+
+
 class ControlThread(QThread):
     """Thread for handling client communication."""
-    
+
     controlResponse = Signal(object)
     
     def __init__(self, client, message_queue):
@@ -58,6 +77,10 @@ class MainController(QObject):
     external_scan_started = Signal(str)          # scan started externally (carries scan_type string)
     intelligence_suggestion_received = Signal(dict)  # agent suggestion or anomaly diagnosis
     shutter_state_changed = Signal(str)             # gate mode changed: "open", "close", "auto"
+    scan_pause_changed = Signal(bool)               # pause toggled: True=paused, False=resumed
+    task_agent_status = Signal(str)                 # streaming trace from TaskAgent
+    task_agent_done = Signal(str)                   # final TaskAgent response
+    scan_region_geometry_updated = Signal(dict, str)  # (scan config dict, scan_type) for external scans
 
     def __init__(self):
         super().__init__()
@@ -77,6 +100,9 @@ class MainController(QObject):
         self.server_status = False
         self.exiting = False
         self._gate_mode = ""
+        self._scan_paused = False
+        self._task_agent = None
+        self._agent_thread = None
 
         # Display throttle — limit image redraws to this interval (seconds).
         # Scan data is always stored in the model; only the display is rate-limited.
@@ -207,6 +233,7 @@ class MainController(QObject):
             
             self.server_status = True
             self.status_updated.emit("Connected to server")
+            self._initialize_task_agent()
             return True
         except Exception as e:
             self.error_occurred.emit(f"Failed to connect to server: {str(e)}")
@@ -264,6 +291,7 @@ class MainController(QObject):
         # Handle scan completion
         if message == "scan_complete":
             self.scanning = False
+            self.reset_pause_state()
             self.status_updated.emit("Scan completed")
             # Force a final display update so the last partial image is always shown
             final_image = self.image_model.get('current_image')
@@ -488,7 +516,29 @@ class MainController(QObject):
 
                 # Detect scan that started externally (update_image_data has already written
                 # scan_type into image_model, so the view will read the correct type).
-                self._on_external_scan_detected(message.get('type', ''))
+                scan_type_str = message.get('type', '')
+                if not self.scanning and scan_type_str:
+                    x_center = message.get('xCenter')
+                    x_range  = message.get('xRange')
+                    x_pts    = message.get('xPoints')
+                    y_center = message.get('yCenter')
+                    y_range  = message.get('yRange')
+                    y_pts    = message.get('yPoints')
+                    if None not in (x_center, x_range, x_pts, y_center, y_range, y_pts):
+                        x_step = round(x_range / x_pts, 4) if x_pts else 0.0
+                        y_step = round(y_range / y_pts, 4) if y_pts else 0.0
+                        geo_config = {
+                            'scan_regions': {
+                                'Region1': {
+                                    'xCenter': x_center, 'yCenter': y_center,
+                                    'xRange':  x_range,  'yRange':  y_range,
+                                    'xPoints': x_pts,    'yPoints': y_pts,
+                                    'xStep':   x_step,   'yStep':   y_step,
+                                }
+                            }
+                        }
+                        self.scan_region_geometry_updated.emit(geo_config, scan_type_str)
+                self._on_external_scan_detected(scan_type_str)
 
         except Exception as e:
             print(f"Error handling monitor message: {e}")
@@ -932,18 +982,81 @@ class MainController(QObject):
             message = {"command": "cancel"}
             self.message_queue.put(message)
             self.scanning = False
+            self._scan_paused = False
             self.status_updated.emit("Scan cancelled")
             self.scan_state_changed.emit(False)  # Signal scan completed
         else:
             self.error_occurred.emit("No scan in progress")
 
+    def pause_scan(self):
+        """Toggle pause state on the current scan."""
+        if self.scanning:
+            self.message_queue.put({"command": "pause"})
+            self._scan_paused = not self._scan_paused
+            self.scan_pause_changed.emit(self._scan_paused)
+
+    def reset_pause_state(self):
+        """Clear local pause tracking (called when scan ends)."""
+        if self._scan_paused:
+            self._scan_paused = False
+            self.scan_pause_changed.emit(False)
+
     def set_gate(self, mode: str):
         """Set the shutter/gate mode. mode must be 'auto', 'open', or 'closed'."""
         self.message_queue.put({"command": "setGate", "mode": mode})
 
+    def _initialize_task_agent(self):
+        """Create a TaskAgent if task_agent.enabled=true in main_config."""
+        try:
+            cfg = self.client.main_config.get("task_agent", {})
+            if not cfg.get("enabled", False):
+                return
+            from ...controller.task_agent import TaskAgent
+            self._task_agent = TaskAgent(self.client.main_config, self.client,
+                                         image_model=self.image_model)
+            self.status_updated.emit("TaskAgent initialized")
+        except Exception as e:
+            self.error_occurred.emit(f"TaskAgent init failed: {e}")
+
+    def run_task(self, goal: str):
+        """Submit a goal to the TaskAgent and run it in a background thread."""
+        if self._task_agent is None:
+            self.status_updated.emit("TaskAgent not configured (set task_agent.enabled=true)")
+            return
+        if self._agent_thread is not None and self._agent_thread.isRunning():
+            self.status_updated.emit("TaskAgent is already running — please wait")
+            return
+        self._agent_thread = TaskAgentThread(self._task_agent, goal)
+        self._agent_thread.message.connect(self.task_agent_status.emit)
+        self._agent_thread.finished_text.connect(self.task_agent_done.emit)
+        self._agent_thread.finished.connect(self._on_agent_thread_finished)
+        self._agent_thread.start()
+        self.task_agent_running.emit(True)
+
+    task_agent_running = Signal(bool)   # True when thread starts, False when done
+
+    def cancel_task(self):
+        """Request cancellation of the running TaskAgent task."""
+        if self._agent_thread and self._agent_thread.isRunning():
+            self._agent_thread.cancel()
+            self.task_agent_status.emit("[Cancellation requested — waiting for current step to finish]")
+
+    def reset_task_history(self):
+        """Clear the TaskAgent conversation history to start a fresh session."""
+        if self._task_agent is not None:
+            self._task_agent.reset_history()
+        self.task_agent_status.emit("[Conversation cleared — ready for new topic]")
+
+    def _on_agent_thread_finished(self):
+        self._agent_thread = None
+        self.task_agent_running.emit(False)
+
     def send_agent_query(self, text: str):
-        """Send a free-form query to the AI agent. Response arrives via intelligence_suggestion_received."""
-        self.message_queue.put({"command": "agent_query", "query": text})
+        """Route a free-form query to TaskAgent if available, otherwise to the server's intelligence module."""
+        if self._task_agent is not None:
+            self.run_task(text)
+        else:
+            self.message_queue.put({"command": "agent_query", "query": text})
 
     def move_motor(self, motor_name: str, position: float) -> bool:
         """Move a motor to the specified position."""
@@ -1038,37 +1151,44 @@ class MainController(QObject):
         if parts:
             self.scan_progress_updated.emit(' | '.join(parts))
 
-        # Compute image geometry — prefer scan_regions dict (GUI), fall back to
-        # per-message fields for tiled scans where the server generates sub-regions
-        # ("Region2", "Region3", …) that are not in the GUI's scan_regions dict.
+        # Compute image geometry.
+        # Priority:
+        #   1. Focus scan  → must use scan_model: y display axis = ZonePlateZ,
+        #      so we need zCenter/zRange which the message does not carry.
+        #   2. Message geometry → always accurate; correct for agent/script/tiled
+        #      scans where scan_model may hold stale values from a previous GUI scan.
+        #   3. scan_model region → fallback for drivers that omit geometry.
         scan_regions = self.scan_model.get('scan_regions', {})
         if 'scan_region' in metadata:
             region_name = metadata['scan_region']
             scan_type = self.scan_model.get('scan_type', '')
+            region_data = (scan_regions.get(region_name, {})
+                           if scan_regions else {})
+            msg_has_geometry = metadata.get('msg_x_center') is not None
 
-            if scan_regions and region_name in scan_regions:
-                region_data = scan_regions[region_name]
+            if 'Focus' in scan_type and region_data:
                 x_center = region_data.get('xCenter', 0.0)
                 x_range  = region_data.get('xRange',  70.0)
                 x_pts    = region_data.get('xPoints', 100)
+                y_center = region_data.get('zCenter', 0.0)
+                y_range  = region_data.get('zRange',  70.0)
+                y_pts    = region_data.get('zPoints', 100)
 
-                if 'Focus' in scan_type:
-                    y_center = region_data.get('zCenter', 0.0)
-                    y_range  = region_data.get('zRange',  70.0)
-                    y_pts    = region_data.get('zPoints', 100)
-                else:
-                    y_center = region_data.get('yCenter', 0.0)
-                    y_range  = region_data.get('yRange',  70.0)
-                    y_pts    = region_data.get('yPoints', 100)
-
-            elif metadata.get('msg_x_center') is not None:
-                # Tiled scan: use geometry the scan driver put in the message
+            elif msg_has_geometry:
                 x_center = metadata['msg_x_center']
                 y_center = metadata['msg_y_center']
                 x_range  = metadata['msg_x_range']
                 y_range  = metadata['msg_y_range']
                 x_pts    = metadata.get('msg_x_pts', 100)
                 y_pts    = metadata.get('msg_y_pts', 100)
+
+            elif region_data:
+                x_center = region_data.get('xCenter', 0.0)
+                x_range  = region_data.get('xRange',  70.0)
+                x_pts    = region_data.get('xPoints', 100)
+                y_center = region_data.get('yCenter', 0.0)
+                y_range  = region_data.get('yRange',  70.0)
+                y_pts    = region_data.get('yPoints', 100)
 
             else:
                 region_name = None  # Nothing to update

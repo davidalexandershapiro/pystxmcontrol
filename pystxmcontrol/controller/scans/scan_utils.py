@@ -3,6 +3,31 @@ import numpy as np
 import traceback
 import asyncio
 
+
+async def async_check_pause(controller, queue) -> bool:
+    """Wait while paused.  Returns True to continue, False to terminate.
+
+    On cancel-during-pause: consumes the cancel message and returns False.
+    On timeout: clears controller.pause, injects a sentinel so handle_abort
+    style callers can call queue.get() without deadlocking, and returns False.
+    """
+    if not controller.pause:
+        return True
+    timeout = getattr(controller, 'pause_timeout_seconds', 120)
+    pause_start = getattr(controller, '_pause_start_time', None) or time()
+    while controller.pause:
+        if not queue.empty():
+            await queue.get()
+            controller.pause = False
+            return False
+        if time() - pause_start > timeout:
+            print(f"[scan] Pause timeout ({timeout}s) — terminating scan.")
+            controller.pause = False
+            await queue.put("pause_timeout")
+            return False
+        await asyncio.sleep(0.1)
+    return True
+
 def getLoopMotorPositions(scan):
     r = scan["outerLoop"]["range"]
     center = scan["outerLoop"]["center"]

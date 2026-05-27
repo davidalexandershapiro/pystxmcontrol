@@ -691,8 +691,12 @@ class dataHandler:
                 shutter = 1
             else:
                 shutter = 0
-            scanInfo["rawData"]["default"]["data"] = shutter * test_sample(row_index,column_index,y_size,x_size,
-                                                                 pixel_size,dwell,y_center,x_center)
+            sample_type = self.controller.main_config.get("simulation", {}).get("sample_type", "star")
+            energy = scanInfo.get("energy", 700.0)
+            scanInfo["rawData"]["default"]["data"] = shutter * test_sample(
+                row_index, column_index, y_size, x_size,
+                pixel_size, dwell, y_center, x_center,
+                sample_type=sample_type, energy=energy)
 
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Line] Acquisition time: {t1-t0}")

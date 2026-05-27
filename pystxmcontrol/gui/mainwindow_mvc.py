@@ -367,7 +367,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.toggleSingleEnergy.stateChanged.connect(self.toggle_single_energy)
         
         # Proposal controls
-        self.ui.proposalComboBox.activated.connect(lambda idx: self.on_proposal_changed())
+        self.ui.proposalComboBox.activated.connect(
+            lambda idx: QtCore.QTimer.singleShot(0, self.on_proposal_changed)
+        )
         
     def _setup_controller_connections(self):
         """Connect controller signals to view update methods."""
@@ -385,7 +387,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.estimated_time_updated.connect(self.update_estimated_time_remaining)
         self.controller.motor_scan_updated.connect(self.update_motor_scan_plot)
         self.controller.external_scan_started.connect(self.on_external_scan_started)
+        self.controller.scan_region_geometry_updated.connect(self._populate_ui_from_scan_config)
         self.controller.shutter_state_changed.connect(self._on_shutter_state_changed)
+        self.controller.scan_pause_changed.connect(self._on_scan_pause_changed)
 
     def _initialize_display(self):
         """Initialize the display elements."""
@@ -597,8 +601,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.intelligence_suggestion_received.connect(
             self._on_intelligence_suggestion
         )
+        self.controller.task_agent_status.connect(self._intelligence_tab.add_task_status)
+        self.controller.task_agent_done.connect(self._intelligence_tab.add_task_result)
+        self.controller.task_agent_running.connect(self._intelligence_tab.set_task_running)
         self._intelligence_tab.query_submitted.connect(self._on_agent_query)
         self._intelligence_tab.action_requested.connect(self._on_agent_action)
+        self._intelligence_tab.cancel_requested.connect(self.controller.cancel_task)
+        self._intelligence_tab.clear_history_requested.connect(self.controller.reset_task_history)
 
     def _on_agent_query(self, text: str):
         self.controller.send_agent_query(text)
@@ -883,7 +892,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._update_roi_for_scan_match()
 
     def on_begin_scan(self):
-        """Handle begin scan button click."""
+        """Handle begin scan button click — starts a scan or toggles pause if one is running."""
+        if self.controller.scanning:
+            self.controller.pause_scan()
+            return
         # First compile scan configuration from UI widgets
         if self.controller.compile_scan_from_view(self):
             # Then start the scan
@@ -1135,6 +1147,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         else:
             return
         self.controller.set_gate(mode)
+
+    def _on_scan_pause_changed(self, paused: bool) -> None:
+        """Update the begin/pause button text when pause state changes."""
+        self.ui.beginScanButton.setText("Resume Scan" if paused else "Pause Scan")
 
     _GATE_MODE_TO_TEXT = {"open": "Shutter Open", "close": "Shutter Closed", "auto": "Shutter Auto"}
 
@@ -2138,8 +2154,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             except (ValueError, AttributeError):
                 pass
 
-        # Basic scan controls
-        self.ui.beginScanButton.setEnabled(not scanning)
+        # Basic scan controls — begin button stays enabled; text shows current action
+        self.ui.beginScanButton.setEnabled(True)
+        self.ui.beginScanButton.setText("Pause Scan" if scanning else "Begin Scan")
         self.ui.cancelButton.setEnabled(scanning)
         self.ui.scanType.setEnabled(not scanning)
         self.ui.scanRegSpinbox.setEnabled(not scanning)
@@ -2798,6 +2815,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         to decide whether to fill z-axis (focus) fields.
         """
         # ── scan regions ──────────────────────────────────────────────────────
+        def _f(v): return str(float(f"{v:.3g}"))  # 3 significant digits, no sci notation
         scan_regions = config.get("scan_regions", {})
         if scan_regions:
             self.ui.scanRegSpinbox.setValue(len(scan_regions))
@@ -2805,21 +2823,21 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if i >= len(self.scan_region_widgets):
                     break
                 w = self.scan_region_widgets[i]
-                w.ui.xCenter.setText(str(region.get("xCenter", 0.0)))
-                w.ui.yCenter.setText(str(region.get("yCenter", 0.0)))
-                w.ui.xRange.setText(str(region.get("xRange", 70.0)))
-                w.ui.yRange.setText(str(region.get("yRange", 70.0)))
+                w.ui.xCenter.setText(_f(region.get("xCenter", 0.0)))
+                w.ui.yCenter.setText(_f(region.get("yCenter", 0.0)))
+                w.ui.xRange.setText(_f(region.get("xRange", 70.0)))
+                w.ui.yRange.setText(_f(region.get("yRange", 70.0)))
                 w.ui.xNPoints.setText(str(region.get("xPoints", 100)))
                 w.ui.yNPoints.setText(str(region.get("yPoints", 100)))
-                w.ui.xStep.setText(str(region.get("xStep", 0.7)))
-                w.ui.yStep.setText(str(region.get("yStep", 0.7)))
+                w.ui.xStep.setText(_f(region.get("xStep", 0.7)))
+                w.ui.yStep.setText(_f(region.get("yStep", 0.7)))
 
             if scan_type and ("Focus" in scan_type or "OSA Focus" in scan_type):
                 first_region = next(iter(scan_regions.values()))
                 if hasattr(self.ui, "focusCenterEdit"):
-                    self.ui.focusCenterEdit.setText(str(first_region.get("zCenter", 0.0)))
+                    self.ui.focusCenterEdit.setText(_f(first_region.get("zCenter", 0.0)))
                 if hasattr(self.ui, "focusRangeEdit"):
-                    self.ui.focusRangeEdit.setText(str(first_region.get("zRange", 100.0)))
+                    self.ui.focusRangeEdit.setText(_f(first_region.get("zRange", 100.0)))
                 if hasattr(self.ui, "focusStepsEdit"):
                     self.ui.focusStepsEdit.setText(str(first_region.get("zPoints", 50)))
 

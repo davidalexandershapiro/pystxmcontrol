@@ -35,6 +35,9 @@
         "defocus": 15.0,
         "streaming": false
     },
+    "scan": {
+        "pause_timeout_seconds": 120
+    },
     "geometry": {
         "distance": 200.0,
         "psize": 30,
@@ -64,9 +67,24 @@
         },
         "agent": {
             "enabled": false,
+            "provider": "anthropic",
             "model": "claude-haiku-4-5-20251001",
+            "base_url": null,
+            "api_key_env": "ANTHROPIC_API_KEY",
             "cooldown_seconds": 60,
             "max_context_events": 30
+        }
+    },
+    "simulation": {
+        "sample_type": "particles"
+    },
+    "task_agent": {
+        "enabled": false,
+        "model": "claude-opus-4-7",
+        "max_iterations": 20,
+        "provider": {
+            "base_url": null,
+            "api_key_env": "OPENAI_API_KEY"
         }
     },
     "lastScan": {

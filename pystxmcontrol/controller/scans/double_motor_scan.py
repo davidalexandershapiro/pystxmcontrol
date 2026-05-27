@@ -151,6 +151,12 @@ class DoubleMotorScan(BaseScan):
                     move_home()
                     await self.dataHandler.dataQueue.put("endOfScan")
                     return False
+                if not await self.check_pause():
+                    await self.queue.get()
+                    self.dataHandler.data.saveRegion(0)
+                    move_home()
+                    await self.dataHandler.dataQueue.put("endOfScan")
+                    return False
                 self.controller.daq["default"].autoGateOpen()
                 await self.dataHandler.getPoint(self.scanInfo)
                 self.controller.daq["default"].autoGateClosed()
@@ -179,6 +185,12 @@ class DoubleMotorScan(BaseScan):
             self.controller.motors[x_motor]["motor"].setAxisParams(velocity)
 
             if await self.check_abort():
+                await self.queue.get()
+                self.dataHandler.data.saveRegion(0)
+                move_home()
+                await self.dataHandler.dataQueue.put("endOfScan")
+                return False
+            if not await self.check_pause():
                 await self.queue.get()
                 self.dataHandler.data.saveRegion(0)
                 move_home()

@@ -24,6 +24,7 @@ pystxmcontrol/controller/daq.py
 pystxmcontrol/controller/dataHandler.py
 pystxmcontrol/controller/gate.py
 pystxmcontrol/controller/hardwareController.py
+pystxmcontrol/controller/intelligence.py
 pystxmcontrol/controller/motor.py
 pystxmcontrol/controller/operation_logger.py
 pystxmcontrol/controller/scripter.py
@@ -108,6 +109,7 @@ pystxmcontrol/gui/customwidget.py
 pystxmcontrol/gui/data_browser_widget.py
 pystxmcontrol/gui/energyDef.py
 pystxmcontrol/gui/energyDef_UI.py
+pystxmcontrol/gui/intelligence_widget.py
 pystxmcontrol/gui/main.py
 pystxmcontrol/gui/mainwindow_UI.py
 pystxmcontrol/gui/mainwindow_mvc.py

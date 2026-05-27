@@ -7,6 +7,7 @@ shared across different scan types (line scans, focus scans, point scans, etc.).
 
 from abc import ABC, abstractmethod
 from typing import Dict, Tuple, Optional, Any
+import asyncio
 import numpy as np
 
 
@@ -264,6 +265,31 @@ class BaseScan(ABC):
         :return: True if abort requested, False otherwise
         """
         return not self.queue.empty()
+
+    async def check_pause(self) -> bool:
+        """Wait while paused.  Returns True to continue, False to terminate.
+
+        On cancel-during-pause: leaves the cancel message in the queue so the
+        caller's handle_abort can consume it.
+        On timeout: clears controller.pause, injects a sentinel so handle_abort
+        can call queue.get() without blocking, then returns False.
+        """
+        import time
+        if not self.controller.pause:
+            return True
+        timeout = getattr(self.controller, 'pause_timeout_seconds', 120)
+        pause_start = getattr(self.controller, '_pause_start_time', None) or time.time()
+        while self.controller.pause:
+            if not self.queue.empty():
+                # Cancel arrived during pause — leave message for handle_abort
+                return False
+            if time.time() - pause_start > timeout:
+                print(f"[scan] Pause timeout ({timeout}s) — terminating scan.")
+                self.controller.pause = False
+                await self.queue.put("pause_timeout")
+                return False
+            await asyncio.sleep(0.1)
+        return True
 
     async def handle_abort(self, region_index: int, motor_name: str,
                           message: str = "Scan aborted.") -> bool:

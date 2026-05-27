@@ -43,11 +43,14 @@ class controller:
         self.scanDef = None
         self.scanning = False
         self.pause = False
+        self._pause_start_time: float | None = None
+        self.pause_timeout_seconds: float = 120
         self.autoZonePlate = True
         self.lock = asyncio.Lock()
         self._log_motors = True
         self._logger = logger
         self.readConfig()
+        self.pause_timeout_seconds = self.main_config.get("scan", {}).get("pause_timeout_seconds", 120)
         self.initialize()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
         self.operation_logger.start()

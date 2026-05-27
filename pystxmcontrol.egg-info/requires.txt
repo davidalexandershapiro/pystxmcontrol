@@ -18,6 +18,8 @@ opencv-python-headless
 scikit-learn
 PIPython
 reportlab
+anthropic
+openai
 
 [dev]
 pytest>=7.0

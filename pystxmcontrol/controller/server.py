@@ -372,6 +372,10 @@ class stxmServer:
                     message["status"] = True
                     message["mode"] = "idle"
                     self.controller.pause = not (self.controller.pause)
+                    if self.controller.pause:
+                        self.controller._pause_start_time = time.time()
+                    else:
+                        self.controller._pause_start_time = None
                     self.controller.dataHandler.record_event(
                         "scan_paused" if self.controller.pause else "scan_resumed"
                     )
