@@ -407,6 +407,7 @@ class MainController(QObject):
                 time_remaining = message.get('time_remaining')
                 if time_remaining is not None:
                     self.estimated_time_updated.emit(float(time_remaining))
+                    self.image_model.set('time_remaining', float(time_remaining))
                 
             # Handle Single Motor scan — data arrives as rawData points, not images
             if (message.get('mode') == 'point' and

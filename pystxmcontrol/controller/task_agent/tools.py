@@ -209,6 +209,8 @@ class ToolSet:
         self._positions: dict | None = None
 
         self._particle_regions: list[dict] | None = None
+        self._was_scanning: bool = False         # tracks scanning→idle transition
+        self._last_was_multiregion: bool = False  # prevent lastScan contamination after multiregion
 
         # Eagerly seed from already-fetched client state.  The controller calls
         # get_config() before constructing TaskAgent, so these attributes are ready.
@@ -278,16 +280,20 @@ class ToolSet:
 
             # Seed self._scan from the server's last-used scan parameters so that
             # update_scan() starts from real values, not ScanModel defaults.
+            # Skip if the last scan was a multiregion scan — its lastScan entry has
+            # per-particle geometry (tiny x/y range and points) that would corrupt
+            # the baseline for the next regular scan.
             scan_type = self._scan.get('scan_type', 'Image')
             server_scan = self._last_scans.get(scan_type)
-            if server_scan:
+            if server_scan and not self._last_was_multiregion:
                 try:
                     self._scan = ScanModel(**_convert_scan(server_scan)).model_dump()
                 except Exception as e:
                     log.warning("[ToolSet] get_config: _convert_scan failed for %r: %s", scan_type, e)
-            else:
+            elif not server_scan:
                 log.warning("[ToolSet] get_config: no lastScan entry for %r (available: %s)",
                             scan_type, list(self._last_scans.keys()))
+            self._last_was_multiregion = False
 
             config_summary = {
                 "motors":     list(self._motors.keys()) if self._motors else [],
@@ -346,6 +352,21 @@ class ToolSet:
                     kwargs.get('scan_type', self._scan.get('scan_type', 'Image'))
                 )
                 kwargs['scan_type'] = scan_type   # write resolved name back into kwargs
+                if self._scans_config is not None and scan_type not in self._scans_config:
+                    valid = ", ".join(sorted(self._scans_config.keys()))
+                    return (
+                        f"Unknown scan_type '{scan_type}'. "
+                        f"Valid types are: {valid}. "
+                        f"Note: colloquial terms like 'stack', 'z-stack', or 'tomo' are not valid — "
+                        f"use the exact names listed above."
+                    )
+                # If the caller is setting an energy range but not an explicit energy_list,
+                # clear any energy_list from the baseline — otherwise it silently overrides
+                # energy_start/stop/points in both _build_scan_dict and stxm._extractEnergies.
+                _energy_range_keys = {'energy_start', 'energy_stop', 'energy_points'}
+                if _energy_range_keys & kwargs.keys() and 'energy_list' not in kwargs:
+                    kwargs['energy_list'] = None
+
                 last_scans = self._last_scans or {}
                 if scan_type in last_scans:
                     try:
@@ -377,6 +398,7 @@ class ToolSet:
             scan_dict = _build_scan_dict(self._scan, self._scans_config or {})
             response = self._client.send_message({"command": "scan", "scan": scan_dict})
             if response and response.get('status'):
+                self._was_scanning = True
                 return f"Scan started: {self._scan['scan_type']} ({self._scan['x_range']}×{self._scan['y_range']} µm)"
             else:
                 data = response.get('data', 'no details') if response else 'no response'
@@ -390,20 +412,63 @@ class ToolSet:
             response = self._client.get_status()
             mode = response.get('mode', 'unknown') if response else 'unknown'
             if mode == 'scanning':
+                self._was_scanning = True
                 return "Scan is running."
             elif mode == 'idle':
-                has_image = (
-                    self._image_model is not None and
-                    isinstance(self._image_model.get('all_detector_images'), dict)
-                )
-                if has_image:
-                    return ("Instrument is idle — scan complete. "
+                if self._was_scanning:
+                    self._was_scanning = False
+                    return ("Scan complete — instrument is now idle. "
                             "Call get_last_scan_stats() to analyse the result.")
                 return "Instrument is idle."
             else:
                 return f"Status: {mode}"
         except Exception as e:
             return f"Failed to get scan status: {e}"
+
+    def wait_for_scan(self, timeout_seconds: float | None = None) -> str:
+        """Block until the current scan finishes, then return a completion message.
+
+        Uses the server's live time_remaining estimate (updated during the scan) to
+        set the timeout.  Call this once after start_scan() instead of polling
+        get_scan_status() in a loop — it consumes only one agent iteration.
+        """
+        import time as _time
+
+        POLL_INTERVAL = 3.0   # seconds between status checks
+
+        if timeout_seconds is None:
+            # Use the most recently received time_remaining from the monitor stream,
+            # or fall back to a conservative 30-minute ceiling.
+            tr = (self._image_model.get('time_remaining')
+                  if self._image_model is not None else None)
+            timeout_seconds = (tr * 2.0) if (tr and tr > 0) else 1800.0
+
+        deadline = _time.monotonic() + timeout_seconds
+        self._was_scanning = True   # ensure completion message fires on idle
+
+        while _time.monotonic() < deadline:
+            try:
+                response = self._client.get_status()
+                mode = response.get('mode', 'unknown') if response else 'unknown'
+            except Exception as e:
+                return f"Error checking scan status: {e}"
+
+            if mode == 'idle':
+                self._was_scanning = False
+                return ("Scan complete — instrument is now idle. "
+                        "Call get_last_scan_stats() to analyse the result.")
+
+            # Refresh timeout from the live time_remaining estimate if available
+            if self._image_model is not None:
+                tr = self._image_model.get('time_remaining')
+                if tr and tr > 0:
+                    deadline = _time.monotonic() + tr * 2.0
+
+            _time.sleep(POLL_INTERVAL)
+
+        self._was_scanning = False
+        return (f"Timed out after {timeout_seconds:.0f} s waiting for scan to finish. "
+                "Call get_scan_status() to check current state.")
 
     def get_last_scan_stats(self, daq: str = "default") -> str:
         """Return statistics and spatial analysis of the most recently completed scan image.
@@ -540,55 +605,74 @@ class ToolSet:
             rx = (maxc - minc) * px_x
             ry = (maxr - minr) * px_y
 
-            # Points: maintain overview pixel density, minimum 10
-            xpts = max(10, maxc - minc)
-            ypts = max(10, maxr - minr)
-
             regions.append({
                 'xCenter': round(cx, 3), 'yCenter': round(cy, 3),
                 'xRange':  round(rx, 3), 'yRange':  round(ry, 3),
-                'xPoints': xpts,         'yPoints': ypts,
             })
 
         self._particle_regions = regions
+        # Store the overview pixel size (µm/px) so start_multiregion_scan() has a
+        # sensible default if no pixel_size_nm is requested.
+        self._overview_pixel_size_um = (px_x, px_y)
+
+        overview_pixel_nm = round(px_x * 1000, 1)
         result = {
             "particles_found": len(regions),
+            "overview_pixel_size_nm": overview_pixel_nm,
             "overview_scan_um": {"x_range": x_range, "y_range": y_range,
                                   "x_center": x_center, "y_center": y_center},
             "regions": regions,
-            "next_step": "Call start_multiregion_scan() to image all regions, "
-                         "or update energy/dwell with update_scan() first.",
+            "next_step": "Call start_multiregion_scan() to image all regions. "
+                         "Pass pixel_size_nm to scan at higher resolution than the overview "
+                         f"(overview was {overview_pixel_nm} nm/px).",
         }
         return json.dumps(result, indent=2)
 
-    def start_multiregion_scan(self) -> str:
+    def start_multiregion_scan(self, pixel_size_nm: float | None = None) -> str:
         """Start an image scan covering every particle region found by find_particles().
 
         Uses the current scan parameters (energy, dwell, proposal, etc.) but replaces
         the scan geometry with the particle regions returned by the last find_particles() call.
+
+        Args:
+            pixel_size_nm: desired pixel size in nm for the zoom scans. Each region
+                gets its own point count computed as round(range_um / pixel_size_um).
+                If omitted, uses the overview scan's pixel size as the default.
         """
         if not getattr(self, '_particle_regions', None):
             return "No particle regions available — call find_particles() first."
         if self._scans_config is None:
             return "Scan config not loaded — call get_config() first."
 
+        # Resolve pixel size: explicit arg → stored overview size → safe fallback
+        if pixel_size_nm is not None:
+            px_um = pixel_size_nm / 1000.0
+        elif getattr(self, '_overview_pixel_size_um', None):
+            px_um = float(np.mean(self._overview_pixel_size_um))
+        else:
+            px_um = 0.05  # 50 nm fallback
+
         # Build base scan dict from the current single-region definition
         base = _build_scan_dict(self._scan, self._scans_config)
 
-        # Replace scan_regions with one entry per particle
+        # Replace scan_regions with one entry per particle.
+        # Point counts are derived from pixel_size_nm so every region has the same
+        # physical pixel size regardless of its extent.
         scan_regions = {}
         for i, r in enumerate(self._particle_regions):
-            x_step = round(r['xRange'] / r['xPoints'], 4)
-            y_step = round(r['yRange'] / r['yPoints'], 4)
+            xpts = max(10, round(r['xRange'] / px_um))
+            ypts = max(10, round(r['yRange'] / px_um))
+            x_step = round(r['xRange'] / max(xpts - 1, 1), 4)
+            y_step = round(r['yRange'] / max(ypts - 1, 1), 4)
             scan_regions[f'Region{i + 1}'] = {
                 'xStart':  r['xCenter'] - r['xRange'] / 2,
                 'xStop':   r['xCenter'] + r['xRange'] / 2,
                 'xCenter': r['xCenter'], 'xRange': r['xRange'],
-                'xPoints': r['xPoints'], 'xStep':  x_step,
+                'xPoints': xpts,         'xStep':  x_step,
                 'yStart':  r['yCenter'] - r['yRange'] / 2,
                 'yStop':   r['yCenter'] + r['yRange'] / 2,
                 'yCenter': r['yCenter'], 'yRange': r['yRange'],
-                'yPoints': r['yPoints'], 'yStep':  y_step,
+                'yPoints': ypts,         'yStep':  y_step,
                 'zStart': 0, 'zStop': 0, 'zCenter': 0,
                 'zRange': 0, 'zPoints': 1, 'zStep': 0,
             }
@@ -601,6 +685,8 @@ class ToolSet:
             return f"Failed to start multi-region scan: {e}"
 
         if response and response.get('status'):
+            self._last_was_multiregion = True
+            self._was_scanning = True
             return f"Multi-region scan started: {n} particle region(s)."
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"
@@ -713,7 +799,8 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Update the pending scan definition. Call without arguments to inspect the current config. "
                 "Pass any subset of scan parameters to change them. "
-                "Available scan_type values depend on the instrument configuration — check get_config()."
+                "Available scan_type values depend on the instrument configuration — check get_config(). "
+                "Use the exact strings returned there; colloquial terms like 'stack', 'z-stack', or 'tomo' are not valid."
             ),
             "parameters": {
                 "type": "object",
@@ -757,6 +844,29 @@ TOOL_SCHEMAS: list[dict] = [
             "name": "get_scan_status",
             "description": "Check whether a scan is currently running or the instrument is idle.",
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "wait_for_scan",
+            "description": (
+                "Block until the running scan finishes and return a completion message. "
+                "Preferred over polling get_scan_status() in a loop — call this once after "
+                "start_scan() so the scan wait consumes only one agent iteration. "
+                "Uses the server's live time_remaining estimate automatically; "
+                "pass timeout_seconds only to override."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timeout_seconds": {
+                        "type": "number",
+                        "description": "Maximum seconds to wait. Omit to use the server's time estimate.",
+                    },
+                },
+                "required": [],
+            },
         },
     },
     {
@@ -841,9 +951,23 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Start an image scan covering every particle region identified by find_particles(). "
                 "Uses the current scan parameters (energy, dwell, proposal, etc.) with particle regions as geometry. "
+                "Each region's point count is computed from pixel_size_nm so all regions have uniform pixel size. "
+                "find_particles() reports the overview pixel size — pass a smaller value here for higher resolution. "
                 "Call update_scan() first if you want to change energy or dwell for the follow-up scan."
             ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pixel_size_nm": {
+                        "type": "number",
+                        "description": (
+                            "Desired pixel size in nm. Each region gets point count = range_um / pixel_size_um. "
+                            "Omit to use the same pixel size as the overview scan."
+                        ),
+                    },
+                },
+                "required": [],
+            },
         },
     },
 ]

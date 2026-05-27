@@ -36,6 +36,12 @@ Working principles:
 - If a tool returns an error, report it and ask how to proceed — do not retry blindly.
 - When a scan completes, summarize what was done and any anomalies observed.
 - Be concise — the user is a scientist, not a general audience.
+
+SCAN POLLING:
+After start_scan() succeeds, call wait_for_scan() once — it blocks internally until
+the scan finishes and returns a completion message. Do NOT poll get_scan_status() in
+a loop; that wastes iteration budget. When wait_for_scan() returns, immediately
+proceed with the next step of the task without waiting for user input.
 """
 
 

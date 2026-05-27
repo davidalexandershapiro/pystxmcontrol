@@ -131,6 +131,7 @@ class AnomalyDetector:
         self.drift_window = cfg.get("drift_window", 15)
         self.drift_threshold = cfg.get("drift_threshold", -0.05)
         self.focus_decline_pct = cfg.get("focus_decline_pct", 30.0)
+        self.pct_threshold = cfg.get("pct_threshold", 0.10)
 
         self._baseline: deque = deque(maxlen=self.zscore_window)
         self._prev_focus: float | None = None
@@ -152,7 +153,8 @@ class AnomalyDetector:
 
         z = (line_mean - mu) / sigma
 
-        if z < -self.zscore_threshold:
+        pct_drop = (mu - line_mean) / mu if mu > 0 else 0.0
+        if z < -self.zscore_threshold and pct_drop >= self.pct_threshold:
             severity = "critical" if z < -self.zscore_threshold * 1.5 else "warn"
             return {
                 "type": "intensity_drop",
