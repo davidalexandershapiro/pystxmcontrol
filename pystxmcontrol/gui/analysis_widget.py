@@ -134,6 +134,8 @@ class Analysis2Widget(QtWidgets.QWidget):
     def _setup_connections(self):
         ui = self.ui
         ui.a2_openStackButton.clicked.connect(ui.a2_stack_viewer.getFileName)
+        ui.a2_stack_viewer.stack_loaded.connect(self._on_a2_stack_loaded)
+        ui.a2_regionCombo.currentIndexChanged.connect(self._on_a2_region_changed)
         ui.a2_saveDataButton.clicked.connect(self._on_a2_save_data)
         ui.a2_addToLogButton.clicked.connect(self._on_a2_add_to_log)
         ui.a2_savePngButton.clicked.connect(self._on_a2_save_png)
@@ -1106,6 +1108,27 @@ class Analysis2Widget(QtWidgets.QWidget):
         return {"kernel_size": kernel_size, "n_sigma": n_sigma}
 
     # ── Analysis2 Map button ─────────────────────────────────────────────────
+
+    def _on_a2_stack_loaded(self):
+        """Populate the region combo after a stack file is loaded."""
+        sv = self.ui.a2_stack_viewer
+        combo = self.ui.a2_regionCombo
+        combo.blockSignals(True)
+        combo.clear()
+        n = getattr(sv, 'nRegion', 1) or 1
+        for i in range(n):
+            combo.addItem(f"Region {i + 1}")
+        combo.setCurrentIndex(sv.iRegion)
+        combo.setEnabled(n > 1)
+        combo.blockSignals(False)
+
+    def _on_a2_region_changed(self, index: int):
+        """Switch the active scan region and refresh the display."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack or index < 0:
+            return
+        sv.iRegion = index
+        sv.updateMainImage()
 
     def _on_a2_map(self):
         """Dispatch to dual-energy or ROI-RGB map depending on energy count."""
@@ -2305,17 +2328,37 @@ class Analysis2Widget(QtWidgets.QWidget):
             return
         n = min(len(indices), 3)
         indices = indices[:n]
-        # Build RGB image directly from the selected NMF component maps
-        maps = sv.stack.nmfMaps   # (n_components, nY, nX)
-        nY, nX = maps.shape[1], maps.shape[2]
+
+        # When the user is looking at Cluster Spectra the legend numbers are cluster
+        # labels (0-based internally).  Build each RGB channel from a binary cluster
+        # mask so the colors match the legend.  When viewing Component Spectra the
+        # numbers index NMF component spatial weight maps instead.
+        plot_mode = self.ui.a2_nmfPlotCombo.currentText()
+        use_clusters = (
+            plot_mode == 'Cluster Spectra'
+            and hasattr(sv.stack, 'clusters')
+            and sv.stack.clusters is not None
+        )
+
+        if use_clusters:
+            clusters = sv.stack.clusters   # (nY, nX) integer labels 0..n_clusters-1
+            nY, nX = clusters.shape
+        else:
+            maps = sv.stack.nmfMaps        # (n_components, nY, nX)
+            nY, nX = maps.shape[1], maps.shape[2]
+
         rgb = np.zeros((nY, nX, 3), dtype='uint8')
         for ch, idx in enumerate(indices):
             i = idx - 1   # 1-based → 0-based
-            if 0 <= i < maps.shape[0]:
-                ch_map = maps[i]
-                ch_max = ch_map.max()
-                if ch_max > 0:
-                    rgb[:, :, ch] = (255 * ch_map / ch_max).astype('uint8')
+            if use_clusters:
+                if 0 <= i <= int(clusters.max()):
+                    rgb[:, :, ch] = ((clusters == i) * 255).astype('uint8')
+            else:
+                if 0 <= i < maps.shape[0]:
+                    ch_map = maps[i]
+                    ch_max = ch_map.max()
+                    if ch_max > 0:
+                        rgb[:, :, ch] = (255 * ch_map / ch_max).astype('uint8')
         sv.stack.rgbImage = rgb
         self.ui.a2_imageView.setImage(np.ascontiguousarray(rgb.transpose(1, 0, 2)))
         # Switch display combo to RGB Map

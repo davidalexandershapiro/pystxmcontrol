@@ -77,6 +77,17 @@ class Ui_Analysis2Widget(object):
 
         self.a2_main_buttons_layout.addWidget(self.a2_openStackButton)
 
+        self.a2_regionLabel = QLabel(self.a2_tab_main)
+        self.a2_regionLabel.setObjectName(u"a2_regionLabel")
+        self.a2_regionLabel.setText(u"Region:")
+        self.a2_main_buttons_layout.addWidget(self.a2_regionLabel)
+
+        self.a2_regionCombo = QComboBox(self.a2_tab_main)
+        self.a2_regionCombo.setObjectName(u"a2_regionCombo")
+        self.a2_regionCombo.setMinimumWidth(80)
+        self.a2_regionCombo.setEnabled(False)
+        self.a2_main_buttons_layout.addWidget(self.a2_regionCombo)
+
         self.a2_saveDataButton = QPushButton(self.a2_tab_main)
         self.a2_saveDataButton.setObjectName(u"a2_saveDataButton")
 
