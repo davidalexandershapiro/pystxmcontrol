@@ -309,9 +309,7 @@ class Analysis2Widget(QtWidgets.QWidget):
             pi.legend = None
         self._a2_clear_all_rois()   # also calls _a2_update_map_button_state via _a2_update_od_checkbox_state
         self._a2_remove_crop_roi()
-        self.ui.a2_drawRoiCheckbox.blockSignals(True)
-        self.ui.a2_drawRoiCheckbox.setChecked(False)
-        self.ui.a2_drawRoiCheckbox.blockSignals(False)
+        self.ui.a2_drawRoiCheckbox.setChecked(True)
         combo = self.ui.a2_regionCombo
         combo.blockSignals(True)
         combo.clear()
