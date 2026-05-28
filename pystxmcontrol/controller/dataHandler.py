@@ -627,7 +627,7 @@ class dataHandler:
                 # Run the processor in a thread executor so that blocking file I/O
                 # (h5py writes to NFS mounts) does not stall the event loop and delay
                 # asyncio.sleep callbacks in the scan loop, causing timing errors.
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None, getattr(self, processor_name), scanInfo
                 )
                 if intel and intel.enabled:
