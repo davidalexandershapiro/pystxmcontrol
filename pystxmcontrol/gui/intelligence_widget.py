@@ -24,19 +24,21 @@ _ANOMALY_ACTIONS = {
 # Colours
 # ---------------------------------------------------------------------------
 _C = {
-    "critical":   "#ef5350",
-    "warn":       "#ffa726",
-    "agent":      "#66bb6a",
-    "user":       "#42a5f5",
-    "bg_critical":"#2a1515",
-    "bg_warn":    "#2a1e0a",
-    "bg_agent":   "#0d1f0d",
-    "bg_user":    "#0d1a2a",
-    "border":     "#3a3a3a",
-    "action_bg":  "#1565c0",
-    "action_fg":  "#e3f2fd",
-    "text":       "#e0e0e0",
-    "ts":         "#888888",
+    "critical":      "#ef5350",
+    "warn":          "#ffa726",
+    "agent":         "#66bb6a",
+    "user":          "#42a5f5",
+    "recommend":     "#4fc3f7",
+    "bg_critical":   "#2a1515",
+    "bg_warn":       "#2a1e0a",
+    "bg_agent":      "#0d1f0d",
+    "bg_user":       "#0d1a2a",
+    "bg_recommend":  "#0a1e2a",
+    "border":        "#3a3a3a",
+    "action_bg":     "#1565c0",
+    "action_fg":     "#e3f2fd",
+    "text":          "#e0e0e0",
+    "ts":            "#888888",
 }
 
 
@@ -146,6 +148,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     def add_suggestion(self, message: dict) -> None:
         """Display an incoming agent suggestion (anomaly diagnosis or query response)."""
+        msg_type = message.get("type", "")
+
+        if msg_type == "task_recommendation":
+            self._append_task_recommendation(message)
+            return
+
         anomaly_type = message.get("anomaly_type", "")
         severity = message.get("severity", "warn")
         text = message.get("suggestion", "")
@@ -242,6 +250,47 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'{badge} &nbsp; {anomaly_type} &nbsp; {_ts()}</span><br>'
             f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
             f'{action_html}'
+            f'</div>'
+        )
+        self._browser.append(html)
+        self._scroll_to_bottom()
+
+    def _append_task_recommendation(self, message: dict) -> None:
+        subtype = message.get("subtype", "recommendation")
+        reason  = message.get("reason", "")
+        rec     = message.get("recommended_center_um", {})
+        offset  = message.get("offset_um", {})
+        region  = message.get("region", "")
+
+        detail_parts = []
+        if offset:
+            detail_parts.append(
+                f"offset: dx={offset.get('x', 0):+.2f}, "
+                f"dy={offset.get('y', 0):+.2f} µm "
+                f"(|{offset.get('magnitude', 0):.2f}| µm)"
+            )
+        if rec:
+            detail_parts.append(
+                f"recommended centre: ({rec.get('x', 0):.3f}, {rec.get('y', 0):.3f}) µm"
+            )
+        detail_html = (
+            f'<br><span style="color:{_C["ts"]}; font-size:10px;">'
+            + " &nbsp;|&nbsp; ".join(self._escape(p) for p in detail_parts)
+            + "</span>"
+        ) if detail_parts else ""
+
+        label = f"💡 RECOMMEND  {subtype}"
+        if region:
+            label += f"  [{region}]"
+
+        html = (
+            f'<div style="background-color:{_C["bg_recommend"]}; '
+            f'border-left:3px solid {_C["recommend"]}; '
+            f'padding:6px 8px; margin:3px 1px;">'
+            f'<span style="color:{_C["recommend"]}; font-size:10px; font-weight:bold;">'
+            f'{label} &nbsp; {_ts()}</span><br>'
+            f'<span style="color:{_C["text"]};">{self._escape(reason)}</span>'
+            f'{detail_html}'
             f'</div>'
         )
         self._browser.append(html)

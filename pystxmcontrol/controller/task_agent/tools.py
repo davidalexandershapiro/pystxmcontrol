@@ -691,6 +691,25 @@ class ToolSet:
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"
 
+    def get_intelligence_recommendations(self) -> str:
+        """Return any pending recommendations from the intelligence module and clear the queue.
+
+        The intelligence module analyses each completed scan and posts structured
+        recommendations here when it detects actionable conditions (e.g. off-centre
+        feature, focus decline).  This tool drains the queue — call it after every
+        wait_for_scan() to check for suggested parameter updates.
+        """
+        if self._image_model is None:
+            return "Image model not available."
+
+        pending = list(self._image_model.get("pending_recommendations") or [])
+        self._image_model.set("pending_recommendations", [])
+
+        if not pending:
+            return "No recommendations pending."
+
+        return json.dumps({"recommendations": pending}, indent=2)
+
     def get_image_center_of_mass(self, daq: str = "default") -> str:
         """Return the center of mass of the Otsu-thresholded absorption mask.
 
@@ -994,6 +1013,20 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "required": [],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_intelligence_recommendations",
+            "description": (
+                "Return and clear any pending recommendations from the intelligence module. "
+                "The intelligence module analyses each completed scan and posts actionable "
+                "suggestions here (e.g. recentre the scan on a detected feature). "
+                "Call this after every wait_for_scan() to check for suggested updates "
+                "before deciding what to do next."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {

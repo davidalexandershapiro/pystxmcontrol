@@ -73,6 +73,9 @@
             "api_key_env": "ANTHROPIC_API_KEY",
             "cooldown_seconds": 60,
             "max_context_events": 30
+        },
+        "recommendations": {
+            "offcenter_threshold_fov": 0.2
         }
     },
     "simulation": {

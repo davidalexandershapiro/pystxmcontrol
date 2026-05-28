@@ -310,6 +310,14 @@ class MainController(QObject):
             self.intelligence_suggestion_received.emit(message)
             return
 
+        # Intelligence recommendation for the task agent — append to the shared queue
+        if message.get("type") == "task_recommendation":
+            pending = list(self.image_model.get("pending_recommendations") or [])
+            pending.append(message)
+            self.image_model.set("pending_recommendations", pending)
+            self.intelligence_suggestion_received.emit(message)
+            return
+
         try:
             # Gate/shutter state — emit when it changes
             gate_mode = message.get("gate_mode")

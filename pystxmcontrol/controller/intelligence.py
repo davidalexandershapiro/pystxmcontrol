@@ -413,6 +413,13 @@ class IntelligenceModule:
         self._publish_fn = publish_fn
         self._line_means: list[float] = []
         self._current_scan_type: str | None = None
+        # Geometry cached from on_scan_start for use in on_region_complete
+        self._scan_regions: dict = {}
+        # COM offset threshold as a fraction of the smaller FOV dimension
+        recom_cfg = cfg.get("recommendations", {})
+        self._offcenter_threshold_fov: float = float(
+            recom_cfg.get("offcenter_threshold_fov", 0.2)
+        )
 
     @property
     def recorder(self) -> EventRecorder:
@@ -425,6 +432,7 @@ class IntelligenceModule:
     def on_scan_start(self, scan: dict) -> None:
         self._line_means = []
         self._current_scan_type = scan.get("scan_type")
+        self._scan_regions = scan.get("scan_regions", {})
         self._detector.reset()
         self._recorder.record(
             "events", "scan_start",
@@ -483,6 +491,11 @@ class IntelligenceModule:
         if focus_anomaly:
             self._handle_anomaly(focus_anomaly)
 
+        # Centering check on the first energy frame of each region.
+        # Subsequent frames of a stack are not re-checked to avoid spam.
+        if energy_index == 0:
+            self._check_centering(arr, region)
+
     def on_scan_complete(self, scan_id: str | None = None) -> None:
         self._recorder.record("events", "scan_complete", scan_id=scan_id)
         self._line_means = []
@@ -494,6 +507,71 @@ class IntelligenceModule:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _check_centering(self, image: np.ndarray, region: str) -> None:
+        """Compute Otsu-mask COM and publish a recentre recommendation if off-centre."""
+        geom = self._scan_regions.get(region)
+        if geom is None:
+            return
+
+        x_center = float(geom.get("xCenter", 0.0))
+        y_center = float(geom.get("yCenter", 0.0))
+        x_range  = float(geom.get("xRange",  1.0))
+        y_range  = float(geom.get("yRange",  1.0))
+        ny, nx = image.shape[:2]
+
+        try:
+            from skimage.filters import threshold_otsu
+            inv = image.max() - image
+            mask = inv > threshold_otsu(inv)
+        except Exception:
+            return
+
+        if not mask.any():
+            return
+
+        row_idx, col_idx = np.indices((ny, nx), dtype=float)
+        com_col = float(col_idx[mask].mean())
+        com_row = float(row_idx[mask].mean())
+
+        com_x = x_center + (com_col / max(nx - 1, 1) - 0.5) * x_range
+        com_y = y_center + (com_row / max(ny - 1, 1) - 0.5) * y_range
+
+        dx = com_x - x_center
+        dy = com_y - y_center
+        offset_mag = float(np.sqrt(dx ** 2 + dy ** 2))
+
+        fov_ref = min(x_range, y_range)
+        if fov_ref <= 0 or offset_mag < self._offcenter_threshold_fov * fov_ref:
+            return
+
+        recommendation = {
+            "type": "task_recommendation",
+            "subtype": "recentre",
+            "scan_type": self._current_scan_type,
+            "region": region,
+            "current_center_um": {"x": round(x_center, 3), "y": round(y_center, 3)},
+            "recommended_center_um": {"x": round(com_x, 3), "y": round(com_y, 3)},
+            "offset_um": {
+                "x": round(dx, 3),
+                "y": round(dy, 3),
+                "magnitude": round(offset_mag, 3),
+            },
+            "reason": (
+                f"Feature centre-of-mass is {offset_mag:.1f} µm from the scan centre "
+                f"(dx={dx:+.1f}, dy={dy:+.1f} µm). "
+                f"Suggest updating x_center to {com_x:.3f} and y_center to {com_y:.3f}."
+            ),
+            "timestamp": time.time(),
+        }
+
+        self._recorder.record("events", "task_recommendation", **recommendation)
+
+        if self._publish_fn is not None:
+            try:
+                self._publish_fn(recommendation)
+            except Exception:
+                pass
 
     def _handle_anomaly(self, anomaly: dict, scanInfo: dict | None = None) -> None:
         self._recorder.record(

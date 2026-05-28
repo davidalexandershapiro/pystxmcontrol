@@ -40,8 +40,10 @@ Working principles:
 SCAN POLLING:
 After start_scan() succeeds, call wait_for_scan() once — it blocks internally until
 the scan finishes and returns a completion message. Do NOT poll get_scan_status() in
-a loop; that wastes iteration budget. When wait_for_scan() returns, immediately
-proceed with the next step of the task without waiting for user input.
+a loop; that wastes iteration budget. When wait_for_scan() returns, call
+get_intelligence_recommendations() immediately before proceeding — the intelligence
+module may have posted actionable suggestions (e.g. recentre the scan). Act on any
+recommendations unless the user has already given explicit contrary instructions.
 
 SCAN PARAMETERS:
 get_config() is called once at session start and is NOT repeated. Its results may be
@@ -110,6 +112,19 @@ class TaskAgent:
         # Seed history with the system prompt on the very first turn
         if not self._messages:
             self._messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+
+        # Drain any pending intelligence recommendations and prepend them to the
+        # user message so the agent has context regardless of when they arrived.
+        image_model = self._toolset._image_model
+        if image_model is not None:
+            pending = list(image_model.get("pending_recommendations") or [])
+            if pending:
+                image_model.set("pending_recommendations", [])
+                recs_json = json.dumps({"intelligence_recommendations": pending}, indent=2)
+                goal = (
+                    f"[The intelligence module has posted the following recommendations "
+                    f"based on the last scan]\n{recs_json}\n\n{goal}"
+                )
 
         self._messages.append({"role": "user", "content": goal})
 
