@@ -691,6 +691,101 @@ class ToolSet:
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"
 
+    def get_image_center_of_mass(self, daq: str = "default") -> str:
+        """Return the center of mass of the Otsu-thresholded absorption mask.
+
+        Inverts the transmission image so absorbing particles are bright, applies
+        an Otsu threshold to produce a binary mask, then computes the unweighted
+        centroid of that mask.  This is the same thresholding used by find_particles()
+        so the result is consistent with particle detection.
+
+        Returns physical µm coordinates that can be passed directly to
+        update_scan(x_center=..., y_center=...) to re-centre the next scan on the feature.
+
+        Args:
+            daq: detector channel to use (default 'default').
+        """
+        from skimage.filters import threshold_otsu
+
+        if self._image_model is None:
+            return "Image model not available."
+
+        all_images = self._image_model.get('all_detector_images')
+        if not isinstance(all_images, dict):
+            return "No scan image available — run a scan first."
+
+        image = all_images.get(daq)
+        if image is None and daq != 'default':
+            image = all_images.get('default')
+            daq = 'default'
+        if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
+            return f"No valid image data for DAQ '{daq}'."
+
+        ny, nx = image.shape[:2]
+        x_center = float(self._image_model.get('x_center') or 0.0)
+        y_center = float(self._image_model.get('y_center') or 0.0)
+        x_range  = float(self._image_model.get('x_range')  or 1.0)
+        y_range  = float(self._image_model.get('y_range')  or 1.0)
+
+        inv = image.max() - image.astype(float)
+        mask = inv > threshold_otsu(inv)
+
+        masked_pixels = int(mask.sum())
+        if masked_pixels == 0:
+            return "Otsu threshold produced an empty mask — no absorbing features detected."
+
+        row_idx, col_idx = np.indices((ny, nx), dtype=float)
+        com_col = float(col_idx[mask].mean())
+        com_row = float(row_idx[mask].mean())
+
+        com_x = x_center + (com_col / max(nx - 1, 1) - 0.5) * x_range
+        com_y = y_center + (com_row / max(ny - 1, 1) - 0.5) * y_range
+
+        return json.dumps({
+            "daq": daq,
+            "masked_pixels": masked_pixels,
+            "center_of_mass_um": {"x": round(com_x, 3), "y": round(com_y, 3)},
+            "scan_center_um":    {"x": x_center, "y": y_center},
+            "offset_from_scan_center_um": {
+                "x": round(com_x - x_center, 3),
+                "y": round(com_y - y_center, 3),
+            },
+            "note": "Pass center_of_mass_um values to update_scan(x_center=..., y_center=...) "
+                    "to re-centre the next scan on this feature.",
+        }, indent=2)
+
+    def get_last_scan_params(self, scan_type: str | None = None) -> str:
+        """Refresh and return the most recently used parameters for a scan type.
+
+        Always fetches fresh data from the server, so it reflects scans run
+        after the session started.  Also updates the working scan definition so
+        that subsequent update_scan() / start_scan() calls build on the latest state.
+
+        Args:
+            scan_type: scan type to retrieve (e.g. 'Image', 'Image Stack').
+                       Defaults to the current working scan type if omitted.
+        """
+        try:
+            self._client.get_config()
+            self._last_scans = (self._client.main_config or {}).get("lastScan", {})
+        except Exception as e:
+            return f"Failed to refresh config from server: {e}"
+
+        target_type = scan_type or self._scan.get('scan_type', 'Image')
+        server_scan = self._last_scans.get(target_type)
+        if not server_scan:
+            available = list(self._last_scans.keys())
+            return (f"No last scan recorded for type '{target_type}'. "
+                    f"Types with recorded scans: {available}")
+
+        if not self._last_was_multiregion:
+            try:
+                self._scan = ScanModel(**_convert_scan(server_scan)).model_dump()
+            except Exception as e:
+                log.warning("[ToolSet] get_last_scan_params: _convert_scan failed: %s", e)
+
+        return f"Last '{target_type}' scan parameters:\n" + json.dumps(self._scan, indent=2)
+
     def read_daq(self, daq: str = "default", dwell: float = 100.0, shutter: bool = True) -> str:
         """Take a single-point DAQ reading without running a scan.
 
@@ -895,6 +990,52 @@ TOOL_SCHEMAS: list[dict] = [
                         "default": "default",
                         "description": "DAQ channel to analyse (e.g. 'default', 'xrf', 'tey'). "
                                        "Falls back to 'default' if the requested channel is absent.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_image_center_of_mass",
+            "description": (
+                "Compute the centroid of the Otsu-thresholded absorption mask of the last scan image. "
+                "Uses the same Otsu inversion used by find_particles(), so the result is consistent "
+                "with particle detection. "
+                "Returns physical µm coordinates — pass them to update_scan(x_center=..., y_center=...) "
+                "to re-centre the next scan on the feature."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "daq": {
+                        "type": "string",
+                        "description": "DAQ channel to use (default 'default').",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_last_scan_params",
+            "description": (
+                "Fetch the most recently used scan parameters from the server for a given scan type. "
+                "Always queries the server for fresh data — use this whenever the user asks about "
+                "a recent scan, or before modifying parameters from the last scan. "
+                "Also updates the working scan definition so update_scan() builds on the latest state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scan_type": {
+                        "type": "string",
+                        "description": "Scan type to retrieve (e.g. 'Image', 'Image Stack'). "
+                                       "Omit to use the current working scan type.",
                     },
                 },
                 "required": [],

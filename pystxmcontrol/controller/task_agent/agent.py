@@ -42,6 +42,12 @@ After start_scan() succeeds, call wait_for_scan() once — it blocks internally 
 the scan finishes and returns a completion message. Do NOT poll get_scan_status() in
 a loop; that wastes iteration budget. When wait_for_scan() returns, immediately
 proceed with the next step of the task without waiting for user input.
+
+SCAN PARAMETERS:
+get_config() is called once at session start and is NOT repeated. Its results may be
+stale if scans have run since then. When the user asks about recent scan parameters,
+or when you need the actual parameters of the last scan, call get_last_scan_params()
+— it always fetches fresh data from the server.
 """
 
 
