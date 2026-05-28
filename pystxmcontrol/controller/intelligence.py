@@ -282,7 +282,6 @@ class AgentInterface:
             "suggestion": text,
             "timestamp": time.time(),
         }
-        print(suggestion)
 
         if publish_fn is not None:
             try:
