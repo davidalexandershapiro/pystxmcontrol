@@ -5,6 +5,8 @@ from pystxmcontrol.gui.scanDef import scanRegionDef
 from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
 from pystxmcontrol.gui.motor_panel import MotorPanelWindow
 from pystxmcontrol.gui.analysis_widget import Analysis2Widget
+from pystxmcontrol.gui.beamline_panel import BeamlinePanelWindow
+from pystxmcontrol.controller.beamline_database import BeamlineDatabase
 from PySide6 import QtWidgets, QtCore, QtGui
 import shiboken6
 import os
@@ -139,6 +141,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Motor panel (opened via Motor Panel button)
         self._motor_panel = None
+
+        # Staff mode flag and beamline database
+        self._is_staff = False
+        data_dir = self.controller.client.main_config.get("server", {}).get("data_dir")
+        self._beamline_db = BeamlineDatabase(data_dir=data_dir)
 
         # Other randos
         self.consoleStr = ''
@@ -522,6 +529,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.A1Edit.setEnabled(False)
         self._refresh_a0_display()
         self._refresh_a1_display()
+
+        # Add Beamline Panel button to the beamline tab
+        self._beamline_panel_btn = QtWidgets.QPushButton("Beamline Panel…")
+        self._beamline_panel_btn.clicked.connect(self._open_beamline_panel)
+        self.ui.beamlineTab.layout() or self.ui.beamlineTab.setLayout(
+            QtWidgets.QVBoxLayout(self.ui.beamlineTab)
+        )
+        # Use a simple absolute-position approach to avoid disrupting the
+        # existing fixed-geometry grid; place the button below the grid widget.
+        self._beamline_panel_btn.setParent(self.ui.beamlineTab)
+        self._beamline_panel_btn.move(10, 160)
+        self._beamline_panel_btn.resize(160, 28)
+        self._beamline_panel_btn.show()
 
     def _initialize_main_plot(self):
         """Configure mainPlot: custom sig-fig axis, bounding frame, grid, theme."""
@@ -3700,7 +3720,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.experimentersLineEdit.setText("")
 
             elif selected_index > 0 and selected_index <= len(self.esaf_list):
-                # Valid proposal selected
+                # Valid proposal selected — revoke any prior staff access
+                self._deactivate_staff()
                 try:
                     # Get participant list for this proposal
                     participants = self.participants_list[selected_index - 1]  # -1 because index 0 is "Select a Proposal"
@@ -3886,6 +3907,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
     def _activate_staff(self):
         """Activate staff-only controls."""
+        self._is_staff = True
         if hasattr(self.ui, 'A1Edit'):
             self.ui.A1Edit.setEnabled(True)
         if hasattr(self.ui, 'serverAddressEdit'):
@@ -3895,12 +3917,22 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
     def _deactivate_staff(self):
         """Deactivate staff-only controls."""
+        self._is_staff = False
         if hasattr(self.ui, 'A1Edit'):
             self.ui.A1Edit.setEnabled(False)
         if hasattr(self.ui, 'serverAddressEdit'):
             self.ui.serverAddressEdit.setEnabled(False)
         if hasattr(self.ui, 'serverConnectButton'):
             self.ui.serverConnectButton.setEnabled(False)
+
+    def _open_beamline_panel(self):
+        """Open the Beamline Panel dialog."""
+        dlg = BeamlinePanelWindow(
+            db=self._beamline_db,
+            is_staff=self._is_staff,
+            parent=self,
+        )
+        dlg.exec()
         
     # Brief display text per anomaly type for the alarm banner
     _ALARM_TEXT = {
