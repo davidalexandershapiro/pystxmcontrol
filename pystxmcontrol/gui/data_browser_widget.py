@@ -338,6 +338,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._ptycho_pixel_um = []   # pixel size in µm per dropdown index
         self._current_filepath = ""
         self._export_meta = {}
+        self._is_tiled_detail = False
+        self._browser_tile_items = []   # pg.ImageItems added for tiled composite display
         self._setup_ui()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -494,11 +496,20 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
         detail_layout.addLayout(export_bar)
 
+        self.cursor_label = QtWidgets.QLabel("")
+        self.cursor_label.setStyleSheet("font-family: monospace; color: #aaaaff;")
+        detail_layout.addWidget(self.cursor_label)
+
         self.detail_text = QtWidgets.QTextEdit()
         self.detail_text.setReadOnly(True)
         self.detail_text.setMaximumHeight(230)
         self.detail_text.setFontFamily("Monospace")
         detail_layout.addWidget(self.detail_text)
+
+        self._mouse_proxy = pg.SignalProxy(
+            self.detail_image.scene.sigMouseMoved,
+            rateLimit=30, slot=self._on_detail_mouse_moved
+        )
 
         splitter.addWidget(detail_panel)
         splitter.setSizes([490, 900])
@@ -671,8 +682,18 @@ class DataBrowserWidget(QtWidgets.QWidget):
         matches = glob.glob(pattern)
         return matches[0] if matches else None
 
+    def _clear_browser_tile_items(self):
+        for item in self._browser_tile_items:
+            try:
+                self.detail_image.getView().removeItem(item)
+            except Exception:
+                pass
+        self._browser_tile_items = []
+        self._is_tiled_detail = False
+
     def _show_detail(self, filepath):
         self._current_filepath = filepath
+        self._clear_browser_tile_items()
         try:
             recon = self._find_recon_file(filepath)
             if recon:
@@ -712,58 +733,88 @@ class DataBrowserWidget(QtWidgets.QWidget):
             }
 
             # ── discover detectors directly from HDF5 ────────────────────────
+            scan_type_str = self._export_meta.get("scan_type", "")
+            is_spectrum = "Spectrum" in scan_type_str
+            self._is_tiled_detail = (nx.nRegions > 1 and "Image" in scan_type_str
+                                     and not is_spectrum)
             self._stxm_detector_data = {}
             with h5py.File(filepath, "r") as hf:
-                # physical scale from the default group (same for all detectors)
-                try:
-                    xp = np.atleast_1d(hf["entry0/default/sample_x"][()])
-                except Exception:
-                    xp = np.array([])
-                try:
-                    yp = np.atleast_1d(hf["entry0/default/sample_y"][()])
-                except Exception:
-                    yp = np.array([])
-                x_range_um = float(xp.max() - xp.min()) if xp.size > 1 else 0.0
-                y_range_um = float(yp.max() - yp.min()) if yp.size > 1 else 0.0
+                if self._is_tiled_detail:
+                    # Tiled: collect per-entry (tile) data for each detector.
+                    # _stxm_detector_data[det] = list of (data_2d, x_scale, y_scale, pos, x_range_um)
+                    for det_name in hf.get("entry0/instrument", {}).keys():
+                        instr_grp = hf[f"entry0/instrument/{det_name}"]
+                        if _h5str(instr_grp.attrs.get("type", b"")) != "photon":
+                            continue
+                        tile_list = []
+                        for ri in range(nx.nRegions):
+                            data_path = f"entry{ri}/{det_name}/data"
+                            if data_path not in hf:
+                                continue
+                            data = hf[data_path][()]          # (ne, y, x) or (y, x)
+                            img_2d = data[0] if data.ndim == 3 else data
+                            try:
+                                xp = np.atleast_1d(hf[f"entry{ri}/default/sample_x"][()])
+                            except Exception:
+                                xp = np.array([])
+                            try:
+                                yp = np.atleast_1d(hf[f"entry{ri}/default/sample_y"][()])
+                            except Exception:
+                                yp = np.array([])
+                            x_range_i = float(xp.max() - xp.min()) if xp.size > 1 else 0.0
+                            y_range_i = float(yp.max() - yp.min()) if yp.size > 1 else 0.0
+                            n_ypx, n_xpx = img_2d.shape if img_2d.ndim == 2 else (1, 1)
+                            x_scale_i = x_range_i / n_xpx if n_xpx > 0 and x_range_i > 0 else 1.0
+                            y_scale_i = y_range_i / n_ypx if n_ypx > 0 and y_range_i > 0 else 1.0
+                            pos_i = (float(xp.min()) if xp.size > 0 else 0.0,
+                                     float(yp.min()) if yp.size > 0 else 0.0)
+                            tile_list.append((img_2d, x_scale_i, y_scale_i, pos_i, x_range_i))
+                        if tile_list:
+                            self._stxm_detector_data[det_name] = tile_list
+                else:
+                    # Single region: existing per-detector load from entry0
+                    try:
+                        xp = np.atleast_1d(hf["entry0/default/sample_x"][()])
+                    except Exception:
+                        xp = np.array([])
+                    try:
+                        yp = np.atleast_1d(hf["entry0/default/sample_y"][()])
+                    except Exception:
+                        yp = np.array([])
+                    x_range_um = float(xp.max() - xp.min()) if xp.size > 1 else 0.0
+                    y_range_um = float(yp.max() - yp.min()) if yp.size > 1 else 0.0
 
-                # find all photon detectors: instrument groups with type='photon'
-                # that also have a matching NXdata group at entry0 level
-                scan_type_str = self._export_meta.get("scan_type", "")
-                is_spectrum = "Spectrum" in scan_type_str
-                for det_name in hf.get("entry0/instrument", {}).keys():
-                    instr_grp = hf[f"entry0/instrument/{det_name}"]
-                    is_photon = _h5str(instr_grp.attrs.get("type", b"")) == "photon"
-                    data_path = f"entry0/{det_name}/data"
-                    if is_photon and data_path in hf:
-                        data = hf[data_path][()]
-                        if is_spectrum:
-                            # Collapse to 2D (n_energies, x_pts) then pre-transpose so
-                            # _on_detector_changed's .T gives (n_energies, x_pts) to
-                            # pyqtgraph → energy on x-axis, spatial on y-axis.
-                            if data.ndim == 3:
-                                data_2d = data[:, 0, :]       # (n_energies, x_pts)
-                            elif data.ndim == 2:
-                                data_2d = data                 # already (n_energies, x_pts)
+                    for det_name in hf.get("entry0/instrument", {}).keys():
+                        instr_grp = hf[f"entry0/instrument/{det_name}"]
+                        is_photon = _h5str(instr_grp.attrs.get("type", b"")) == "photon"
+                        data_path = f"entry0/{det_name}/data"
+                        if is_photon and data_path in hf:
+                            data = hf[data_path][()]
+                            if is_spectrum:
+                                if data.ndim == 3:
+                                    data_2d = data[:, 0, :]
+                                elif data.ndim == 2:
+                                    data_2d = data
+                                else:
+                                    data_2d = data.reshape(1, -1)
+                                n_energies, x_pts = data_2d.shape
+                                e_range = (float(energies.max() - energies.min())
+                                           if energies.size > 1 else 1.0)
+                                x_scale = e_range / n_energies if n_energies > 0 else 1.0
+                                y_scale = x_range_um / x_pts if x_pts > 0 and x_range_um > 0 else 1.0
+                                self._stxm_detector_data[det_name] = (
+                                    data_2d.T, x_scale, y_scale, x_range_um
+                                )
                             else:
-                                data_2d = data.reshape(1, -1)
-                            n_energies, x_pts = data_2d.shape
-                            e_range = (float(energies.max() - energies.min())
-                                       if energies.size > 1 else 1.0)
-                            x_scale = e_range / n_energies if n_energies > 0 else 1.0
-                            y_scale = x_range_um / x_pts if x_pts > 0 and x_range_um > 0 else 1.0
-                            self._stxm_detector_data[det_name] = (
-                                data_2d.T, x_scale, y_scale, x_range_um
-                            )
-                        else:
-                            if data.ndim == 3:
-                                _, n_ypx, n_xpx = data.shape
-                            elif data.ndim == 2:
-                                n_ypx, n_xpx = data.shape
-                            else:
-                                n_ypx = n_xpx = 1
-                            x_scale = x_range_um / n_xpx if n_xpx > 0 and x_range_um > 0 else 1.0
-                            y_scale = y_range_um / n_ypx if n_ypx > 0 and y_range_um > 0 else 1.0
-                            self._stxm_detector_data[det_name] = (data, x_scale, y_scale, x_range_um)
+                                if data.ndim == 3:
+                                    _, n_ypx, n_xpx = data.shape
+                                elif data.ndim == 2:
+                                    n_ypx, n_xpx = data.shape
+                                else:
+                                    n_ypx = n_xpx = 1
+                                x_scale = x_range_um / n_xpx if n_xpx > 0 and x_range_um > 0 else 1.0
+                                y_scale = y_range_um / n_ypx if n_ypx > 0 and y_range_um > 0 else 1.0
+                                self._stxm_detector_data[det_name] = (data, x_scale, y_scale, x_range_um)
 
             if not self._stxm_detector_data:
                 self.detail_text.setPlainText("No photon detector data found.")
@@ -849,26 +900,83 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 f"Error loading file:\n{e}\n\n{traceback.format_exc()}"
             )
 
+    def _on_detail_mouse_moved(self, args):
+        pos = args[0]
+        view = self.detail_image.getView()
+        if not view.sceneBoundingRect().contains(pos):
+            return
+        mouse_pt = view.mapSceneToView(pos)
+        x_um = mouse_pt.x()
+        y_um = mouse_pt.y()
+
+        value_str = ""
+        if self._is_tiled_detail:
+            for item in self._browser_tile_items:
+                data_pt = item.mapFromScene(pos)
+                arr = item.image
+                if arr is None:
+                    continue
+                ix = int(data_pt.x())
+                iy = int(data_pt.y())
+                if 0 <= ix < arr.shape[0] and 0 <= iy < arr.shape[1]:
+                    value_str = f"  val: {arr[ix, iy]:.2f}"
+                    break
+        else:
+            img_item = self.detail_image.getImageItem()
+            arr = img_item.image if img_item is not None else None
+            if arr is not None:
+                data_pt = img_item.mapFromScene(pos)
+                ix = int(data_pt.x())
+                iy = int(data_pt.y())
+                if arr.ndim == 3:
+                    t = self.detail_image.currentIndex
+                    if 0 <= ix < arr.shape[1] and 0 <= iy < arr.shape[2] and 0 <= t < arr.shape[0]:
+                        value_str = f"  val: {arr[t, ix, iy]:.2f}"
+                elif arr.ndim == 2:
+                    if 0 <= ix < arr.shape[0] and 0 <= iy < arr.shape[1]:
+                        value_str = f"  val: {arr[ix, iy]:.2f}"
+
+        self.cursor_label.setText(f"x: {x_um:.3f} µm   y: {y_um:.3f} µm{value_str}")
+
     def _on_detector_changed(self, index):
         """Display the image for the selected detector."""
         det_name = self.detector_combo.itemText(index)
         if not det_name or det_name not in self._stxm_detector_data:
             return
-        data, x_scale, y_scale, x_range_um = self._stxm_detector_data[det_name]
 
         is_spectrum = "Spectrum" in self._export_meta.get("scan_type", "")
         self.detail_image.getView().setAspectLocked(not is_spectrum)
 
-        if data.ndim == 3:
-            self.detail_image.setImage(
-                np.transpose(data, (0, 2, 1)),
-                axes={"t": 0, "x": 1, "y": 2},
-                scale=(x_scale, y_scale),
-            )
-        elif data.ndim == 2:
-            self.detail_image.setImage(data.T, scale=(x_scale, y_scale))
-        else:
+        if self._is_tiled_detail:
+            # Clear previous tile items and the internal image
+            self._clear_browser_tile_items()
             self.detail_image.clear()
+            tile_list = self._stxm_detector_data[det_name]
+            total_x_range = 0.0
+            for (img_2d, x_scale_i, y_scale_i, pos_i, x_range_i) in tile_list:
+                img_item = pg.ImageItem()
+                tr = QtGui.QTransform()
+                tr.scale(x_scale_i, y_scale_i)
+                tr.translate(pos_i[0] / x_scale_i, pos_i[1] / y_scale_i)
+                img_item.setTransform(tr)
+                img_item.setImage(img_2d.T, autoLevels=True)
+                self.detail_image.getView().addItem(img_item)
+                self._browser_tile_items.append(img_item)
+                total_x_range = max(total_x_range, x_range_i)
+            self.detail_image.getView().autoRange()
+            x_range_um = total_x_range
+        else:
+            data, x_scale, y_scale, x_range_um = self._stxm_detector_data[det_name]
+            if data.ndim == 3:
+                self.detail_image.setImage(
+                    np.transpose(data, (0, 2, 1)),
+                    axes={"t": 0, "x": 1, "y": 2},
+                    scale=(x_scale, y_scale),
+                )
+            elif data.ndim == 2:
+                self.detail_image.setImage(data.T, scale=(x_scale, y_scale))
+            else:
+                self.detail_image.clear()
 
         # ── scale bar ────────────────────────────────────────────────────────
         if x_range_um > 0:

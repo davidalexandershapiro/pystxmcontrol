@@ -6,6 +6,7 @@ from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
 from pystxmcontrol.gui.motor_panel import MotorPanelWindow
 from pystxmcontrol.gui.analysis_widget import Analysis2Widget
 from PySide6 import QtWidgets, QtCore, QtGui
+import shiboken6
 import os
 import sys
 import pyqtgraph as pg
@@ -351,6 +352,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.removeLastImageButton.clicked.connect(self.remove_last_image)
         if hasattr(self.ui, 'compositeImageCheckbox'):
             self.ui.compositeImageCheckbox.stateChanged.connect(self.update_composite_image)
+        if hasattr(self.ui, 'tiledCheckbox'):
+            self.ui.tiledCheckbox.stateChanged.connect(self._on_tiled_checkbox_changed)
         
         # Region controls
         self.ui.scanRegSpinbox.valueChanged.connect(self.update_scan_regions)
@@ -810,8 +813,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Recreate the range ROI when motor configuration changes."""
         # Remove existing range ROI if it exists
         if self.range_roi is not None:
-            if self.range_roi in self.ui.mainImage.getView().allChildItems():
-                self.ui.mainImage.removeItem(self.range_roi)
+            if shiboken6.isValid(self.range_roi):
+                try:
+                    self.ui.mainImage.removeItem(self.range_roi)
+                except Exception:
+                    pass
             self.range_roi = None
             
         # Create new range ROI
@@ -875,7 +881,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if "Focus" in scan_type and hasattr(self.ui, 'focusCenterEdit'):
             try:
                 motor_positions = self.controller.get_motor_model().get('current_positions', {})
-                zone_plate_z = motor_positions.get('ZonePlateZ', 0)
+                zone_plate_z = motor_positions.get('ZonePlateZ')
+                if zone_plate_z is None:
+                    # Motor position unavailable — use the calibrated zone plate position
+                    zone_plate_z = self.controller.get_image_model().get('zonePlateCalibration', 0.0)
                 self.ui.focusCenterEdit.setText(f"{zone_plate_z:.2f}")
             except Exception:
                 pass
@@ -1257,12 +1266,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.controller.handle_motor_config_change(y_motor, "offset", y_current_offset - y)
 
             # Remove crosshairs
-            if self.horizontal_line:
-                self.ui.mainImage.removeItem(self.horizontal_line)
-                self.horizontal_line = None
-            if self.vertical_line:
-                self.ui.mainImage.removeItem(self.vertical_line)
-                self.vertical_line = None
+            self._safe_remove_item(self.ui.mainImage, self.horizontal_line)
+            self.horizontal_line = None
+            self._safe_remove_item(self.ui.mainImage, self.vertical_line)
+            self.vertical_line = None
 
     def beam_to_cursor(self):
         """Move motors to the crosshair (clicked) position."""
@@ -1317,12 +1324,42 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             # Adjust ZonePlateZ offset to bring clicked position to calibration point
             offset_delta = zone_plate_calibration - cursor_focus_z
             new_offset = zone_plate_offset + offset_delta
-            #print(f"[setFocusZ] current offset: {zone_plate_offset}, a0: {a0}, calibrated position: {zone_plate_calibration}, cursor Z: {cursor_focus_z}")
-            #print(f"[setFocusZ] setting ZonePlateZ offset to {new_offset:.3f}")
+
+            if abs(offset_delta) > 100:
+                reply = QtWidgets.QMessageBox.question(
+                    self,
+                    "Large ZonePlateZ offset change",
+                    f"The requested focus correction would change the ZonePlateZ offset by "
+                    f"{offset_delta:.1f} µm (from {zone_plate_offset:.1f} to {new_offset:.1f}).\n\n"
+                    f"This is larger than 100 µm and may indicate an incorrect cursor position.\n\n"
+                    f"Apply anyway?",
+                    QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+                    QtWidgets.QMessageBox.StandardButton.No,
+                )
+                if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+                    self.ui.focusToCursorButton.setEnabled(True)
+                    return
+
             self.controller.handle_motor_config_change("ZonePlateZ", "offset", new_offset)
         else:
             # Calibrated A0 path: adjust A0 and SampleZ offset
-            new_a0 = a0 - (zone_plate_calibration - cursor_focus_z)
+            focus_delta = zone_plate_calibration - cursor_focus_z
+
+            if abs(focus_delta) > 100:
+                reply = QtWidgets.QMessageBox.question(
+                    self,
+                    "Large focus correction",
+                    f"The requested focus correction is {focus_delta:.1f} µm.\n\n"
+                    f"This is larger than 100 µm and may indicate an incorrect cursor position.\n\n"
+                    f"Apply anyway?",
+                    QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+                    QtWidgets.QMessageBox.StandardButton.No,
+                )
+                if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+                    self.ui.focusToCursorButton.setEnabled(True)
+                    return
+
+            new_a0 = a0 - focus_delta
             sample_z = current_positions.get('SampleZ', 0.0)
             sample_z_offset = motor_info.get('SampleZ', {}).get('offset', 0.0)
             new_sample_z_offset = sample_z_offset + (new_a0 - sample_z)
@@ -1336,12 +1373,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.move_motor("ZonePlateZ", zone_plate_calibration)
 
         # Remove crosshairs
-        if self.horizontal_line:
-            self.ui.mainImage.removeItem(self.horizontal_line)
-            self.horizontal_line = None
-        if self.vertical_line:
-            self.ui.mainImage.removeItem(self.vertical_line)
-            self.vertical_line = None
+        self._safe_remove_item(self.ui.mainImage, self.horizontal_line)
+        self.horizontal_line = None
+        self._safe_remove_item(self.ui.mainImage, self.vertical_line)
+        self.vertical_line = None
 
         # Switch the combo back to the last image scan type.  on_scan_type_changed
         # fires automatically and then calls _update_roi_for_scan_match, which will
@@ -1533,15 +1568,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.controller.set_image_display_settings(settings)
         
         # Clear existing plots (including Image X/Y line plots)
-        if self.current_plot:
-            self.ui.mainPlot.removeItem(self.current_plot)
-            self.current_plot = None
-        if self.x_plot:
-            self.ui.mainPlot.removeItem(self.x_plot)
-            self.x_plot = None
-        if self.y_plot:
-            self.ui.mainPlot.removeItem(self.y_plot)
-            self.y_plot = None
+        self._safe_remove_item(self.ui.mainPlot, self.current_plot)
+        self.current_plot = None
+        self._safe_remove_item(self.ui.mainPlot, self.x_plot)
+        self.x_plot = None
+        self._safe_remove_item(self.ui.mainPlot, self.y_plot)
+        self.y_plot = None
 
         # Update to new plot type
         self._update_plot_display()
@@ -1787,6 +1819,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     img.setImage(image_data.T, autoLevels=False)
                 self.images[image_id] = img
                 self.ui.mainImage.addItem(img)
+            if auto_range:
+                self.ui.mainImage.autoRange()
         else:
             # Normal (non-composite) mode — update the main ImageView directly
             if levels is not None:
@@ -1943,12 +1977,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Update UI elements based on scan type.  This function is called when the ui.scanType
         index is changed."""
         # Clear crosshairs
-        if self.horizontal_line is not None:
-            self.ui.mainImage.removeItem(self.horizontal_line)
-            self.horizontal_line = None
-        if self.vertical_line is not None:
-            self.ui.mainImage.removeItem(self.vertical_line)
-            self.vertical_line = None
+        self._safe_remove_item(self.ui.mainImage, self.horizontal_line)
+        self.horizontal_line = None
+        self._safe_remove_item(self.ui.mainImage, self.vertical_line)
+        self.vertical_line = None
             
         # Disable cursor-based buttons initially
         self.ui.motors2CursorButton.setEnabled(False)
@@ -2010,9 +2042,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.update_focus_step_size()
                 
             # Hide range ROI
-            if self.range_roi is not None:
-                self.ui.mainImage.removeItem(self.range_roi)
-                
+            self._safe_remove_item(self.ui.mainImage, self.range_roi)
+
         elif scan_type == "Line Spectrum":
             # Line spectrum settings
             self.ui.defocusCheckbox.setEnabled(False)
@@ -2041,9 +2072,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 region_widget.setEnabled(False)
                 
             # Hide range ROI
-            if self.range_roi is not None:
-                self.ui.mainImage.removeItem(self.range_roi)
-                
+            self._safe_remove_item(self.ui.mainImage, self.range_roi)
+
         elif "Image" in scan_type:
             # Image scan settings
             self.ui.scanRegSpinbox.setEnabled(True)
@@ -2082,8 +2112,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.defocusCheckbox.setEnabled(False)
                 
             # Show range ROI if enabled
-            if hasattr(self.ui, 'showRangeFinder') and self.ui.showRangeFinder.isChecked() and self.range_roi is not None:
-                self.ui.mainImage.addItem(self.range_roi)
+            if hasattr(self.ui, 'showRangeFinder') and self.ui.showRangeFinder.isChecked():
+                if self.range_roi is not None and shiboken6.isValid(self.range_roi):
+                    try:
+                        self.ui.mainImage.addItem(self.range_roi)
+                    except Exception:
+                        pass
                 
         elif scan_type == "Single Motor":
             # Single motor settings
@@ -2207,10 +2241,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         
     def _update_crosshair(self, x: float, y: float):
         """Update crosshair position on image."""
-        if self.horizontal_line:
-            self.ui.mainImage.removeItem(self.horizontal_line)
-        if self.vertical_line:
-            self.ui.mainImage.removeItem(self.vertical_line)
+        self._safe_remove_item(self.ui.mainImage, self.horizontal_line)
+        self._safe_remove_item(self.ui.mainImage, self.vertical_line)
             
         pen = pg.mkPen(color=(0, 255, 0), width=1, style=QtCore.Qt.SolidLine)
         self.horizontal_line = pg.InfiniteLine(pos=y, angle=0, pen=pen)
@@ -2342,12 +2374,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         want_y = plot_type in ("Image Y", "Image XY")
 
         # Remove stale line plots
-        if self.x_plot:
-            self.ui.mainPlot.removeItem(self.x_plot)
-            self.x_plot = None
-        if self.y_plot:
-            self.ui.mainPlot.removeItem(self.y_plot)
-            self.y_plot = None
+        self._safe_remove_item(self.ui.mainPlot, self.x_plot)
+        self.x_plot = None
+        self._safe_remove_item(self.ui.mainPlot, self.y_plot)
+        self.y_plot = None
 
         channel_key = image_model.get('channel_key', 'default')
 
@@ -2404,42 +2434,59 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
             if "Image" in scan_type or scan_type == "Double Motor":
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
-                image_data = self.nx.data["entry0"]["counts"]["default"]
 
-                # Get image dimensions
-                ne, y, x = image_data.shape
-
-                # Get position arrays
-                xpos = self.nx.data['entry0']['xpos']
-                ypos = self.nx.data['entry0']['ypos']
-
-                # Calculate image parameters
-                x_range = xpos.max() - xpos.min()
-                y_range = ypos.max() - ypos.min()
-                x_center = xpos.min() + x_range / 2.
-                y_center = ypos.min() + y_range / 2.
-                x_scale = float(x_range) / float(x)
-                y_scale = float(y_range) / float(y)
-                pos = (x_center - float(x_range) / 2., y_center - float(y_range) / 2.)
-
-                # Update image model
-                image_model = self.controller.get_image_model()
-                image_model.set('x_center', x_center)
-                image_model.set('y_center', y_center)
-                image_model.set('x_range', x_range)
-                image_model.set('y_range', y_range)
-                image_model.set('image_scale', (x_scale, y_scale))
-
-                # Display image (transpose for correct orientation)
-                axes = (0, 2, 1)
-                self.ui.mainImage.setImage(
-                    np.transpose(image_data, axes=axes),
-                    autoRange=True,
-                    autoLevels=True,
-                    autoHistogramRange=True,
-                    pos=pos,
-                    scale=(x_scale, y_scale)
-                )
+                if self.nx.nRegions > 1:
+                    # Multi-region / tiled scan: composite display
+                    self.clear_image()
+                    for ri in range(self.nx.nRegions):
+                        entry = self.nx.data[f'entry{ri}']
+                        counts = entry['counts']
+                        det_key = 'default' if 'default' in counts else next(iter(counts))
+                        img_data = counts[det_key]          # (ne, y, x)
+                        img_2d   = img_data[0]              # first energy, shape (y, x)
+                        xpos = entry['xpos']
+                        ypos = entry['ypos']
+                        x_range_i = float(xpos.max() - xpos.min())
+                        y_range_i = float(ypos.max() - ypos.min())
+                        n_ypx, n_xpx = img_2d.shape
+                        x_scale_i = x_range_i / n_xpx if n_xpx > 0 and x_range_i > 0 else 1.0
+                        y_scale_i = y_range_i / n_ypx if n_ypx > 0 and y_range_i > 0 else 1.0
+                        img_item = pg.ImageItem()
+                        tr = QtGui.QTransform()
+                        tr.scale(x_scale_i, y_scale_i)
+                        tr.translate(float(xpos.min()) / x_scale_i, float(ypos.min()) / y_scale_i)
+                        img_item.setTransform(tr)
+                        img_item.setImage(img_2d.T, autoLevels=True)
+                        self.images[f'loaded:0:{ri}'] = img_item
+                        self.ui.mainImage.addItem(img_item)
+                    self.ui.mainImage.autoRange()
+                else:
+                    # Single region
+                    image_data = self.nx.data["entry0"]["counts"]["default"]
+                    ne, y, x = image_data.shape
+                    xpos = self.nx.data['entry0']['xpos']
+                    ypos = self.nx.data['entry0']['ypos']
+                    x_range = xpos.max() - xpos.min()
+                    y_range = ypos.max() - ypos.min()
+                    x_center = xpos.min() + x_range / 2.
+                    y_center = ypos.min() + y_range / 2.
+                    x_scale = float(x_range) / float(x)
+                    y_scale = float(y_range) / float(y)
+                    pos = (x_center - float(x_range) / 2., y_center - float(y_range) / 2.)
+                    image_model = self.controller.get_image_model()
+                    image_model.set('x_center', x_center)
+                    image_model.set('y_center', y_center)
+                    image_model.set('x_range', x_range)
+                    image_model.set('y_range', y_range)
+                    image_model.set('image_scale', (x_scale, y_scale))
+                    self.ui.mainImage.setImage(
+                        np.transpose(image_data, axes=(0, 2, 1)),
+                        autoRange=True,
+                        autoLevels=True,
+                        autoHistogramRange=True,
+                        pos=pos,
+                        scale=(x_scale, y_scale)
+                    )
 
                 # Update scan type
                 if scan_type in [item.strip() for item in [self.ui.scanType.itemText(i) for i in range(self.ui.scanType.count())]]:
@@ -2834,12 +2881,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
             if scan_type and ("Focus" in scan_type or "OSA Focus" in scan_type):
                 first_region = next(iter(scan_regions.values()))
-                if hasattr(self.ui, "focusCenterEdit"):
-                    self.ui.focusCenterEdit.setText(_f(first_region.get("zCenter", 0.0)))
-                if hasattr(self.ui, "focusRangeEdit"):
-                    self.ui.focusRangeEdit.setText(_f(first_region.get("zRange", 100.0)))
-                if hasattr(self.ui, "focusStepsEdit"):
-                    self.ui.focusStepsEdit.setText(str(first_region.get("zPoints", 50)))
+                if hasattr(self.ui, "focusCenterEdit") and "zCenter" in first_region:
+                    self.ui.focusCenterEdit.setText(_f(first_region["zCenter"]))
+                if hasattr(self.ui, "focusRangeEdit") and "zRange" in first_region:
+                    self.ui.focusRangeEdit.setText(_f(first_region["zRange"]))
+                if hasattr(self.ui, "focusStepsEdit") and "zPoints" in first_region:
+                    self.ui.focusStepsEdit.setText(str(first_region["zPoints"]))
 
         # ── energy regions ────────────────────────────────────────────────────
         energy_regions = config.get("energy_regions", {})
@@ -3134,18 +3181,18 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
     def toggle_range_roi_display(self):
         """Toggle range ROI display."""
+        if self.range_roi is None or not shiboken6.isValid(self.range_roi):
+            return
         if self.ui.showRangeFinder.isChecked():
-            if self.range_roi is not None:
-                # Only add if it's not already in the scene
-                if self.range_roi not in self.ui.mainImage.getView().allChildItems():
-                    print("Showing range_roi")
-                    self.ui.mainImage.addItem(self.range_roi)
+            try:
+                self.ui.mainImage.addItem(self.range_roi)
+            except Exception:
+                pass
         else:
-            if self.range_roi is not None:
-                # Only remove if it's currently in the scene
-                if self.range_roi in self.ui.mainImage.getView().allChildItems():
-                    print("Hiding range_roi")
-                    self.ui.mainImage.removeItem(self.range_roi)
+            try:
+                self.ui.mainImage.removeItem(self.range_roi)
+            except Exception:
+                pass
             
     def _update_rois_from_regions(self, *_signal_args, reset_to_view=False):
         """Update ROIs based on current scan region widgets.
@@ -3418,35 +3465,61 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     
         except Exception as e:
             print(f"Error updating region from ROI: {e}")
-            # Reconnect signals in case of error
+            # Reconnect signals in case of error — disconnect first to prevent duplicate connections
             try:
                 if roi_index < len(self.scan_region_widgets):
-                    self.scan_region_widgets[roi_index].regionChanged.connect(self._update_rois_from_regions)
-            except:
+                    w = self.scan_region_widgets[roi_index]
+                    try:
+                        w.regionChanged.disconnect(self._update_rois_from_regions)
+                    except RuntimeError:
+                        pass
+                    w.regionChanged.connect(self._update_rois_from_regions)
+            except Exception:
                 pass
         
+    def _safe_remove_item(self, view, item):
+        """Remove a pyqtgraph item from *view* only if the C++ object is still alive."""
+        if item is None or not shiboken6.isValid(item):
+            return
+        try:
+            view.removeItem(item)
+        except Exception:
+            pass
+
     def _clear_rois(self):
         """Clear all ROIs from display and list."""
         for roi in self.roi_list:
+            if not shiboken6.isValid(roi):
+                continue
             try:
                 roi.sigRegionChanged.disconnect(self._update_region_from_roi)
-            except:
-                pass  # Signal may not be connected
-            if roi in self.ui.mainImage.getView().allChildItems():
+            except RuntimeError:
+                pass
+            try:
                 self.ui.mainImage.removeItem(roi)
+            except Exception:
+                pass
         self.roi_list.clear()
             
     def _show_rois(self):
         """Show ROIs on image."""
         for roi in self.roi_list:
-            if roi not in self.ui.mainImage.getView().allChildItems():
+            if not shiboken6.isValid(roi):
+                continue
+            try:
                 self.ui.mainImage.addItem(roi)
-            
+            except Exception:
+                pass
+
     def _hide_rois(self):
         """Hide ROIs from image."""
         for roi in self.roi_list:
-            if roi in self.ui.mainImage.getView().allChildItems():
+            if not shiboken6.isValid(roi):
+                continue
+            try:
                 self.ui.mainImage.removeItem(roi)
+            except Exception:
+                pass
             
     def toggle_jog_mode(self):
         """Toggle between jog and move mode."""
@@ -3476,9 +3549,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
     def clear_plot(self):
         """Clear the plot."""
-        if self.current_plot:
-            self.ui.mainPlot.removeItem(self.current_plot)
-            self.current_plot = None
+        self._safe_remove_item(self.ui.mainPlot, self.current_plot)
+        self.current_plot = None
         self.controller.get_image_model().clear_monitor_data()
         self.controller.get_image_model().clear_motor_scan_data()
         
@@ -3543,6 +3615,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 pos=pos,
                 scale=(xScale, yScale)
             )
+
+    def _on_tiled_checkbox_changed(self, state):
+        if not hasattr(self.ui, 'compositeImageCheckbox'):
+            return
+        tiled = bool(state)
+        if tiled:
+            self.ui.compositeImageCheckbox.setChecked(True)
+            self.ui.compositeImageCheckbox.setEnabled(False)
+        else:
+            self.ui.compositeImageCheckbox.setEnabled(True)
 
     def update_composite_image(self):
         """Toggle composite image display mode."""
@@ -3697,17 +3779,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.roiCheckbox.setChecked(False)
 
         # Hide beam position
-        if self.beam_position is not None:
-            if self.beam_position in self.ui.mainImage.getView().allChildItems():
-                self.ui.mainImage.removeItem(self.beam_position)
+        self._safe_remove_item(self.ui.mainImage, self.beam_position)
 
         # Remove crosshairs
-        if self.horizontal_line is not None:
-            self.ui.mainImage.removeItem(self.horizontal_line)
-            self.horizontal_line = None
-        if self.vertical_line is not None:
-            self.ui.mainImage.removeItem(self.vertical_line)
-            self.vertical_line = None
+        self._safe_remove_item(self.ui.mainImage, self.horizontal_line)
+        self.horizontal_line = None
+        self._safe_remove_item(self.ui.mainImage, self.vertical_line)
+        self.vertical_line = None
 
         # Disable region widgets
         for reg in self.scan_region_widgets:
