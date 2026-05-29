@@ -520,10 +520,17 @@ class IntelligenceModule:
         y_range  = float(geom.get("yRange",  1.0))
         ny, nx = image.shape[:2]
 
+        # Exclude zero pixels — spiral scans leave unscanned corners as 0,
+        # and image.max()-image maps those to the maximum, which would otherwise
+        # dominate the Otsu threshold and pull the COM to the FOV centre.
+        valid = image > 0
+        if not valid.any():
+            return
+
         try:
             from skimage.filters import threshold_otsu
             inv = image.max() - image
-            mask = inv > threshold_otsu(inv)
+            mask = valid & (inv > threshold_otsu(inv[valid]))
         except Exception:
             return
 
