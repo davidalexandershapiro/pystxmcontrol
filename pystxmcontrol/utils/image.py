@@ -352,7 +352,7 @@ class image(object):
             from math import isnan
             self.lastFrame = self.processedFrame
             self.iNorm = np.zeros((self.processedFrame.shape))
-            
+
             a = self.processedFrame
             b = self.normFrames[0].data
             c = self.normFrames[1].data
@@ -361,8 +361,65 @@ class image(object):
             if isnan(self.nC): self.nC = 1.
             print(self.nC)
             self.iNorm = (1. + self.nC * (b - c) / (b + c))
-            self.processedFrame /= self.iNorm 
+            self.processedFrame /= self.iNorm
             self.processedFrame[self.processedFrame < 1.] = self.processedFrame.mean()
 
 
+# ---------------------------------------------------------------------------
+# Scan-image analysis utilities (used by intelligence module and task agent)
+# ---------------------------------------------------------------------------
+
+def otsu_absorption_mask(image: np.ndarray) -> np.ndarray:
+    """Return a binary mask of absorbing (dark) features in a transmission image.
+
+    Inverts the image so absorbers become bright, then applies Otsu thresholding.
+    Zero-valued pixels are excluded from both the threshold calculation and the
+    output mask so that unscanned corners in spiral scans do not bias the result.
+
+    Returns a bool array with the same 2-D shape as *image*, or an all-False
+    array if there are no valid (non-zero) pixels.
+    """
+    from skimage.filters import threshold_otsu
+
+    img = np.asarray(image, dtype=float)
+    valid = img > 0
+    if not valid.any():
+        return np.zeros(img.shape[:2], dtype=bool)
+
+    inv = img.max() - img
+    thresh = threshold_otsu(inv[valid])
+    return valid & (inv > thresh)
+
+
+def image_com(
+    image: np.ndarray,
+    x_center: float,
+    y_center: float,
+    x_range: float,
+    y_range: float,
+) -> tuple | None:
+    """Return the physical-space centre-of-mass (µm) of absorbing features.
+
+    Uses :func:`otsu_absorption_mask` to isolate absorbing regions, then maps
+    the unweighted pixel centroid into motor coordinates.
+
+    Returns ``(com_x, com_y)`` in µm, or ``None`` if the mask is empty or an
+    error occurs (e.g. skimage unavailable).
+    """
+    try:
+        mask = otsu_absorption_mask(image)
+    except Exception:
+        return None
+
+    if not mask.any():
+        return None
+
+    ny, nx = image.shape[:2]
+    row_idx, col_idx = np.indices((ny, nx), dtype=float)
+    com_col = float(col_idx[mask].mean())
+    com_row = float(row_idx[mask].mean())
+
+    com_x = x_center + (com_col / max(nx - 1, 1) - 0.5) * x_range
+    com_y = y_center + (com_row / max(ny - 1, 1) - 0.5) * y_range
+    return com_x, com_y
 

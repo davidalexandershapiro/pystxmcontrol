@@ -30,14 +30,12 @@ def _decimate(img: np.ndarray, max_particles: int | None = None) -> list[dict]:
 
     Each entry: {'minr', 'minc', 'maxr', 'maxc', 'area_px'}.
     """
-    from skimage.filters import threshold_otsu
     from skimage.morphology import erosion, dilation
     from skimage.measure import label, regionprops
     from skimage.segmentation import clear_border
+    from pystxmcontrol.utils.image import otsu_absorption_mask
 
-    # Invert so that dark (absorbing) features become bright
-    inv = img.max() - img.astype(float)
-    binary = inv > threshold_otsu(inv)
+    binary = otsu_absorption_mask(img)
 
     # Morphological cleanup: grow then shrink to merge nearby pixels and fill holes
     for _ in range(2):
@@ -724,7 +722,7 @@ class ToolSet:
         Args:
             daq: detector channel to use (default 'default').
         """
-        from skimage.filters import threshold_otsu
+        from pystxmcontrol.utils.image import image_com, otsu_absorption_mask
 
         if self._image_model is None:
             return "Image model not available."
@@ -740,26 +738,17 @@ class ToolSet:
         if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
             return f"No valid image data for DAQ '{daq}'."
 
-        ny, nx = image.shape[:2]
         x_center = float(self._image_model.get('x_center') or 0.0)
         y_center = float(self._image_model.get('y_center') or 0.0)
         x_range  = float(self._image_model.get('x_range')  or 1.0)
         y_range  = float(self._image_model.get('y_range')  or 1.0)
 
-        inv = image.max() - image.astype(float)
-        mask = inv > threshold_otsu(inv)
-
-        masked_pixels = int(mask.sum())
-        if masked_pixels == 0:
+        result = image_com(image, x_center, y_center, x_range, y_range)
+        if result is None:
             return "Otsu threshold produced an empty mask — no absorbing features detected."
+        com_x, com_y = result
 
-        row_idx, col_idx = np.indices((ny, nx), dtype=float)
-        com_col = float(col_idx[mask].mean())
-        com_row = float(row_idx[mask].mean())
-
-        com_x = x_center + (com_col / max(nx - 1, 1) - 0.5) * x_range
-        com_y = y_center + (com_row / max(ny - 1, 1) - 0.5) * y_range
-
+        masked_pixels = int(otsu_absorption_mask(image).sum())
         return json.dumps({
             "daq": daq,
             "masked_pixels": masked_pixels,
