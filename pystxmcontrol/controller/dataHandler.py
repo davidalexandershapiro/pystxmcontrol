@@ -557,11 +557,14 @@ class dataHandler:
             scanInfo["ccd_frame"] = scanInfo["rawData"]["CCD"]["data"]
             self.zmq_send({"event": "frame", "data": scanInfo})
         if scanInfo["ccd_mode"] == "exp":
+            # Use the per-point intensity snapshotted at acquisition time (getPoint),
+            # not the live detector attribute, so the value stays aligned with this
+            # point's (lineIndex, columnIndex) even when this processor runs late.
             if scanInfo["doubleExposure"]:
                 if scanInfo["ccd_frame_num"] % 2 == 0:
-                    self._ptycho_point_data = self.processFrame(self.daq["CCD"].display_data)
+                    self._ptycho_point_data = scanInfo["ccd_point"]
             else:
-                self._ptycho_point_data = self.processFrame(self.daq["CCD"].display_data)
+                self._ptycho_point_data = scanInfo["ccd_point"]
             scanInfo["data"]["default"] = self._ptycho_point_data
             scanInfo["rawData"]["default"]["data"][0] = self._ptycho_point_data #over write rawData since the diode measurement which is meaningless here
             scanInfo["data"]["CCD"] = self.daq["CCD"].display_data
@@ -650,6 +653,13 @@ class dataHandler:
         t1 = time.time()
         for daq in scanInfo["daq_list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+
+        # Snapshot the CCD diagnostic intensity now, while display_data still holds
+        # this point's frame.  _process_ptycho runs later in a thread executor and the
+        # detector's display_data attribute is overwritten by the next acquisition, so
+        # reading it there would misalign the intensity with the scan geometry.
+        if "CCD" in scanInfo["daq_list"]:
+            scanInfo["ccd_point"] = self.processFrame(self.daq["CCD"].display_data)
 
         #send a copy or it gets overwritten before being sent
         await self.dataQueue.put(deepcopy(scanInfo))
