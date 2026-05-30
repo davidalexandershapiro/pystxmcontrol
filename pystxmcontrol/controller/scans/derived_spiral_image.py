@@ -288,7 +288,7 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
 
             for i in range(len(xList)):
 
-                controller.getMotorPositions()
+                controller.getMotorPositions(log=False, monitor_only=True)
                 dataHandler.data.motorPositions[j] = controller.allMotorPositions
                 scanInfo["motorPositions"] = controller.allMotorPositions
                 scanInfo["index"] = i * numTrajDAQPoints #the data point index

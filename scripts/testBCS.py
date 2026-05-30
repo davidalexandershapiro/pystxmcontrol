@@ -4,25 +4,30 @@ from pystxmcontrol.drivers.xpsController import *
 from pystxmcontrol.drivers.xpsMotor import *
 import time
 
-c = bcsController(address = "192.168.168.100", port = 50000)
+#c = bcsController(address = "192.168.168.100", port = 50000)
+c = bcsController(address = "131.243.73.68", port = 50000)
 c.initialize()
 m = bcsMotor(controller = c)
-#m.connect(axis = "Mono Energy")
-#m.config = {"units":1,"offset":0,"minValue":400,"maxValue":1000}
-m.connect(axis = "Detector Y")
-m.config = {"units":1, "offset": 0, "minValue":-13000, "maxValue":100}
+m.connect(axis = "Beamline Energy")
+m.config = {"units":1,"offset":0,"minValue":400,"maxValue":1000}
+#m.connect(axis = "Detector Y")
+#m.config = {"units":1, "offset": 0, "minValue":-7000, "maxValue":100}
+
+t0 = time.time()
+m.getPos()
+print(f"[bcsMotor] getPos took {1000*(time.time()-t0)} ms")
 
 #print(m.getVar("Double"))
 ##m.setVar(-1.2,"Double")
 #print(m.getVar("Double"))
 
-delta = -500
-t0 = time.time()
-currentPos = m.getPos()
-print("Moving from %.4f eV to %.4f eV" %(currentPos, currentPos + delta))
-m.moveTo(pos = currentPos + delta)
-print("Move took %.2f seconds" %(time.time()-t0))
-print(m.getPos())
+#delta = -500
+#t0 = time.time()
+#currentPos = m.getPos()
+#print("Moving from %.4f eV to %.4f eV" %(currentPos, currentPos + delta))
+#m.moveTo(pos = currentPos + delta)
+#print("Move took %.2f seconds" %(time.time()-t0))
+#print(m.getPos())
 
 #var = "annoyingTestVar"
 #val = -1.2

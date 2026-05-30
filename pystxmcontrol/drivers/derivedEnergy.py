@@ -39,7 +39,7 @@ class derivedEnergy(motor):
     def moveTo(self, energy):
         if not(self.simulation):
             self.moving = True
-            if abs(energy - self.position) > 50. or energy>self.position:
+            if abs(energy - self.position) > 50. or energy<self.position:
                 self.axes["axis1"].moveTo(energy - 1.)
                 self.axes["axis1"].moveTo(energy)
             else:

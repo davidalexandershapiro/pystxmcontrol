@@ -44,6 +44,7 @@ Requires-Dist: PIPython
 Requires-Dist: reportlab
 Requires-Dist: anthropic
 Requires-Dist: openai
+Requires-Dist: pydantic>=2.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-cov; extra == "dev"

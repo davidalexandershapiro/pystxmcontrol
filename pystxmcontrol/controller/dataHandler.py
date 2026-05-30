@@ -515,7 +515,7 @@ class dataHandler:
                 await scanQueue.get()
                 return
 
-    def processFrame(self, frame,threshold=0.1):
+    def processFrame(self, frame,threshold=0.7):
         point = ((frame>threshold) * frame).sum()
         return point
 
