@@ -266,9 +266,15 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = "EXT", daq_list = scanInfo["daq_list"])
 
             # Move to first position
-            controller.moveMotor(scan["x_motor"], xcoarse + scanInfo['xFineCenter'])
-            controller.moveMotor(scan["y_motor"], ycoarse + scanInfo['yFineCenter'])
-            sleep(0.2)
+            # print(f'[spiral scan] moving x motor to {scanInfo['xFineCenter']}')
+            # print(f'[spiral scan] moving y motor to {scanInfo['yFineCenter']}')
+            if nScanRegions > 1 or energy == energies[0]:
+                print("[spiral scan] moving to center of scan region")
+                controller.moveMotor(scan["x_motor"], xcoarse + scanInfo['xFineCenter'])
+                controller.moveMotor(scan["y_motor"], ycoarse + scanInfo['yFineCenter'])
+                sleep(0.2)
+            else:
+                pass
 
             # Fix raw data sizes in writeNX (only first energy)
             if energy == energies[0]:

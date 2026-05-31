@@ -515,8 +515,8 @@ class dataHandler:
                 await scanQueue.get()
                 return
 
-    def processFrame(self, frame,threshold=0.7):
-        point = ((frame>threshold) * frame).sum()
+    def processFrame(self, frame,threshold=0.5):
+        point = ((frame>threshold) * np.exp(frame)).sum()
         return point
 
     def zmq_start_event(self, scan, metadata=None):
@@ -653,6 +653,9 @@ class dataHandler:
         t1 = time.time()
         for daq in scanInfo["daq_list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
+            #this will just kill the scan if a CCD frame is dropped due to a frameserver problem
+            if self.daq[daq].data is None:
+                await self.dataQueue.put('endOfScan')
 
         # Snapshot the CCD diagnostic intensity now, while display_data still holds
         # this point's frame.  _process_ptycho runs later in a thread executor and the

@@ -58,6 +58,7 @@ class xpsController(hardwareController):
         time.sleep(1)
 
     def moveTo(self, socketId, motor, target, timeout, use_relative = True):
+        print(f'[XPS Controller] Moving XPS motor {motor} to {target}')
         self._timeout = timeout
         err, currentPos = self.getPosition(socketId, motor)
         if use_relative:
