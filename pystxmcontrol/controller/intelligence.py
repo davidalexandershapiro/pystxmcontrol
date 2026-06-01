@@ -25,6 +25,9 @@ from collections import deque
 import asyncio
 import time
 import numpy as np
+from pystxmcontrol.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _DEFAULT_CHANNELS = {
     "events": 500,
@@ -229,6 +232,7 @@ class AgentInterface:
     }
 
     def __init__(self, main_config: dict):
+        import os
         cfg = main_config.get("intelligence", {}).get("agent", {})
         self.model = cfg.get("model", "claude-haiku-4-5-20251001")
         self.cooldown_seconds = cfg.get("cooldown_seconds", 60)
@@ -239,6 +243,9 @@ class AgentInterface:
         self._api_key_env = cfg.get("api_key_env", default_env)
         self._last_call_time = 0.0
         self._client = None
+        api_key_present = bool(os.environ.get(self._api_key_env)) if self._api_key_env else False
+        logger.info("AgentInterface: provider=%s model=%s base_url=%s api_key_present=%s",
+                    self.provider, self.model, self.base_url, api_key_present)
 
     def _get_client(self):
         import os
@@ -269,14 +276,20 @@ class AgentInterface:
                        publish_fn=None) -> dict | None:
         """Call the agent asynchronously. Returns suggestion dict or None."""
         if self.in_cooldown():
+            remaining = self.cooldown_seconds - (time.time() - self._last_call_time)
+            logger.info("AgentInterface.dispatch: in cooldown (%.0fs remaining), skipping.", remaining)
             return None
         self._last_call_time = time.time()
+        logger.info("AgentInterface.dispatch: calling %s for anomaly type=%s severity=%s",
+                    self.model, anomaly.get("type"), anomaly.get("severity"))
 
         prompt = self._format_prompt(anomaly, recent_events)
         loop = asyncio.get_event_loop()
         try:
             text = await loop.run_in_executor(None, self._call_api, prompt)
+            logger.info("AgentInterface.dispatch: received response (%d chars)", len(text))
         except Exception as exc:
+            logger.warning("AgentInterface.dispatch: API call failed: %s", exc, exc_info=True)
             text = f"[Agent unavailable: {exc}]"
 
         suggestion = {
@@ -290,8 +303,8 @@ class AgentInterface:
         if publish_fn is not None:
             try:
                 publish_fn(suggestion)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("AgentInterface.dispatch: publish failed: %s", exc, exc_info=True)
 
         return suggestion
 
@@ -319,11 +332,14 @@ class AgentInterface:
     async def query(self, text: str, recent_events: list,
                     publish_fn=None) -> dict | None:
         """Handle a free-form operator query. Not subject to cooldown."""
+        logger.info("AgentInterface.query: received query (%d chars)", len(text))
         prompt = self._format_query_prompt(text, recent_events)
         loop = asyncio.get_event_loop()
         try:
             response_text = await loop.run_in_executor(None, self._call_api, prompt)
+            logger.info("AgentInterface.query: received response (%d chars)", len(response_text))
         except Exception as exc:
+            logger.warning("AgentInterface.query: API call failed: %s", exc, exc_info=True)
             response_text = f"[Agent unavailable: {exc}]"
 
         result = {
@@ -336,8 +352,8 @@ class AgentInterface:
         if publish_fn is not None:
             try:
                 publish_fn(result)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("AgentInterface.query: publish failed: %s", exc, exc_info=True)
         return result
 
     def _format_query_prompt(self, text: str, recent_events: list) -> str:
@@ -415,6 +431,8 @@ class IntelligenceModule:
         agent_cfg = cfg.get("agent", {})
         self._agent = AgentInterface(main_config) if agent_cfg.get("enabled", False) else None
         self._publish_fn = publish_fn
+        logger.info("IntelligenceModule: enabled=%s agent_enabled=%s",
+                    self.enabled, self._agent is not None)
         self._line_means: list[float] = []
         self._current_scan_type: str | None = None
         # Geometry cached from on_scan_start for use in on_region_complete
@@ -701,6 +719,9 @@ class IntelligenceModule:
                 pass
 
     def _handle_anomaly(self, anomaly: dict, scanInfo: dict | None = None) -> None:
+        logger.warning("IntelligenceModule: anomaly detected type=%s severity=%s details=%s",
+                       anomaly.get("type"), anomaly.get("severity"),
+                       {k: v for k, v in anomaly.items() if k not in ("type", "severity")})
         self._recorder.record(
             "events", "anomaly",
             scan_type=self._current_scan_type,
@@ -709,10 +730,13 @@ class IntelligenceModule:
             anomaly=anomaly,
         )
         if self._agent and not self._agent.in_cooldown():
+            logger.info("IntelligenceModule: dispatching agent for anomaly type=%s", anomaly.get("type"))
             recent = self._recorder.recent("events", 30)
             asyncio.create_task(
                 self._agent.dispatch(anomaly, recent, publish_fn=self._publish_fn)
             )
+        elif self._agent is None:
+            logger.info("IntelligenceModule: agent not enabled, skipping dispatch.")
 
     def _line_metrics(self, scanInfo: dict) -> dict:
         data = scanInfo.get("data", {}).get("default")

@@ -19,14 +19,22 @@ class ColorFormatter(logging.Formatter):
         return super().format(record)
 
 
+import os as _os
+_LOG_LEVEL = getattr(logging, _os.environ.get("PYSTXM_LOG_LEVEL", "INFO").upper(), logging.INFO)
+
+
 def get_logger(name):
-    """Return a module-level logger with color formatting."""
+    """Return a module-level logger with color formatting.
+
+    Log level is controlled by the PYSTXM_LOG_LEVEL env var (default INFO).
+    e.g. export PYSTXM_LOG_LEVEL=DEBUG
+    """
     log = logging.getLogger(name)
     if not log.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(ColorFormatter(LOG_FORMAT))
         log.addHandler(handler)
-    log.setLevel(logging.INFO)
+    log.setLevel(_LOG_LEVEL)
     return log
 
 
