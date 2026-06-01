@@ -9,11 +9,14 @@ from pystxmcontrol.gui.beamline_panel import BeamlinePanelWindow
 from pystxmcontrol.controller.beamline_database import BeamlineDatabaseClient
 from PySide6 import QtWidgets, QtCore, QtGui
 import shiboken6
+import logging
 import os
 import sys
 import pyqtgraph as pg
 import numpy as np
 import qdarktheme
+
+logger = logging.getLogger(__name__)
 
 
 class _MajorOnlyAxisItem(pg.AxisItem):
@@ -3704,18 +3707,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             
             # Try to get ESAF list from server
             try:
-                from pystxmcontrol.utils.alsapi import getCurrentEsafList
-                self.esaf_list, self.participants_list = getCurrentEsafList(
-                    beamline=self.controller.client.main_config["source"]["beamline"]
-                )
+                from pystxmcontrol.utils.alsapi import getCurrentEsafList, beamline as default_beamline
+                # "beamline" key is optional in main.json source section
+                bl = self.controller.client.main_config["source"].get("beamline", default_beamline)
+                self.esaf_list, self.participants_list = getCurrentEsafList(beamline=bl)
 
                 # Add each proposal to the combobox
                 for esaf in self.esaf_list:
                     self.ui.proposalComboBox.addItem(esaf)
-                    
+
             except Exception as e:
-                print(f"Could not fetch ESAF list: {e}")
-                # Initialize empty lists if fetch fails
+                logger.warning("Could not fetch ESAF list: %s", e, exc_info=True)
                 self.esaf_list = []
                 self.participants_list = []
             
@@ -4060,8 +4062,11 @@ Energy Regions:
         else:
             self.show_error_message("Scan compilation failed!")
 
+    def closeEvent(self, event):
+        """Handle window close (X button or Alt+F4) gracefully."""
+        self.controller.cleanup()
+        event.accept()
+
     def disconnect(self):
         """Cleanup and disconnect from server."""
-        # This would be called on application exit
-        # Cleanup resources, close connections, etc.
-        pass
+        self.controller.cleanup()

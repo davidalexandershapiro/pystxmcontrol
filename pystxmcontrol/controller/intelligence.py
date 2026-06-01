@@ -247,7 +247,11 @@ class AgentInterface:
         api_key = os.environ.get(self._api_key_env) if self._api_key_env else None
         if self.provider == "anthropic":
             import anthropic
-            self._client = anthropic.Anthropic(api_key=api_key)
+            # base_url allows proxies (e.g. CBORG) that expose an Anthropic-compatible endpoint
+            kwargs = {"api_key": api_key}
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
+            self._client = anthropic.Anthropic(**kwargs)
         else:
             import openai
             kwargs = {}

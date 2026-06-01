@@ -47,6 +47,8 @@ def main():
     splash.repaint()
 
     window = MainWindowMVC()
+    # Safety net: catches any exit path not covered by closeEvent (e.g. SIGTERM)
+    app.aboutToQuit.connect(window.controller.cleanup)
     window.show()
     splash.finish(window)
 

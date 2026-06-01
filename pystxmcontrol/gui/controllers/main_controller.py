@@ -1321,15 +1321,23 @@ class MainController(QObject):
             self.error_occurred.emit(f"Failed to load scan definition: {str(e)}")
             return False
             
-    def quit_application(self):
-        """Quit the application."""
+    def cleanup(self):
+        """Stop threads and close connections. Safe to call from closeEvent or menu."""
+        if self.exiting:
+            return
         self.exiting = True
         if self.control_thread:
             self.control_thread.monitor = False
             self.message_queue.put("exit")
+            self.control_thread.wait(2000)  # give the thread up to 2s to exit cleanly
         if self.client:
             self.client.disconnect()
-        sys.exit()
+
+    def quit_application(self):
+        """Quit via the menu action."""
+        self.cleanup()
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().quit()
         
     def get_scan_model(self) -> ScanModel:
         """Get the scan model."""
