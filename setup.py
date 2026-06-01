@@ -21,7 +21,7 @@ def _install_desktop_file():
             'Type=Application\n'
             'Categories=Science;\n'
         )
-    subprocess.run(['update-desktop-database', desktop_dir], check=False)
+    # subprocess.run(['update-desktop-database', desktop_dir], check=False)
     print(f'Installed desktop file: {desktop_path}')
 
 
