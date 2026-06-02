@@ -7,6 +7,10 @@ import asyncio, os
 # Define this parameter if you're setting the sample angle to something
 SAMPLE_ANGLE = 0
 
+# If this many CCD frames are dropped back-to-back the frame server is assumed to
+# have stalled and the scan terminates cleanly (saving whatever was acquired).
+MAX_CONSECUTIVE_DROPPED_FRAMES = 5
+
 # All dated notes were modifications made by Dayne and Damian
 
 async def insertSTXMDetector(controller):
@@ -42,6 +46,12 @@ async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queu
 
     frame_num = 0
     scanInfo["ccd_frame_num"] = frame_num
+    # Per-region drop bookkeeping (read back by the scan routine after the loop).
+    dataHandler.frames_lost = False
+    dataHandler.kept_point_indices = []
+    consecutive_drops = 0
+    kept_indices = []
+
     for i in range(len(yPos)):
         if i % 50 == 0:  ##used to be every line, now looping through points so just do this periodically
             controller.getMotorPositions()
@@ -78,47 +88,69 @@ async def point_loop(scan, scanInfo, positionList, dataHandler, controller, queu
         if not await async_check_pause(controller, queue):
             await dataHandler.dataQueue.put('endOfScan')
             return False
-        if queue.empty():
-            if scan["doubleExposure"]:
-                scanInfo['dwell'] = dwell2
-                controller.daq["default"].setGateDwell(dwell2, 0)
-                controller.daq["default"].autoGateOpen()
-                await asyncio.sleep((dwell2 + 10.) / 1000.)
-                await dataHandler.getPoint(scanInfo.copy())
-                frame_num += 1
-                scanInfo["ccd_frame_num"] = frame_num
+        if not queue.empty():
+            await queue.get()
+            await dataHandler.dataQueue.put('endOfScan')
+            #self._logger.log("Terminating grid scan")
+            return False
+
+        # Acquire this scan point.  For double exposure the two frames are held with
+        # getPoint(defer=True) and only committed together, so a lost partner frame
+        # never leaves an orphaned frame in the dataset.  frame_num only advances when
+        # the whole point is kept, keeping the stored frame numbering contiguous.
+        if scan["doubleExposure"]:
+            scanInfo["ccd_frame_num"] = frame_num
+            scanInfo['dwell'] = dwell2
+            controller.daq["default"].setGateDwell(dwell2, 0)
+            controller.daq["default"].autoGateOpen()
+            await asyncio.sleep((dwell2 + 10.) / 1000.)
+            point_ok = await dataHandler.getPoint(scanInfo.copy(), defer=True)
+            if point_ok:
+                scanInfo["ccd_frame_num"] = frame_num + 1
                 scanInfo['dwell'] = dwell1
                 controller.daq["default"].setGateDwell(dwell1, 0)
                 controller.daq["default"].autoGateOpen()
                 await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
-                if not await dataHandler.getPoint(scanInfo.copy()):
-                    #queue.get(True)
-                    # dataHandler.data.saveRegion(0)
-                    print("Failed to receive a ccd frame.")
-                    await dataHandler.dataQueue.put('endOfScan')
-                    # self._logger.log("Terminating grid scan")
-                    return False
-                frame_num += 1
-                scanInfo["ccd_frame_num"] = frame_num
+                point_ok = await dataHandler.getPoint(scanInfo.copy(), defer=True)
+            if point_ok:
+                await dataHandler.commit_points()
+                frame_num += 2
             else:
-                controller.daq["default"].setGateDwell(dwell1, 0)
-                controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
-                await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
-                if not await dataHandler.getPoint(scanInfo.copy()):
-                    #queue.get(True)
-                    # dataHandler.data.saveRegion(0)
-                    print("Failed to receive a ccd frame.")
-                    await dataHandler.dataQueue.put('endOfScan')
-                    # self._logger.log("Terminating grid scan")
-                    return False
-                frame_num += 1
-                scanInfo["ccd_frame_num"] = frame_num
+                dataHandler.discard_points()
         else:
-            await queue.get()
-            # dataHandler.data.saveRegion(0)
-            await dataHandler.dataQueue.put('endOfScan')
-            #self._logger.log("Terminating grid scan")
-            return False
+            scanInfo["ccd_frame_num"] = frame_num
+            controller.daq["default"].setGateDwell(dwell1, 0)
+            controller.daq["default"].autoGateOpen() #this opens the shutter and sends the trigger
+            await asyncio.sleep((dwell1 + 10.) / 1000.)  ##shutter open dwell time
+            point_ok = await dataHandler.getPoint(scanInfo.copy(), defer=True)
+            if point_ok:
+                await dataHandler.commit_points()
+                frame_num += 1
+            else:
+                dataHandler.discard_points()
+
+        if point_ok:
+            consecutive_drops = 0
+            kept_indices.append(i)
+        else:
+            consecutive_drops += 1
+            msg = "Dropped CCD frame at point %d (consecutive drops: %d)." % (i, consecutive_drops)
+            print(msg)
+            if dataHandler._logger is not None:
+                dataHandler._logger.log(msg, level="warning")
+            if consecutive_drops >= MAX_CONSECUTIVE_DROPPED_FRAMES:
+                term = ("%d consecutive dropped CCD frames; terminating scan and "
+                        "saving acquired data." % MAX_CONSECUTIVE_DROPPED_FRAMES)
+                print(term)
+                if dataHandler._logger is not None:
+                    dataHandler._logger.log(term, level="error")
+                dataHandler.frames_lost = True
+                dataHandler.kept_point_indices = kept_indices
+                # Return True so the scan routine runs its normal region-save path;
+                # it inspects dataHandler.frames_lost to stop afterwards.
+                return True
+
+    dataHandler.kept_point_indices = kept_indices
     return True
 
 async def derived_ptychography_image(scan, dataHandler, controller, queue):
@@ -295,6 +327,17 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 if scanInfo['retract']:
                     await insertSTXMDetector(controller)
                 return
+            if dataHandler.frames_lost:
+                # Frame server stalled during background acquisition — no useful
+                # exposure data to save, so abort before the exposure loop.
+                print("Lost CCD frames during background acquisition; terminating scan.")
+                dataHandler.zmq_send({'event': 'abort', 'data': None})
+                await dataHandler.dataQueue.put('endOfScan')
+                if scanInfo['retract']:
+                    await insertSTXMDetector(controller)
+                if scan["defocus"]:
+                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
+                return
             scanInfo["ccd_mode"] = "exp"
             print("acquiring data")
 
@@ -320,6 +363,15 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             print("Scan region complete, saving data...")
             if 'illumination' in scanMeta:
                 del scanMeta['illumination']
+            # Drop the positions whose CCD frames were lost so that the number of
+            # stored frames matches the number of translations (#frames == #points).
+            kept = dataHandler.kept_point_indices
+            if len(kept) < len(scanMeta["translations"]):
+                n_dropped = len(scanMeta["translations"]) - len(kept)
+                scanMeta["translations"] = [scanMeta["translations"][k] for k in kept]
+                scanMeta["exp_num_total"] = len(scanMeta["translations"]) * (
+                    2 - int(not scanMeta["double_exposure"]))
+                print("Removed %d dropped point(s); %d points saved." % (n_dropped, len(kept)))
             dataHandler.ptychodata.addDict(scanMeta, "metadata")  # stuff needed by the preprocessor
             dataHandler.ptychodata.saveRegion(0)
             dataHandler.ptychodata.close()
@@ -328,6 +380,16 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             dataHandler.data.end_time = str(datetime.datetime.now())
             dataHandler.zmq_stop_event()
             print("Done!")
+            if dataHandler.frames_lost:
+                # Frame server stalled mid-scan; the partial region has been saved
+                # above, so stop here instead of continuing to further energies/regions.
+                print("Scan terminated early due to lost CCD frames; acquired data saved.")
+                await dataHandler.dataQueue.put('endOfScan')
+                if scanInfo['retract']:
+                    await insertSTXMDetector(controller)
+                if scan["defocus"]:
+                    controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step)
+                return
         energyIndex += 1
     await dataHandler.dataQueue.put('endOfScan')
     if scanInfo['retract']:

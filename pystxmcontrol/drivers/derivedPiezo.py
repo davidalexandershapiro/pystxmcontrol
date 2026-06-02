@@ -36,6 +36,10 @@ class derivedPiezo(motor):
         self._padMinimum = 0.2
         self.units = 1.
         self._debug = False
+        #last coarse (axis2) position we trust.  The coarse motor only moves when this
+        #driver commands it, so between commanded moves any live read that deviates from
+        #this by more than _coarseTolerance is treated as a bad encoder reading.
+        self._trustedCoarse = None
 
     def getStatus(self, **kwargs):
         return self.moving
@@ -251,6 +255,9 @@ class derivedPiezo(motor):
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
             self.axes["axis2"].moveTo(pos)
+            #commanded coarse move: re-anchor trusted coarse to a fresh measurement (validated
+            #against the target) so the next getPos() validation reflects where the stage landed
+            self._reseedCoarse(pos)
             if self.config["reset_after_move"]:
                 time.sleep(0.03)
                 self.axes["axis1"].setZero()
@@ -269,15 +276,69 @@ class derivedPiezo(motor):
             self.axes["axis1"].servoState(False)
             self.axes["axis1"].setZero()
         self.axes["axis2"].moveTo(pos)
+        #commanded coarse move: re-anchor trusted coarse to a fresh measurement (see moveTo)
+        self._reseedCoarse(pos)
         if self.config["reset_after_move"]:
             self.axes["axis1"].setZero()
             self.axes["axis1"].servoState(True)
         self.getPos()
         self.moving = False
 
+    def _readCoarse(self):
+        """
+        Read the coarse motor (axis2) and reject occasional bad encoder readings.
+
+        The coarse motor is stationary between commanded moves, so a correct reading must
+        sit within _coarseTolerance of the last trusted coarse position.  The tolerance is
+        half the fine motor's scan range: large enough to ignore real coarse slop/jitter,
+        but smaller than the fine range so any reading that would force a spurious coarse
+        move is caught.  Commanded coarse moves update _trustedCoarse directly, so legitimate
+        large changes are never flagged here.
+        """
+        raw = self.axes["axis2"].getPos()
+        if self._trustedCoarse is None:
+            #first read after connect: nothing to compare against, accept it
+            self._trustedCoarse = raw
+            return raw
+        tol = 0.5 * self.axes["axis1"].config["maxScanRange"]
+        if abs(raw - self._trustedCoarse) <= tol:
+            self._trustedCoarse = raw
+            return raw
+        #suspected outlier: re-read once before rejecting
+        raw2 = self.axes["axis2"].getPos()
+        if abs(raw2 - self._trustedCoarse) <= tol:
+            self._trustedCoarse = raw2
+            return raw2
+        print(f"[derivedPiezo] coarse {self.axis}: rejected outlier read "
+              f"{raw:.3f}/{raw2:.3f}, using trusted {self._trustedCoarse:.3f}")
+        return self._trustedCoarse
+
+    def _reseedCoarse(self, target):
+        """
+        Re-anchor the trusted coarse position after a commanded coarse move.
+
+        After a deliberate move the stage is far from the old _trustedCoarse by design, so we
+        validate a fresh reading against the commanded target instead.  In the normal case we
+        anchor to that real measurement (capturing actual settling/slop, not the theoretical
+        target).  Only if the post-move reading itself looks like an outlier do we fall back to
+        the commanded target as a last resort.
+        """
+        tol = 0.5 * self.axes["axis1"].config["maxScanRange"]
+        raw = self.axes["axis2"].getPos()
+        if abs(raw - target) <= tol:
+            self._trustedCoarse = raw
+            return
+        raw2 = self.axes["axis2"].getPos()
+        if abs(raw2 - target) <= tol:
+            self._trustedCoarse = raw2
+            return
+        print(f"[derivedPiezo] coarse {self.axis}: post-move read {raw:.3f}/{raw2:.3f} "
+              f"disagrees with target {target:.3f}, anchoring to target")
+        self._trustedCoarse = target
+
     def getPos(self, setPointOnly = True):
         self._finePos = self.axes["axis1"].getPos()
-        self.coarsePos = self.axes["axis2"].getPos()
+        self.coarsePos = self._readCoarse()
         self.position = self.coarsePos + self._finePos
         return self.position * self.config["units"] + self.config["offset"]
 

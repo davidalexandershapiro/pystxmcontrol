@@ -445,6 +445,18 @@ class SpiralPtychographyScan(BaseScan):
                     if scanInfo["retract"]:
                         await insertSTXMDetector(controller)
                     return False
+                if dataHandler.frames_lost:
+                    # Frame server stalled during background acquisition — no useful
+                    # exposure data to save, so abort before the exposure loop.
+                    print("[spiral_ptychography_image] Lost CCD frames during "
+                          "background acquisition; terminating scan.")
+                    dataHandler.zmq_send({"event": "abort", "data": None})
+                    await dataHandler.dataQueue.put("endOfScan")
+                    if scanInfo["retract"]:
+                        await insertSTXMDetector(controller)
+                    if scan.get("defocus", False):
+                        controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step_defocus)
+                    return False
 
                 # ----------------------------------------------------------
                 # Exposure acquisition — spiral positions
@@ -483,6 +495,16 @@ class SpiralPtychographyScan(BaseScan):
 
                 print("[spiral_ptychography_image] Scan region complete — saving data")
                 scanMeta.pop("illumination", None)
+                # Drop the positions whose CCD frames were lost so that the number of
+                # stored frames matches the number of translations (#frames == #points).
+                kept = dataHandler.kept_point_indices
+                if len(kept) < len(scanMeta["translations"]):
+                    n_dropped = len(scanMeta["translations"]) - len(kept)
+                    scanMeta["translations"] = [scanMeta["translations"][k] for k in kept]
+                    scanMeta["exp_num_total"] = len(scanMeta["translations"]) * (
+                        2 - int(not scanMeta["double_exposure"]))
+                    print("[spiral_ptychography_image] Removed %d dropped point(s); "
+                          "%d points saved." % (n_dropped, len(kept)))
                 dataHandler.ptychodata.addDict(scanMeta, "metadata")
                 dataHandler.ptychodata.saveRegion(0)
                 dataHandler.ptychodata.close()
@@ -493,6 +515,17 @@ class SpiralPtychographyScan(BaseScan):
                 dataHandler.data.end_time = str(datetime.datetime.now())
                 dataHandler.zmq_stop_event()
                 print("[spiral_ptychography_image] Done!")
+                if dataHandler.frames_lost:
+                    # Frame server stalled mid-scan; the partial region has been saved
+                    # above, so stop instead of continuing to further energies/regions.
+                    print("[spiral_ptychography_image] Scan terminated early due to "
+                          "lost CCD frames; acquired data saved.")
+                    await dataHandler.dataQueue.put("endOfScan")
+                    if scanInfo["retract"]:
+                        await insertSTXMDetector(controller)
+                    if scan.get("defocus", False):
+                        controller.motors["ZonePlateZ"]["motor"].moveBy(step=-step_defocus)
+                    return False
 
             energyIndex += 1
 

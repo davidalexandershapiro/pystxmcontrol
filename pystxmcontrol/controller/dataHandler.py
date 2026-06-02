@@ -30,6 +30,9 @@ class dataHandler:
         self.monitorDaq = True
         self.pause = False
         self._framenum = 0
+        self._pending_points = []     # frames held by getPoint(defer=True) awaiting commit
+        self.frames_lost = False      # set when a scan ends early due to repeated dropped CCD frames
+        self.kept_point_indices = []  # exposure point indices actually recorded (drops removed)
         self._logger = logger
         self._lock = lock
 
@@ -495,7 +498,9 @@ class dataHandler:
             scanInfo["elapsedTime"] = time.time()
             self.daq["default"].autoGateOpen(shutter=0)
             t0 = time.time()
-            await self.getPoint(scanInfo)
+            # require_data=False: keep the live monitor publishing even when the CCD
+            # frame server stalls (a dropped CCD frame must not freeze the display).
+            await self.getPoint(scanInfo, require_data=False)
             self.daq["default"].autoGateClosed()
 
             #self.controller.getMotorPositions(log = False) #this happens too frequently for logging
@@ -642,36 +647,65 @@ class dataHandler:
         scan_info.setdefault("gate_mode", self.controller.daq["default"].gate.mode)
         self.zmq_publisher.publish_stxm_data(scan_info)
 
-    async def getPoint(self, scanInfo):
+    async def getPoint(self, scanInfo, defer=False, require_data=True):
         daq_tasks = []
         for daq in scanInfo["daq_list"]:
             if self.controller.daqConfig[daq]["record"]:
                 daq_tasks.append(self.daq[daq].getPoint())
 
-        t0 = time.time()
         await asyncio.gather(*daq_tasks)
-        t1 = time.time()
+
+        # A None payload means a detector (typically the CCD frame server) dropped a
+        # frame.  During a scan (require_data=True) we record/queue nothing and return
+        # False so the scan routine can skip the point and keep the dataset arrays and
+        # frame numbering contiguous.  The live monitor (require_data=False) must keep
+        # publishing the other detectors even when the CCD frame server stalls, so it
+        # does not bail here.  (The old behaviour of putting 'endOfScan' here is gone —
+        # the scan routine now decides when repeated drops should end the scan.)
+        if require_data:
+            for daq in scanInfo["daq_list"]:
+                if self.controller.daqConfig[daq]["record"] and self.daq[daq].data is None:
+                    return False
+
         for daq in scanInfo["daq_list"]:
             scanInfo["rawData"][daq]["data"] = self.daq[daq].data
-            #this will just kill the scan if a CCD frame is dropped due to a frameserver problem
-            if self.daq[daq].data is None:
-                await self.dataQueue.put('endOfScan')
 
         # Snapshot the CCD diagnostic intensity now, while display_data still holds
         # this point's frame.  _process_ptycho runs later in a thread executor and the
         # detector's display_data attribute is overwritten by the next acquisition, so
         # reading it there would misalign the intensity with the scan geometry.
-        if "CCD" in scanInfo["daq_list"]:
+        # (display_data can be None in the monitor if the CCD never delivered a frame.)
+        if "CCD" in scanInfo["daq_list"] and self.daq["CCD"].display_data is not None:
             scanInfo["ccd_point"] = self.processFrame(self.daq["CCD"].display_data)
 
-        #send a copy or it gets overwritten before being sent
-        await self.dataQueue.put(deepcopy(scanInfo))
-        #print(f"[Get Point] Acquisition time: {t1-t0}")
+        # Send a copy or it gets overwritten before being sent.  When defer is set
+        # (e.g. a double-exposure pair) the snapshot is held in _pending_points so the
+        # caller can commit both frames together or discard them atomically if the
+        # partner frame is lost.
+        snapshot = deepcopy(scanInfo)
+        if defer:
+            self._pending_points.append(snapshot)
+        else:
+            await self.dataQueue.put(snapshot)
         if "CCD" in scanInfo["daq_list"]:
             if self._framenum == 0:
                 self.darkFrame = scanInfo["rawData"]["CCD"]["data"]
         self._framenum += 1
         return True
+
+    async def commit_points(self):
+        """Flush points held by getPoint(defer=True) onto the data queue, in order."""
+        for snapshot in self._pending_points:
+            await self.dataQueue.put(snapshot)
+        self._pending_points = []
+
+    def discard_points(self):
+        """Drop points held by getPoint(defer=True) without queueing them.
+
+        Used when one frame of a multi-frame point (double exposure) is lost so the
+        partner frame is not left orphaned in the dataset.
+        """
+        self._pending_points = []
 
     async def read_daq(self,daq):
         data = await self.daq[daq].getPoint()
