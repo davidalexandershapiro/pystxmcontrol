@@ -2882,7 +2882,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         to decide whether to fill z-axis (focus) fields.
         """
         # ── scan regions ──────────────────────────────────────────────────────
-        def _f(v): return str(float(f"{v:.3g}"))  # 3 significant digits, no sci notation
+        def _f(v): return f"{v:.3f}"  # 3 decimal places → 0.001 µm (nm) resolution
         scan_regions = config.get("scan_regions", {})
         if scan_regions:
             self.ui.scanRegSpinbox.setValue(len(scan_regions))
