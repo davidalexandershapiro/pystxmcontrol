@@ -624,6 +624,17 @@ class dataHandler:
                             region=f"Region{region + 1}",
                             energy_index=last_energy_index,
                         )
+                        # Full multi-energy stack analysis (e.g. two-energy elemental map).
+                        # endOfRegion fires once per energy pass (energies are the outer loop),
+                        # so only analyze on the final energy, when every frame is populated.
+                        if (image.ndim == 3 and image.shape[0] >= 2
+                                and last_energy_index == image.shape[0] - 1):
+                            intel.on_region_stack(
+                                stack=image,
+                                energies=self.data.energies.get("default"),
+                                scan_type=getattr(self, '_current_scan_type', ''),
+                                region=f"Region{region + 1}",
+                            )
             else:
                 self.regionComplete = False
                 region = int(scanInfo["scanRegion"].split("Region")[1]) - 1

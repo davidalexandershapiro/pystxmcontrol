@@ -207,6 +207,10 @@ class ToolSet:
         self._positions: dict | None = None
 
         self._particle_regions: list[dict] | None = None
+        # Latest element-specific particle list from the intelligence two-energy map report,
+        # cached whenever get_intelligence_recommendations() drains one so it survives the
+        # queue clear and can be loaded into a multi-region scan.
+        self._last_particle_report: list[dict] | None = None
         self._was_scanning: bool = False         # tracks scanning→idle transition
         self._last_was_multiregion: bool = False  # prevent lastScan contamination after multiregion
 
@@ -553,9 +557,12 @@ class ToolSet:
         return json.dumps(result, indent=2)
 
     def find_particles(self, max_particles: int | None = None, daq: str = "default") -> str:
-        """Locate absorbing particles in the last scan image and return scan regions for each.
+        """Locate absorbing particles in a single transmission image and return scan regions.
 
-        Uses Otsu thresholding on the inverted image plus connected-component analysis.
+        Uses Otsu thresholding on the inverted image plus connected-component analysis — this
+        finds *generic* absorbers in ONE image; it is NOT element-specific.  For an element
+        request (e.g. iron) after a two-energy scan, use the intelligence module's elemental-map
+        result instead: get_intelligence_recommendations() -> load_intelligence_particles().
         Results are stored internally and can be submitted immediately with start_multiregion_scan().
 
         Args:
@@ -627,10 +634,13 @@ class ToolSet:
         return json.dumps(result, indent=2)
 
     def start_multiregion_scan(self, pixel_size_nm: float | None = None) -> str:
-        """Start an image scan covering every particle region found by find_particles().
+        """Start an image scan covering every loaded particle region.
 
+        Region list comes from whichever you called last: load_intelligence_particles()
+        (element-specific, from the two-energy map — preferred for element requests) or
+        find_particles() (generic absorbers in a single image).
         Uses the current scan parameters (energy, dwell, proposal, etc.) but replaces
-        the scan geometry with the particle regions returned by the last find_particles() call.
+        the scan geometry with those particle regions.
 
         Args:
             pixel_size_nm: desired pixel size in nm for the zoom scans. Each region
@@ -638,7 +648,8 @@ class ToolSet:
                 If omitted, uses the overview scan's pixel size as the default.
         """
         if not getattr(self, '_particle_regions', None):
-            return "No particle regions available — call find_particles() first."
+            return ("No particle regions available — call load_intelligence_particles() "
+                    "(element-specific, from the two-energy map) or find_particles() first.")
         if self._scans_config is None:
             return "Scan config not loaded — call get_config() first."
 
@@ -693,9 +704,16 @@ class ToolSet:
         """Return any pending recommendations from the intelligence module and clear the queue.
 
         The intelligence module analyses each completed scan and posts structured
-        recommendations here when it detects actionable conditions (e.g. off-centre
-        feature, focus decline).  This tool drains the queue — call it after every
-        wait_for_scan() to check for suggested parameter updates.
+        recommendations here, e.g.:
+          * recentre suggestions (off-centre feature, focus decline), and
+          * 'two_energy_particles' — element-specific particle locations computed from a
+            two-energy elemental map (edge/pre-edge).  These are the AUTHORITATIVE particle
+            locations for an element-finding request and already give each particle's
+            center_um and size_um.  To image them, call load_intelligence_particles() then
+            start_multiregion_scan() — do NOT re-derive particles with find_particles(),
+            which only thresholds a single transmission image (generic absorbers).
+
+        This tool drains the queue — call it after every wait_for_scan().
         """
         if self._image_model is None:
             return "Image model not available."
@@ -703,10 +721,70 @@ class ToolSet:
         pending = list(self._image_model.get("pending_recommendations") or [])
         self._image_model.set("pending_recommendations", [])
 
+        # Cache the most recent two-energy particle report so it survives the queue clear.
+        for rec in pending:
+            if rec.get("subtype") == "two_energy_particles" and rec.get("particles"):
+                self._last_particle_report = rec["particles"]
+
         if not pending:
             return "No recommendations pending."
 
         return json.dumps({"recommendations": pending}, indent=2)
+
+    def load_intelligence_particles(self, region_size_um: float | None = None,
+                                    padding_fraction: float = 0.5) -> str:
+        """Load the intelligence module's two-energy particle locations as multi-region scan targets.
+
+        Prefer this over find_particles() for element-specific requests (e.g. 'iron particles'):
+        the locations come from the two-energy elemental map, whereas find_particles() thresholds
+        a single transmission image and finds generic absorbers (often a different count).
+
+        Populates the region list consumed by start_multiregion_scan().  Each region is centred
+        on a reported particle; its size is the particle's extent grown by padding_fraction on
+        each side (floored at 0.5 µm), unless region_size_um forces a uniform square FOV.
+
+        Args:
+            region_size_um:   force a uniform square FOV (µm) per particle; omit to size each
+                              region to its particle.
+            padding_fraction: fractional margin added to each side of the particle extent
+                              when region_size_um is not given (default 0.5 = +50%).
+        """
+        particles = self._last_particle_report
+        if not particles and self._image_model is not None:
+            # Fall back to peeking the queue (non-destructively) for the latest report.
+            pending = list(self._image_model.get("pending_recommendations") or [])
+            for rec in reversed(pending):
+                if rec.get("subtype") == "two_energy_particles" and rec.get("particles"):
+                    particles = rec["particles"]
+                    break
+        if not particles:
+            return ("No intelligence particle report available. Run a two-energy scan, then "
+                    "get_intelligence_recommendations(), before calling this.")
+
+        regions = []
+        for p in particles:
+            c = p.get("center_um", {})
+            s = p.get("size_um", {}) or {}
+            if region_size_um is not None:
+                rx = ry = float(region_size_um)
+            else:
+                rx = max(float(s.get("x", 0.0)) * (1.0 + 2.0 * padding_fraction), 0.5)
+                ry = max(float(s.get("y", 0.0)) * (1.0 + 2.0 * padding_fraction), 0.5)
+            regions.append({
+                "xCenter": round(float(c.get("x", 0.0)), 3),
+                "yCenter": round(float(c.get("y", 0.0)), 3),
+                "xRange": round(rx, 3), "yRange": round(ry, 3),
+            })
+
+        self._particle_regions = regions
+        self._overview_pixel_size_um = None  # no overview grid here; require explicit pixel size
+        return json.dumps({
+            "source": "intelligence two_energy_particles",
+            "particle_regions_loaded": len(regions),
+            "regions": regions,
+            "next_step": "Call update_scan(energy_list=[...]) to set the follow-up energy, then "
+                         "start_multiregion_scan(pixel_size_nm=...) to image these particles.",
+        }, indent=2)
 
     def get_image_center_of_mass(self, daq: str = "default") -> str:
         """Return the center of mass of the Otsu-thresholded absorption mask.
@@ -1009,13 +1087,44 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "get_intelligence_recommendations",
             "description": (
-                "Return and clear any pending recommendations from the intelligence module. "
-                "The intelligence module analyses each completed scan and posts actionable "
-                "suggestions here (e.g. recentre the scan on a detected feature). "
-                "Call this after every wait_for_scan() to check for suggested updates "
-                "before deciding what to do next."
+                "Return and clear pending recommendations from the intelligence module. "
+                "Includes recentre suggestions AND 'two_energy_particles' reports — the "
+                "AUTHORITATIVE element-specific particle locations from a two-energy elemental "
+                "map (each with center_um and size_um). For an element-finding request, act on "
+                "this: call load_intelligence_particles() then start_multiregion_scan(); do NOT "
+                "re-derive counts with find_particles(). Call after every wait_for_scan()."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "load_intelligence_particles",
+            "description": (
+                "Load the intelligence module's two-energy particle locations (from "
+                "get_intelligence_recommendations / the elemental map) as multi-region scan "
+                "targets, then call start_multiregion_scan() to image them. PREFER this over "
+                "find_particles() for element-specific requests (e.g. iron): it uses the "
+                "edge/pre-edge map, not a single-image threshold. Each region is centred on a "
+                "reported particle and sized to it (plus margin) unless region_size_um is given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "region_size_um": {
+                        "type": "number",
+                        "description": "Force a uniform square FOV (µm) per particle. "
+                                       "Omit to size each region to its particle extent.",
+                    },
+                    "padding_fraction": {
+                        "type": "number",
+                        "description": "Margin added per side of the particle extent when "
+                                       "region_size_um is omitted (default 0.5 = +50%).",
+                    },
+                },
+                "required": [],
+            },
         },
     },
     {
@@ -1085,10 +1194,12 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "find_particles",
             "description": (
-                "Locate absorbing particles in the last acquired image using Otsu thresholding "
-                "and connected-component analysis. "
-                "Returns a list of scan regions (center, range, points) in µm for each detected particle. "
-                "Call this after an overview scan, then call start_multiregion_scan() to image all particles."
+                "Locate GENERIC absorbing particles in a SINGLE transmission image using Otsu "
+                "thresholding + connected components (NOT element-specific). "
+                "Returns scan regions (center, range, points) in µm per particle. Use for a plain "
+                "'find absorbing features' request. For an element (e.g. iron) after a two-energy "
+                "scan, use load_intelligence_particles() instead. "
+                "Then call start_multiregion_scan() to image all particles."
             ),
             "parameters": {
                 "type": "object",
@@ -1112,7 +1223,8 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "start_multiregion_scan",
             "description": (
-                "Start an image scan covering every particle region identified by find_particles(). "
+                "Start an image scan covering every loaded particle region (from "
+                "load_intelligence_particles() or find_particles(), whichever you called last). "
                 "Uses the current scan parameters (energy, dwell, proposal, etc.) with particle regions as geometry. "
                 "Each region's point count is computed from pixel_size_nm so all regions have uniform pixel size. "
                 "find_particles() reports the overview pixel size — pass a smaller value here for higher resolution. "

@@ -420,6 +420,17 @@ class IntelligenceModule:
         self._offcenter_threshold_fov: float = float(
             recom_cfg.get("offcenter_threshold_fov", 0.2)
         )
+        # Low-SNR feature-detection conditioning for the Otsu COM (see image_com /
+        # otsu_absorption_mask).  Tunable per beamline via the recommendations config.
+        self._com_smooth_sigma: float = float(recom_cfg.get("com_smooth_sigma", 2.0))
+        self._com_despike: bool = bool(recom_cfg.get("com_despike", True))
+        self._com_min_separation: float = float(recom_cfg.get("com_min_separation", 0.0))
+        # Two-energy elemental-map analysis (e.g. Fe edge / pre-edge particle finding).
+        self._two_energy_enabled: bool = bool(recom_cfg.get("two_energy_analysis", True))
+        self._fe_smooth_sigma: float = float(recom_cfg.get("fe_smooth_sigma", 2.0))
+        self._fe_min_separation: float = float(recom_cfg.get("fe_min_separation", 3.0))
+        self._fe_min_area: int = int(recom_cfg.get("fe_min_area", 4))
+        self._fe_max_particles: int = int(recom_cfg.get("fe_max_particles", 20))
 
     @property
     def recorder(self) -> EventRecorder:
@@ -496,6 +507,39 @@ class IntelligenceModule:
         if energy_index == 0:
             self._check_centering(arr, region)
 
+    def on_region_stack(self, stack: np.ndarray, energies, scan_type: str,
+                        region: str) -> None:
+        """Full multi-energy region stack hook (shape (nE, ny, nx)).
+
+        For a two-energy scan (the typical 'find iron particles' intent) this computes the
+        edge/pre-edge elemental map and runs particle finding, then reports the result.
+        """
+        if not self._two_energy_enabled:
+            return
+        arr = np.asarray(stack, dtype=float)
+        if arr.ndim != 3 or arr.shape[0] != 2:
+            return  # only two-energy handled for now; multi-energy RGB maps are future work
+        # Defensive: skip until every energy frame holds data.  endOfRegion fires once per
+        # energy pass, so an early call would see later frames still zero-filled.
+        if any(not np.any(arr[i]) for i in range(arr.shape[0])):
+            return
+        try:
+            self._analyze_two_energy(arr, energies, scan_type, region)
+        except Exception as exc:  # analysis must never break the scan pipeline
+            err = {
+                "type": "task_recommendation",
+                "subtype": "two_energy_error",
+                "region": region,
+                "reason": f"Two-energy analysis failed in {region}: {exc!r}",
+                "timestamp": time.time(),
+            }
+            self._recorder.record("events", "task_recommendation", **err)
+            if self._publish_fn is not None:
+                try:
+                    self._publish_fn(err)
+                except Exception:
+                    pass
+
     def on_scan_complete(self, scan_id: str | None = None) -> None:
         self._recorder.record("events", "scan_complete", scan_id=scan_id)
         self._line_means = []
@@ -507,6 +551,91 @@ class IntelligenceModule:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _pixel_to_um(self, row: float, col: float, ny: int, nx: int,
+                     geom: dict) -> tuple[float, float]:
+        """Map a pixel (row, col) to motor coordinates (µm) using the region geometry."""
+        x_center = float(geom.get("xCenter", 0.0))
+        y_center = float(geom.get("yCenter", 0.0))
+        x_range = float(geom.get("xRange", 1.0))
+        y_range = float(geom.get("yRange", 1.0))
+        x = x_center + (col / max(nx - 1, 1) - 0.5) * x_range
+        y = y_center + (row / max(ny - 1, 1) - 0.5) * y_range
+        return x, y
+
+    def _analyze_two_energy(self, stack: np.ndarray, energies, scan_type: str,
+                            region: str) -> None:
+        """Compute the edge/pre-edge map, find particles, and report (no scan action yet)."""
+        from pystxmcontrol.utils.image import (
+            two_energy_map, otsu_absorption_mask, find_feature_boxes,
+        )
+
+        # Orient frames by energy: pre-edge = lower energy, edge = higher energy.
+        e = np.asarray(energies, dtype=float) if energies is not None else None
+        if e is not None and e.size == 2 and e[0] > e[1]:
+            pre, edge = stack[1], stack[0]
+            e_pre, e_edge = float(e[1]), float(e[0])
+        else:
+            pre, edge = stack[0], stack[1]
+            e_pre = float(e[0]) if e is not None and e.size == 2 else None
+            e_edge = float(e[1]) if e is not None and e.size == 2 else None
+
+        diff, valid = two_energy_map(pre, edge)
+        mask = otsu_absorption_mask(
+            diff, dark=False, valid=valid,
+            smooth_sigma=self._fe_smooth_sigma,
+            min_separation=self._fe_min_separation,
+        )
+        boxes = find_feature_boxes(
+            mask, min_area=self._fe_min_area, max_features=self._fe_max_particles,
+        )
+
+        ny, nx = diff.shape
+        geom = self._scan_regions.get(region, {})
+        x_range = float(geom.get("xRange", 1.0))
+        y_range = float(geom.get("yRange", 1.0))
+        particles = []
+        for b in boxes:
+            x, y = self._pixel_to_um(b["centroid_row"], b["centroid_col"], ny, nx, geom)
+            # physical extent of the particle bounding box (so follow-up scans can be sized to it)
+            w_um = (b["maxc"] - b["minc"]) * x_range / max(nx, 1)
+            h_um = (b["maxr"] - b["minr"]) * y_range / max(ny, 1)
+            particles.append({
+                "center_um": {"x": round(x, 3), "y": round(y, 3)},
+                "size_um": {"x": round(w_um, 3), "y": round(h_um, 3)},
+                "area_px": b["area_px"],
+                "bbox_px": [b["minr"], b["minc"], b["maxr"], b["maxc"]],
+            })
+
+        result = {
+            # Published as a task_recommendation so it flows through the existing GUI/agent
+            # routing (main_controller -> pending_recommendations -> get_intelligence_recommendations
+            # and the intelligence widget).  The subtype distinguishes it from recentre recs.
+            "type": "task_recommendation",
+            "subtype": "two_energy_particles",
+            "scan_type": scan_type,
+            "region": region,
+            "edge_energy_eV": round(e_edge, 2) if e_edge is not None else None,
+            "preedge_energy_eV": round(e_pre, 2) if e_pre is not None else None,
+            "particle_count": len(particles),
+            "particles": particles,
+            "reason": (
+                f"Two-energy map ("
+                + (f"edge {e_edge:.1f} eV / pre-edge {e_pre:.1f} eV" if e_edge is not None
+                   else "edge / pre-edge")
+                + f") in {region}: found {len(particles)} candidate particle(s)."
+                + (f" Largest at x={particles[0]['center_um']['x']:.2f}, "
+                   f"y={particles[0]['center_um']['y']:.2f} µm." if particles else "")
+            ),
+            "timestamp": time.time(),
+        }
+
+        self._recorder.record("events", "task_recommendation", **result)
+        if self._publish_fn is not None:
+            try:
+                self._publish_fn(result)
+            except Exception:
+                pass
 
     def _check_centering(self, image: np.ndarray, region: str) -> None:
         """Compute Otsu-mask COM and publish a recentre recommendation if off-centre."""
@@ -521,7 +650,12 @@ class IntelligenceModule:
         ny, nx = image.shape[:2]
 
         from pystxmcontrol.utils.image import image_com
-        result = image_com(image, x_center, y_center, x_range, y_range)
+        result = image_com(
+            image, x_center, y_center, x_range, y_range,
+            smooth_sigma=self._com_smooth_sigma,
+            despike=self._com_despike,
+            min_separation=self._com_min_separation,
+        )
         if result is None:
             return
         com_x, com_y = result

@@ -8,6 +8,101 @@ from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache, make_thumbnail_a
 
 # ─────────────────────────── helpers ──────────────────────────────────────────
 
+class _MetadataOverlay:
+    """Bottom-anchored metadata bar overlaid on a pyqtgraph ImageView.
+
+    Mirrors the acquisition tab's mainImage overlay: a semi-transparent black background
+    bar holding a facility logo, two rows of metadata text, and a white scale bar, all
+    pinned to the bottom of the visible view and re-pinned on zoom/pan.
+    """
+    _NICE = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+
+    def __init__(self, image_view, logo_path=None):
+        self._vb = image_view.getView()
+        self._visible = False
+
+        self._bg = QtWidgets.QGraphicsRectItem()
+        self._bg.setBrush(pg.mkBrush(0, 0, 0, 180))
+        self._bg.setPen(pg.mkPen(None))
+        self._bg.setZValue(5)
+        self._vb.addItem(self._bg, ignoreBounds=True)
+
+        # White scale bar (pyqtgraph rescales its pixel width automatically on zoom).
+        self._scale = pg.ScaleBar(size=10, suffix='µm', offset=(-20, -20),
+                                  brush=pg.mkBrush('w'), pen=pg.mkPen('w'))
+        self._scale.text.setColor('w')
+        self._scale.setParentItem(self._vb)
+        self._scale.setZValue(10)
+
+        # Facility logo (optional).
+        self._logo = None
+        self._logo_w = 0
+        if logo_path:
+            pix = QtGui.QPixmap(logo_path)
+            if not pix.isNull():
+                pix = pix.scaledToHeight(30, QtCore.Qt.SmoothTransformation)
+                self._logo = QtWidgets.QGraphicsPixmapItem(pix)
+                self._logo.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations, True)
+                self._logo.setZValue(10)
+                self._vb.addItem(self._logo, ignoreBounds=True)
+                self._logo_w = pix.width()
+
+        self._text = pg.TextItem(text='', anchor=(0, 1), color=(220, 220, 220))
+        self._text.setFont(QtGui.QFont("Monospace", 8))
+        self._text.setZValue(10)
+        self._vb.addItem(self._text, ignoreBounds=True)
+
+        self.set_visible(False)
+        self._vb.sigRangeChanged.connect(self._reposition)
+
+    @property
+    def scale_size(self) -> float:
+        """Current scale-bar length in µm (used by the export renderer)."""
+        return self._scale.size
+
+    def set_visible(self, visible: bool):
+        self._visible = visible
+        self._bg.setVisible(visible)
+        self._scale.setVisible(visible)
+        self._text.setVisible(visible)
+        if self._logo is not None:
+            self._logo.setVisible(visible)
+
+    def update(self, x_range_um, rows):
+        """Set the scale-bar size from the field of view and the metadata text rows."""
+        rows = [r for r in rows if r]
+        if x_range_um and x_range_um > 0:
+            target = x_range_um / 5.0
+            bar_um = min(self._NICE, key=lambda v: abs(v - target))
+            self._scale.size = bar_um
+            self._scale.updateBar()
+            self._scale.text.setText(f"{bar_um * 1000:g} nm" if bar_um < 1.0
+                                     else f"{bar_um:g} µm")
+        self._text.setText('\n'.join(rows))
+        self.set_visible(bool(rows))
+        self._reposition()
+
+    def _reposition(self, *args):
+        if not self._visible:
+            return
+        r = self._vb.viewRange()
+        px_w, px_h = self._vb.viewPixelSize()
+        bar_h_data = 48 * abs(px_h)
+        x0, x1 = r[0][0], r[0][1]
+        y_bottom = r[1][1]                       # visual bottom (views use invertY)
+        x_pad = (x1 - x0) * 0.01
+        y_pad = (r[1][1] - r[1][0]) * 0.01
+
+        self._bg.setRect(x0, y_bottom - bar_h_data, x1 - x0, bar_h_data)
+        if self._logo is not None and self._logo_w > 0:
+            logo_h_data = 30 * abs(px_h)
+            self._logo.setPos(x0 + x_pad, y_bottom - logo_h_data - 1.5 * y_pad)
+            logo_gap_data = (self._logo_w + 6) * abs(px_w)
+        else:
+            logo_gap_data = 0
+        self._text.setPos(x0 + logo_gap_data + x_pad, y_bottom - y_pad)
+
+
 def _array_to_pixmap(arr, width=128, height=128):
     """Convert a 2-D numpy array to a scaled grayscale QPixmap."""
     if arr is None or arr.size == 0:
@@ -333,8 +428,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._cards = {}      # filepath -> ThumbnailCard
         self._loader = None
         self._cache = ThumbnailCache()
-        self._detail_scale_bar = None
-        self._ptycho_scale_bar = None
+        self._detail_overlay = None   # _MetadataOverlay on detail_image
+        self._ptycho_overlay = None   # _MetadataOverlay on ptycho_image
         self._ptycho_pixel_um = []   # pixel size in µm per dropdown index
         self._current_filepath = ""
         self._export_meta = {}
@@ -445,6 +540,9 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
         self.detail_image = pg.ImageView()
         normal_layout.addWidget(self.detail_image, stretch=1)
+        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  '..', '..', 'icons', 'als-logo.png')
+        self._detail_overlay = _MetadataOverlay(self.detail_image, logo_path=_logo_path)
 
         self.detail_stack.addWidget(normal_page)
         self._stxm_detector_data = {}  # {detector_name: (data_array, x_scale, y_scale, x_range_um)}
@@ -466,6 +564,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
         self.ptycho_image = pg.ImageView()
         ptycho_layout.addWidget(self.ptycho_image, stretch=1)
+        self._ptycho_overlay = _MetadataOverlay(self.ptycho_image, logo_path=_logo_path)
 
         self.detail_stack.addWidget(ptycho_page)
         self._ptycho_arrays = []   # [obj_amp, obj_phase, probe_amp]
@@ -714,12 +813,16 @@ class DataBrowserWidget(QtWidgets.QWidget):
                     source_name = _h5str(_f["entry0/instrument/source/name"][()])
             except Exception:
                 pass
+            dwell_ms = None
             try:
                 energies = np.atleast_1d(nx.data["entry0"].get("energy", np.array([])))
                 if energies.size == 1:
                     energy_str = f"{float(energies[0]):.1f} eV"
                 elif energies.size > 1:
                     energy_str = f"{float(energies[0]):.1f}–{float(energies[-1]):.1f} eV"
+                ct = np.atleast_1d(nx.data["entry0"].get("count_time", np.array([])))
+                if ct.size:
+                    dwell_ms = float(ct.flat[0]) * 1000.0
             except Exception:
                 pass
             self._export_meta = {
@@ -730,6 +833,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 "source":      source_name,
                 "energy":      energy_str,
                 "scan_type":   nx.meta.get("scan_type", ""),
+                "sample":      nx.meta.get("sample_description", ""),
+                "dwell_ms":    dwell_ms,
             }
 
             # ── discover detectors directly from HDF5 ────────────────────────
@@ -978,23 +1083,26 @@ class DataBrowserWidget(QtWidgets.QWidget):
             else:
                 self.detail_image.clear()
 
-        # ── scale bar ────────────────────────────────────────────────────────
-        if x_range_um > 0:
-            bar_um = round(max(1.0, x_range_um / 5.0), 1)
-            if self._detail_scale_bar is None:
-                self._detail_scale_bar = pg.ScaleBar(
-                    size=bar_um, suffix='µm', offset=(-20, -20),
-                    brush=pg.mkBrush('r'), pen=pg.mkPen('r'),
-                )
-                self._detail_scale_bar.text.setColor('r')
-                self._detail_scale_bar.setParentItem(self.detail_image.getView())
-            else:
-                self._detail_scale_bar.size = bar_um
-                self._detail_scale_bar.updateBar()
-            self._detail_scale_bar.text.setText(f"{bar_um:g} µm")
-            self._detail_scale_bar.setVisible(True)
-        elif self._detail_scale_bar is not None:
-            self._detail_scale_bar.setVisible(False)
+        # ── metadata overlay (scale bar + logo + two text rows) ───────────────
+        m = self._export_meta
+        scan_type = m.get("scan_type", "")
+        row1 = '   '.join(p for p in [
+            m.get("proposal", ""),
+            scan_type,
+            m.get("sample", ""),
+            f"Channel: {det_name}" if det_name else "",
+        ] if p)
+        row2_parts = []
+        if not self._is_tiled_detail:
+            data, x_scale, y_scale, _xr = self._stxm_detector_data[det_name]
+            if x_scale and x_scale > 0:
+                row2_parts.append(f"Pixel Size: {x_scale:.3f} µm")
+        if m.get("dwell_ms") is not None:
+            row2_parts.append(f"Dwell: {m['dwell_ms']:.1f} ms")
+        if m.get("energy"):
+            row2_parts.append(f"Energy: {m['energy']}")
+        row2 = '   '.join(row2_parts)
+        self._detail_overlay.update(x_range_um, [row1, row2])
 
     def _show_ptycho_detail(self, stxm_path, recon_path):
         """Display obj |amp|, obj phase, and probe |amp| from a reconstruction .h5."""
@@ -1096,25 +1204,23 @@ class DataBrowserWidget(QtWidgets.QWidget):
             scale=scale,
         )
 
-        # ── scale bar ─────────────────────────────────────────────────────────
+        # ── metadata overlay (scale bar + logo + two text rows) ───────────────
+        x_range_um = px_um * self._ptycho_arrays[index].shape[0] if px_um > 0 else 0.0
+        m = self._export_meta
+        label = self.ptycho_selector.currentText()
+        scan_type = m.get("scan_type", "")
+        row1 = '   '.join(p for p in [
+            m.get("proposal", ""),
+            f"{scan_type} ({label})" if scan_type else label,
+            m.get("sample", ""),
+        ] if p)
+        row2_parts = []
         if px_um > 0:
-            n_xpx = self._ptycho_arrays[index].shape[0]
-            x_range_um = px_um * n_xpx
-            bar_um = max(1.0, x_range_um / 5.0)
-            if self._ptycho_scale_bar is None:
-                self._ptycho_scale_bar = pg.ScaleBar(
-                    size=bar_um, suffix='µm', offset=(-20, -20),
-                    brush=pg.mkBrush('r'), pen=pg.mkPen('r'),
-                )
-                self._ptycho_scale_bar.text.setColor('r')
-                self._ptycho_scale_bar.setParentItem(self.ptycho_image.getView())
-            else:
-                self._ptycho_scale_bar.size = bar_um
-                self._ptycho_scale_bar.updateBar()
-            self._ptycho_scale_bar.text.setText(f"{bar_um:g} µm")
-            self._ptycho_scale_bar.setVisible(True)
-        elif self._ptycho_scale_bar is not None:
-            self._ptycho_scale_bar.setVisible(False)
+            row2_parts.append(f"Pixel Size: {px_um:.4f} µm")
+        if m.get("energy"):
+            row2_parts.append(f"Energy: {m['energy']}")
+        row2 = '   '.join(row2_parts)
+        self._ptycho_overlay.update(x_range_um, [row1, row2])
 
     def _render_composite_image(self):
         """
@@ -1140,15 +1246,18 @@ class DataBrowserWidget(QtWidgets.QWidget):
             suffix = suffix_map.get(label, label.lower().replace(" ", "_"))
             stem       = f"{base}_{suffix}"
             image_view = self.ptycho_image
-            scale_bar  = self._ptycho_scale_bar
+            overlay    = self._ptycho_overlay
         else:
             stem       = base
             image_view = self.detail_image
-            scale_bar  = self._detail_scale_bar
+            overlay    = self._detail_overlay
 
-        # ── hide scale bar, zoom to fit, render ───────────────────────────────
-        if scale_bar is not None:
-            scale_bar.setVisible(False)
+        # ── hide the on-screen overlay, zoom to fit, render ───────────────────
+        # The export draws its own metadata bar below the image, so the in-view overlay
+        # (bar/logo/text) is hidden here to avoid duplicating it inside the rendered image.
+        overlay_was_visible = overlay is not None and overlay._visible
+        if overlay is not None:
+            overlay.set_visible(False)
 
         view = image_view.getView()
         prev_state = view.getState()
@@ -1161,8 +1270,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
         export_view_rect = view.viewRect()
 
         view.setState(prev_state)
-        if scale_bar is not None:
-            scale_bar.setVisible(True)
+        if overlay is not None and overlay_was_visible:
+            overlay.set_visible(True)
 
         img_w = img_qimage.width()
         img_h = img_qimage.height()
@@ -1238,8 +1347,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
             y = img_h + pad + i * line_h + fm.ascent()
             painter.drawText(text_x, y, row)
 
-        if scale_bar is not None:
-            bar_size_um = scale_bar.size
+        if overlay is not None:
+            bar_size_um = overlay.scale_size
             bar_label   = f"{bar_size_um:g} µm"
             px_per_unit = img_w / export_view_rect.width() if export_view_rect.width() > 0 else 1.0
             bar_px      = max(10, round(abs(bar_size_um * px_per_unit)))

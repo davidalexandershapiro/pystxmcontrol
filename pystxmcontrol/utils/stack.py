@@ -537,7 +537,8 @@ class stack():
 
     def alignFramesCustom(self, mode='translation', align_method='sequential',
                            reference_idx=0, thresholded=False, threshold=0.0,
-                           sobelFilter=False, autocrop=True, progress_callback=None):
+                           sobelFilter=False, autocrop=True, mask_margin=0,
+                           progress_callback=None):
         """
         Align processedFrames with configurable reference-frame and threshold options.
 
@@ -549,6 +550,9 @@ class stack():
         :param threshold:     cutoff value (transmission: pixels < threshold are excluded)
         :param sobelFilter:   apply Sobel edge filter prior to registration
         :param autocrop:      trim border artefacts after alignment
+        :param mask_margin:   ('manualtranslation' only) erode the common-circle hard mask by
+                              this many pixels.  0 = pure circle intersection (no data loss);
+                              raise to 1-2 only if a thin soft-edge sliver survives rounding.
         :param progress_callback: callable(int pct)
         """
         self.lastFrames = self.processedFrames.copy()
@@ -599,6 +603,28 @@ class stack():
             if progress_callback is not None:
                 progress_callback(int((i + 1) / n * 100))
 
+        # Circular field-of-view hard mask ("Circular Image" / manualtranslation only).
+        # The data circle is identical in every *unaligned* frame; only the sample inside it
+        # shifts.  So the valid circle in aligned frame i is frame-0's non-zero support
+        # translated by that frame's shift.  Shifting the hard support by integer (nearest-
+        # pixel, order=0) amounts keeps it a crisp 0/1 mask — no interpolation, no soft edges,
+        # and no intensity threshold that could depend on the sample.  Intersecting the shifted
+        # circles (pixels covered in *every* frame) is the mask; zeroing outside it removes the
+        # soft-fringe pixels that would otherwise blow up under OD = -log(I/I0).
+        circular_mask = None
+        if mode == 'manualtranslation':
+            base_circle = ndimage.binary_fill_holes(self.processedFrames[0] > 0)
+            base = base_circle.astype(np.float32)
+            coverage = np.zeros(base_circle.shape, dtype=np.int32)
+            for dy, dx in shift_list:
+                shifted = ndimage.shift(base, (int(round(dy)), int(round(dx))),
+                                        order=0, mode='constant', cval=0.0) > 0.5
+                coverage += shifted
+            circular_mask = coverage == len(shift_list)   # region covered by all frames
+            if mask_margin > 0:
+                circular_mask = ndimage.binary_erosion(circular_mask, iterations=mask_margin)
+            aligned *= circular_mask[np.newaxis, :, :]
+
         if autocrop and len(shift_list) > 1:
             shifts_arr = np.array(shift_list)
             # Each frame is registered against the previous *aligned* frame (which sits at the
@@ -614,11 +640,14 @@ class stack():
             if minX == 0: minX = 1
             if minY == 0: minY = 1
             aligned = aligned[:, minY:-maxY, minX:-maxX]
+            if circular_mask is not None:
+                circular_mask = circular_mask[minY:-maxY, minX:-maxX]
 
         self.processedFrames = aligned
         self.shape = self.processedFrames.shape
         self.nEnergies, self.nY, self.nX = self.processedFrames.shape
         self.shifts = shift_list
+        self.circularMask = circular_mask
 
     def _registerImages(self, dst_image, src_image, mode = 'translation', mask = False, threshold = 0., sobelFilter = False):
         """

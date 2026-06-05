@@ -369,26 +369,94 @@ class image(object):
 # Scan-image analysis utilities (used by intelligence module and task agent)
 # ---------------------------------------------------------------------------
 
-def otsu_absorption_mask(image: np.ndarray) -> np.ndarray:
-    """Return a binary mask of absorbing (dark) features in a transmission image.
+def otsu_absorption_mask(
+    image: np.ndarray,
+    smooth_sigma: float = 2.0,
+    despike: bool = True,
+    min_separation: float = 0.0,
+    dark: bool = True,
+    valid: np.ndarray | None = None,
+) -> np.ndarray:
+    """Return a binary mask of features isolated by Otsu thresholding.
 
-    Inverts the image so absorbers become bright, then applies Otsu thresholding.
-    Zero-valued pixels are excluded from both the threshold calculation and the
-    output mask so that unscanned corners in spiral scans do not bias the result.
+    With ``dark=True`` (default) it finds *absorbing* (dark) features in a transmission
+    image — the image is inverted so absorbers become bright, then Otsu-thresholded.
+    With ``dark=False`` it finds *bright* features directly, which is what an elemental
+    contrast map (e.g. a two-energy OD difference) needs.
+
+    By default zero-valued pixels are excluded from both the threshold and the output mask
+    so unscanned spiral corners don't bias the result.  Pass ``valid`` to supply an explicit
+    validity mask (e.g. pixels measured at both energies of a two-energy map), which is
+    required when feature values can legitimately be <= 0.
+
+    To extend usable sensitivity below SNR~5 the image is conditioned before Otsu:
+
+    * **despike** — isolated hot/dead pixels are replaced by their 3x3 median (the same
+      median-residual > 3-sigma test as :func:`despike`, but adapted to be non-mutating,
+      shape-preserving, and limited to *interior* valid pixels so the circular field-of-view
+      edge isn't flagged as spikes by a median that straddles the zero corners).
+    * **smooth_sigma** — an edge-aware (mask-normalised) Gaussian boosts SNR for spatially
+      extended features without bleeding the zero corners into valid data.  ``0`` disables it.
+
+    :param smooth_sigma:   Gaussian sigma in pixels for pre-smoothing (default 2; 0 = off).
+    :param despike:        remove isolated hot/dead pixels before smoothing (default True).
+    :param min_separation: detectability guard.  Below the SNR floor Otsu still returns a
+                           threshold and will segment pure noise.  If > 0, the feature class
+                           must exceed the background mean by at least this many background
+                           std-devs, otherwise an empty mask is returned (no false detection).
+                           ``0`` disables the guard.
+    :param dark:           True = dark/absorbing features; False = bright features.
+    :param valid:          optional explicit validity mask; defaults to ``image > 0``.
 
     Returns a bool array with the same 2-D shape as *image*, or an all-False
-    array if there are no valid (non-zero) pixels.
+    array if there are no valid pixels or the guard rejects the result.
     """
     from skimage.filters import threshold_otsu
+    from scipy.ndimage import gaussian_filter, median_filter, binary_erosion
 
     img = np.asarray(image, dtype=float)
-    valid = img > 0
+    valid = (img > 0) if valid is None else np.asarray(valid, dtype=bool)
     if not valid.any():
         return np.zeros(img.shape[:2], dtype=bool)
 
-    inv = img.max() - img
-    thresh = threshold_otsu(inv[valid])
-    return valid & (inv > thresh)
+    # 1. Despike isolated hot/dead pixels (interior only — see docstring).
+    if despike:
+        med = median_filter(img, size=3)
+        resid = img - med
+        interior = binary_erosion(valid)
+        if interior.any():
+            sigma_r = float(resid[interior].std())
+            if sigma_r > 0:
+                spikes = interior & (np.abs(resid) > 3.0 * sigma_r)
+                img = img.copy()
+                img[spikes] = med[spikes]
+
+    # 2. Edge-aware (mask-normalised) Gaussian: averages only over valid pixels so the
+    #    zero corners don't pull down the field-of-view edge.
+    if smooth_sigma and smooth_sigma > 0:
+        w = valid.astype(float)
+        num = gaussian_filter(img * w, smooth_sigma)
+        den = gaussian_filter(w, smooth_sigma)
+        work = np.where(den > 0, num / den, 0.0)
+    else:
+        work = img
+
+    # 3. Otsu on the "feature brightness" of the valid pixels: invert for dark features,
+    #    use the signal directly (shifted non-negative) for bright features.
+    feat = (work.max() - work) if dark else (work - work[valid].min())
+    thresh = threshold_otsu(feat[valid])
+    mask = valid & (feat > thresh)
+
+    # 4. Detectability guard: reject results that don't separate from the background.
+    if min_separation and min_separation > 0 and mask.any():
+        bg = valid & ~mask
+        bg_std = float(feat[bg].std()) if bg.any() else 0.0
+        if bg.any() and bg_std > 0:
+            separation = float(feat[mask].mean() - feat[bg].mean())
+            if separation < min_separation * bg_std:
+                return np.zeros(img.shape[:2], dtype=bool)
+
+    return mask
 
 
 def image_com(
@@ -397,17 +465,25 @@ def image_com(
     y_center: float,
     x_range: float,
     y_range: float,
+    smooth_sigma: float = 2.0,
+    despike: bool = True,
+    min_separation: float = 0.0,
 ) -> tuple | None:
     """Return the physical-space centre-of-mass (µm) of absorbing features.
 
     Uses :func:`otsu_absorption_mask` to isolate absorbing regions, then maps
-    the unweighted pixel centroid into motor coordinates.
+    the unweighted pixel centroid into motor coordinates.  The ``smooth_sigma``,
+    ``despike`` and ``min_separation`` arguments are forwarded to the mask function
+    to extend usable sensitivity at low SNR (see :func:`otsu_absorption_mask`).
 
     Returns ``(com_x, com_y)`` in µm, or ``None`` if the mask is empty or an
     error occurs (e.g. skimage unavailable).
     """
     try:
-        mask = otsu_absorption_mask(image)
+        mask = otsu_absorption_mask(
+            image, smooth_sigma=smooth_sigma, despike=despike,
+            min_separation=min_separation,
+        )
     except Exception:
         return None
 
@@ -422,4 +498,59 @@ def image_com(
     com_x = x_center + (com_col / max(nx - 1, 1) - 0.5) * x_range
     com_y = y_center + (com_row / max(ny - 1, 1) - 0.5) * y_range
     return com_x, com_y
+
+
+def two_energy_map(frame_pre: np.ndarray, frame_edge: np.ndarray) -> tuple:
+    """Elemental contrast map from two co-registered transmission frames.
+
+    Computes ``diff = log(I_pre / I_edge)`` over pixels valid (positive) in both frames.
+    This equals the analysis tab's OD difference ``OD_edge - OD_pre`` up to an additive
+    constant (the per-energy I0 ratio), which is irrelevant for Otsu detection and relative
+    contrast — so no explicit I0 estimate is needed.  Pixels that absorb more on the edge
+    than the pre-edge (i.e. contain the element) are positive/high.
+
+    The two frames are assumed already co-registered, which holds for a single scan: both
+    energies are sampled on the same interpolated spatial grid, so no alignment is required.
+
+    :param frame_pre:  pre-edge transmission frame (lower energy)
+    :param frame_edge: edge transmission frame (higher energy)
+    :return: ``(diff, valid)`` — the map (0 where invalid) and the bool validity mask.
+    """
+    pre = np.asarray(frame_pre, dtype=float)
+    edge = np.asarray(frame_edge, dtype=float)
+    valid = (pre > 0) & (edge > 0)
+    diff = np.zeros(pre.shape, dtype=float)
+    diff[valid] = np.log(pre[valid]) - np.log(edge[valid])
+    return diff, valid
+
+
+def find_feature_boxes(mask: np.ndarray, min_area: int = 4,
+                       max_features: int | None = None) -> list[dict]:
+    """Connected-component analysis of a boolean feature mask.
+
+    Returns a list of components sorted by descending pixel area, each a dict with
+    ``centroid_row``, ``centroid_col``, ``area_px`` and bounding box ``minr/minc/maxr/maxc``.
+    Components smaller than *min_area* pixels are dropped (noise speckle).
+
+    :param mask:         bool feature mask (e.g. from :func:`otsu_absorption_mask`)
+    :param min_area:     drop components smaller than this many pixels
+    :param max_features: optionally keep only the N largest
+    """
+    from skimage.measure import label, regionprops
+
+    feats = []
+    for r in regionprops(label(mask)):
+        if r.area < min_area:
+            continue
+        cr, cc = r.centroid
+        feats.append({
+            "centroid_row": float(cr), "centroid_col": float(cc),
+            "area_px": int(r.area),
+            "minr": int(r.bbox[0]), "minc": int(r.bbox[1]),
+            "maxr": int(r.bbox[2]), "maxc": int(r.bbox[3]),
+        })
+    feats.sort(key=lambda f: f["area_px"], reverse=True)
+    if max_features is not None:
+        feats = feats[:max_features]
+    return feats
 

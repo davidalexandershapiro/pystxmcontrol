@@ -45,6 +45,15 @@ get_intelligence_recommendations() immediately before proceeding — the intelli
 module may have posted actionable suggestions (e.g. recentre the scan). Act on any
 recommendations unless the user has already given explicit contrary instructions.
 
+FINDING ELEMENT-SPECIFIC PARTICLES (e.g. "find particles containing iron"):
+This requires elemental contrast, not a single image. Run a two-energy scan (element edge +
+pre-edge). When it completes, get_intelligence_recommendations() returns a 'two_energy_particles'
+report — the AUTHORITATIVE particle locations, computed from the elemental map. To image them:
+load_intelligence_particles() then start_multiregion_scan(). Do NOT use find_particles() to count
+or locate an element: it thresholds a single transmission image and finds generic absorbers, which
+will disagree with the elemental-map count. Use find_particles() only for plain "absorbing feature"
+requests with no element specified.
+
 SCAN PARAMETERS:
 get_config() is called once at session start and is NOT repeated. Its results may be
 stale if scans have run since then. When the user asks about recent scan parameters,
@@ -64,7 +73,10 @@ class TaskAgent:
     def __init__(self, main_config: dict, client, image_model=None):
         cfg = main_config.get("task_agent", {})
         self.model = cfg.get("model", "claude-opus-4-7")
+        # Steps allowed WITHOUT a scan completing (stall/loop guard); a completed scan resets it.
         self.max_iterations = cfg.get("max_iterations", 20)
+        # Absolute ceiling across the whole run, regardless of progress (final safety net).
+        self.max_total_iterations = cfg.get("max_total_iterations", 200)
         self._toolset = ToolSet(client, image_model=image_model)
         self._cancel_event = threading.Event()
         self._messages: list[dict] = []  # persists across run() calls
@@ -128,10 +140,28 @@ class TaskAgent:
 
         self._messages.append({"role": "user", "content": goal})
 
-        for iteration in range(self.max_iterations):
+        # Progress-aware budget: `max_iterations` bounds steps WITHOUT a scan completing
+        # (catches stalls/loops), while `max_total_iterations` is an absolute safety ceiling.
+        # A completed scan resets the stall counter, so legitimately long jobs (tiled scans,
+        # particle searches) can run many scans in sequence without exhausting the budget.
+        total = 0
+        stalled = 0
+        while True:
             if self._cancel_event.is_set():
                 _publish("[Cancelled]")
                 return "Task cancelled by user."
+            if total >= self.max_total_iterations:
+                msg = (f"Reached the absolute iteration ceiling ({self.max_total_iterations}). "
+                       "Stopping. If the task was still making progress, tell me to continue.")
+                _publish(msg)
+                return msg
+            if stalled >= self.max_iterations:
+                msg = (f"No scan completed in the last {self.max_iterations} steps — stopping to "
+                       "avoid a loop. If more work remains, tell me to continue.")
+                _publish(msg)
+                return msg
+            total += 1
+            stalled += 1
             try:
                 response = self._llm.chat.completions.create(
                     model=self.model,
@@ -172,15 +202,14 @@ class TaskAgent:
                         "tool_call_id": tool_call.id,
                         "content": result,
                     })
+                    # A completed scan is a unit of real progress: reset the stall budget so a
+                    # long sequence of scans (e.g. a tiled scan) isn't capped by step count.
+                    if name == "wait_for_scan" and result.startswith("Scan complete"):
+                        stalled = 0
+                        _publish("  [scan completed — step budget reset]")
 
             else:
                 # Model is done — return final text; displayed via task_agent_done signal
                 final = assistant_message.content or ""
-                _publish(f"[Done in {iteration + 1} step(s)]")
+                _publish(f"[Done in {total} step(s)]")
                 return final
-
-        timeout_msg = (
-            f"Reached maximum iterations ({self.max_iterations}) without completing goal."
-        )
-        _publish(timeout_msg)
-        return timeout_msg

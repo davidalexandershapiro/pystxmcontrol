@@ -76,7 +76,7 @@ class DoubleMotorScan(BaseScan):
                 "yPoints": yPoints,
                 "yStep": yRange / (yPoints - 1),
                 "yStart": yStart,
-                "yCenter": yStart,
+                "yCenter": yStart + yRange / 2.,
                 "yRange": yRange,
             })
 
