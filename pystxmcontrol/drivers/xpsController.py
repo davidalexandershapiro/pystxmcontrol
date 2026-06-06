@@ -13,7 +13,11 @@ class xpsController(hardwareController):
         self._sockets = []
         self._timeout = 5.
         self._position_tolerance = 5.0
-        self._lock = threading.Lock()
+        # One lock per socket so each send+receive transaction is atomic on its own socket.
+        # A global lock would scramble replies between concurrent readers on a shared socket
+        # (only the send was locked before), and locking everything together would block
+        # monitorSocket reads during a controlSocket move.  Per-socket locks fix both.
+        self._socket_locks = []
 
     def initialize(self, simulation = False):
         self.simulation = simulation
@@ -24,11 +28,15 @@ class xpsController(hardwareController):
 
     def __sendAndReceive(self, socketId, command):
         try:
-            with self._lock:
+            # Hold the per-socket lock for the WHOLE transaction (send + the full recv loop)
+            # so a concurrent caller on the same socket cannot read this request's reply.
+            # Different sockets use different locks, so a move on controlSocket does not block
+            # position reads on monitorSocket.
+            with self._socket_locks[socketId]:
                 self._sockets[socketId].send(command.encode())
-            response = self._sockets[socketId].recv(1024).decode()
-            while (response.find(',EndOfAPI') == -1):
-                response += self._sockets[socketId].recv(1024)
+                response = self._sockets[socketId].recv(1024).decode()
+                while (response.find(',EndOfAPI') == -1):
+                    response += self._sockets[socketId].recv(1024)
         except socket.timeout:
             return [-2, '']
         except socket.error as errString:
@@ -43,6 +51,7 @@ class xpsController(hardwareController):
         socketId = self._nSockets
         try:
             self._sockets.append(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            self._socket_locks.append(threading.Lock())   # keep locks index-aligned with sockets
             self._sockets[socketId].connect((IP, port))
             self._sockets[socketId].settimeout(timeOut)
             self._sockets[socketId].setblocking(1)
