@@ -5,7 +5,6 @@
     "type": "point",
     "driver": "keysight53230A",
     "address": "USB::0x0957::0x1907::INSTR",
-    "trigger_mode": "line",
     "measurement_mode": "TOT",
     "port": 5025,
     "channel": 1,

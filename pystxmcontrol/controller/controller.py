@@ -473,6 +473,9 @@ class controller:
         scan["source_type"] = self.main_config["source"]["type"]
         scan["source_name"] = self.main_config["source"]["name"]
         scan["source_probe"] = self.main_config["source"]["probe"]
+        # trigger_mode is now a per-scan setting (scan.json), not a per-daq one.  Inject it
+        # here so every scan path (GUI, scripter, agent) carries it on the scan dict.
+        scan["trigger_mode"] = self.scanConfig.get(scan["scan_type"], {}).get("trigger_mode", "line")
         def run_scan():
             asyncio.run(self.scan_helper(scan))
         if not self.scanThread.is_alive():

@@ -159,12 +159,12 @@ class LinearSpectrumScan(BaseScan):
         #     trigger="EXT"
         # )
 
-        if self.controller.daq["default"].meta.get("trigger_mode","line") == "point":
+        if self.scan.get("trigger_mode","line") == "point":
             self.scanInfo["trigger_count"] = self.scanInfo["numLineDAQPoints"]
             self.scanInfo["trigger_samples"] = 1
-        elif self.controller.daq["default"].meta.get("trigger_mode","line") == "line":
+        elif self.scan.get("trigger_mode","line") == "line":
             self.scanInfo["trigger_count"] = 1
-            self.scanInfo["trigger_samples"] = self.scanInfo["numLineDAQPoints"]   
+            self.scanInfo["trigger_samples"] = self.scanInfo["numLineDAQPoints"]
 
         # Configure DAQs
         self.configure_daqs(
