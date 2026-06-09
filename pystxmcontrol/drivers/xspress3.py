@@ -27,10 +27,14 @@ class xspress3(daq):
         self._bottom_bin = 0.0 #this is just a place holder
         self.all_energies = np.linspace(self._bottom_bin, self._bottom_bin + self.nbins * self._bin_ev_delta, self.nbins)
         self.meta = {"ndim": 1, "type": "spectrum", "name": "XSPRESS3", "x label": "Energy", "max energy": 3000}
-        self.set_filename('/cosmic-dtn/groups/cosmic/XRF-Data/temp.stxm')
+        # Fallback used only if the daq config provides no "temp_filename".
+        self._default_filename = '/cosmic-dtn/groups/cosmic/XRF-Data/temp.stxm'
 
     def start(self):
-        pass
+        # The controller replaces self.meta with the daq config (daq.json entry) after
+        # construction and calls start() immediately after, so read the initial output file
+        # from there. set_filename() is called again per-scan with the real scan ID.
+        self.set_filename(self.meta.get("temp_filename", self._default_filename))
 
     def stop(self):
         pass
