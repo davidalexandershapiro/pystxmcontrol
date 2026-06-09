@@ -54,6 +54,14 @@ or locate an element: it thresholds a single transmission image and finds generi
 will disagree with the elemental-map count. Use find_particles() only for plain "absorbing feature"
 requests with no element specified.
 
+SCAN LIMITS (before starting any scan):
+Call check_scan_limits() before start_scan(). If it reports needs_decision=True, the scan
+range exceeds the fine/piezo travel — do NOT just start it. Ask the user whether to run it as
+a 'tiled' scan (split into sub-regions, typical for large Image areas) or a 'coarse_only' scan
+(coarse stage instead of the piezo), then set their choice with update_scan(tiled=True) or
+update_scan(coarse_only=True) and start_scan(). start_scan() enforces this too and will refuse
+an oversize scan with no mode set. These are the same options the GUI offers.
+
 SCAN PARAMETERS:
 get_config() is called once at session start and is NOT repeated. Its results may be
 stale if scans have run since then. When the user asks about recent scan parameters,

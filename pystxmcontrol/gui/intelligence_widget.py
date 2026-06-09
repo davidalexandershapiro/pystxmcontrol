@@ -76,7 +76,9 @@ class IntelligenceWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._task_running = False
+        self._proposal_active = False   # input is gated until a proposal is selected
         self._setup_ui()
+        self._refresh_input_state()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -163,10 +165,31 @@ class IntelligenceWidget(QtWidgets.QWidget):
         else:
             self._append_anomaly_suggestion(anomaly_type, severity, text)
 
+    def set_proposal_active(self, active: bool) -> None:
+        """Enable/disable the agent command input based on proposal selection.
+
+        The input (and Send) are gated until a valid proposal is selected, mirroring the
+        rest of the GUI's proposal activation.
+        """
+        self._proposal_active = bool(active)
+        self._refresh_input_state()
+
+    def _refresh_input_state(self) -> None:
+        """Apply the combined proposal + running gates to the input and Send button."""
+        self._query_input.setEnabled(self._proposal_active and not self._task_running)
+        # Send must stay clickable while running (it acts as Stop); otherwise it follows
+        # the proposal gate.
+        self._send_btn.setEnabled(self._proposal_active or self._task_running)
+        if self._task_running:
+            self._query_input.setPlaceholderText("Agent is running…")
+        elif not self._proposal_active:
+            self._query_input.setPlaceholderText("Select a proposal to enable the agent…")
+        else:
+            self._query_input.setPlaceholderText("Describe a goal for the agent…")
+
     def set_task_running(self, running: bool) -> None:
         """Switch the Send button to Stop while a task is in flight."""
         self._task_running = running
-        self._query_input.setEnabled(not running)
         if running:
             self._send_btn.setText("Stop")
             self._send_btn.setStyleSheet(
@@ -175,7 +198,6 @@ class IntelligenceWidget(QtWidgets.QWidget):
                 "QPushButton:hover { background-color: #d32f2f; }"
                 "QPushButton:pressed { background-color: #b71c1c; }"
             )
-            self._query_input.setPlaceholderText("Agent is running…")
         else:
             self._send_btn.setText("Send")
             self._send_btn.setStyleSheet(
@@ -184,7 +206,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
                 "QPushButton:hover { background-color: #1976d2; }"
                 "QPushButton:pressed { background-color: #0d47a1; }"
             )
-            self._query_input.setPlaceholderText("Describe a goal for the agent…")
+        self._refresh_input_state()
 
     def add_task_status(self, msg: str) -> None:
         """Display a TaskAgent trace line (tool calls, results, progress)."""
@@ -338,6 +360,8 @@ class IntelligenceWidget(QtWidgets.QWidget):
         if self._task_running:
             self.cancel_requested.emit()
             return
+        if not self._proposal_active:
+            return  # gated until a proposal is selected
         text = self._query_input.text().strip()
         if not text:
             return

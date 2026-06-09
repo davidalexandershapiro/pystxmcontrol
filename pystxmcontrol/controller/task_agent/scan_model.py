@@ -44,6 +44,11 @@ class ScanModel(BaseModel):
     autofocus: bool = True
     loop_scan: bool = False
     retract: bool = True
+    # Large-scan handling (range exceeds the fine/piezo travel). Mutually exclusive:
+    #   tiled       — split into sub-regions that each fit the fine range (server stitches)
+    #   coarse_only — position with the coarse stage instead of the fine piezo
+    tiled: bool = False
+    coarse_only: bool = False
 
     @field_validator("x_points", "y_points", "z_points", "energy_points")
     @classmethod

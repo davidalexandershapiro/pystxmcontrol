@@ -3775,8 +3775,15 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Enable other controls based on scan type
         self.on_scan_type_changed()
 
+        # Enable the agent command input now that a proposal is active
+        if hasattr(self, '_intelligence_tab'):
+            self._intelligence_tab.set_proposal_active(True)
+
     def _deactivate_gui(self):
         """Deactivate GUI elements when no valid proposal is selected."""
+        # Gate the agent command input until a proposal is selected
+        if hasattr(self, '_intelligence_tab'):
+            self._intelligence_tab.set_proposal_active(False)
         # Disable main scan controls
         if hasattr(self.ui, 'compositeImageCheckbox'):
             self.ui.compositeImageCheckbox.setEnabled(False)

@@ -147,9 +147,9 @@ def _build_scan_dict(scan: dict, scans_config: dict) -> dict:
         'autofocus':          scan.get('autofocus', True),
         'oversampling_factor': 3,
         'mode':               mode,
-        'coarse_only':        False,
+        'coarse_only':        scan.get('coarse_only', False),
         'spiral':             scan.get('spiral', False),
-        'tiled':              False,
+        'tiled':              scan.get('tiled', False),
         'daq_list':           scan.get('daq_list', ['default']),
         'comment':            scan.get('comment', ''),
         'loop_scan':          scan.get('loop_scan', False),
@@ -369,8 +369,13 @@ class ToolSet:
                 if _energy_range_keys & kwargs.keys() and 'energy_list' not in kwargs:
                     kwargs['energy_list'] = None
 
+                # Seed from the server's last-used scan ONLY when switching scan types.
+                # For repeated updates of the same type, build on the in-memory working scan
+                # so earlier edits in this session (e.g. x_range, tiled) are preserved instead
+                # of being reset to the stale server baseline.
                 last_scans = self._last_scans or {}
-                if scan_type in last_scans:
+                changing_type = scan_type != self._scan.get('scan_type')
+                if changing_type and scan_type in last_scans:
                     try:
                         baseline = _convert_scan(last_scans[scan_type])
                         merged = {**baseline, **kwargs}
@@ -388,6 +393,89 @@ class ToolSet:
         except Exception as e:
             return f"Failed to update scan: {e}"
 
+    def _validate_scan_limits(self) -> tuple:
+        """Core scan-range check, mirroring the GUI's scan_model.validate_ranges.
+
+        Each axis's scan range must fit within the motor's travel (maxValue - minValue,
+        i.e. the fine/piezo range) from the motor config.  A range that exceeds it can still
+        run as a tiled scan (split into sub-regions) or a coarse_only scan (coarse stage
+        instead of the piezo) — exactly the escape hatches the GUI uses.  If a range is
+        oversize and neither flag is set, this returns ok=False with needs_decision=True so
+        the agent can ask the user which mode to use.
+
+        Returns (ok: bool, result: dict).
+        """
+        if self._motors is None:
+            self.get_config()
+        motors = self._motors or {}
+        tiled = bool(self._scan.get("tiled", False))
+        coarse_only = bool(self._scan.get("coarse_only", False))
+
+        checks = [
+            ("x_range", self._scan.get("x_motor", ""), "X"),
+            ("y_range", self._scan.get("y_motor", ""), "Y"),
+            ("z_range", self._scan.get("z_motor") or "", "Z"),
+        ]
+        oversize, detail = [], []
+        for range_key, motor_name, axis in checks:
+            try:
+                scan_range = float(self._scan.get(range_key, 0) or 0)
+            except (TypeError, ValueError):
+                scan_range = 0.0
+            if scan_range <= 0 or not motor_name:
+                continue
+            info = motors.get(motor_name, {})
+            if "minValue" not in info or "maxValue" not in info:
+                detail.append(f"{axis} ({motor_name}): no limits in motor config — skipped")
+                continue
+            min_val, max_val = float(info["minValue"]), float(info["maxValue"])
+            travel = max_val - min_val
+            detail.append(f"{axis} {motor_name}: range {scan_range:.3f} vs "
+                          f"travel {travel:.3f} [{min_val:.3f}, {max_val:.3f}]")
+            if scan_range > travel:
+                oversize.append(f"{axis} range {scan_range:.3f} exceeds {motor_name} "
+                                f"fine travel {travel:.3f} ({min_val:.3f} to {max_val:.3f})")
+
+        # No oversize axes, or the user already chose a large-scan mode → OK.
+        if not oversize:
+            return True, {"ok": True, "detail": detail,
+                          "message": "Scan ranges fit within motor travel limits."}
+        if tiled or coarse_only:
+            mode = "tiled" if tiled else "coarse_only"
+            return True, {"ok": True, "mode": mode, "oversize": oversize, "detail": detail,
+                          "message": f"Range exceeds fine travel; will run as a {mode} scan."}
+
+        # Oversize and no mode chosen → the agent must ask the user.
+        return False, {
+            "ok": False,
+            "needs_decision": True,
+            "scan_type": self._scan.get("scan_type", ""),
+            "oversize": oversize,
+            "detail": detail,
+            "options": {
+                "tiled": "Split into sub-regions that each fit the fine/piezo range; the "
+                         "server stitches them. Set with update_scan(tiled=True). Typical for "
+                         "large area Image scans.",
+                "coarse_only": "Position with the coarse stage instead of the fine piezo. "
+                               "Set with update_scan(coarse_only=True).",
+            },
+            "message": ("Scan range exceeds the fine/piezo travel. Ask the user whether to run "
+                        "it as a 'tiled' or 'coarse_only' scan, set that flag via update_scan(), "
+                        "then start_scan(). (These are the same options the GUI offers.)"),
+        }
+
+    def check_scan_limits(self) -> str:
+        """Validate the current scan geometry against motor (fine/piezo) travel limits.
+
+        Same check the GUI runs before starting a scan.  If a range exceeds the fine travel
+        and no large-scan mode is selected, the result has needs_decision=True and lists the
+        'tiled' vs 'coarse_only' options — ask the user, then set the chosen flag with
+        update_scan(tiled=True) or update_scan(coarse_only=True) and start_scan().
+        Call this before start_scan(); start_scan() also runs it and refuses if unresolved.
+        """
+        _, result = self._validate_scan_limits()
+        return json.dumps(result, indent=2)
+
     def start_scan(self) -> str:
         """Submit the current scan definition to the server and start acquisition.
 
@@ -396,6 +484,12 @@ class ToolSet:
         """
         if self._scans_config is None:
             self.get_config()
+        ok, result = self._validate_scan_limits()
+        if not ok:
+            return ("Scan not started — range exceeds the fine/piezo travel: "
+                    + "; ".join(result["oversize"])
+                    + ". Ask the user whether to run a tiled or coarse_only scan, then "
+                      "update_scan(tiled=True) or update_scan(coarse_only=True) and retry.")
         try:
             scan_dict = _build_scan_dict(self._scan, self._scans_config or {})
             response = self._client.send_message({"command": "scan", "scan": scan_dict})
@@ -1002,6 +1096,8 @@ TOOL_SCHEMAS: list[dict] = [
                     "energy_list":        {"type": "array", "items": {"type": "number"}, "description": "Explicit energy list in eV"},
                     "autofocus":          {"type": "boolean"},
                     "spiral":             {"type": "boolean"},
+                    "tiled":              {"type": "boolean", "description": "Large-scan mode: split into sub-regions that each fit the fine/piezo range (server stitches). Use when a range exceeds fine travel."},
+                    "coarse_only":        {"type": "boolean", "description": "Large-scan mode: position with the coarse stage instead of the fine piezo. Use when a range exceeds fine travel."},
                     "sample_description": {"type": "string"},
                     "comment":            {"type": "string"},
                     "proposal":           {"type": "string"},
@@ -1014,8 +1110,23 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "check_scan_limits",
+            "description": (
+                "Validate the current scan geometry against motor (fine/piezo) travel limits — "
+                "the same check the GUI runs before starting a scan. If a range exceeds the fine "
+                "travel and no large-scan mode is set, the result has needs_decision=True with "
+                "'tiled' vs 'coarse_only' options: ask the user which to use, set it via "
+                "update_scan(tiled=True) or update_scan(coarse_only=True), then start_scan(). "
+                "start_scan() runs this automatically and refuses if unresolved."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "start_scan",
-            "description": "Submit the current scan definition and start acquisition. Returns when the server acknowledges the start.",
+            "description": "Submit the current scan definition and start acquisition. Runs check_scan_limits() first and refuses if a range exceeds fine travel with no tiled/coarse_only mode set. Returns when the server acknowledges the start.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
