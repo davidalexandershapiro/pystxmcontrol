@@ -67,6 +67,30 @@ get_config() is called once at session start and is NOT repeated. Its results ma
 stale if scans have run since then. When the user asks about recent scan parameters,
 or when you need the actual parameters of the last scan, call get_last_scan_params()
 — it always fetches fresh data from the server.
+
+BEAMLINE TUNING (e.g. "tune the beamline at 700 eV"):
+This is an autonomous hill-climb on two beamline parameters — the EPU gap and the
+feedback offset — to a LOCAL optimum. There is no absolute target. The objective is the
+composite SNR = intensity / noise_RMS reported by read_beam_quality(); maximize it.
+Procedure:
+1. start_tuning_session(energy=<eV>). It returns the harmonic, step sizes, the ±10-step
+   travel limits, and the current SampleX/Y. Note the SampleX/Y values.
+2. Start the tuning scan centred on the sample, small range, fine grid, fast dwell — and
+   do NOT wait_for_scan (you measure DURING the scan):
+   update_scan(scan_type='Image', x_center=<SampleX>, y_center=<SampleY>, x_range=5,
+   y_range=5, x_points=400, y_points=400, dwell=1.0), check_scan_limits(), start_scan().
+3. Take a baseline read_beam_quality(). Then optimize 'gap' FIRST, then 'feedback':
+   - step_tuning_parameter(parameter, +1), read_beam_quality(), compare SNR.
+   - Judge the TREND over ~5 readings, not a single one (readings are noisy). Keep going
+     while SNR trends up. If no improvement after ~2 steps, reverse direction once.
+   - Stop a parameter when SNR has clearly declined past a peak, or at the ±10-step limit,
+     then step back to that parameter's best position before moving to the next parameter.
+4. If read_beam_quality() returns scan_complete=true before the search is done, STOP and
+   ask the user whether to start another scan to continue; resume after they confirm.
+5. When both parameters are at their local optima, call finalize_tuning() (sets the EPU
+   offset from the gap delta) and report the optimum gap/feedback, the applied EPU offset,
+   and the before/after SNR.
+The step tools enforce the search limits and the ~2 s slow-motor settle for you.
 """
 
 

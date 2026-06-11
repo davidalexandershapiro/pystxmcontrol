@@ -1407,9 +1407,35 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.scanType.setCurrentIndex(idx)
 
     def toggle_beam_position(self):
-        """Toggle beam position display on image."""
-        # This will be implemented when beam position ROI is created
-        pass
+        """Toggle a small blue marker on the main image at the current SampleX/SampleY.
+
+        When checked, a fixed-pixel-size blue square is drawn on mainImage at the sample
+        stage position and is kept in sync by update_motor_position_display().
+        """
+        if self.ui.showBeamPosition.isChecked():
+            if self.beam_position is None or not shiboken6.isValid(self.beam_position):
+                self.beam_position = pg.ScatterPlotItem(
+                    size=10, pxMode=True, symbol='s',
+                    pen=pg.mkPen(color=(0, 120, 255), width=1.5),
+                    brush=pg.mkBrush(0, 120, 255, 160),
+                )
+                self.beam_position.setZValue(100)  # keep above the image/ROIs
+                self.ui.mainImage.addItem(self.beam_position)
+            self._update_beam_position()
+        else:
+            self._safe_remove_item(self.ui.mainImage, self.beam_position)
+            self.beam_position = None
+
+    def _update_beam_position(self):
+        """Place the beam-position marker at the current SampleX/SampleY motor position."""
+        if self.beam_position is None or not shiboken6.isValid(self.beam_position):
+            return
+        positions = self.controller.get_motor_model().get('current_positions', {})
+        x = positions.get('SampleX')
+        y = positions.get('SampleY')
+        if x is None or y is None:
+            return
+        self.beam_position.setData([float(x)], [float(y)])
 
     def move_to_first_energy(self):
         """Move Energy motor to first energy in energy region list."""
@@ -1702,7 +1728,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 self.ui.harSpin.setValue(int(position))
             except:
                 pass
-                
+
+        # Keep the beam-position marker in sync with the sample stage
+        if motor_name in ("SampleX", "SampleY") and self.beam_position is not None:
+            self._update_beam_position()
+
         # A0/A1 labels are updated by on_a0_changed / handle_motor_config_change,
         # not here — updating them on every motor position message is unnecessary overhead.
             
@@ -3808,6 +3838,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Hide beam position
         self._safe_remove_item(self.ui.mainImage, self.beam_position)
+        self.beam_position = None
+        if hasattr(self.ui, 'showBeamPosition'):
+            self.ui.showBeamPosition.setChecked(False)
 
         # Remove crosshairs
         self._safe_remove_item(self.ui.mainImage, self.horizontal_line)
