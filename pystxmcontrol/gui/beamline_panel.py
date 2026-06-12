@@ -2,7 +2,7 @@
 
 from PySide6 import QtWidgets, QtCore
 
-from pystxmcontrol.controller.beamline_database import BeamlineDatabase, COLUMNS
+from pystxmcontrol.controller.beamline_database import COLUMNS
 
 
 class BeamlinePanelWindow(QtWidgets.QDialog):
@@ -10,14 +10,16 @@ class BeamlinePanelWindow(QtWidgets.QDialog):
 
     Parameters
     ----------
-    db : BeamlineDatabase
-        Shared database instance.
+    db : BeamlineDatabase | BeamlineDatabaseClient
+        Object exposing get_desired_energies / get_entry / upsert_entry / delete_entry.
+        In the GUI this is a BeamlineDatabaseClient that talks to the server over the
+        network; the local BeamlineDatabase has the same interface.
     is_staff : bool
         When True, edit fields and write buttons are enabled.
     parent : QWidget, optional
     """
 
-    def __init__(self, db: BeamlineDatabase, is_staff: bool = False,
+    def __init__(self, db, is_staff: bool = False,
                  parent=None):
         super().__init__(parent)
         self._db = db

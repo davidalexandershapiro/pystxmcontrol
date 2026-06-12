@@ -167,3 +167,40 @@ class BeamlineDatabase:
         )
         conn.commit()
         conn.close()
+
+
+class BeamlineDatabaseClient:
+    """Network proxy with the same read/write interface as ``BeamlineDatabase``.
+
+    Routes every operation through the stxm client/server ZMQ connection (the
+    ``beamline_db`` command) so a GUI running on a different machine than the server
+    does not need filesystem access to the server's ``beamline_params.db``.  It is a
+    drop-in for the subset of ``BeamlineDatabase`` methods the GUI uses, so callers
+    (e.g. ``BeamlinePanelWindow``) need no changes.
+    """
+
+    def __init__(self, client):
+        self._client = client
+
+    def _request(self, action: str, **kwargs):
+        message = {"command": "beamline_db", "action": action}
+        message.update(kwargs)
+        response = self._client.send_message(message)
+        if not response or not response.get("status"):
+            err = (response or {}).get("error", "no response")
+            raise RuntimeError(f"beamline_db {action} failed: {err}")
+        return response.get("data")
+
+    def get_desired_energies(self) -> list[float]:
+        return self._request("list_energies") or []
+
+    def get_entry(self, desired_energy: float) -> dict | None:
+        return self._request("get_entry", energy=desired_energy)
+
+    def upsert_entry(self, desired_energy: float, modified_by: str = "staff",
+                     **kwargs) -> None:
+        self._request("upsert_entry", energy=desired_energy,
+                      modified_by=modified_by, fields=kwargs)
+
+    def delete_entry(self, desired_energy: float) -> None:
+        self._request("delete_entry", energy=desired_energy)

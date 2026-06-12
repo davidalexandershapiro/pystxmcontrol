@@ -469,6 +469,42 @@ class stxmServer:
                     mode=message.get("mode"),
                     during_scan=scanning,
                 )
+            elif message["command"] == "beamline_db":
+                # Server-side access to the beamline parameter database so remote GUIs
+                # don't need filesystem access. action selects the operation.
+                action = message.get("action")
+                try:
+                    db = self.controller.beamline_db
+                    if action == "list_energies":
+                        message["data"] = db.get_desired_energies()
+                    elif action == "get_entry":
+                        message["data"] = db.get_entry(message["energy"])
+                    elif action == "upsert_entry":
+                        db.upsert_entry(message["energy"],
+                                        modified_by=message.get("modified_by", "staff"),
+                                        **message.get("fields", {}))
+                        message["data"] = True
+                    elif action == "delete_entry":
+                        db.delete_entry(message["energy"])
+                        message["data"] = True
+                    else:
+                        raise ValueError(f"unknown beamline_db action '{action}'")
+                    message["status"] = True
+                except Exception as e:
+                    message["status"] = False
+                    message["data"] = None
+                    message["error"] = str(e)
+                message["mode"] = "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"action": action, "energy": message.get("energy")},
+                    status=message["status"],
+                    mode="idle",
+                    duration=time.time() - cmd_start_time,
+                )
             elif message["command"] == "agent_query":
                 message["status"] = True
                 message["mode"] = "idle"

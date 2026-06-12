@@ -1,16 +1,8 @@
 from pystxmcontrol.controller.scans.base_scan import BaseScan
-from pystxmcontrol.controller.scans.derived_line_image import derived_line_image
 from pystxmcontrol.controller.scans.linear_image import linear_image, LinearImageScan
 from pystxmcontrol.controller.scans.linear_focus import linear_focus, LinearFocusScan
 from pystxmcontrol.controller.scans.linear_spectrum import linear_spectrum, LinearSpectrumScan
-from pystxmcontrol.controller.scans.derived_line_focus import derived_line_focus
-from pystxmcontrol.controller.scans.derived_line_spectrum import derived_line_spectrum
 from pystxmcontrol.controller.scans.derived_spiral_image import derived_spiral_image
-from pystxmcontrol.controller.scans.line_image import line_image
-from pystxmcontrol.controller.scans.line_spectrum import line_spectrum
-from pystxmcontrol.controller.scans.line_focus import line_focus
-from pystxmcontrol.controller.scans.spiral_image import spiral_image
-from pystxmcontrol.controller.scans.ptychography_image import ptychography_image
 from pystxmcontrol.controller.scans.derived_ptychography_image import derived_ptychography_image
 from pystxmcontrol.controller.scans.single_motor_scan import single_motor_scan, SingleMotorScan
 from pystxmcontrol.controller.scans.double_motor_scan import double_motor_scan, DoubleMotorScan
@@ -23,8 +15,7 @@ from pystxmcontrol.controller.scans.spiral_ptychography_image import (
 
 
 __all__ = ['BaseScan', 'LinearImageScan', 'linear_image', 'LinearFocusScan', 'linear_focus', 'LinearSpectrumScan', 'linear_spectrum',
-           'derived_spiral_image', 'derived_line_image','derived_line_focus','derived_line_spectrum','line_image',
-           'line_spectrum','line_focus','spiral_image','ptychography_image','derived_ptychography_image',
+           'derived_spiral_image','derived_ptychography_image',
            'SingleMotorScan', 'single_motor_scan', 'DoubleMotorScan', 'double_motor_scan',
            'osa_focus_scan', 'OsaFocusScan', "XRF_double_motor_scan","inclined_ptychography_image",
            'spiral_ptychography_image', 'SpiralPtychographyScan']

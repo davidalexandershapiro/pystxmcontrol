@@ -8,6 +8,7 @@ from pystxmcontrol.controller.dataHandler import dataHandler
 from pystxmcontrol.controller.scans import *
 from pystxmcontrol.controller.operation_logger import OperationLogger
 from pystxmcontrol.controller.intelligence import IntelligenceModule, EventRecorder
+from pystxmcontrol.controller.beamline_database import BeamlineDatabase
 import asyncio
 import atexit
 import numpy as np
@@ -54,6 +55,10 @@ class controller:
         self.initialize()
         self.operation_logger = OperationLogger(db_path = self.main_config["server"]["data_dir"], logger=logger,readonly=False)
         self.operation_logger.start()
+        # Beamline parameter database lives server-side so remote GUIs can read/write it
+        # over the network (via the "beamline_db" command) instead of needing filesystem
+        # access to the server machine.
+        self.beamline_db = BeamlineDatabase(data_dir = self.main_config["server"]["data_dir"])
         intel_cfg = self.main_config.get("intelligence", {})
         self._event_recorder = EventRecorder(
             channels=intel_cfg.get("channels", None)

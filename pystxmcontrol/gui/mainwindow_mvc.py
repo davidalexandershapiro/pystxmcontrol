@@ -6,7 +6,7 @@ from pystxmcontrol.gui.data_browser_widget import DataBrowserWidget
 from pystxmcontrol.gui.motor_panel import MotorPanelWindow
 from pystxmcontrol.gui.analysis_widget import Analysis2Widget
 from pystxmcontrol.gui.beamline_panel import BeamlinePanelWindow
-from pystxmcontrol.controller.beamline_database import BeamlineDatabase
+from pystxmcontrol.controller.beamline_database import BeamlineDatabaseClient
 from PySide6 import QtWidgets, QtCore, QtGui
 import shiboken6
 import os
@@ -142,10 +142,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Motor panel (opened via Motor Panel button)
         self._motor_panel = None
 
-        # Staff mode flag and beamline database
+        # Staff mode flag and beamline database. The DB lives on the server; access it
+        # over the network so the GUI works without filesystem access to the server.
         self._is_staff = False
-        data_dir = self.controller.client.main_config.get("server", {}).get("data_dir")
-        self._beamline_db = BeamlineDatabase(data_dir=data_dir)
+        self._beamline_db = BeamlineDatabaseClient(self.controller.client)
 
         # Other randos
         self.consoleStr = ''

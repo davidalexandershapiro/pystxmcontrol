@@ -70,8 +70,9 @@ or when you need the actual parameters of the last scan, call get_last_scan_para
 
 BEAMLINE TUNING (e.g. "tune the beamline at 700 eV"):
 This is an autonomous hill-climb on two beamline parameters — the EPU gap and the
-feedback offset — to a LOCAL optimum. There is no absolute target. The objective is the
-composite SNR = intensity / noise_RMS reported by read_beam_quality(); maximize it.
+feedback offset — to a LOCAL optimum. There is no absolute target. read_beam_quality()
+reports intensity, noise_RMS, and SNR (= intensity / noise_RMS); which metric you maximize
+depends on the search phase (below).
 Procedure:
 1. start_tuning_session(energy=<eV>). It returns the harmonic, step sizes, the ±10-step
    travel limits, and the current SampleX/Y. Note the SampleX/Y values.
@@ -79,18 +80,38 @@ Procedure:
    do NOT wait_for_scan (you measure DURING the scan):
    update_scan(scan_type='Image', x_center=<SampleX>, y_center=<SampleY>, x_range=5,
    y_range=5, x_points=400, y_points=400, dwell=1.0), check_scan_limits(), start_scan().
-3. Take a baseline read_beam_quality(). Then optimize 'gap' FIRST, then 'feedback':
-   - step_tuning_parameter(parameter, +1), read_beam_quality(), compare SNR.
-   - Judge the TREND over ~5 readings, not a single one (readings are noisy). Keep going
-     while SNR trends up. If no improvement after ~2 steps, reverse direction once.
-   - Stop a parameter when SNR has clearly declined past a peak, or at the ±10-step limit,
-     then step back to that parameter's best position before moving to the next parameter.
+3. Run THREE search phases in order, each a 1-D line search:
+   Phase A — 'gap' maximizing INTENSITY (preliminary, coarse peak in flux).
+   Phase B — 'gap' maximizing SNR (refinement; the SNR peak is near, not necessarily at,
+             the intensity peak — start from Phase A's optimum and search locally). BEFORE
+             starting Phase B, call reanchor_tuning_limit('gap') so the ±10-step window is
+             re-centred on Phase A's optimum (gives Phase B a full window in both directions).
+   Phase C — 'feedback' maximizing SNR.
+   For each phase: take a baseline read_beam_quality(); step_tuning_parameter(parameter, +1),
+   re-measure, compare the phase's metric (intensity for A, SNR for B and C). Judge the
+   TREND over ~5 readings, not a single one (readings are noisy). Keep going while the metric
+   trends up. If no improvement after ~2 steps, reverse direction once. Stop the phase when
+   the metric has clearly declined past a peak, or at the ±10-step limit, then step back to
+   that phase's best position before moving to the next phase.
 4. If read_beam_quality() returns scan_complete=true before the search is done, STOP and
    ask the user whether to start another scan to continue; resume after they confirm.
-5. When both parameters are at their local optima, call finalize_tuning() (sets the EPU
-   offset from the gap delta) and report the optimum gap/feedback, the applied EPU offset,
-   and the before/after SNR.
-The step tools enforce the search limits and the ~2 s slow-motor settle for you.
+5. When all three phases are done, call finalize_tuning() (sets the EPU offset from the gap
+   delta) and report the optimum gap/feedback, the applied EPU offset, and the before/after
+   intensity and SNR.
+6. After reporting, ASK the user whether to add/update a beamline-database entry for this
+   energy. Only if they agree, call save_beamline_entry(desired_energy=<eV>,
+   populate_from_current=True) — the live motor positions already hold the tuned result.
+   Do not save without the user's go-ahead.
+The step tools enforce the search limits and the ~2 s slow-motor settle for you. The ±10-step
+limit is measured from each phase's anchor (reanchor_tuning_limit re-centres it for Phase B);
+finalize_tuning's EPU-offset correction always uses the total gap change from session start.
+
+BEAMLINE DATABASE ENTRIES:
+You can record the current beamline state into the parameter database at any time on request
+(e.g. "save the current beamline settings at 700 eV") with
+save_beamline_entry(desired_energy=<eV>, populate_from_current=True). It auto-fills
+commanded_energy/harmonic/feedback_offset/epu_offset from the current motor positions; pass
+other columns (grating, exit slits, m121/m101 angles, notes) explicitly if the user gives them.
 """
 
 

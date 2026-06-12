@@ -35,6 +35,16 @@ _FEEDBACK_STEP = 0.1
 # Logical tuning parameter name -> motor axis.
 _TUNING_MOTORS = {"gap": "EPU Gap", "feedback": "FBKOFFSET"}
 
+# Beamline-database columns that map cleanly to a live motor position, for
+# save_beamline_entry(populate_from_current=True).  Other columns (grating, exit
+# slits, m121/m101 angles) have no unambiguous motor and must be passed explicitly.
+_BEAMLINE_DB_MOTOR_MAP = {
+    "commanded_energy": "Energy",
+    "harmonic":         "HARMONIC",
+    "feedback_offset":  "FBKOFFSET",
+    "epu_offset":       "EPUOFFSET",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1141,10 +1151,14 @@ class ToolSet:
                 harmonic = None
         if harmonic is None and energy is not None:
             try:
-                from pystxmcontrol.controller.beamline_database import BeamlineDatabase
-                entry = BeamlineDatabase().get_nearest_entry(float(energy))
-                if entry and entry.get("harmonic") is not None:
-                    harmonic = int(entry["harmonic"])
+                from pystxmcontrol.controller.beamline_database import BeamlineDatabaseClient
+                # Access the server-side DB over the network (no local filesystem needed).
+                energies = BeamlineDatabaseClient(self._client).get_desired_energies()
+                if energies:
+                    nearest = min(energies, key=lambda e: abs(e - float(energy)))
+                    entry = BeamlineDatabaseClient(self._client).get_entry(nearest)
+                    if entry and entry.get("harmonic") is not None:
+                        harmonic = int(entry["harmonic"])
             except Exception as e:
                 log.warning("[ToolSet] beamline DB harmonic lookup failed: %s", e)
         if harmonic is None:
@@ -1172,8 +1186,11 @@ class ToolSet:
             "gap_step": gap_step,
             "feedback_step": _FEEDBACK_STEP,
             "max_steps": _TUNING_MAX_STEPS,
-            "gap_origin": gap0, "gap_cur": gap0,
-            "feedback_origin": fbk0, "feedback_cur": fbk0,
+            # "_start" = immutable position at session start (used by finalize_tuning for
+            # the EPU-offset delta). "_origin" = the ±max_steps limit anchor, which can be
+            # re-anchored between search phases via reanchor_tuning_limit().
+            "gap_start": gap0, "gap_origin": gap0, "gap_cur": gap0,
+            "feedback_start": fbk0, "feedback_origin": fbk0, "feedback_cur": fbk0,
             "offset_origin": off0,
         }
 
@@ -1272,6 +1289,33 @@ class ToolSet:
                     "Call read_beam_quality() to measure.",
         }, indent=2)
 
+    def reanchor_tuning_limit(self, parameter: str) -> str:
+        """Re-centre a parameter's ±max_steps travel limit on its current position.
+
+        Use this between search phases on the same parameter (e.g. after the intensity
+        search on 'gap', before the SNR search on 'gap') so the second phase gets a full
+        ±max_steps window around the first phase's optimum. This moves only the limit
+        anchor; the session start position used by finalize_tuning() is unchanged, so the
+        EPU-offset correction still reflects the total gap change from the original gap.
+        """
+        if self._tuning is None:
+            return "No active tuning session — call start_tuning_session() first."
+        if parameter not in _TUNING_MOTORS:
+            return f"Unknown parameter '{parameter}'. Use 'gap' or 'feedback'."
+
+        cur = self._tuning[f"{parameter}_cur"]
+        self._tuning[f"{parameter}_origin"] = cur
+        step = self._tuning["gap_step"] if parameter == "gap" else self._tuning["feedback_step"]
+        limit = self._tuning["max_steps"] * step
+        return json.dumps({
+            "status": "limit re-anchored",
+            "parameter": parameter,
+            "new_anchor": round(cur, 4),
+            "new_window": [round(cur - limit, 4), round(cur + limit, 4)],
+            "note": "Travel limit re-centred here; the finalize offset still uses the "
+                    "original session position.",
+        }, indent=2)
+
     def finalize_tuning(self) -> str:
         """Finish tuning: set EPUOFFSET by the EPU-gap delta and report the optimum.
 
@@ -1283,7 +1327,8 @@ class ToolSet:
             return "No active tuning session — nothing to finalize."
 
         t = self._tuning
-        gap_delta = t["gap_cur"] - t["gap_origin"]
+        # Delta from the ORIGINAL session gap (not the re-anchored limit origin).
+        gap_delta = t["gap_cur"] - t["gap_start"]
         new_offset = t["offset_origin"] + gap_delta
 
         # Clamp to EPUOFFSET limits from the motor config.
@@ -1304,10 +1349,10 @@ class ToolSet:
             "status": "tuning complete",
             "energy_eV": t["energy"],
             "harmonic": t["harmonic"],
-            "epu_gap": {"origin": round(t["gap_origin"], 4),
+            "epu_gap": {"origin": round(t["gap_start"], 4),
                         "optimum": round(t["gap_cur"], 4),
                         "delta": round(gap_delta, 4)},
-            "feedback_offset": {"origin": round(t["feedback_origin"], 4),
+            "feedback_offset": {"origin": round(t["feedback_start"], 4),
                                 "optimum": round(t["feedback_cur"], 4)},
             "epu_offset": {"origin": round(t["offset_origin"], 4),
                            "applied": round(new_offset, 4),
@@ -1315,6 +1360,87 @@ class ToolSet:
         }
         self._tuning = None
         return json.dumps(summary, indent=2)
+
+    def save_beamline_entry(self, desired_energy: float,
+                            populate_from_current: bool = False,
+                            commanded_energy: float | None = None,
+                            harmonic: int | None = None,
+                            grating: str | None = None,
+                            exit_slit_h_pos: float | None = None,
+                            exit_slit_size: float | None = None,
+                            m121_vertical_angle: float | None = None,
+                            feedback_offset: float | None = None,
+                            m101_angle: float | None = None,
+                            epu_offset: float | None = None,
+                            notes: str | None = None,
+                            modified_by: str = "task_agent") -> str:
+        """Insert or update a beamline-parameter database entry for *desired_energy*.
+
+        Writes to the server-side beamline DB over the network. Only the fields you pass
+        are written; an existing entry keeps its other fields. When populate_from_current
+        is True, the commanded_energy / harmonic / feedback_offset / epu_offset fields are
+        filled from the current motor positions for any you did not pass explicitly — ideal
+        right after tuning, when the live positions already hold the tuned result.
+        """
+        from pystxmcontrol.controller.beamline_database import (
+            BeamlineDatabaseClient, COLUMNS,
+        )
+
+        try:
+            desired_energy = float(desired_energy)
+        except (TypeError, ValueError):
+            return f"Invalid desired_energy {desired_energy!r} — must be a number."
+
+        fields = {
+            "commanded_energy":    commanded_energy,
+            "harmonic":            harmonic,
+            "grating":             grating,
+            "exit_slit_h_pos":     exit_slit_h_pos,
+            "exit_slit_size":      exit_slit_size,
+            "m121_vertical_angle": m121_vertical_angle,
+            "feedback_offset":     feedback_offset,
+            "m101_angle":          m101_angle,
+            "epu_offset":          epu_offset,
+        }
+        if notes is not None:
+            fields["notes"] = notes
+
+        if populate_from_current:
+            self.get_config()
+            positions = self._positions or {}
+            for col, axis in _BEAMLINE_DB_MOTOR_MAP.items():
+                if fields.get(col) is None and positions.get(axis) is not None:
+                    fields[col] = positions[axis]
+
+        # Drop unset fields and coerce to the column dtype where known.
+        dtype_map = {c: d for c, _label, d in COLUMNS}
+        clean: dict = {}
+        for key, val in fields.items():
+            if val is None:
+                continue
+            dt = dtype_map.get(key)
+            try:
+                clean[key] = int(float(val)) if dt is int else (dt(val) if dt else val)
+            except (TypeError, ValueError):
+                clean[key] = val
+
+        if not clean:
+            return ("Nothing to save — pass at least one field, or "
+                    "populate_from_current=True to capture the current beamline state.")
+
+        try:
+            db = BeamlineDatabaseClient(self._client)
+            existed = db.get_entry(desired_energy) is not None
+            db.upsert_entry(desired_energy, modified_by=modified_by, **clean)
+        except Exception as e:
+            return f"Failed to save beamline entry for {desired_energy} eV: {e}"
+
+        return json.dumps({
+            "status": "updated" if existed else "added",
+            "desired_energy_eV": desired_energy,
+            "fields_written": clean,
+            "modified_by": modified_by,
+        }, indent=2)
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -1740,6 +1866,27 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "reanchor_tuning_limit",
+            "description": (
+                "Re-centre a parameter's ±10-step travel limit on its current position. Call "
+                "this between two search phases on the SAME parameter (e.g. after the gap "
+                "intensity search, before the gap SNR search) so the next phase gets a full "
+                "±10-step window around the current optimum. Only the limit anchor moves; the "
+                "EPU-offset correction in finalize_tuning() still uses the original gap."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "parameter": {"type": "string", "enum": ["gap", "feedback"],
+                                  "description": "Which parameter's limit to re-anchor."},
+                },
+                "required": ["parameter"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "finalize_tuning",
             "description": (
                 "Finish the tuning session: set EPUOFFSET = origin EPUOFFSET + (best EPU Gap − origin "
@@ -1747,6 +1894,40 @@ TOOL_SCHEMAS: list[dict] = [
                 "and FBKOFFSET are left at their optimised positions. Call once both parameters are tuned."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_beamline_entry",
+            "description": (
+                "Insert or update an entry in the beamline-parameter database (keyed by desired "
+                "energy in eV), written to the server over the network. Only the fields you pass are "
+                "written; other fields of an existing entry are preserved. Set populate_from_current=true "
+                "to fill commanded_energy/harmonic/feedback_offset/epu_offset from the current motor "
+                "positions — use this right after tuning (the live positions hold the tuned result) or "
+                "whenever the user asks to record the current beamline state. After a tuning run, ASK "
+                "the user before saving."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "desired_energy":      {"type": "number", "description": "Photon energy in eV (the entry key)."},
+                    "populate_from_current": {"type": "boolean", "description": "Fill mappable fields from current motor positions for any not passed explicitly."},
+                    "commanded_energy":    {"type": "number"},
+                    "harmonic":            {"type": "integer"},
+                    "grating":             {"type": "string"},
+                    "exit_slit_h_pos":     {"type": "number"},
+                    "exit_slit_size":      {"type": "number"},
+                    "m121_vertical_angle": {"type": "number"},
+                    "feedback_offset":     {"type": "number"},
+                    "m101_angle":          {"type": "number"},
+                    "epu_offset":          {"type": "number"},
+                    "notes":               {"type": "string"},
+                    "modified_by":         {"type": "string", "description": "Who made the change (default 'task_agent')."},
+                },
+                "required": ["desired_energy"],
+            },
         },
     },
 ]
