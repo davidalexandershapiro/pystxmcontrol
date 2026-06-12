@@ -112,6 +112,12 @@ You can record the current beamline state into the parameter database at any tim
 save_beamline_entry(desired_energy=<eV>, populate_from_current=True). It auto-fills
 commanded_energy/harmonic/feedback_offset/epu_offset from the current motor positions; pass
 other columns (grating, exit slits, m121/m101 angles, notes) explicitly if the user gives them.
+
+To set the beamline FROM a stored entry (e.g. "set the beamline to the 700 eV settings"), use
+set_beamline_from_database(desired_energy=<eV>). It applies the entry's harmonic/EPU offset/
+feedback offset and moves Energy to the desired energy. Because this moves Energy (potentially a
+large move), confirm with the user before calling, per the safety rules. If it returns
+'not_found', tell the user which energies are available.
 """
 
 
@@ -245,10 +251,10 @@ class TaskAgent:
                     if name not in _SILENT_TOOLS:
                         _publish(f"Tool: {name}({args_summary})")
 
+                    # Dispatch the tool. The result is still appended to history (the LLM
+                    # needs it) but is NOT published to the GUI — only the tool call and its
+                    # arguments are shown, to keep the trace readable.
                     result = self._toolset.dispatch(name, args)
-                    if name not in _SILENT_TOOLS:
-                        truncated = result[:200] + ("..." if len(result) > 200 else "")
-                        _publish(f"  → {truncated}")
 
                     self._messages.append({
                         "role": "tool",

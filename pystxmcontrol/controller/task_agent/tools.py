@@ -1442,6 +1442,88 @@ class ToolSet:
             "modified_by": modified_by,
         }, indent=2)
 
+    def set_beamline_from_database(self, desired_energy: float) -> str:
+        """Set the beamline from a stored database entry for *desired_energy*.
+
+        Looks up the (exact) entry, applies its calibration knobs — harmonic, EPU offset,
+        feedback offset — to the corresponding motors, then moves Energy to the entry's
+        desired_energy (the desired→commanded mapping is handled at a lower level, so the
+        high-level target is always the desired energy). Columns without a clean motor
+        mapping (grating, exit slits, m121/m101 angles) are reported, not moved.
+        Moving Energy can be a large move — confirm with the user first per the safety rules.
+        """
+        from pystxmcontrol.controller.beamline_database import (
+            BeamlineDatabaseClient, COLUMN_NAMES,
+        )
+
+        try:
+            desired_energy = float(desired_energy)
+        except (TypeError, ValueError):
+            return f"Invalid desired_energy {desired_energy!r} — must be a number."
+
+        db = BeamlineDatabaseClient(self._client)
+        try:
+            entry = db.get_entry(desired_energy)
+        except Exception as e:
+            return f"Failed to read beamline database: {e}"
+
+        if entry is None:
+            try:
+                energies = db.get_desired_energies()
+            except Exception:
+                energies = []
+            return json.dumps({
+                "status": "not_found",
+                "desired_energy_eV": desired_energy,
+                "available_energies": energies,
+                "message": ("No entry for this energy. Pass an energy that exists, or create "
+                            "one with save_beamline_entry()."),
+            }, indent=2)
+
+        # Apply the calibration knobs first (so the harmonic/offset are in place before the
+        # Energy move drives the EPU gap), then move Energy to the desired energy.
+        knob_map = [("harmonic", "HARMONIC"),
+                    ("epu_offset", "EPUOFFSET"),
+                    ("feedback_offset", "FBKOFFSET")]
+        moves, skipped, errors = [], [], []
+        for col, axis in knob_map:
+            val = entry.get(col)
+            if val is None:
+                skipped.append(col)
+                continue
+            res = self.move_motor(axis, float(val))
+            if res.startswith("Successfully"):
+                moves.append({"motor": axis, "value": float(val)})
+            else:
+                errors.append(f"{axis}: {res}")
+
+        e_res = self.move_motor("Energy", desired_energy)
+        if e_res.startswith("Successfully"):
+            moves.append({"motor": "Energy", "value": desired_energy})
+        else:
+            errors.append(f"Energy: {e_res}")
+
+        # Columns that have a stored value but no motor mapping — the operator sets these by hand.
+        _handled = {"desired_energy", "commanded_energy", "harmonic", "epu_offset",
+                    "feedback_offset"}
+        not_applied = {
+            col: entry[col]
+            for col in COLUMN_NAMES
+            if col not in _handled and entry.get(col) is not None
+        }
+
+        result = {
+            "status": "applied" if not errors else "partial",
+            "desired_energy_eV": desired_energy,
+            "moves": moves,
+            "skipped_empty_fields": skipped,
+        }
+        if not_applied:
+            result["set_manually"] = not_applied  # no motor mapping — for operator awareness
+        if errors:
+            result["errors"] = errors
+        return json.dumps(result, indent=2)
+
     # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
@@ -1925,6 +2007,27 @@ TOOL_SCHEMAS: list[dict] = [
                     "epu_offset":          {"type": "number"},
                     "notes":               {"type": "string"},
                     "modified_by":         {"type": "string", "description": "Who made the change (default 'task_agent')."},
+                },
+                "required": ["desired_energy"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_beamline_from_database",
+            "description": (
+                "Set the beamline from a stored database entry: apply the entry's harmonic, EPU "
+                "offset, and feedback offset to their motors, then move Energy to the entry's "
+                "desired_energy. Columns without a motor mapping (grating, exit slits, m121/m101 "
+                "angles) are reported under 'set_manually', not moved. Returns 'not_found' (with the "
+                "list of available energies) if no entry exists for that energy. This moves Energy, "
+                "which can be a large move — confirm with the user before calling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "desired_energy": {"type": "number", "description": "Photon energy in eV of the entry to apply."},
                 },
                 "required": ["desired_energy"],
             },
