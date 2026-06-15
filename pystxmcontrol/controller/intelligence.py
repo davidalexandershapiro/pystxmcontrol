@@ -35,6 +35,8 @@ _DEFAULT_CHANNELS = {
     "metrics": 200,
 }
 
+_CRITICAL_ZSCORE_MULTIPLIER = 1.5  # z_score < -(threshold * this) → critical severity
+
 _SYSTEM_PROMPT = """\
 You are an expert scientist monitoring a scanning transmission X-ray microscopy \
 (STXM) instrument at a synchrotron beamline. Your role is to diagnose anomalies \
@@ -159,7 +161,7 @@ class AnomalyDetector:
 
         pct_drop = (mu - line_mean) / mu if mu > 0 else 0.0
         if z < -self.zscore_threshold and pct_drop >= self.pct_threshold:
-            severity = "critical" if z < -self.zscore_threshold * 1.5 else "warn"
+            severity = "critical" if z < -self.zscore_threshold * _CRITICAL_ZSCORE_MULTIPLIER else "warn"
             return {
                 "type": "intensity_drop",
                 "severity": severity,
@@ -246,8 +248,31 @@ class AgentInterface:
         self._client = None
         self._trace_log_path = cfg.get("trace_log", None)
         api_key_present = bool(os.environ.get(self._api_key_env)) if self._api_key_env else False
-        logger.info("AgentInterface: provider=%s model=%s base_url=%s api_key_present=%s trace_log=%s",
-                    self.provider, self.model, self.base_url, api_key_present, self._trace_log_path)
+        self.context_window = self._fetch_context_window()
+        logger.info("AgentInterface: provider=%s model=%s base_url=%s api_key_present=%s "
+                    "trace_log=%s context_window=%s",
+                    self.provider, self.model, self.base_url, api_key_present,
+                    self._trace_log_path, self.context_window)
+
+    def _fetch_context_window(self) -> int | None:
+        """Query /model_group/info for this model's max_input_tokens. Returns None on failure."""
+        import os
+        if not self.base_url:
+            return None
+        api_key = os.environ.get(self._api_key_env) if self._api_key_env else None
+        if not api_key:
+            return None
+        try:
+            import httpx
+            url = f"{self.base_url.rstrip('/')}/model_group/info"
+            r = httpx.get(url, params={"model_group": self.model},
+                          headers={"Authorization": f"Bearer {api_key}"}, timeout=5.0)
+            r.raise_for_status()
+            data = r.json()
+            return int(data.get("max_input_tokens") or 0) or None
+        except Exception as exc:
+            logger.warning("AgentInterface: could not fetch context window: %s", exc)
+            return None
 
     def _get_client(self):
         import os
@@ -297,14 +322,21 @@ class AgentInterface:
         prompt = self._format_prompt(anomaly, recent_events)
         loop = asyncio.get_event_loop()
         error = None
+        usage = {"input_tokens": 0, "output_tokens": 0}
         try:
-            text = await loop.run_in_executor(None, self._call_api, prompt)
-            logger.info("AgentInterface.dispatch: received response (%d chars)", len(text))
+            text, usage = await loop.run_in_executor(None, self._call_api, prompt)
+            logger.info("AgentInterface.dispatch: received response (%d chars) "
+                        "tokens in=%d out=%d", len(text),
+                        usage["input_tokens"], usage["output_tokens"])
         except Exception as exc:
             logger.warning("AgentInterface.dispatch: API call failed: %s", exc, exc_info=True)
             text = f"[Agent unavailable: {exc}]"
             error = str(exc)
 
+        context_fill_pct = (
+            round(usage["input_tokens"] / self.context_window * 100, 2)
+            if self.context_window else None
+        )
         self._log_trace({
             "call_type": "dispatch",
             "timestamp": time.time(),
@@ -314,6 +346,10 @@ class AgentInterface:
             "response": text,
             "anomaly_type": anomaly.get("type"),
             "severity": anomaly.get("severity"),
+            "input_tokens": usage["input_tokens"],
+            "output_tokens": usage["output_tokens"],
+            "context_window": self.context_window,
+            "context_fill_pct": context_fill_pct,
             "error": error,
         })
 
@@ -333,7 +369,8 @@ class AgentInterface:
 
         return suggestion
 
-    def _call_api(self, prompt: str) -> str:
+    def _call_api(self, prompt: str) -> tuple[str, dict]:
+        """Returns (response_text, usage) where usage has input_tokens and output_tokens."""
         client = self._get_client()
         if self.provider == "anthropic":
             msg = client.messages.create(
@@ -342,7 +379,9 @@ class AgentInterface:
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return msg.content[0].text
+            usage = {"input_tokens": msg.usage.input_tokens,
+                     "output_tokens": msg.usage.output_tokens}
+            return msg.content[0].text, usage
         else:
             msg = client.chat.completions.create(
                 model=self.model,
@@ -352,7 +391,9 @@ class AgentInterface:
                     {"role": "user",   "content": prompt},
                 ],
             )
-            return msg.choices[0].message.content
+            usage = {"input_tokens": msg.usage.prompt_tokens,
+                     "output_tokens": msg.usage.completion_tokens}
+            return msg.choices[0].message.content, usage
 
     async def query(self, text: str, recent_events: list,
                     publish_fn=None) -> dict | None:
@@ -361,14 +402,21 @@ class AgentInterface:
         prompt = self._format_query_prompt(text, recent_events)
         loop = asyncio.get_event_loop()
         error = None
+        usage = {"input_tokens": 0, "output_tokens": 0}
         try:
-            response_text = await loop.run_in_executor(None, self._call_api, prompt)
-            logger.info("AgentInterface.query: received response (%d chars)", len(response_text))
+            response_text, usage = await loop.run_in_executor(None, self._call_api, prompt)
+            logger.info("AgentInterface.query: received response (%d chars) "
+                        "tokens in=%d out=%d", len(response_text),
+                        usage["input_tokens"], usage["output_tokens"])
         except Exception as exc:
             logger.warning("AgentInterface.query: API call failed: %s", exc, exc_info=True)
             response_text = f"[Agent unavailable: {exc}]"
             error = str(exc)
 
+        context_fill_pct = (
+            round(usage["input_tokens"] / self.context_window * 100, 2)
+            if self.context_window else None
+        )
         self._log_trace({
             "call_type": "query",
             "timestamp": time.time(),
@@ -377,6 +425,10 @@ class AgentInterface:
             "prompt": prompt,
             "response": response_text,
             "query": text,
+            "input_tokens": usage["input_tokens"],
+            "output_tokens": usage["output_tokens"],
+            "context_window": self.context_window,
+            "context_fill_pct": context_fill_pct,
             "error": error,
         })
 
