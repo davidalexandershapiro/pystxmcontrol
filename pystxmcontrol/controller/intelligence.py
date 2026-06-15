@@ -248,20 +248,24 @@ class AgentInterface:
         self._client = None
         self._trace_log_path = cfg.get("trace_log", None)
         api_key_present = bool(os.environ.get(self._api_key_env)) if self._api_key_env else False
-        self.context_window = self._fetch_context_window()
+        self.context_window: int | None = None
+        self.input_cost_per_token: float | None = None
+        self.output_cost_per_token: float | None = None
+        self._fetch_model_info()
         logger.info("AgentInterface: provider=%s model=%s base_url=%s api_key_present=%s "
-                    "trace_log=%s context_window=%s",
+                    "trace_log=%s context_window=%s input_cost_per_token=%s output_cost_per_token=%s",
                     self.provider, self.model, self.base_url, api_key_present,
-                    self._trace_log_path, self.context_window)
+                    self._trace_log_path, self.context_window,
+                    self.input_cost_per_token, self.output_cost_per_token)
 
-    def _fetch_context_window(self) -> int | None:
-        """Query /model_group/info for this model's max_input_tokens. Returns None on failure."""
+    def _fetch_model_info(self) -> None:
+        """Query /model_group/info and populate context_window and cost-per-token attributes."""
         import os
         if not self.base_url:
-            return None
+            return
         api_key = os.environ.get(self._api_key_env) if self._api_key_env else None
         if not api_key:
-            return None
+            return
         try:
             import httpx
             url = f"{self.base_url.rstrip('/')}/model_group/info"
@@ -269,10 +273,15 @@ class AgentInterface:
                           headers={"Authorization": f"Bearer {api_key}"}, timeout=5.0)
             r.raise_for_status()
             data = r.json()
-            return int(data.get("max_input_tokens") or 0) or None
+            entries = data.get("data") or []
+            if entries:
+                data = entries[0]
+            max_in = int(data.get("max_input_tokens") or 0)
+            self.context_window = max_in or None
+            self.input_cost_per_token = data.get("input_cost_per_token") or None
+            self.output_cost_per_token = data.get("output_cost_per_token") or None
         except Exception as exc:
-            logger.warning("AgentInterface: could not fetch context window: %s", exc)
-            return None
+            logger.warning("AgentInterface: could not fetch model info: %s", exc)
 
     def _get_client(self):
         import os
