@@ -10,7 +10,6 @@
         "data_dir": "/data",
         "file_prefix": "TEST",
         "nx_file_version": "3",
-        "publish_zmq": false,
         "log motors while scanning": true,
         "motor log period": 10
     },
@@ -72,7 +71,8 @@
             "base_url": null,
             "api_key_env": "ANTHROPIC_API_KEY",
             "cooldown_seconds": 60,
-            "max_context_events": 30
+            "max_context_events": 30,
+            "trace_log": null
         },
         "recommendations": {
             "offcenter_threshold_fov": 0.2
@@ -88,7 +88,8 @@
         "provider": {
             "base_url": null,
             "api_key_env": "OPENAI_API_KEY"
-        }
+        },
+        "trace_log": null
     },
     "lastScan": {
         "Image": {

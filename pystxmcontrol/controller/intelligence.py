@@ -23,6 +23,7 @@ and ANTHROPIC_API_KEY env var):
 
 from collections import deque
 import asyncio
+import json
 import time
 import numpy as np
 from pystxmcontrol.utils.logger import get_logger
@@ -243,9 +244,10 @@ class AgentInterface:
         self._api_key_env = cfg.get("api_key_env", default_env)
         self._last_call_time = 0.0
         self._client = None
+        self._trace_log_path = cfg.get("trace_log", None)
         api_key_present = bool(os.environ.get(self._api_key_env)) if self._api_key_env else False
-        logger.info("AgentInterface: provider=%s model=%s base_url=%s api_key_present=%s",
-                    self.provider, self.model, self.base_url, api_key_present)
+        logger.info("AgentInterface: provider=%s model=%s base_url=%s api_key_present=%s trace_log=%s",
+                    self.provider, self.model, self.base_url, api_key_present, self._trace_log_path)
 
     def _get_client(self):
         import os
@@ -269,6 +271,15 @@ class AgentInterface:
             self._client = openai.OpenAI(**kwargs)
         return self._client
 
+    def _log_trace(self, entry: dict) -> None:
+        if not self._trace_log_path:
+            return
+        try:
+            with open(self._trace_log_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as exc:
+            logger.warning("AgentInterface: failed to write trace log: %s", exc)
+
     def in_cooldown(self) -> bool:
         return time.time() - self._last_call_time < self.cooldown_seconds
 
@@ -285,12 +296,26 @@ class AgentInterface:
 
         prompt = self._format_prompt(anomaly, recent_events)
         loop = asyncio.get_event_loop()
+        error = None
         try:
             text = await loop.run_in_executor(None, self._call_api, prompt)
             logger.info("AgentInterface.dispatch: received response (%d chars)", len(text))
         except Exception as exc:
             logger.warning("AgentInterface.dispatch: API call failed: %s", exc, exc_info=True)
             text = f"[Agent unavailable: {exc}]"
+            error = str(exc)
+
+        self._log_trace({
+            "call_type": "dispatch",
+            "timestamp": time.time(),
+            "model": self.model,
+            "system_prompt": _SYSTEM_PROMPT,
+            "prompt": prompt,
+            "response": text,
+            "anomaly_type": anomaly.get("type"),
+            "severity": anomaly.get("severity"),
+            "error": error,
+        })
 
         suggestion = {
             "type": "intelligence_suggestion",
@@ -335,12 +360,25 @@ class AgentInterface:
         logger.info("AgentInterface.query: received query (%d chars)", len(text))
         prompt = self._format_query_prompt(text, recent_events)
         loop = asyncio.get_event_loop()
+        error = None
         try:
             response_text = await loop.run_in_executor(None, self._call_api, prompt)
             logger.info("AgentInterface.query: received response (%d chars)", len(response_text))
         except Exception as exc:
             logger.warning("AgentInterface.query: API call failed: %s", exc, exc_info=True)
             response_text = f"[Agent unavailable: {exc}]"
+            error = str(exc)
+
+        self._log_trace({
+            "call_type": "query",
+            "timestamp": time.time(),
+            "model": self.model,
+            "system_prompt": _SYSTEM_PROMPT,
+            "prompt": prompt,
+            "response": response_text,
+            "query": text,
+            "error": error,
+        })
 
         result = {
             "type": "intelligence_suggestion",

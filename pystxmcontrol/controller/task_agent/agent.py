@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Callable, Optional
 
 from .tools import TOOL_SCHEMAS, ToolSet
@@ -136,6 +137,7 @@ class TaskAgent:
         self.max_iterations = cfg.get("max_iterations", 20)
         # Absolute ceiling across the whole run, regardless of progress (final safety net).
         self.max_total_iterations = cfg.get("max_total_iterations", 200)
+        self._trace_log_path = cfg.get("trace_log", None)
         self._toolset = ToolSet(client, image_model=image_model)
         self._cancel_event = threading.Event()
         self._messages: list[dict] = []  # persists across run() calls
@@ -156,6 +158,15 @@ class TaskAgent:
         if base_url:
             kwargs["base_url"] = base_url
         self._llm = openai.OpenAI(**kwargs)
+
+    def _log_trace(self, entry: dict) -> None:
+        if not self._trace_log_path:
+            return
+        try:
+            with open(self._trace_log_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as exc:
+            log.warning("TaskAgent: failed to write trace log: %s", exc)
 
     def cancel(self) -> None:
         """Request cancellation. Takes effect between LLM calls."""
@@ -205,20 +216,28 @@ class TaskAgent:
         # particle searches) can run many scans in sequence without exhausting the budget.
         total = 0
         stalled = 0
+        start_time = time.time()
+        final_response = ""
+        stop_reason = "unknown"
+
         while True:
             if self._cancel_event.is_set():
                 _publish("[Cancelled]")
-                return "Task cancelled by user."
+                final_response = "Task cancelled by user."
+                stop_reason = "cancelled"
+                break
             if total >= self.max_total_iterations:
-                msg = (f"Reached the absolute iteration ceiling ({self.max_total_iterations}). "
-                       "Stopping. If the task was still making progress, tell me to continue.")
-                _publish(msg)
-                return msg
+                final_response = (f"Reached the absolute iteration ceiling ({self.max_total_iterations}). "
+                                  "Stopping. If the task was still making progress, tell me to continue.")
+                _publish(final_response)
+                stop_reason = "max_total_iterations"
+                break
             if stalled >= self.max_iterations:
-                msg = (f"No scan completed in the last {self.max_iterations} steps — stopping to "
-                       "avoid a loop. If more work remains, tell me to continue.")
-                _publish(msg)
-                return msg
+                final_response = (f"No scan completed in the last {self.max_iterations} steps — stopping to "
+                                  "avoid a loop. If more work remains, tell me to continue.")
+                _publish(final_response)
+                stop_reason = "stall_limit"
+                break
             total += 1
             stalled += 1
             try:
@@ -228,9 +247,10 @@ class TaskAgent:
                     messages=self._messages,
                 )
             except Exception as e:
-                msg = f"LLM call failed: {e}"
-                _publish(msg)
-                return msg
+                final_response = f"LLM call failed: {e}"
+                _publish(final_response)
+                stop_reason = "llm_error"
+                break
 
             choice = response.choices[0]
             finish_reason = choice.finish_reason
@@ -269,6 +289,22 @@ class TaskAgent:
 
             else:
                 # Model is done — return final text; displayed via task_agent_done signal
-                final = assistant_message.content or ""
+                final_response = assistant_message.content or ""
                 _publish(f"[Done in {total} step(s)]")
-                return final
+                stop_reason = "done"
+                break
+
+        self._log_trace({
+            "call_type": "run",
+            "timestamp": start_time,
+            "model": self.model,
+            "goal": goal,
+            "messages": [
+                m if isinstance(m, dict) else m.model_dump()
+                for m in self._messages
+            ],
+            "total_iterations": total,
+            "stop_reason": stop_reason,
+            "response": final_response,
+        })
+        return final_response
