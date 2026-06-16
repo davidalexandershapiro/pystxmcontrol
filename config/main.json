@@ -36,7 +36,8 @@
         "streaming": false
     },
     "scan": {
-        "pause_timeout_seconds": 120
+        "pause_timeout_seconds": 120,
+        "osa_velocity_mm_s": 0.25
     },
     "geometry": {
         "distance": 200.0,

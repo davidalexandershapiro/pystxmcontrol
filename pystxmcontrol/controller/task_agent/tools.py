@@ -35,6 +35,22 @@ _FEEDBACK_STEP = 0.1
 # Logical tuning parameter name -> motor axis.
 _TUNING_MOTORS = {"gap": "EPU Gap", "feedback": "FBKOFFSET"}
 
+# ---------------------------------------------------------------------------
+# OSA-alignment constants
+# ---------------------------------------------------------------------------
+
+# Target OSA stage velocity (mm/s) used to derive the per-pixel dwell.  OSA motors
+# are finicky and per-instrument: too fast or too slow distorts the image.  This is
+# the fallback when main.json["scan"]["osa_velocity_mm_s"] is absent.
+_OSA_DEFAULT_VELOCITY_MM_S = 0.25
+# Sane per-pixel dwell band (ms).  A computed dwell outside this range means the
+# geometry/velocity combination is suspect — configure_osa_scan warns but proceeds.
+_OSA_DWELL_MIN_MS = 1.0
+_OSA_DWELL_MAX_MS = 500.0
+# OSA scan motors (continuousLine double_motor_scan; never OSA_Z).
+_OSA_X_MOTOR = "OSA_X"
+_OSA_Y_MOTOR = "OSA_Y"
+
 # Beamline-database columns that map cleanly to a live motor position, for
 # save_beamline_entry(populate_from_current=True).  Other columns (grating, exit
 # slits, m121/m101 angles) have no unambiguous motor and must be passed explicitly.
@@ -242,6 +258,10 @@ class ToolSet:
         self._last_particle_report: list[dict] | None = None
         self._was_scanning: bool = False         # tracks scanning→idle transition
         self._last_was_multiregion: bool = False  # prevent lastScan contamination after multiregion
+
+        # Most recent OSA beam-center result (µm in OSA_X/OSA_Y motor coordinates),
+        # cached by get_osa_beam_center() and consumed by zero_osa_position().
+        self._osa_beam_center: dict | None = None
 
         # Active beamline-tuning session (None when not tuning).  Holds the search
         # origins, harmonic-derived step sizes, and the current commanded positions
@@ -1525,6 +1545,209 @@ class ToolSet:
         return json.dumps(result, indent=2)
 
     # ------------------------------------------------------------------
+    # OSA alignment
+    # ------------------------------------------------------------------
+
+    def configure_osa_scan(self, extent_um: float, points: int,
+                           velocity_mm_s: float | None = None,
+                           x_center: float | None = None,
+                           y_center: float | None = None) -> str:
+        """Configure an 'OSA Image' scan for alignment, deriving dwell from stage velocity.
+
+        Sets up a square OSA_X/OSA_Y scan centred on the current OSA position (or the
+        passed center) and computes the per-pixel dwell so the stage moves at the target
+        velocity: dwell_ms = step_um / velocity_mm_s, step_um = extent_um / (points - 1).
+        OSA motors are finicky — too fast or too slow distorts the image — so the dwell is
+        derived here rather than guessed. Velocity defaults to main.json scan.osa_velocity_mm_s
+        (fallback 0.25 mm/s). Energy is left unchanged. Call check_scan_limits() then
+        start_scan() next; do not change the dwell afterwards.
+
+        Args:
+            extent_um: square scan range in µm (e.g. ~500 large, ~60 small).
+            points:    points per axis (e.g. 50 large, 30 small).
+            velocity_mm_s: override the configured target stage velocity.
+            x_center, y_center: scan center in OSA µm; default to the current OSA position
+                (use the large-scan beam center here for the follow-up small scan).
+        """
+        if self._motors is None or self._positions is None:
+            self.get_config()
+        try:
+            extent_um = float(extent_um)
+            points = int(points)
+        except (TypeError, ValueError):
+            return f"Invalid extent_um/points: {extent_um!r}, {points!r}"
+        if extent_um <= 0 or points < 2:
+            return "extent_um must be > 0 and points must be >= 2."
+
+        if velocity_mm_s is None:
+            main_cfg = getattr(self._client, 'main_config', None) or {}
+            velocity_mm_s = (main_cfg.get('scan', {}) or {}).get(
+                'osa_velocity_mm_s', _OSA_DEFAULT_VELOCITY_MM_S)
+        velocity_mm_s = float(velocity_mm_s)
+        if velocity_mm_s <= 0:
+            return f"velocity_mm_s must be > 0 (got {velocity_mm_s})."
+
+        if x_center is None:
+            x_center = self._motor_pos(_OSA_X_MOTOR)
+        if y_center is None:
+            y_center = self._motor_pos(_OSA_Y_MOTOR)
+        if x_center is None or y_center is None:
+            return ("Could not read current OSA position for the scan center — "
+                    "pass x_center and y_center explicitly.")
+
+        step_um = extent_um / (points - 1)
+        # 1 mm/s == 1 µm/ms, so step_um (µm) / velocity_mm_s (µm/ms) = dwell in ms.
+        dwell_ms = round(step_um / velocity_mm_s, 4)
+
+        warning = None
+        if not (_OSA_DWELL_MIN_MS <= dwell_ms <= _OSA_DWELL_MAX_MS):
+            warning = (f"Computed dwell {dwell_ms} ms is outside the expected "
+                       f"[{_OSA_DWELL_MIN_MS}, {_OSA_DWELL_MAX_MS}] ms band — check "
+                       f"extent/points/velocity before starting.")
+
+        upd = self.update_scan(
+            scan_type='OSA Image', x_motor=_OSA_X_MOTOR, y_motor=_OSA_Y_MOTOR,
+            x_center=round(float(x_center), 3), y_center=round(float(y_center), 3),
+            x_range=extent_um, y_range=extent_um,
+            x_points=points, y_points=points, dwell=dwell_ms,
+        )
+        if upd.startswith("Invalid") or upd.startswith("Unknown") or upd.startswith("Failed"):
+            return f"OSA scan configuration failed: {upd}"
+
+        result = {
+            "status": "OSA scan configured",
+            "scan_type": "OSA Image",
+            "center_um": {"x": round(float(x_center), 3), "y": round(float(y_center), 3)},
+            "extent_um": extent_um,
+            "points": points,
+            "step_um": round(step_um, 4),
+            "velocity_mm_s": velocity_mm_s,
+            "dwell_ms": dwell_ms,
+            "next_step": "Call check_scan_limits(), then start_scan(), then wait_for_scan().",
+        }
+        if warning:
+            result["warning"] = warning
+        return json.dumps(result, indent=2)
+
+    def get_osa_beam_center(self, daq: str = "default", mode: str = "small") -> str:
+        """Find the OSA beam center as the intensity-weighted centroid of the last scan image.
+
+        The OSA beam is BRIGHT on a near-dark field (large scans show the focused central
+        spot plus an annulus of unfocused zero-order light; small scans show mainly the
+        blurred central spot). The plain intensity-weighted centroid sum(I*x)/sum(I) gives
+        the center for both — the annulus is concentric with the spot, so no background
+        subtraction is needed. Returns the center in OSA_X/OSA_Y µm; the result is cached
+        for zero_osa_position(). For a large scan, pass this center to configure_osa_scan()
+        for the follow-up small scan; after the small scan, zero with zero_osa_position().
+
+        Args:
+            daq:  detector channel to analyse (default 'default').
+            mode: 'large' or 'small' — recorded for context; the centroid math is identical.
+        """
+        if self._image_model is None:
+            return "Image model not available."
+
+        all_images = self._image_model.get('all_detector_images')
+        if not isinstance(all_images, dict):
+            return "No scan image available — run an OSA scan first."
+
+        image = all_images.get(daq)
+        if image is None and daq != 'default':
+            image = all_images.get('default')
+            daq = 'default'
+        if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
+            return f"No valid image data for DAQ '{daq}'."
+
+        ny, nx = image.shape[:2]
+        flat = np.asarray(image, dtype=float)
+        if flat.ndim > 2:
+            flat = flat.reshape(ny, nx)
+        # Clip any negative values so they can't pull the centroid the wrong way.
+        weights = np.clip(flat, 0.0, None)
+        total = float(weights.sum())
+        if total <= 0:
+            return "Image has no positive signal — cannot locate the beam (check exposure/shutter)."
+
+        x_center = float(self._image_model.get('x_center') or 0.0)
+        y_center = float(self._image_model.get('y_center') or 0.0)
+        x_range  = float(self._image_model.get('x_range')  or 1.0)
+        y_range  = float(self._image_model.get('y_range')  or 1.0)
+
+        cols = np.arange(nx)
+        rows = np.arange(ny)
+        col_c = float((weights.sum(axis=0) * cols).sum() / total)
+        row_c = float((weights.sum(axis=1) * rows).sum() / total)
+
+        def px_to_um(col, row):
+            x = x_center + (col / max(nx - 1, 1) - 0.5) * x_range
+            y = y_center + (row / max(ny - 1, 1) - 0.5) * y_range
+            return round(x, 3), round(y, 3)
+
+        beam_x, beam_y = px_to_um(col_c, row_c)
+
+        # Brightest pixel as a sanity check against the centroid.
+        peak_row, peak_col = np.unravel_index(np.argmax(weights), weights.shape)
+        peak_x, peak_y = px_to_um(float(peak_col), float(peak_row))
+
+        self._osa_beam_center = {"x": beam_x, "y": beam_y, "daq": daq, "mode": mode}
+
+        return json.dumps({
+            "daq": daq,
+            "mode": mode,
+            "image_shape_px": [ny, nx],
+            "scan_center_um": {"x": x_center, "y": y_center},
+            "beam_center_um": {"x": beam_x, "y": beam_y},
+            "brightest_pixel_um": {"x": peak_x, "y": peak_y},
+            "offset_from_scan_center_um": {"x": round(beam_x - x_center, 3),
+                                           "y": round(beam_y - y_center, 3)},
+            "next_step": ("For a large scan, pass beam_center_um to configure_osa_scan() for "
+                          "a small follow-up scan. For the final small scan, confirm with the "
+                          "user, then call zero_osa_position() to set this position as the new OSA zero."),
+        }, indent=2)
+
+    def zero_osa_position(self) -> str:
+        """Set the last-found OSA beam center as the new OSA zero (mirrors the GUI 'Set to 0').
+
+        For OSA_X and OSA_Y, adjusts the motor config offset so the beam-center position
+        found by get_osa_beam_center() reads as 0: new_offset = current_offset - beam_center.
+        This does NOT move any motor — it relabels the coordinate origin, exactly like the
+        GUI button. ALWAYS confirm with the user before calling this (it changes the stored
+        OSA calibration). Requires a prior get_osa_beam_center() call.
+        """
+        if not self._osa_beam_center:
+            return ("No OSA beam center available — run an OSA scan and call "
+                    "get_osa_beam_center() first.")
+        if self._motors is None:
+            self.get_config()
+
+        found = self._osa_beam_center
+        applied = []
+        for axis, key in ((_OSA_X_MOTOR, "x"), (_OSA_Y_MOTOR, "y")):
+            info = (self._motors or {}).get(axis, {})
+            if "offset" not in info:
+                return f"No 'offset' field for {axis} in motor config — cannot zero."
+            cur_offset = float(info["offset"])
+            found_val = float(found[key])
+            new_offset = round(cur_offset - found_val, 4)
+            try:
+                self._client.change_motor_config(axis, "offset", new_offset)
+            except Exception as e:
+                return f"Failed to set {axis} offset to {new_offset}: {e}"
+            applied.append({"axis": axis, "beam_center_um": round(found_val, 3),
+                            "old_offset": round(cur_offset, 4), "new_offset": new_offset})
+
+        # change_motor_config refreshes the server config; re-cache it.
+        self._motors    = getattr(self._client, 'motorInfo', None) or self._motors
+        self._positions = getattr(self._client, 'currentMotorPositions', None) or self._positions
+        self._osa_beam_center = None
+
+        return json.dumps({
+            "status": "OSA zeroed",
+            "applied": applied,
+            "note": "OSA_X/OSA_Y offsets updated so the beam center now reads as 0. No motors moved.",
+        }, indent=2)
+
+    # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
 
@@ -2031,6 +2254,69 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "required": ["desired_energy"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "configure_osa_scan",
+            "description": (
+                "Configure an 'OSA Image' alignment scan (OSA_X/OSA_Y, continuousLine) centred on "
+                "the current OSA position or a passed center, and derive the per-pixel dwell from "
+                "the target stage velocity: dwell_ms = step_um / velocity_mm_s. OSA motors are "
+                "finicky — wrong velocity distorts the image — so dwell is computed here, not "
+                "guessed. Velocity defaults to the configured osa_velocity_mm_s (~0.25 mm/s). Energy "
+                "is left unchanged. Typical: large ~500 µm/50 pts, small ~60 µm/30 pts. After this, "
+                "call check_scan_limits(), start_scan(), wait_for_scan()."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "extent_um": {"type": "number", "description": "Square scan range in µm (e.g. 500 large, 60 small)."},
+                    "points":    {"type": "integer", "description": "Points per axis (e.g. 50 large, 30 small)."},
+                    "velocity_mm_s": {"type": "number", "description": "Override the configured target stage velocity (mm/s)."},
+                    "x_center": {"type": "number", "description": "Scan center X in OSA µm. Default: current OSA_X (use the large-scan beam center for the follow-up small scan)."},
+                    "y_center": {"type": "number", "description": "Scan center Y in OSA µm. Default: current OSA_Y."},
+                },
+                "required": ["extent_um", "points"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_osa_beam_center",
+            "description": (
+                "Find the OSA beam center as the intensity-weighted centroid of the last OSA scan "
+                "image. The OSA beam is BRIGHT on a near-dark field (large scan: focused spot plus a "
+                "concentric annulus of zero-order light; small scan: blurred central spot); the "
+                "centroid gives the center for both, no background subtraction. Returns the center in "
+                "OSA_X/OSA_Y µm and caches it for zero_osa_position(). For a large scan, feed the "
+                "result to configure_osa_scan() for the small follow-up; after the small scan, "
+                "confirm with the user and call zero_osa_position()."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "daq":  {"type": "string", "default": "default", "description": "Detector channel to analyse."},
+                    "mode": {"type": "string", "enum": ["large", "small"], "description": "Recorded for context; centroid math is identical for both."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "zero_osa_position",
+            "description": (
+                "Set the last get_osa_beam_center() result as the new OSA zero, mirroring the GUI "
+                "'Set to 0' button: for OSA_X and OSA_Y, new_offset = current_offset - beam_center. "
+                "This does NOT move any motor — it relabels the coordinate origin. ALWAYS confirm "
+                "with the user before calling (it changes the stored OSA calibration). Requires a "
+                "prior get_osa_beam_center() call."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
 ]

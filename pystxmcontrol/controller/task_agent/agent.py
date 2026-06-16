@@ -106,6 +106,28 @@ The step tools enforce the search limits and the ~2 s slow-motor settle for you.
 limit is measured from each phase's anchor (reanchor_tuning_limit re-centres it for Phase B);
 finalize_tuning's EPU-offset correction always uses the total gap change from session start.
 
+OSA ALIGNMENT (e.g. "please align the OSA"):
+The OSA (Order Sorting Aperture) is a pinhole that selects the focused 1st-order beam and
+blocks the unfocused zero order. Alignment centres it on the beam by scanning OSA_X/OSA_Y,
+finding the bright beam center, and relabelling that position as the OSA zero. NEVER move
+OSA_Z. Procedure:
+1. ASK the user whether a large-area scan is needed (a large correction). A small scan alone
+   suffices for minor drift; a large scan first is needed if the beam may be far off-centre.
+2. If large: configure_osa_scan(extent_um=500, points=50) — it centres on the current OSA
+   position and computes the dwell from the OSA stage velocity (do NOT set dwell yourself, and
+   do NOT change energy). Then check_scan_limits(), start_scan(), wait_for_scan(),
+   get_osa_beam_center(mode='large'). The large image shows the focused spot inside an annulus
+   of zero-order light; the centroid is the annulus center. Use its beam_center_um as the
+   center of the small scan.
+3. Small scan: configure_osa_scan(extent_um=60, points=30, x_center=<center>, y_center=<center>)
+   — center on the large-scan result if you ran one, else the current OSA position. Then
+   check_scan_limits(), start_scan(), wait_for_scan(), get_osa_beam_center(mode='small'). The
+   small image shows the blurred central spot.
+4. Report the beam center and its offset from the current zero, then ASK the user to confirm.
+   Only on confirmation, call zero_osa_position() — it adjusts the OSA_X/OSA_Y offsets so the
+   found center reads as 0 (no motor moves). Zero ONCE, after the small scan.
+The OSA scan ranges fit the motor travel, so check_scan_limits() should pass without tiling.
+
 BEAMLINE DATABASE ENTRIES:
 You can record the current beamline state into the parameter database at any time on request
 (e.g. "save the current beamline settings at 700 eV") with
