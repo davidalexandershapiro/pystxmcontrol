@@ -420,6 +420,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
     file_selected = QtCore.Signal(str)
     # Emitted when the user clicks "Send to Analysis" — carries the file path.
     send_to_analysis = QtCore.Signal(str)
+    # Emitted when the user clicks "Send to Acquisition" — carries the file path.
+    send_to_acquisition = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -434,6 +436,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._current_filepath = ""
         self._export_meta = {}
         self._is_tiled_detail = False
+        self._detail_origin = (0.0, 0.0)  # (x_min, y_min) motor position of non-tiled detail image
         self._browser_tile_items = []   # pg.ImageItems added for tiled composite display
         self._setup_ui()
 
@@ -592,6 +595,12 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self.send_analysis_btn.setEnabled(False)
         self.send_analysis_btn.clicked.connect(self._on_send_to_analysis)
         export_bar.addWidget(self.send_analysis_btn)
+
+        self.send_acquisition_btn = QtWidgets.QPushButton("Send to Acquisition")
+        self.send_acquisition_btn.setFixedWidth(150)
+        self.send_acquisition_btn.setEnabled(False)
+        self.send_acquisition_btn.clicked.connect(self._on_send_to_acquisition)
+        export_bar.addWidget(self.send_acquisition_btn)
 
         detail_layout.addLayout(export_bar)
 
@@ -766,11 +775,16 @@ class DataBrowserWidget(QtWidgets.QWidget):
             card.set_selected(fp == filepath)
         self._show_detail(filepath)
         self.send_analysis_btn.setEnabled(True)
+        self.send_acquisition_btn.setEnabled(True)
         self.file_selected.emit(filepath)
 
     def _on_send_to_analysis(self):
         if self._current_filepath:
             self.send_to_analysis.emit(self._current_filepath)
+
+    def _on_send_to_acquisition(self):
+        if self._current_filepath:
+            self.send_to_acquisition.emit(self._current_filepath)
 
     @staticmethod
     def _find_recon_file(stxm_path):
@@ -789,6 +803,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 pass
         self._browser_tile_items = []
         self._is_tiled_detail = False
+        self._detail_origin = (0.0, 0.0)
 
     def _show_detail(self, filepath):
         self._current_filepath = filepath
@@ -888,6 +903,18 @@ class DataBrowserWidget(QtWidgets.QWidget):
                         yp = np.array([])
                     x_range_um = float(xp.max() - xp.min()) if xp.size > 1 else 0.0
                     y_range_um = float(yp.max() - yp.min()) if yp.size > 1 else 0.0
+
+                    # Origin so the detail image is drawn in real motor coordinates
+                    # (cursor returns scan X/Y positions, not 0-based pixel coords).
+                    # Spectrum scans keep a 0 origin: their axes are energy/position,
+                    # not sample X/Y.
+                    if is_spectrum:
+                        self._detail_origin = (0.0, 0.0)
+                    else:
+                        self._detail_origin = (
+                            float(xp.min()) if xp.size else 0.0,
+                            float(yp.min()) if yp.size else 0.0,
+                        )
 
                     for det_name in hf.get("entry0/instrument", {}).keys():
                         instr_grp = hf[f"entry0/instrument/{det_name}"]
@@ -1076,10 +1103,13 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 self.detail_image.setImage(
                     np.transpose(data, (0, 2, 1)),
                     axes={"t": 0, "x": 1, "y": 2},
+                    pos=self._detail_origin,
                     scale=(x_scale, y_scale),
                 )
             elif data.ndim == 2:
-                self.detail_image.setImage(data.T, scale=(x_scale, y_scale))
+                self.detail_image.setImage(
+                    data.T, pos=self._detail_origin, scale=(x_scale, y_scale)
+                )
             else:
                 self.detail_image.clear()
 

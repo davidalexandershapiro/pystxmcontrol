@@ -183,8 +183,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Saved dwell for energy list mode (captured before region widgets are removed)
         self._energy_list_dwell = 1000.0
-        self._saved_multi_energy = []   # saved energy region values while Single Energy is checked
+        self._saved_multi_energy = []   # persistent per-region-index cache of energy values
+        self._multi_energy_count = 1    # region count to restore when leaving Single Energy
         self._single_energy_active = False  # tracks current state to detect transitions
+        self._restoring_multi_energy = False  # guards _saved_multi_energy while regions are rebuilt on single→multi
 
         # Scan parameters
         self.tiled_scan = False
@@ -601,6 +603,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(self.ui.tab_13)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.browser_widget)
+        self.browser_widget.send_to_acquisition.connect(self._on_send_to_acquisition)
 
     def _initialize_analysis2_tab(self):
         """Embed Analysis2Widget as a new tab next to the existing Analysis tab."""
@@ -612,6 +615,13 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Load a file into the Analysis tab and switch to it."""
         self._analysis2_tab.load_file(filepath)
         self.ui.tabWidget_3.setCurrentWidget(self._analysis2_tab)
+
+    def _on_send_to_acquisition(self, filepath: str):
+        """Load a file into the Acquisition tab (display the image and populate the
+        scan-definition widgets) and switch to it."""
+        self.currentLoadFile = filepath
+        self.load_scan_file()
+        self.ui.tabWidget_3.setCurrentWidget(self.ui.tab_9)
 
     def _initialize_intelligence_tab(self):
         """Embed IntelligenceWidget as a new tab next to the Console tab."""
@@ -2605,6 +2615,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self, 'Save Scan Definition', '', 'JSON Files (*.json);;All Files (*)'
         )
         if filename:
+            # Append .json if the user did not supply an extension
+            if not os.path.splitext(filename)[1]:
+                filename += '.json'
             self.controller.save_scan_definition(filename)
             
     def open_energy_definition(self):
@@ -2788,45 +2801,61 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Update ROIs to match new region count
         self._update_rois_from_regions()
             
+    def _capture_live_energy_regions(self):
+        """Merge the current energy-region widget values into _saved_multi_energy
+        by index, extending but never truncating.
+
+        Keeping the cache per-index and never shrinking it lets the user reduce
+        the region count (or switch to Single Energy) and later grow it back
+        without losing the data they previously entered for the higher regions.
+        """
+        for i, ew in enumerate(self.energy_region_widgets):
+            if not hasattr(ew, 'energyDef'):
+                continue
+            ed = ew.energyDef
+            entry = {
+                'start':      ed.energyStart.text(),
+                'stop':       ed.energyStop.text(),
+                'step':       ed.energyStep.text(),
+                'n_energies': ed.nEnergies.text(),
+                'dwell':      ed.dwellTime.text(),
+            }
+            if i < len(self._saved_multi_energy):
+                self._saved_multi_energy[i] = entry
+            else:
+                self._saved_multi_energy.append(entry)
+
     def update_energy_regions(self):
         """Update energy region widgets."""
         requested_count = self.ui.energyRegSpinbox.value()
         current_count = len(self.energy_region_widgets)
 
-        # Refresh _saved_multi_energy from live widget values so any user edits
-        # to energyStart (or other fields) made since the last single→multi
-        # transition are preserved if the user later toggles Single Energy again.
-        if not self._single_energy_active:
-            refreshed = []
-            for ew in self.energy_region_widgets:
-                if hasattr(ew, 'energyDef'):
-                    ed = ew.energyDef
-                    refreshed.append({
-                        'start':      ed.energyStart.text(),
-                        'stop':       ed.energyStop.text(),
-                        'step':       ed.energyStep.text(),
-                        'n_energies': ed.nEnergies.text(),
-                        'dwell':      ed.dwellTime.text(),
-                    })
-            if refreshed:
-                self._saved_multi_energy = refreshed
+        # Capture any edits to the live (multi-energy) widgets into the cache so
+        # they survive a later region-count change or Single Energy toggle.
+        if not self._single_energy_active and not self._restoring_multi_energy:
+            self._capture_live_energy_regions()
 
         # Add widgets if needed
         while current_count < requested_count:
             widget = energyDefWidget()
             widget.energyDef.regNum.setText(f"Region {current_count + 1}")
 
-            # Default multi-energy values for the new region
-            defaults = {'start': '700', 'stop': '720', 'step': '1',
-                        'n_energies': '21', 'dwell': '1'}
-            widget.energyDef.energyStart.setText(defaults['start'])
-            widget.energyDef.energyStop.setText(defaults['stop'])
-            widget.energyDef.energyStep.setText(defaults['step'])
-            widget.energyDef.nEnergies.setText(defaults['n_energies'])
+            # Prefer previously cached values for this region index so a user who
+            # reduced the region count (or toggled Single Energy) recovers the data
+            # they had entered; fall back to defaults for never-seen regions.
+            if current_count < len(self._saved_multi_energy):
+                values = dict(self._saved_multi_energy[current_count])
+            else:
+                values = {'start': '700', 'stop': '720', 'step': '1',
+                          'n_energies': '21', 'dwell': '1'}
+            widget.energyDef.energyStart.setText(values['start'])
+            widget.energyDef.energyStop.setText(values['stop'])
+            widget.energyDef.energyStep.setText(values['step'])
+            widget.energyDef.nEnergies.setText(values['n_energies'])
 
             if current_count == 0:
                 # Region 1 is the dwell master — connect its return-press to propagate
-                widget.energyDef.dwellTime.setText(defaults['dwell'])
+                widget.energyDef.dwellTime.setText(values['dwell'])
                 widget.energyDef.dwellTime.returnPressed.connect(self._propagate_dwell)
                 widget.energyDef.dwellTime.returnPressed.connect(self.update_estimated_time)
             else:
@@ -2834,39 +2863,40 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if self.energy_region_widgets:
                     dwell_val = self.energy_region_widgets[0].energyDef.dwellTime.text()
                 else:
-                    dwell_val = defaults['dwell']
+                    dwell_val = values['dwell']
                 widget.energyDef.dwellTime.setText(dwell_val)
                 widget.energyDef.dwellTime.setEnabled(False)
-                defaults['dwell'] = dwell_val
+                values['dwell'] = dwell_val
 
             widget.regionChanged.connect(self.update_estimated_time)
             self.ui.energyDefWidget.addWidget(widget.widget)
             self.energy_region_widgets.append(widget)
 
-            # While single energy is active, save the new region's defaults so
-            # unchecking Single Energy later restores them, then apply single-energy overwrite
+            # Make sure the cache has an entry for this region index, then apply
+            # the single-energy overwrite if Single Energy is currently active.
+            if current_count < len(self._saved_multi_energy):
+                self._saved_multi_energy[current_count] = values
+            else:
+                self._saved_multi_energy.append(values)
             if self._single_energy_active:
-                self._saved_multi_energy.append(defaults)
                 widget.setSingleEnergy()
                 ed = widget.energyDef
                 ed.energyStep.setText("1")
                 ed.nEnergies.setText("1")
-                ed.energyStop.setText(defaults['start'])
+                ed.energyStop.setText(values['start'])
 
             current_count += 1
 
         # Apply current single energy state to all widgets
         self.toggle_single_energy()
-            
-        # Remove widgets if needed
+
+        # Remove widgets if needed — the cache is intentionally NOT trimmed so the
+        # removed regions' data is preserved for if the count grows again later.
         while current_count > requested_count:
             widget = self.energy_region_widgets.pop()
             self.ui.energyDefWidget.removeWidget(widget.widget)
             widget.widget.deleteLater()
             current_count -= 1
-            # Keep saved list in sync
-            if self._saved_multi_energy:
-                self._saved_multi_energy = self._saved_multi_energy[:current_count]
             
     def _read_main_config_from_disk(self) -> dict:
         """Read main.json from disk without requiring a server connection."""
@@ -2941,6 +2971,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # ── energy regions ────────────────────────────────────────────────────
         energy_regions = config.get("energy_regions", {})
         if energy_regions:
+            # Create and populate widgets for ALL regions regardless of the
+            # current Single Energy state.  Force multi-energy mode first:
+            # while Single Energy is active, the setValue() below triggers
+            # update_energy_regions() → toggle_single_energy(), which collapses
+            # the spinbox back to a single region and drops every region but
+            # the first.  Unchecking (with signals blocked) and clearing
+            # _single_energy_active keeps the widgets from collapsing.
+            self.ui.toggleSingleEnergy.blockSignals(True)
+            self.ui.toggleSingleEnergy.setChecked(False)
+            self.ui.toggleSingleEnergy.blockSignals(False)
+            self._single_energy_active = False
+            self.ui.energyRegSpinbox.setEnabled(True)
+
             self.ui.energyRegSpinbox.setValue(len(energy_regions))
             for i, region in enumerate(energy_regions.values()):
                 if i >= len(self.energy_region_widgets):
@@ -3012,6 +3055,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         """Toggle single energy mode for energy regions."""
         is_single_energy = self.ui.toggleSingleEnergy.isChecked()
 
+        # Remember how many regions exist before a single-energy collapse so the
+        # exact same number is restored when Single Energy is unchecked.
+        if is_single_energy and not self._single_energy_active:
+            self._multi_energy_count = max(1, len(self.energy_region_widgets))
+
         if is_single_energy and self.ui.energyListCheckbox.isChecked():
             # Uncheck energy list silently and restore energy region widgets
             self.ui.energyListCheckbox.blockSignals(True)
@@ -3040,32 +3088,35 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._single_energy_active = is_single_energy
 
         if transitioning_to_single:
-            # Save the current multi-energy definition before overwriting
-            self._saved_multi_energy = []
-            for energy_widget in self.energy_region_widgets:
+            # Merge the current multi-energy values into the cache before the
+            # widgets get overwritten with single-energy values.  The merge keeps
+            # any cached regions beyond the live widget count (e.g. regions the
+            # user had reduced away) intact.
+            self._capture_live_energy_regions()
+        elif transitioning_to_multi:
+            # Restore the multi-energy regions — both the region COUNT (the number
+            # the user had before the collapse) and the per-region values from the
+            # cache — so the user recovers exactly what they had.
+            n = max(1, self._multi_energy_count)
+            if self.ui.energyRegSpinbox.value() != n:
+                # Recreate the widgets for all regions.  _restoring_multi_energy
+                # keeps update_energy_regions() from overwriting the cache with the
+                # (smaller) live widget set while it rebuilds.
+                self._restoring_multi_energy = True
+                self.ui.energyRegSpinbox.setValue(n)
+                self.update_energy_regions()
+                self._restoring_multi_energy = False
+            for i, energy_widget in enumerate(self.energy_region_widgets):
+                if i >= len(self._saved_multi_energy):
+                    break
                 if hasattr(energy_widget, 'energyDef'):
                     ed = energy_widget.energyDef
-                    self._saved_multi_energy.append({
-                        'start':      ed.energyStart.text(),
-                        'stop':       ed.energyStop.text(),
-                        'step':       ed.energyStep.text(),
-                        'n_energies': ed.nEnergies.text(),
-                        'dwell':      ed.dwellTime.text(),
-                    })
-        elif transitioning_to_multi:
-            # Restore saved multi-energy definition if available
-            if self._saved_multi_energy:
-                for i, energy_widget in enumerate(self.energy_region_widgets):
-                    if i >= len(self._saved_multi_energy):
-                        break
-                    if hasattr(energy_widget, 'energyDef'):
-                        ed = energy_widget.energyDef
-                        saved = self._saved_multi_energy[i]
-                        ed.energyStart.setText(saved['start'])
-                        ed.energyStop.setText(saved['stop'])
-                        ed.energyStep.setText(saved['step'])
-                        ed.nEnergies.setText(saved['n_energies'])
-                        ed.dwellTime.setText(saved['dwell'])
+                    s = self._saved_multi_energy[i]
+                    ed.energyStart.setText(s['start'])
+                    ed.energyStop.setText(s['stop'])
+                    ed.energyStep.setText(s['step'])
+                    ed.nEnergies.setText(s['n_energies'])
+                    ed.dwellTime.setText(s['dwell'])
 
         # When switching to single energy, use current energy motor position as start
         current_energy_str = None
@@ -3181,11 +3232,14 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self._update_rois_from_regions(reset_to_view=True)
             return
 
-        # Rectangle scans — push FOV bounds into scan region widgets first
+        # Rectangle scans — push FOV bounds into scan region widgets first.
+        # Inset the ROI to 90% of the FOV (centered) so it sits clearly inside
+        # the view instead of hugging the outermost pixels where it's hard to see.
+        FOV_FILL = 0.9
         x_center = (x_min + x_max) / 2.0
         y_center = (y_min + y_max) / 2.0
-        x_range  = x_max - x_min
-        y_range  = y_max - y_min
+        x_range  = (x_max - x_min) * FOV_FILL
+        y_range  = (y_max - y_min) * FOV_FILL
 
         for region_widget in self.scan_region_widgets:
             try:
@@ -3313,6 +3367,21 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         )
         return roi
             
+    def _set_line_fields(self, length: float, angle: float):
+        """Write the given line length/angle into the Line tab edits without
+        triggering their textChanged handlers (which would clear and recreate
+        the ROI), then refresh the derived step-size label."""
+        if hasattr(self.ui, 'lineLengthEdit'):
+            self.ui.lineLengthEdit.blockSignals(True)
+            self.ui.lineLengthEdit.setText(f"{length:.3f}")
+            self.ui.lineLengthEdit.blockSignals(False)
+        if hasattr(self.ui, 'lineAngleEdit'):
+            self.ui.lineAngleEdit.blockSignals(True)
+            self.ui.lineAngleEdit.setText(f"{angle:.3f}")
+            self.ui.lineAngleEdit.blockSignals(False)
+        self.lineAngle = angle
+        self.update_line_step_size()
+
     def _add_roi_from_region(self, region_widget, index: int, scan_type: str, reset_to_view=False):
         """Add a single ROI from a region widget.
 
@@ -3374,13 +3443,26 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             elif "line" in scan_type.lower():
                 if view_range is not None:
                     # Horizontal line at 90% of the view width, centred vertically
-                    x_half = (x_max_v - x_min_v) * 0.9 / 2
+                    line_len = (x_max_v - x_min_v) * 0.9
+                    x_half = line_len / 2
                     y_mid = (y_min_v + y_max_v) / 2
                     roi = pg.LineSegmentROI(
                         positions=((x_center_v - x_half, y_mid), (x_center_v + x_half, y_mid)),
                         pen=roi_pen,
                         movable=True
                     )
+                    # Sync the Line tab Length/Angle fields and the region widget
+                    # center to the freshly created ROI so they match what is
+                    # displayed before any drag.  The line is horizontal (angle 0),
+                    # so it spans line_len in x and 0 in y.  Without this the fields
+                    # keep showing stale values until the ROI is dragged.
+                    # (setText does not emit regionChanged — that only fires on
+                    # returnPressed — so no disconnect is needed here.)
+                    self._set_line_fields(line_len, 0.0)
+                    region_widget.ui.xCenter.setText(f"{x_center_v:.3f}")
+                    region_widget.ui.yCenter.setText(f"{y_mid:.3f}")
+                    region_widget.ui.xRange.setText(f"{line_len:.3f}")
+                    region_widget.ui.yRange.setText(f"{0.0:.3f}")
                 else:
                     # For line ROIs, use line length and angle parameters
                     try:
@@ -3498,17 +3580,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     region_widget.ui.yRange.setText(f"{abs(dy):.3f}")
 
                     # For line spectrum and focus scans, update the line length and angle edits.
-                    # Block signals to prevent textChanged → update_line_parameters → update_line_roi
-                    # from clearing and recreating the ROI while it is being dragged.
-                    if hasattr(self.ui, 'lineLengthEdit'):
-                        self.ui.lineLengthEdit.blockSignals(True)
-                        self.ui.lineLengthEdit.setText(f"{line_length:.3f}")
-                        self.ui.lineLengthEdit.blockSignals(False)
-                        self.update_line_step_size()
-                    if hasattr(self.ui, 'lineAngleEdit'):
-                        self.ui.lineAngleEdit.blockSignals(True)
-                        self.ui.lineAngleEdit.setText(f"{line_angle:.3f}")
-                        self.ui.lineAngleEdit.blockSignals(False)
+                    # Signals are blocked inside _set_line_fields to prevent textChanged →
+                    # update_line_parameters → update_line_roi from clearing and recreating
+                    # the ROI while it is being dragged.
+                    self._set_line_fields(line_length, line_angle)
 
                     # Reconnect signal
                     region_widget.regionChanged.connect(self._update_rois_from_regions)
