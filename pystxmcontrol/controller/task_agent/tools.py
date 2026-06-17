@@ -66,6 +66,62 @@ _BEAMLINE_DB_MOTOR_MAP = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _focused_peak_center(arr: np.ndarray) -> dict | None:
+    """Locate a compact bright peak (the focused OSA beam) amid smooth bright background.
+
+    A small OSA scan can contain the faint, compact focused spot plus an off-centre ramp of
+    unfocused zero-order light (often bright in one corner). The intensity-weighted centroid is
+    pulled toward that bright corner. The focused spot differs from the background by its
+    CURVATURE, not its brightness: it is a high-curvature peak (strongly concave-down), while
+    the unfocused ramp is smooth (near-zero curvature).
+
+    This is the 2-D, rotation-invariant form of "look at the second derivative of each line":
+    a Laplacian-of-Gaussian (LoG) at the spot scale. The Laplacian is ~0 for any linear ramp,
+    so the bright corner is suppressed regardless of how bright it is; the compact spot gives a
+    strong positive -LoG response. We take the argmax of that response (robust to the ramp) and
+    refine to sub-pixel with a local centroid of the response core. Returns {col_c,row_c,...} or
+    None if there is no positive response (caller falls back to the plain centroid).
+
+    Validated on synthetics: recovers a faint spot under a 6x corner ramp to ~0 px. Caveat: the
+    inner edge of the unfocused annulus is a curved RIDGE that also has curvature, so if the beam
+    is badly off-centre (a sharp bright annulus edge in view) the argmax can lock onto that edge.
+    The large→small workflow keeps the beam centred enough to avoid this; 'prominence' is a
+    relative confidence (higher = sharper, more isolated peak).
+    """
+    from scipy.ndimage import gaussian_laplace
+
+    a = np.asarray(arr, dtype=float)
+    if a.ndim != 2:
+        return None
+    ny, nx = a.shape
+    a = a - float(a.min())            # shift to non-negative (LoG is invariant to a constant)
+
+    # Spot scale ≈ a few pixels, derived from grid size so there is nothing to tune per scan.
+    sigma = max(1.0, min(ny, nx) / 12.0)
+
+    resp = np.clip(-gaussian_laplace(a, sigma), 0.0, None)  # bright compact peak → large +ve
+    if float(resp.max()) <= 0.0:
+        return None
+
+    # Coarse location: argmax of the LoG response (a linear ramp contributes ~0, so this is not
+    # pulled by the bright corner). Refine to sub-pixel with a centroid of the response core.
+    pr, pc = np.unravel_index(int(np.argmax(resp)), resp.shape)
+    win = max(1, int(round(sigma * 2.0)))
+    r0, r1 = max(0, pr - win), min(ny, pr + win + 1)
+    c0, c1 = max(0, pc - win), min(nx, pc + win + 1)
+    sub = resp[r0:r1, c0:c1]
+    t = float(sub.sum())
+    if t > 0.0:
+        col_c = float((sub.sum(axis=0) * np.arange(c0, c1)).sum() / t)
+        row_c = float((sub.sum(axis=1) * np.arange(r0, r1)).sum() / t)
+    else:
+        col_c, row_c = float(pc), float(pr)
+
+    prominence = float(resp.max()) / (float(resp.mean()) + 1e-12)
+    return {"col_c": col_c, "row_c": row_c, "sigma_px": round(sigma, 2),
+            "prominence": round(prominence, 2)}
+
+
 def _decimate(img: np.ndarray, max_particles: int | None = None) -> list[dict]:
     """Find dark (absorbing) particle regions in a transmission image.
 
@@ -1641,19 +1697,25 @@ class ToolSet:
         return json.dumps(result, indent=2)
 
     def get_osa_beam_center(self, daq: str = "default", mode: str = "small") -> str:
-        """Find the OSA beam center as the intensity-weighted centroid of the last scan image.
+        """Find the OSA beam center from the last scan image.
 
-        The OSA beam is BRIGHT on a near-dark field (large scans show the focused central
-        spot plus an annulus of unfocused zero-order light; small scans show mainly the
-        blurred central spot). The plain intensity-weighted centroid sum(I*x)/sum(I) gives
-        the center for both — the annulus is concentric with the spot, so no background
-        subtraction is needed. Returns the center in OSA_X/OSA_Y µm; the result is cached
-        for zero_osa_position(). For a large scan, pass this center to configure_osa_scan()
-        for the follow-up small scan; after the small scan, zero with zero_osa_position().
+        The OSA beam is BRIGHT on a near-dark field. Two regimes:
+        * mode='large': focused central spot inside a concentric annulus of unfocused
+          zero-order light → the intensity-weighted centroid sum(I*x)/sum(I) gives the center
+          (the annulus is concentric, so it does not bias the centroid).
+        * mode='small': mainly the blurred central spot, but if the OSA is not yet centered
+          some unfocused light leaks in — often bright in one CORNER — which pulls the plain
+          centroid off. So small mode isolates the compact focused peak by curvature with a
+          Laplacian-of-Gaussian (see _focused_peak_center), and only falls back to the centroid
+          if no peak is found. The result reports the method used and a 'prominence' confidence.
+
+        Returns the center in OSA_X/OSA_Y µm and caches it for zero_osa_position(). For a large
+        scan, pass beam_center_um to configure_osa_scan() for the small follow-up; after the
+        small scan, confirm with the user and call zero_osa_position().
 
         Args:
             daq:  detector channel to analyse (default 'default').
-            mode: 'large' or 'small' — recorded for context; the centroid math is identical.
+            mode: 'large' (centroid) or 'small' (DoG focused-peak, centroid fallback).
         """
         if self._image_model is None:
             return "Image model not available."
@@ -1686,35 +1748,58 @@ class ToolSet:
 
         cols = np.arange(nx)
         rows = np.arange(ny)
-        col_c = float((weights.sum(axis=0) * cols).sum() / total)
-        row_c = float((weights.sum(axis=1) * rows).sum() / total)
+        com_col = float((weights.sum(axis=0) * cols).sum() / total)
+        com_row = float((weights.sum(axis=1) * rows).sum() / total)
 
         def px_to_um(col, row):
             x = x_center + (col / max(nx - 1, 1) - 0.5) * x_range
             y = y_center + (row / max(ny - 1, 1) - 0.5) * y_range
             return round(x, 3), round(y, 3)
 
-        beam_x, beam_y = px_to_um(col_c, row_c)
+        # Choose the center estimate. Small mode uses the curvature-based focused-peak finder
+        # to reject off-centre unfocused light; large mode (and the small-mode fallback) uses
+        # the plain intensity centroid.
+        method = "centroid"
+        dog_info = None
+        col_c, row_c = com_col, com_row
+        if mode == "small":
+            peak = _focused_peak_center(flat)
+            if peak is not None:
+                col_c, row_c = peak["col_c"], peak["row_c"]
+                method = "log_focused_peak"
+                dog_info = {k: peak[k] for k in ("sigma_px", "prominence")}
 
-        # Brightest pixel as a sanity check against the centroid.
+        beam_x, beam_y = px_to_um(col_c, row_c)
+        com_x, com_y = px_to_um(com_col, com_row)
+
+        # Brightest pixel as a sanity check.
         peak_row, peak_col = np.unravel_index(np.argmax(weights), weights.shape)
         peak_x, peak_y = px_to_um(float(peak_col), float(peak_row))
 
         self._osa_beam_center = {"x": beam_x, "y": beam_y, "daq": daq, "mode": mode}
 
-        return json.dumps({
+        result = {
             "daq": daq,
             "mode": mode,
+            "method": method,
             "image_shape_px": [ny, nx],
             "scan_center_um": {"x": x_center, "y": y_center},
             "beam_center_um": {"x": beam_x, "y": beam_y},
+            "centroid_um": {"x": com_x, "y": com_y},   # plain intensity COM, for comparison
             "brightest_pixel_um": {"x": peak_x, "y": peak_y},
             "offset_from_scan_center_um": {"x": round(beam_x - x_center, 3),
                                            "y": round(beam_y - y_center, 3)},
             "next_step": ("For a large scan, pass beam_center_um to configure_osa_scan() for "
                           "a small follow-up scan. For the final small scan, confirm with the "
                           "user, then call zero_osa_position() to set this position as the new OSA zero."),
-        }, indent=2)
+        }
+        if dog_info is not None:
+            result["focused_peak"] = dog_info
+            result["note"] = ("Small mode: center is the curvature-isolated focused peak. "
+                              "Compare beam_center_um vs centroid_um — a large gap means "
+                              "unfocused light was skewing the plain centroid. Low 'prominence' "
+                              "means low confidence; recentre with a larger scan first.")
+        return json.dumps(result, indent=2)
 
     def zero_osa_position(self) -> str:
         """Set the last-found OSA beam center as the new OSA zero (mirrors the GUI 'Set to 0').

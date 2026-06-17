@@ -537,15 +537,21 @@ class MainController(QObject):
                     y_range  = message.get('yRange')
                     y_pts    = message.get('yPoints')
                     if None not in (x_center, x_range, x_pts, y_center, y_range, y_pts):
-                        x_step = round(x_range / x_pts, 4) if x_pts else 0.0
-                        y_step = round(y_range / y_pts, 4) if y_pts else 0.0
+                        # The broadcast xRange/yRange is the position SPAN (xStop-xStart) =
+                        # (N-1)*step (see base_scan.get_scan_region_geometry). The scan-region
+                        # widget uses the full field (N*step), one pixel larger, so convert by
+                        # adding one step. Without this, a live/external scan — and the in-flight
+                        # messages that arrive after a scan is cancelled — push the routine range
+                        # into the widget, leaving it one pixel too small.
+                        x_step = x_range / (x_pts - 1) if x_pts and x_pts > 1 else 0.0
+                        y_step = y_range / (y_pts - 1) if y_pts and y_pts > 1 else 0.0
                         geo_config = {
                             'scan_regions': {
                                 'Region1': {
                                     'xCenter': x_center, 'yCenter': y_center,
-                                    'xRange':  x_range,  'yRange':  y_range,
+                                    'xRange':  x_range + x_step, 'yRange':  y_range + y_step,
                                     'xPoints': x_pts,    'yPoints': y_pts,
-                                    'xStep':   x_step,   'yStep':   y_step,
+                                    'xStep':   round(x_step, 4), 'yStep':   round(y_step, 4),
                                 }
                             }
                         }
