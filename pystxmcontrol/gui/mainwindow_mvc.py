@@ -2559,14 +2559,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     entry = self.nx.data[f'entry{ri}']
                     xp = np.atleast_1d(entry['xpos']).flatten()
                     yp = np.atleast_1d(entry['ypos']).flatten()
-                    xr = float(xp.max() - xp.min())
-                    yr = float(yp.max() - yp.min())
-                    xc = float(xp.min() + xr / 2.0)
-                    yc = float(yp.min() + yr / 2.0)
+                    # xp/yp are actual pixel-center positions, so their span is the distance
+                    # between the first and last pixel centers = (N-1)*step — the "scan
+                    # routine" range. The scan-region widget expects the full field (N*step),
+                    # which is one pixel larger, so add one step to convert.
+                    x_span = float(xp.max() - xp.min())
+                    y_span = float(yp.max() - yp.min())
                     nx_pts = int(xp.size)
                     ny_pts = int(yp.size)
-                    xs = float(entry.get('xstepsize', xr / nx_pts if nx_pts > 1 else xr))
-                    ys = float(entry.get('ystepsize', yr / ny_pts if ny_pts > 1 else yr))
+                    xs = float(entry.get('xstepsize', x_span / (nx_pts - 1) if nx_pts > 1 else x_span))
+                    ys = float(entry.get('ystepsize', y_span / (ny_pts - 1) if ny_pts > 1 else y_span))
+                    xr = x_span + xs   # full-field (widget) range = N*step
+                    yr = y_span + ys
+                    xc = float(xp.min() + x_span / 2.0)
+                    yc = float(yp.min() + y_span / 2.0)
                     scan_regions_cfg[f'Region{ri + 1}'] = {
                         'xCenter': round(xc, 4), 'yCenter': round(yc, 4),
                         'xRange':  round(xr, 4), 'yRange':  round(yr, 4),
