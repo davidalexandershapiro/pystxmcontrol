@@ -1,6 +1,7 @@
 {
     "server": {
-        "host": "127.0.0.1",
+        "stxm_address": "127.0.0.1",
+        "ccd_address": "127.0.0.1",
         "name": "My STXM",
         "command_port": 9999,
         "stxm_data_port": 9998,

@@ -7,8 +7,17 @@ This demonstrates how to use the refactored MVC components.
 import sys
 import os
 import json
+import logging
 import faulthandler
 faulthandler.enable()   # print Python traceback to stderr on SIGSEGV/SIGFPE
+
+# Surface INFO-level logs (e.g. TaskAgent init diagnostics) to the terminal. Without this,
+# the GUI process has no logging handler, so only WARNING+ reach stderr via lastResort.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 import qdarktheme
 from PySide6.QtWidgets import QApplication, QSplashScreen

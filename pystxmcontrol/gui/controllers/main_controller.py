@@ -1,11 +1,14 @@
 from PySide6.QtCore import QObject, Signal, QThread
 from typing import Dict, Any, Optional
+import logging
 import os
 import re
 import time
 import sys
 import numpy as np
 from queue import Queue
+
+log = logging.getLogger(__name__)
 
 from ..models.scan_model import ScanModel
 from ..models.motor_model import MotorModel
@@ -1015,16 +1018,34 @@ class MainController(QObject):
         self.message_queue.put({"command": "setGate", "mode": mode})
 
     def _initialize_task_agent(self):
-        """Create a TaskAgent if task_agent.enabled=true in main_config."""
+        """Create a TaskAgent if task_agent.enabled=true in main_config.
+
+        main_config comes from the server (over the network on a split GUI/server setup),
+        but the TaskAgent and its LLM client run in THIS (GUI) process — so the API-key
+        env var named by provider.api_key_env must be present in the GUI process, not just
+        in an interactive shell. Logs the resolved config and the full traceback on failure
+        so a silent init failure (which would otherwise route queries to the server's
+        intelligence module) is diagnosable from the log.
+        """
+        cfg = (self.client.main_config or {}).get("task_agent", {})
+        if not cfg.get("enabled", False):
+            log.info("TaskAgent disabled (task_agent.enabled is not true); free-form "
+                     "queries will route to the server intelligence module.")
+            return
+        provider = cfg.get("provider", {}) or {}
+        api_key_env = provider.get("api_key_env", "OPENAI_API_KEY")
+        log.info("Initializing TaskAgent: model=%s base_url=%s api_key_env=%s (present in "
+                 "GUI process=%s)", cfg.get("model"), provider.get("base_url"),
+                 api_key_env, bool(os.environ.get(api_key_env)))
         try:
-            cfg = self.client.main_config.get("task_agent", {})
-            if not cfg.get("enabled", False):
-                return
             from ...controller.task_agent import TaskAgent
             self._task_agent = TaskAgent(self.client.main_config, self.client,
                                          image_model=self.image_model)
+            log.info("TaskAgent initialized (model=%s)", self._task_agent.model)
             self.status_updated.emit("TaskAgent initialized")
         except Exception as e:
+            self._task_agent = None
+            log.exception("TaskAgent init failed")
             self.error_occurred.emit(f"TaskAgent init failed: {e}")
 
     def run_task(self, goal: str):
@@ -1064,6 +1085,14 @@ class MainController(QObject):
         """Route a free-form query to TaskAgent if available, otherwise to the server's intelligence module."""
         if self._task_agent is not None:
             self.run_task(text)
+        elif (self.client.main_config or {}).get("task_agent", {}).get("enabled", False):
+            # Enabled in config but never initialized — do NOT silently fall through to the
+            # intelligence module (it can't drive the instrument and its 'no session events'
+            # reply masks the real problem). Surface the failure instead.
+            msg = ("Task agent is enabled but failed to initialize — see the log for "
+                   "'TaskAgent init failed'. Query not sent.")
+            log.warning(msg)
+            self.error_occurred.emit(msg)
         else:
             self.message_queue.put({"command": "agent_query", "query": text})
 
