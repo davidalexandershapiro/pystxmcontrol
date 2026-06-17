@@ -982,6 +982,17 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.scanType.setCurrentIndex(matched_index)
             self.ui.scanType.blockSignals(False)
 
+        # Sync the motor combos to the incoming scan's motors (from scan.json). Without
+        # this, an external scan that uses different motors (e.g. a task-agent OSA scan
+        # after an Image scan) leaves the combos on the old motors, so the next GUI-started
+        # scan would compile and save the wrong motor names into lastScan.
+        resolved_type = self.ui.scanType.itemText(matched_index) if matched_index != -1 else scan_type
+        x_motor, y_motor = self._motors_for_scan_type(resolved_type)
+        if x_motor:
+            self.ui.xMotorCombo.setCurrentText(x_motor)
+        if y_motor:
+            self.ui.yMotorCombo.setCurrentText(y_motor)
+
         self._set_scan_ui_state(scanning=True)
 
     def _open_motor_panel(self):
@@ -2914,6 +2925,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         except Exception:
             return {}
 
+    def _motors_for_scan_type(self, scan_type: str):
+        """Return (x_motor, y_motor) for *scan_type* from scan.json (scanConfig).
+
+        scan.json is authoritative for which motors a scan type drives; lastScan can hold
+        stale motors written by an externally-launched scan (e.g. a task-agent OSA scan run
+        after an Image scan). Returns ('', '') when scan.json does not pin motors for the
+        type (e.g. Single Motor, where the motor is user-selected).
+        """
+        try:
+            cfg = (self.controller.client.scanConfig or {}).get(scan_type, {})
+        except Exception:
+            cfg = {}
+        return cfg.get("x_motor", "") or "", cfg.get("y_motor", "") or ""
+
     def _apply_last_scan(self, scan_type: str):
         """Populate UI widgets with the last-used values for *scan_type* from main.json."""
         last_scan = self._local_main_config.get("lastScan", {}).get(scan_type)
@@ -2931,8 +2956,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.experimentersLineEdit.setText(last_scan.get("experimenters", ""))
         self.ui.sampleLineEdit.setText(last_scan.get("sample", ""))
 
-        x_motor = last_scan.get("x_motor", "")
-        y_motor = last_scan.get("y_motor", "")
+        # Motor names come from scan.json (authoritative per type), not lastScan, which can
+        # be stale. Fall back to lastScan only when scan.json doesn't pin motors for the type.
+        x_motor, y_motor = self._motors_for_scan_type(scan_type)
+        x_motor = x_motor or last_scan.get("x_motor", "")
+        y_motor = y_motor or last_scan.get("y_motor", "")
         if x_motor:
             self.ui.xMotorCombo.setCurrentText(x_motor)
         if y_motor:
