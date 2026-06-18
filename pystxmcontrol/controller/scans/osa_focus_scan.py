@@ -49,10 +49,14 @@ class OsaFocusScan(BaseScan):
         geom = self.get_scan_region_geometry(0)
         x, y, z = geom["xPos"], geom["yPos"], geom["zPos"]
         xStart, xStop = geom["xStart"], geom["xStop"]
-        xRange, yRange = geom["xRange"], geom["yRange"]
+        xRange = geom["xRange"]
         xPoints, zPoints = geom["xPoints"], geom["zPoints"]
-        xStep, yStep = geom["xStep"], geom["yStep"]
-        yStart = geom["yStart"]
+        xStep = geom["xStep"]
+        # ZonePlateZ is the outer/row axis and is what the image displays vertically, so the
+        # y-display geometry must describe Z (zCenter/zRange/zStep/zStart), NOT OSA_Y. OSA_Y is
+        # fixed for a focus line scan (yRange≈0), so using it collapses the display axis to ~0.
+        zStart, zCenter = geom["zStart"], geom["zCenter"]
+        zRange, zStep = geom["zRange"], geom["zStep"]
 
         # Move ZonePlateZ to focus on the OSA (not the sample)
         A0 = self.controller.motors["Energy"]["motor"].config["A0"]
@@ -71,10 +75,10 @@ class OsaFocusScan(BaseScan):
             "xCenter":   xStart + xRange / 2.,
             "xRange":    xRange,
             "yPoints":   zPoints,   # Z is the outer/row axis for display
-            "yStep":     yStep,
-            "yStart":    yStart,
-            "yCenter":   yStart,
-            "yRange":    yRange,
+            "yStep":     zStep,
+            "yStart":    zStart,
+            "yCenter":   zCenter,
+            "yRange":    zRange,
         })
 
         velocity = None
@@ -95,9 +99,11 @@ class OsaFocusScan(BaseScan):
         samples = xPoints if mode == "continuousLine" else 1
         self.configure_daqs(dwell=self.scanInfo["dwell"], count=1,
                             samples=samples, trigger="BUS")
+        # The physical line runs along X at the fixed OSA_Y position (y[0]); this is the OSA_Y
+        # motor coordinate, distinct from the Z value carried in the y-display fields above.
         self.scanInfo["line_positions"] = [
             np.linspace(xStart, xStop, samples),
-            np.ones(samples) * yStart,
+            np.ones(samples) * y[0],
         ]
 
         # Position Y motor at the start of the OSA path

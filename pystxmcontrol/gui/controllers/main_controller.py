@@ -545,16 +545,23 @@ class MainController(QObject):
                         # into the widget, leaving it one pixel too small.
                         x_step = x_range / (x_pts - 1) if x_pts and x_pts > 1 else 0.0
                         y_step = y_range / (y_pts - 1) if y_pts and y_pts > 1 else 0.0
-                        geo_config = {
-                            'scan_regions': {
-                                'Region1': {
-                                    'xCenter': x_center, 'yCenter': y_center,
-                                    'xRange':  x_range + x_step, 'yRange':  y_range + y_step,
-                                    'xPoints': x_pts,    'yPoints': y_pts,
-                                    'xStep':   round(x_step, 4), 'yStep':   round(y_step, 4),
-                                }
-                            }
+                        region = {
+                            'xCenter': x_center, 'yCenter': y_center,
+                            'xRange':  x_range + x_step, 'yRange':  y_range + y_step,
+                            'xPoints': x_pts,    'yPoints': y_pts,
+                            'xStep':   round(x_step, 4), 'yStep':   round(y_step, 4),
                         }
+                        # For focus scans the broadcast y-axis is ZonePlateZ (see osa_focus_scan),
+                        # and the x-axis is the scanned line. Map them onto the focus (z) fields so
+                        # the Focus/Line tab widgets populate just like a GUI-launched focus scan.
+                        if 'Focus' in scan_type_str:
+                            region.update({
+                                'zCenter': y_center,
+                                'zRange':  y_range + y_step,
+                                'zPoints': y_pts,
+                                'zStep':   round(y_step, 4),
+                            })
+                        geo_config = {'scan_regions': {'Region1': region}}
                         self.scan_region_geometry_updated.emit(geo_config, scan_type_str)
                 self._on_external_scan_detected(scan_type_str)
 

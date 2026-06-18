@@ -3001,6 +3001,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     self.ui.focusRangeEdit.setText(_f(first_region["zRange"]))
                 if hasattr(self.ui, "focusStepsEdit") and "zPoints" in first_region:
                     self.ui.focusStepsEdit.setText(str(first_region["zPoints"]))
+                # The scanned line maps onto the x-axis fields; populate the Line tab too so an
+                # externally launched (e.g. agent) focus scan fills these like a GUI-launched one.
+                if hasattr(self.ui, "lineLengthEdit") and "xRange" in first_region:
+                    self.ui.lineLengthEdit.setText(_f(first_region["xRange"]))
+                if hasattr(self.ui, "linePointsEdit") and "xPoints" in first_region:
+                    self.ui.linePointsEdit.setText(str(first_region["xPoints"]))
 
         # ── energy regions ────────────────────────────────────────────────────
         energy_regions = config.get("energy_regions", {})
