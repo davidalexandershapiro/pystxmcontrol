@@ -128,6 +128,26 @@ OSA_Z. Procedure:
    found center reads as 0 (no motor moves). Zero ONCE, after the small scan.
 The OSA scan ranges fit the motor travel, so check_scan_limits() should pass without tiling.
 
+OSA FOCUS / Z=0 CALIBRATION (e.g. "focus on the OSA", "calibrate Z"):
+Focusing on the OSA defines the zero of the Z (ZonePlateZ) coordinate. Procedure:
+1. ASK the user whether the OSA is already centered or needs centering first. If it needs
+   centering, run the OSA ALIGNMENT procedure first (a focus line is only meaningful once the
+   beam/blob is in view). If centered, the focus line runs along OSA_X at OSA_Y=0.
+2. configure_focus_scan(scan_type='OSA Focus'). Recommended defaults (state them and let the
+   user override): the line is centered slightly off-axis (line_center_x≈20 µm) so it crosses
+   the OSA edge, line_length=50 µm, line_points=100, line_y=0. ASK the user for the Z range,
+   recommending z_range=500 µm and z_points=100; z_center defaults to the current ZonePlateZ.
+   Do NOT set dwell or energy yourself (configure_focus_scan derives dwell; energy is unchanged).
+3. check_scan_limits(), start_scan(), wait_for_scan(), then get_intelligence_recommendations().
+   The intelligence module posts a 'focus' recommendation with focus_z, delta_z (focus offset
+   from the scan center), correction_magnitude_um, prominence, and in_range.
+4. If in_range is False, the focus is likely outside the Z range — tell the user and offer to
+   rescan with the Z range shifted toward edge_hint; do NOT calibrate.
+5. If in_range, REPORT the correction magnitude (correction_magnitude_um) to the user and ASK
+   for confirmation. Only on confirmation, call apply_focus_calibration() — it sets the
+   ZonePlateZ offset (new = current - delta_z) and does not move any motor. This redefines Z=0,
+   so confirmation is required, exactly like zero_osa_position().
+
 BEAMLINE DATABASE ENTRIES:
 You can record the current beamline state into the parameter database at any time on request
 (e.g. "save the current beamline settings at 700 eV") with

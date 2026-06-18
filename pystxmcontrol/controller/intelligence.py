@@ -107,6 +107,64 @@ def _laplacian_variance(image: np.ndarray) -> float:
     return float(np.var(lap))
 
 
+def _focus_crispness(image: np.ndarray, line_smooth: float = 1.0) -> np.ndarray:
+    """Per-row (per-ZonePlateZ) sharpness via Tenengrad (gradient energy) along the line.
+
+    A focus-scan image is rows = ZonePlateZ, cols = position along the scanned line. The
+    feature (OSA edge) is sharp at focus → large Σ(∇I)². Validated on real OSA-focus data
+    (scripts/test_focus_scan.py): Tenengrad gives a clean unimodal peak at the focus row.
+    """
+    from scipy.ndimage import gaussian_filter1d
+    a = np.asarray(image, dtype=float)
+    sm = gaussian_filter1d(a, line_smooth, axis=1) if line_smooth > 0 else a
+    grad = np.gradient(sm, axis=1)
+    return np.sum(grad ** 2, axis=1)
+
+
+def analyze_focus(image: np.ndarray, zvals: np.ndarray,
+                  line_smooth: float = 1.0, row_smooth: float = 1.0,
+                  edge_margin: int = 1) -> dict | None:
+    """Find the focus ZonePlateZ from a focus-scan image (rows=Z, cols=line).
+
+    Returns {focus_z, focus_row, prominence, in_range, edge_hint} or None. The focus is the
+    smooth, prominent, interior peak of the crispness-vs-Z curve; a one-row spike (noise)
+    gets low prominence and a peak at a Z endpoint means the focus is likely outside the
+    scanned range (in_range=False, edge_hint says which way to extend).
+    """
+    from scipy.ndimage import gaussian_filter1d
+    a = np.asarray(image, dtype=float)
+    if a.ndim != 2 or a.shape[0] < 3:
+        return None
+    z = np.asarray(zvals, dtype=float).ravel()
+    n = a.shape[0]
+    if z.size != n:
+        return None
+
+    curve = _focus_crispness(a, line_smooth=line_smooth)
+    cs = gaussian_filter1d(curve, row_smooth) if row_smooth > 0 else curve
+    i = int(np.argmax(cs))
+
+    di = 0.0
+    if 0 < i < n - 1:
+        lo, mid, hi = cs[i - 1], cs[i], cs[i + 1]
+        denom = lo - 2 * mid + hi
+        if denom != 0:
+            di = float(np.clip(0.5 * (lo - hi) / denom, -1.0, 1.0))
+    pos = i + di
+
+    med = float(np.median(cs))
+    mad = float(np.median(np.abs(cs - med)))
+    prominence = float((cs[i] - med) / (1.4826 * mad + 1e-12))
+
+    interior = bool(edge_margin <= i <= n - 1 - edge_margin)
+    focus_z = float(np.interp(pos, np.arange(n), z))
+    edge_hint = None if interior else ("low-Z end" if i <= n // 2 else "high-Z end")
+
+    return {"focus_z": focus_z, "focus_row": float(pos),
+            "prominence": round(prominence, 2), "in_range": interior,
+            "edge_hint": edge_hint}
+
+
 # ---------------------------------------------------------------------------
 # AnomalyDetector
 # ---------------------------------------------------------------------------
@@ -427,6 +485,8 @@ class IntelligenceModule:
         self._com_min_separation: float = float(recom_cfg.get("com_min_separation", 0.0))
         # Two-energy elemental-map analysis (e.g. Fe edge / pre-edge particle finding).
         self._two_energy_enabled: bool = bool(recom_cfg.get("two_energy_analysis", True))
+        # Focus-scan analysis (OSA / sample focus): find the focus ZonePlateZ by per-row crispness.
+        self._focus_enabled: bool = bool(recom_cfg.get("focus_analysis", True))
         self._fe_smooth_sigma: float = float(recom_cfg.get("fe_smooth_sigma", 2.0))
         self._fe_min_separation: float = float(recom_cfg.get("fe_min_separation", 3.0))
         self._fe_min_area: int = int(recom_cfg.get("fe_min_area", 4))
@@ -501,6 +561,11 @@ class IntelligenceModule:
         focus_anomaly = self._detector.check_focus(metrics["focus_score"])
         if focus_anomaly:
             self._handle_anomaly(focus_anomaly)
+
+        # Focus scans: find the focus ZonePlateZ and post a calibration recommendation.
+        if self._focus_enabled and "Focus" in (scan_type or "") and arr.ndim == 2:
+            self._analyze_focus(arr, scan_type, region)
+            return  # a focus image is not a feature image — skip the centering check
 
         # Centering check on the first energy frame of each region.
         # Subsequent frames of a stack are not re-checked to avoid spam.
@@ -634,6 +699,66 @@ class IntelligenceModule:
         if self._publish_fn is not None:
             try:
                 self._publish_fn(result)
+            except Exception:
+                pass
+
+    def _analyze_focus(self, image: np.ndarray, scan_type: str, region: str) -> None:
+        """Find the focus ZonePlateZ and publish a focus-calibration recommendation.
+
+        image is a focus frame (rows = ZonePlateZ steps, cols = position along the line). The
+        correction is the DELTA of the measured focus from the scan centre (the assumed-correct
+        Z): delta = focus_z - z_center. This delta is frame-independent (any A0 shift is constant
+        on both terms and cancels), so the agent applies it directly to the ZonePlateZ offset
+        (new_offset = current_offset - delta), no A0 bookkeeping needed.
+        """
+        geom = self._scan_regions.get(region)
+        if geom is None:
+            return
+        z_start = geom.get("zStart")
+        z_stop = geom.get("zStop")
+        z_points = int(geom.get("zPoints", image.shape[0]) or image.shape[0])
+        z_center = geom.get("zCenter")
+        if z_start is None or z_stop is None or z_points < 3:
+            return
+        if z_center is None:
+            z_center = (float(z_start) + float(z_stop)) / 2.0
+
+        zvals = np.linspace(float(z_start), float(z_stop), z_points)
+        if zvals.size != image.shape[0]:
+            return  # geometry/image mismatch — don't guess
+
+        res = analyze_focus(image, zvals)
+        if res is None:
+            return
+
+        delta = res["focus_z"] - float(z_center)
+        recommendation = {
+            "type": "task_recommendation",
+            "subtype": "focus",
+            "scan_type": scan_type,
+            "region": region,
+            "focus_z": round(res["focus_z"], 4),
+            "scan_center_z": round(float(z_center), 4),
+            # Apply to ZonePlateZ: new_offset = current_offset - delta_z (frame-independent).
+            "delta_z": round(delta, 4),
+            "correction_magnitude_um": round(abs(delta), 4),
+            "prominence": res["prominence"],
+            "in_range": res["in_range"],
+            "edge_hint": res["edge_hint"],
+            "reason": (
+                f"Focus found at ZonePlateZ={res['focus_z']:.3f} "
+                f"({delta:+.3f} µm from the scan centre {float(z_center):.3f}); "
+                f"prominence {res['prominence']:.1f}." +
+                ("" if res["in_range"] else
+                 f" WARNING: focus is at the {res['edge_hint']} of the scan — it may be outside "
+                 f"the Z range; rescan shifted that way before trusting this.")
+            ),
+            "timestamp": time.time(),
+        }
+        self._recorder.record("events", "task_recommendation", **recommendation)
+        if self._publish_fn is not None:
+            try:
+                self._publish_fn(recommendation)
             except Exception:
                 pass
 
