@@ -236,6 +236,19 @@ class stxm_client(QtCore.QThread):
         response = self.send_message(message)
         self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, self.main_config = response['data']
 
+    def getMotorPositions(self):
+        """Force a live hardware poll of all motors and return the fresh positions.
+
+        Unlike get_config (which returns whatever positions the server last cached),
+        the getMotorPositions command makes the server call getPos() on every motor, so
+        the result reflects the current hardware state. Updates currentMotorPositions.
+        """
+        message = {"command": "getMotorPositions"}
+        response = self.send_message(message)
+        if response and response.get("status"):
+            self.currentMotorPositions = response["data"]
+        return self.currentMotorPositions
+
     def change_motor_config(self,motor,key,value):
         #This needs to be a blocking call for the GUI otherwise madness ensues
         message = {"command": "changeMotorConfig"}

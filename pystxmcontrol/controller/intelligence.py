@@ -123,13 +123,21 @@ def _focus_crispness(image: np.ndarray, line_smooth: float = 1.0) -> np.ndarray:
 
 def analyze_focus(image: np.ndarray, zvals: np.ndarray,
                   line_smooth: float = 1.0, row_smooth: float = 1.0,
-                  edge_margin: int = 1) -> dict | None:
+                  edge_margin: int = 1, falloff_frac: float = 0.35) -> dict | None:
     """Find the focus ZonePlateZ from a focus-scan image (rows=Z, cols=line).
 
-    Returns {focus_z, focus_row, prominence, in_range, edge_hint} or None. The focus is the
-    smooth, prominent, interior peak of the crispness-vs-Z curve; a one-row spike (noise)
-    gets low prominence and a peak at a Z endpoint means the focus is likely outside the
-    scanned range (in_range=False, edge_hint says which way to extend).
+    Returns {focus_z, focus_row, confidence, in_range, edge_hint} or None. The focus is the
+    smooth peak of the crispness-vs-Z curve; ``confidence`` (0-1) is how cleanly it turns
+    over on both sides (see below).
+
+    in_range distinguishes a genuine in-window focus from one whose optimum lies beyond the
+    scanned Z. A true in-range focus rises to a peak and FALLS OFF on both sides; an
+    out-of-range focus has its maximum pinned near a boundary with the curve still trending
+    up to that edge (no falloff on that side). Detecting only a near-edge argmax is not
+    enough — on real data the noisy peak can land a few rows shy of the boundary yet the
+    curve never turns over. So in_range requires a peak that is both interior AND descends by
+    at least ``falloff_frac`` of its dynamic range on each side; otherwise edge_hint names the
+    side to extend the scan toward.
     """
     from scipy.ndimage import gaussian_filter1d
     a = np.asarray(image, dtype=float)
@@ -152,16 +160,46 @@ def analyze_focus(image: np.ndarray, zvals: np.ndarray,
             di = float(np.clip(0.5 * (lo - hi) / denom, -1.0, 1.0))
     pos = i + di
 
-    med = float(np.median(cs))
-    mad = float(np.median(np.abs(cs - med)))
-    prominence = float((cs[i] - med) / (1.4826 * mad + 1e-12))
+    # Bilateral-falloff test for out-of-range focus. Use a more heavily smoothed curve so
+    # row-to-row noise can't masquerade as a turnover. The peak's dynamic range is its rise
+    # above the curve's floor; on each side measure how far the curve drops back down.
+    trend = gaussian_filter1d(curve, max(row_smooth, n * 0.05))
+    ti = int(np.argmax(trend))
+    floor = float(trend.min())
+    rise = float(trend[ti]) - floor
+    if rise <= 1e-12:
+        left_drop = right_drop = 0.0
+    else:
+        left_drop = (float(trend[ti]) - float(trend[: ti + 1].min())) / rise
+        right_drop = (float(trend[ti]) - float(trend[ti:].min())) / rise
+    falls_low = left_drop >= falloff_frac    # curve descends toward the low-Z end
+    falls_high = right_drop >= falloff_frac   # curve descends toward the high-Z end
 
-    interior = bool(edge_margin <= i <= n - 1 - edge_margin)
+    # Confidence is the smaller of the two side-falloffs (0-1): how cleanly the crispness
+    # turns over into a real peak on BOTH sides. This is essentially the peak's topographic
+    # prominence normalized by its dynamic range. It replaces the old MAD z-score
+    # "prominence", which conflated noise level and the overall trend and so didn't track
+    # focus quality (an out-of-range ramp could outscore a genuine in-range peak). ~0.5+ is
+    # a clear peak; 0 means no turnover (focus at/beyond an edge).
+    confidence = min(left_drop, right_drop)
+
+    margin = max(edge_margin, int(round(0.05 * n)))
+    interior = bool(margin <= i <= n - 1 - margin)
+    in_range = bool(interior and falls_low and falls_high)
+
+    if in_range:
+        edge_hint = None
+    elif not falls_high:
+        edge_hint = "high-Z end"   # focus is at/beyond the high-Z edge — extend that way
+    elif not falls_low:
+        edge_hint = "low-Z end"
+    else:
+        edge_hint = "low-Z end" if i <= n // 2 else "high-Z end"
+
     focus_z = float(np.interp(pos, np.arange(n), z))
-    edge_hint = None if interior else ("low-Z end" if i <= n // 2 else "high-Z end")
 
     return {"focus_z": focus_z, "focus_row": float(pos),
-            "prominence": round(prominence, 2), "in_range": interior,
+            "confidence": round(confidence, 2), "in_range": in_range,
             "edge_hint": edge_hint}
 
 
@@ -742,13 +780,13 @@ class IntelligenceModule:
             # Apply to ZonePlateZ: new_offset = current_offset - delta_z (frame-independent).
             "delta_z": round(delta, 4),
             "correction_magnitude_um": round(abs(delta), 4),
-            "prominence": res["prominence"],
+            "confidence": res["confidence"],
             "in_range": res["in_range"],
             "edge_hint": res["edge_hint"],
             "reason": (
                 f"Focus found at ZonePlateZ={res['focus_z']:.3f} "
                 f"({delta:+.3f} µm from the scan centre {float(z_center):.3f}); "
-                f"prominence {res['prominence']:.1f}." +
+                f"confidence {res['confidence']:.2f} (0-1, ~0.5+ is a clear peak)." +
                 ("" if res["in_range"] else
                  f" WARNING: focus is at the {res['edge_hint']} of the scan — it may be outside "
                  f"the Z range; rescan shifted that way before trusting this.")

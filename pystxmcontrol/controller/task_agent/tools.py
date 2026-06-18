@@ -445,16 +445,14 @@ class ToolSet:
 
     def get_motor_position(self, axis: str) -> str:
         """Return the current position of a named motor."""
-        if self._positions is None:
+        if self._motors is None:
             self.get_config()
         if self._motors and axis not in self._motors:
             return f"Unknown motor '{axis}'. Call get_config() to see available motors."
         try:
-            pos = self._positions.get(axis) if self._positions else None
-            if pos is None:
-                # Refresh positions
-                self.get_config()
-                pos = self._positions.get(axis) if self._positions else None
+            # Force a live hardware poll rather than serving the cached positions,
+            # which go stale after every move/scan (get_config does not re-poll).
+            pos = self._refresh_positions().get(axis)
             return f"Current position of {axis}: {round(float(pos), 4)}" if pos is not None \
                    else f"Position not available for {axis}"
         except Exception as e:
@@ -1149,12 +1147,25 @@ class ToolSet:
     # Beamline tuning
     # ------------------------------------------------------------------
 
+    def _refresh_positions(self) -> dict:
+        """Force a live hardware poll and update the cached positions.
+
+        get_config() does NOT re-poll the motors server-side, so the cached
+        positions go stale after every move/scan. getMotorPositions forces the
+        server to call getPos() on each motor (which also refreshes the Energy
+        motor's calibratedPosition used by autofocus). Falls back to the cache
+        if the live poll fails.
+        """
+        try:
+            self._positions = self._client.getMotorPositions()
+        except Exception:
+            if self._positions is None:
+                self.get_config()
+        return self._positions or {}
+
     def _motor_pos(self, axis: str) -> float | None:
-        """Return a fresh float position for *axis*, refreshing config if needed."""
-        pos = (self._positions or {}).get(axis)
-        if pos is None:
-            self.get_config()
-            pos = (self._positions or {}).get(axis)
+        """Return a fresh float position for *axis* via a live hardware poll."""
+        pos = self._refresh_positions().get(axis)
         try:
             return float(pos) if pos is not None else None
         except (TypeError, ValueError):
@@ -1245,9 +1256,8 @@ class ToolSet:
             move_res = self.move_motor("Energy", float(energy))
             if not move_res.startswith("Successfully"):
                 return f"Could not move Energy to {energy}: {move_res}"
-            self.get_config()
 
-        positions = self._positions or {}
+        positions = self._refresh_positions()
 
         # Harmonic: prefer the live motor reading, fall back to the beamline DB.
         harmonic = None
@@ -1514,8 +1524,7 @@ class ToolSet:
             fields["notes"] = notes
 
         if populate_from_current:
-            self.get_config()
-            positions = self._positions or {}
+            positions = self._refresh_positions()
             for col, axis in _BEAMLINE_DB_MOTOR_MAP.items():
                 if fields.get(col) is None and positions.get(axis) is not None:
                     fields[col] = positions[axis]
@@ -1642,9 +1651,9 @@ class ToolSet:
                            y_center: float | None = None) -> str:
         """Configure an 'OSA Image' scan for alignment, deriving dwell from stage velocity.
 
-        Sets up a square OSA_X/OSA_Y scan centred on the current OSA position (or the
-        passed center) and computes the per-pixel dwell so the stage moves at the target
-        velocity: dwell_ms = step_um / velocity_mm_s, step_um = extent_um / (points - 1).
+        Sets up a square OSA_X/OSA_Y scan centred on OSA_X/Y = 0 (or the passed center)
+        and computes the per-pixel dwell so the stage moves at the target velocity:
+        dwell_ms = step_um / velocity_mm_s, step_um = extent_um / (points - 1).
         OSA motors are finicky — too fast or too slow distorts the image — so the dwell is
         derived here rather than guessed. Velocity defaults to main.json scan.osa_velocity_mm_s
         (fallback 0.25 mm/s). Energy is left unchanged. Call check_scan_limits() then
@@ -1654,8 +1663,8 @@ class ToolSet:
             extent_um: square scan range in µm (e.g. ~500 large, ~60 small).
             points:    points per axis (e.g. 50 large, 30 small).
             velocity_mm_s: override the configured target stage velocity.
-            x_center, y_center: scan center in OSA µm; default to the current OSA position
-                (use the large-scan beam center here for the follow-up small scan).
+            x_center, y_center: scan center in OSA µm; default to 0 (use the large-scan
+                beam center here for the follow-up small scan).
         """
         if self._motors is None or self._positions is None:
             self.get_config()
@@ -1675,13 +1684,12 @@ class ToolSet:
         if velocity_mm_s <= 0:
             return f"velocity_mm_s must be > 0 (got {velocity_mm_s})."
 
+        # Default the scan center to OSA_X/Y = 0 (the nominal aligned position) rather
+        # than the current stage position, unless the caller passes an explicit center.
         if x_center is None:
-            x_center = self._motor_pos(_OSA_X_MOTOR)
+            x_center = 0.0
         if y_center is None:
-            y_center = self._motor_pos(_OSA_Y_MOTOR)
-        if x_center is None or y_center is None:
-            return ("Could not read current OSA position for the scan center — "
-                    "pass x_center and y_center explicitly.")
+            y_center = 0.0
 
         step_um = extent_um / (points - 1)
         # 1 mm/s == 1 µm/ms, so step_um (µm) / velocity_mm_s (µm/ms) = dwell in ms.
