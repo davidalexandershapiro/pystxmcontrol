@@ -58,6 +58,17 @@ class OsaFocusScan(BaseScan):
         zStart, zCenter = geom["zStart"], geom["zCenter"]
         zRange, zStep = geom["zRange"], geom["zStep"]
 
+        # Capture home positions (before any scan move) so we can restore them on completion
+        # or abort. This scan drives OSA_X, OSA_Y and ZonePlateZ, so all three are restored.
+        x_home = self.controller.allMotorPositions[self.scan["x_motor"]]
+        y_home = self.controller.allMotorPositions[self.scan["y_motor"]]
+        z_home = self.controller.allMotorPositions["ZonePlateZ"]
+
+        def move_home():
+            self.controller.moveMotor(self.scan["x_motor"], x_home)
+            self.controller.moveMotor(self.scan["y_motor"], y_home)
+            self.controller.moveMotor("ZonePlateZ", z_home)
+
         # Move ZonePlateZ to focus on the OSA (not the sample)
         A0 = self.controller.motors["Energy"]["motor"].config["A0"]
         self.controller.moveMotor(
@@ -115,12 +126,16 @@ class OsaFocusScan(BaseScan):
             success = await self._scan_continuous_z(x, z, xStart, xStop, xPoints,
                                                     velocity, A0)
 
+        # Restore the motors to where they started, on both abort and normal completion.
+        # The abort paths in the helpers have already saved/closed out the region.
         if not success:
+            move_home()
             return False
 
         await self.dataHandler.dataQueue.put("endOfScan")
         await asyncio.sleep(0.1)
         self.dataHandler.data.saveRegion(0)
+        move_home()
         return True
 
     async def _scan_point_z(self, x, y, z, A0) -> bool:
