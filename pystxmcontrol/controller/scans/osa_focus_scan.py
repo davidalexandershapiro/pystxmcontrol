@@ -90,6 +90,14 @@ class OsaFocusScan(BaseScan):
             "yStart":    zStart,
             "yCenter":   zCenter,
             "yRange":    zRange,
+            # Also broadcast the explicit Z geometry (same keys as linear_focus) so the GUI
+            # can populate the Focus Center/Range/Steps widgets from the true Z values rather
+            # than inferring them from the display y-axis.
+            "zPoints":   zPoints,
+            "zStep":     zStep,
+            "zStart":    zStart,
+            "zCenter":   zCenter,
+            "zRange":    zRange,
         })
 
         velocity = None

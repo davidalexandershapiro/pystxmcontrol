@@ -551,16 +551,24 @@ class MainController(QObject):
                             'xPoints': x_pts,    'yPoints': y_pts,
                             'xStep':   round(x_step, 4), 'yStep':   round(y_step, 4),
                         }
-                        # For focus scans the broadcast y-axis is ZonePlateZ (see osa_focus_scan),
-                        # and the x-axis is the scanned line. Map them onto the focus (z) fields so
-                        # the Focus/Line tab widgets populate just like a GUI-launched focus scan.
+                        # For focus scans, populate the focus (z) fields from the broadcast's
+                        # explicit z geometry — NOT from y_center. The two focus drivers disagree
+                        # on what the y-axis means (osa_focus_scan sets yCenter=zCenter for the
+                        # display, but linear_focus keeps yCenter=SampleY), so reusing y_center
+                        # stuffs SampleY into the Focus Center widget. This is also why an
+                        # in-flight message arriving after a cancel could corrupt the Z center.
                         if 'Focus' in scan_type_str:
-                            region.update({
-                                'zCenter': y_center,
-                                'zRange':  y_range + y_step,
-                                'zPoints': y_pts,
-                                'zStep':   round(y_step, 4),
-                            })
+                            z_center = message.get('zCenter')
+                            z_range  = message.get('zRange')
+                            z_pts    = message.get('zPoints')
+                            if None not in (z_center, z_range, z_pts):
+                                z_step = z_range / (z_pts - 1) if z_pts and z_pts > 1 else 0.0
+                                region.update({
+                                    'zCenter': z_center,
+                                    'zRange':  z_range + z_step,
+                                    'zPoints': z_pts,
+                                    'zStep':   round(z_step, 4),
+                                })
                         geo_config = {'scan_regions': {'Region1': region}}
                         self.scan_region_geometry_updated.emit(geo_config, scan_type_str)
                 self._on_external_scan_detected(scan_type_str)

@@ -51,6 +51,12 @@ _OSA_DWELL_MAX_MS = 500.0
 _OSA_X_MOTOR = "OSA_X"
 _OSA_Y_MOTOR = "OSA_Y"
 
+# Single-energy scans do NOT command the Energy motor server-side (skipping the energy-change
+# overhead lets them start faster). start_scan therefore moves Energy itself when the configured
+# energy differs from the current position by more than this tolerance (eV); when already at the
+# target it skips the move, preserving the fast start.
+_ENERGY_MATCH_TOL_EV = 0.1
+
 # Beamline-database columns that map cleanly to a live motor position, for
 # save_beamline_entry(populate_from_current=True).  Other columns (grating, exit
 # slits, m121/m101 angles) have no unambiguous motor and must be passed explicitly.
@@ -480,6 +486,11 @@ class ToolSet:
         Call without arguments to inspect the current configuration.
         Pass keyword arguments matching ScanModel fields to change values.
         The updated scan is held in memory until start_scan() is called.
+
+        Energy note: setting energy_start (a single-energy scan) only records the value in the
+        scan config — it does NOT move the Energy motor. The motor is moved to that energy by
+        start_scan() just before the scan runs, so a scan requested at a different energy than
+        the current one runs at the requested energy without any extra step here.
         """
         try:
             if kwargs:
@@ -611,11 +622,52 @@ class ToolSet:
         _, result = self._validate_scan_limits()
         return json.dumps(result, indent=2)
 
+    def _single_scan_energy(self) -> float | None:
+        """Return the energy (eV) of a single-energy scan, or None for a multi-energy scan.
+
+        Multi-energy scans (energy_list with >1 entry, or energy_points > 1) move the Energy
+        motor per energy point in the driver, so they need no pre-move.
+        """
+        energy_list = self._scan.get('energy_list')
+        if energy_list:
+            return float(energy_list[0]) if len(energy_list) == 1 else None
+        if int(self._scan.get('energy_points', 1) or 1) > 1:
+            return None
+        return float(self._scan.get('energy_start'))
+
+    def _ensure_scan_energy(self) -> str | None:
+        """Move the Energy motor to a single-energy scan's energy before it starts.
+
+        Single-energy scans do NOT command the Energy motor server-side (to skip the
+        energy-change overhead and start faster), so a scan configured at, say, 708 eV would
+        otherwise run at whatever energy the motor currently sits at. Mirrors the GUI's
+        "move to first energy" step. Skips the move when already at the target (within
+        _ENERGY_MATCH_TOL_EV), preserving the fast start. Returns a human-readable note about
+        the move, or None if no move was needed/applicable.
+        """
+        target = self._single_scan_energy()
+        if target is None:
+            return None
+        current = self._motor_pos("Energy")
+        if current is not None and abs(current - target) <= _ENERGY_MATCH_TOL_EV:
+            return None
+        res = self.move_motor("Energy", target)
+        if not res.startswith("Successfully"):
+            # Surface the failure to the caller so it doesn't scan at the wrong energy.
+            return f"ENERGY MOVE FAILED: {res}"
+        return f"moved Energy {current}→{target} eV before scan" if current is not None \
+               else f"moved Energy to {target} eV before scan"
+
     def start_scan(self) -> str:
         """Submit the current scan definition to the server and start acquisition.
 
         Returns immediately once the server acknowledges the scan has started.
         Use get_scan_status() to poll for completion.
+
+        Note: a single-energy scan does NOT change the Energy motor itself (the server skips
+        the energy-change overhead so these scans start faster). start_scan therefore moves
+        Energy to the configured scan energy first when it differs from the current position;
+        if it already matches, the move is skipped.
         """
         if self._scans_config is None:
             self.get_config()
@@ -625,12 +677,16 @@ class ToolSet:
                     + "; ".join(result["oversize"])
                     + ". Ask the user whether to run a tiled or coarse_only scan, then "
                       "update_scan(tiled=True) or update_scan(coarse_only=True) and retry.")
+        energy_note = self._ensure_scan_energy()
+        if energy_note and energy_note.startswith("ENERGY MOVE FAILED"):
+            return f"Scan not started — {energy_note}"
         try:
             scan_dict = _build_scan_dict(self._scan, self._scans_config or {})
             response = self._client.send_message({"command": "scan", "scan": scan_dict})
             if response and response.get('status'):
                 self._was_scanning = True
-                return f"Scan started: {self._scan['scan_type']} ({self._scan['x_range']}×{self._scan['y_range']} µm)"
+                msg = f"Scan started: {self._scan['scan_type']} ({self._scan['x_range']}×{self._scan['y_range']} µm)"
+                return msg + (f" ({energy_note})" if energy_note else "")
             else:
                 data = response.get('data', 'no details') if response else 'no response'
                 return f"Scan failed to start: {data}"
