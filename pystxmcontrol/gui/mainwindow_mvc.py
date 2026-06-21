@@ -947,6 +947,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 if scan_type:
                     self._local_main_config.setdefault('lastScan', {})[scan_type] = scan_config
                 self._set_scan_ui_state(scanning=True)
+                # Drop to single-image mode for non-composite scans now that the scan is
+                # starting (not earlier, so the composite stays available during setup).
+                self._auto_uncheck_composite_on_start(scan_type)
         else:
             self.show_error_message("Failed to compile scan configuration")
             
@@ -994,6 +997,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.yMotorCombo.setCurrentText(y_motor)
 
         self._set_scan_ui_state(scanning=True)
+        # Externally launched (e.g. agent) non-composite scan: drop to single-image mode.
+        self._auto_uncheck_composite_on_start(resolved_type)
 
     def _open_motor_panel(self):
         """Open (or raise) the Motor Panel window."""
@@ -1865,8 +1870,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                 levels = [float(pos_data.min()), float(pos_data.max())]
 
         tiled_scan = self.controller.scan_model.get('tiled', False)
-        composite_on = tiled_scan or (hasattr(self.ui, 'compositeImageCheckbox') and
-                                      self.ui.compositeImageCheckbox.isChecked())
+        checkbox_on = (hasattr(self.ui, 'compositeImageCheckbox') and
+                       self.ui.compositeImageCheckbox.isChecked())
+        # Composite display requires BOTH the box (or a tiled scan) AND a composite-capable
+        # scan type. A Focus/Spectrum/etc. scan therefore never joins the composite even if
+        # the box is still checked, and falls through to single-image display below.
+        composite_on = self._is_composite_scan_type(scan_type) and (tiled_scan or checkbox_on)
 
         if composite_on:
             # Build a unique key for this scan region
@@ -1893,6 +1902,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             if auto_range:
                 self.ui.mainImage.autoRange()
         else:
+            # Single-image mode (box unchecked, or a non-composite scan type). Hide the
+            # retained composite so it doesn't show behind this image; it stays in memory.
+            self._hide_composite_items()
             # Normal (non-composite) mode — update the main ImageView directly
             if levels is not None:
                 self.ui.mainImage.setImage(
@@ -2272,6 +2284,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.ui.compositeImageCheckbox.setEnabled(not scanning)
         self.ui.removeLastImageButton.setEnabled(not scanning)
         self.ui.clearImageButton.setEnabled(not scanning)
+
+        # Data browser: block sending a stored scan to Acquisition while a scan is running.
+        if hasattr(self, 'browser_widget'):
+            self.browser_widget.set_scanning(scanning)
         if hasattr(self.ui, 'firstEnergyButton'):
             self.ui.firstEnergyButton.setEnabled(not scanning)
         self.ui.toggleSingleEnergy.setEnabled(not scanning)
@@ -2952,8 +2968,9 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self.toggle_single_energy()
             return
 
-        # Don't restore the proposal — it is the activation gate.
-        self.ui.experimentersLineEdit.setText(last_scan.get("experimenters", ""))
+        # Don't restore the proposal — it is the activation gate. Experimenters is likewise
+        # NOT restored here: it is driven solely by the proposal selection (on_proposal_changed),
+        # so restoring it per scan-type change would overwrite the proposal's participant list.
         self.ui.sampleLineEdit.setText(last_scan.get("sample", ""))
 
         # Motor names come from scan.json (authoritative per type), not lastScan, which can
@@ -3791,22 +3808,75 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         else:
             self.ui.compositeImageCheckbox.setEnabled(True)
 
+    # Only full raster Image / Spiral Image scans contribute to the composite overlay. Other
+    # scan types (Focus, Line Spectrum, OSA, Stack, Ptychography, …) display as a single image
+    # and must never be added to — or overlaid by — the composite.
+    _COMPOSITE_SCAN_TYPES = ("Image", "Spiral Image")
+
+    def _is_composite_scan_type(self, scan_type: str) -> bool:
+        return scan_type in self._COMPOSITE_SCAN_TYPES
+
+    def _hide_composite_items(self):
+        """Hide all composite items without discarding them.
+
+        Items stay in self.images (and in the scene, just invisible), so the composite is
+        preserved in memory across an intervening single-image scan (e.g. a Focus scan) and
+        can be shown again by re-checking the composite box. This is the core of letting the
+        composite persist rather than being destroyed.
+        """
+        for item in self.images.values():
+            if shiboken6.isValid(item):
+                item.setVisible(False)
+
+    def _show_composite_items(self):
+        """Show all retained composite items (composite display mode)."""
+        # Clear the single-scan image so it doesn't show behind the composite tiles.
+        try:
+            self.ui.mainImage.getImageItem().clear()
+        except Exception:
+            pass
+        for item in self.images.values():
+            if shiboken6.isValid(item):
+                item.setVisible(True)
+
     def update_composite_image(self):
-        """Toggle composite image display mode."""
+        """Toggle between composite display and single-image display.
+
+        Checked  → show the full composite (all Image / Spiral Image tiles).
+        Unchecked→ single-image mode: show only the most recent image. If a single-image scan
+                   (e.g. Focus) is on the main image item it shows there; otherwise the most
+                   recent composite tile is shown and the rest hidden.
+        Items are only shown/hidden here, never deleted, so toggling is reversible and
+        survives intervening non-composite scans.
+        """
         if not hasattr(self.ui, 'compositeImageCheckbox') or not self.images:
             return
         if self.ui.compositeImageCheckbox.isChecked():
-            # Re-add all composite items (order matters for z-stacking)
-            for item in self.images.values():
-                self.ui.mainImage.removeItem(item)
-            for item in self.images.values():
-                self.ui.mainImage.addItem(item)
+            self._show_composite_items()
         else:
-            # Hide all but the most recent composite item
+            # Show only the most recent composite tile; hide the rest. The else-branch of
+            # update_image_data hides this too when a non-composite scan then displays, so a
+            # Focus scan still shows alone.
             last_key = list(self.images.keys())[-1]
             for key, item in self.images.items():
-                if key != last_key:
-                    self.ui.mainImage.removeItem(item)
+                if shiboken6.isValid(item):
+                    item.setVisible(key == last_key)
+
+    def _auto_uncheck_composite_on_start(self, scan_type: str):
+        """When a non-composite scan STARTS, switch to single-image mode.
+
+        Called on scan start (not on scan-type selection) so the user can keep the composite
+        visible while setting up, e.g., a Focus scan, and only have it drop to the single-scan
+        view once the scan actually runs. Composite-capable scans (Image / Spiral Image) leave
+        the checkbox alone. Unchecking hides the composite but keeps it in memory, so checking
+        the box again restores it.
+        """
+        if not hasattr(self.ui, 'compositeImageCheckbox'):
+            return
+        if self._is_composite_scan_type(scan_type):
+            return
+        # setChecked(False) fires update_composite_image, which hides the retained composite.
+        self.ui.compositeImageCheckbox.setChecked(False)
         
     def _populate_proposal_combobox(self):
         """Populate the proposal combobox with ESAF proposals."""
@@ -3871,10 +3941,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     # Get participant list for this proposal
                     participants = self.participants_list[selected_index - 1]  # -1 because index 0 is "Select a Proposal"
 
-                    # Activate GUI first (on_scan_type_changed inside it overwrites experimentersLineEdit)
+                    # Activate the GUI, then set experimenters from the proposal's participants.
+                    # Experimenters is set ONLY here (proposal selection); _apply_last_scan no
+                    # longer touches it, so scan-type changes won't overwrite this value.
                     self._activate_gui()
                     self._set_warning_banner(None)
-                    # Set experimenters after _activate_gui so it isn't overwritten
                     self.ui.experimentersLineEdit.setText(', '.join(participants))
 
                 except (IndexError, AttributeError) as e:

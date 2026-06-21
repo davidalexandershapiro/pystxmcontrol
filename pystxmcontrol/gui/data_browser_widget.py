@@ -435,6 +435,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._ptycho_pixel_um = []   # pixel size in µm per dropdown index
         self._current_filepath = ""
         self._export_meta = {}
+        self._scanning = False   # gates "Send to Acquisition" while a scan is running
         self._is_tiled_detail = False
         self._detail_origin = (0.0, 0.0)  # (x_min, y_min) motor position of non-tiled detail image
         self._browser_tile_items = []   # pg.ImageItems added for tiled composite display
@@ -775,14 +776,28 @@ class DataBrowserWidget(QtWidgets.QWidget):
             card.set_selected(fp == filepath)
         self._show_detail(filepath)
         self.send_analysis_btn.setEnabled(True)
-        self.send_acquisition_btn.setEnabled(True)
+        # Don't re-enable "Send to Acquisition" while a scan is running.
+        self.send_acquisition_btn.setEnabled(not self._scanning)
         self.file_selected.emit(filepath)
+
+    def set_scanning(self, scanning: bool):
+        """Enable/disable 'Send to Acquisition' based on whether a scan is running.
+
+        Pushing a stored scan's configuration into the Acquisition tab mid-scan could clobber
+        the running scan's setup, so the button is disabled while scanning. The state is kept
+        so selecting a file card does not re-enable it during a scan; it is restored when the
+        scan finishes if a file is currently selected.
+        """
+        self._scanning = scanning
+        self.send_acquisition_btn.setEnabled(not scanning and bool(self._current_filepath))
 
     def _on_send_to_analysis(self):
         if self._current_filepath:
             self.send_to_analysis.emit(self._current_filepath)
 
     def _on_send_to_acquisition(self):
+        if self._scanning:
+            return
         if self._current_filepath:
             self.send_to_acquisition.emit(self._current_filepath)
 
@@ -837,7 +852,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
                     energy_str = f"{float(energies[0]):.1f}–{float(energies[-1]):.1f} eV"
                 ct = np.atleast_1d(nx.data["entry0"].get("count_time", np.array([])))
                 if ct.size:
-                    dwell_ms = float(ct.flat[0]) * 1000.0
+                    # count_time is already stored in milliseconds — do NOT rescale.
+                    dwell_ms = float(ct.flat[0])
             except Exception:
                 pass
             self._export_meta = {
@@ -983,7 +999,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
                     yp_arr = np.atleast_1d(grp["sample_y"][()] if "sample_y" in grp else np.array([]))
                     en_arr = np.atleast_1d(grp["energy"][()]   if "energy"   in grp else np.array([]))
                     try:
-                        dwell_val = float(np.atleast_1d(grp["count_time"][()])[0]) * 1000
+                        # count_time is already stored in milliseconds — do NOT rescale.
+                        dwell_val = float(np.atleast_1d(grp["count_time"][()])[0])
                     except Exception:
                         dwell_val = None
                     try:
@@ -994,6 +1011,19 @@ class DataBrowserWidget(QtWidgets.QWidget):
                         y_motor = _h5str(hf["entry0/default/motor_name_y"][()])
                     except Exception:
                         y_motor = nx.meta.get("y_motor", "")
+                    # Motor positions at scan time (entry0/instrument/motors): one scalar per motor.
+                    motor_items = []
+                    try:
+                        mgrp = hf["entry0/instrument/motors"]
+                        for mname in mgrp.keys():
+                            try:
+                                motor_items.append(
+                                    (mname, float(np.atleast_1d(mgrp[mname][()]).flat[0]))
+                                )
+                            except Exception:
+                                pass
+                    except Exception:
+                        motor_items = []
 
                 if xp_arr.size > 1:
                     dx = float(xp_arr[1] - xp_arr[0]) if xp_arr.size > 1 else 0.0
@@ -1016,11 +1046,16 @@ class DataBrowserWidget(QtWidgets.QWidget):
                         f"{float(en_arr.min()):.2f}–{float(en_arr.max()):.2f} eV"
                     )
                 if dwell_val is not None:
-                    lines.append(f"{'Dwell:':<{w}}{dwell_val:.1f} ms")
+                    lines.append(f"{'Dwell:':<{w}}{dwell_val:.3f} ms")
                 if x_motor:
                     lines.append(f"{'X motor:':<{w}}{x_motor}")
                 if y_motor:
                     lines.append(f"{'Y motor:':<{w}}{y_motor}")
+                if motor_items:
+                    lines.append("")
+                    lines.append("Motor positions:")
+                    for mname, mval in motor_items:
+                        lines.append(f"  {mname:<{w}}{mval:.3f}")
             except Exception:
                 pass
 
@@ -1128,7 +1163,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
             if x_scale and x_scale > 0:
                 row2_parts.append(f"Pixel Size: {x_scale:.3f} µm")
         if m.get("dwell_ms") is not None:
-            row2_parts.append(f"Dwell: {m['dwell_ms']:.1f} ms")
+            row2_parts.append(f"Dwell: {m['dwell_ms']:.3f} ms")
         if m.get("energy"):
             row2_parts.append(f"Energy: {m['energy']}")
         row2 = '   '.join(row2_parts)
