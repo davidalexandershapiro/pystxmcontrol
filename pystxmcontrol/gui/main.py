@@ -25,7 +25,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtCore import Qt
 from pystxmcontrol.gui.mainwindow_mvc import MainWindowMVC
 
-_ICONS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'icons'))
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), 'icons')
 
 
 def _load_gui_theme():

@@ -1463,7 +1463,7 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         # ALS logo
         _here     = os.path.dirname(os.path.abspath(__file__))
-        logo_path = os.path.join(_here, '..', '..', 'icons', 'als-logo.png')
+        logo_path = os.path.join(_here, 'icons', 'als-logo.png')
         logo      = QtGui.QImage(logo_path)
         logo_w    = logo.width()  if not logo.isNull() else 0
         logo_h    = logo.height() if not logo.isNull() else 0

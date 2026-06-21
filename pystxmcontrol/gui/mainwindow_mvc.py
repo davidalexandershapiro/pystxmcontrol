@@ -453,7 +453,7 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         _logo_filename = (self.controller.client.main_config
                           .get('gui', {}).get('logo', 'als-logo.png'))
         _logo_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), '..', '..', 'icons', _logo_filename))
+            os.path.join(os.path.dirname(__file__), 'icons', _logo_filename))
         _logo_pix = QtGui.QPixmap(_logo_path)
         if not _logo_pix.isNull():
             _logo_pix = _logo_pix.scaledToHeight(30, QtCore.Qt.SmoothTransformation)

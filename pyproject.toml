@@ -81,7 +81,8 @@ where = ["."]
 include = ["pystxmcontrol*"]
 
 [tool.setuptools.package-data]
-pystxmcontrol = []
+"pystxmcontrol.utils" = ["data/*.csv"]
+"pystxmcontrol.gui" = ["icons/*"]
 
 [tool.setuptools.data-files]
 "pystxmcontrol_cfg" = [

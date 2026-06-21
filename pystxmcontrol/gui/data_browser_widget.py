@@ -545,7 +545,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self.detail_image = pg.ImageView()
         normal_layout.addWidget(self.detail_image, stretch=1)
         _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  '..', '..', 'icons', 'als-logo.png')
+                                  'icons', 'als-logo.png')
         self._detail_overlay = _MetadataOverlay(self.detail_image, logo_path=_logo_path)
 
         self.detail_stack.addWidget(normal_page)
@@ -1343,7 +1343,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
         # ── ALS logo ──────────────────────────────────────────────────────────
         _here     = os.path.dirname(os.path.abspath(__file__))
-        logo_path = os.path.join(_here, '..', '..', 'icons', 'als-logo.png')
+        logo_path = os.path.join(_here, 'icons', 'als-logo.png')
         logo      = QtGui.QImage(logo_path)
         logo_w    = logo.width()  if not logo.isNull() else 0
         logo_h    = logo.height() if not logo.isNull() else 0

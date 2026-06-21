@@ -8,7 +8,7 @@ _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _install_desktop_file():
-    icon_path = os.path.join(_REPO_ROOT, 'icons', 'pystxmcontrol_icon.png')
+    icon_path = os.path.join(_REPO_ROOT, 'pystxmcontrol', 'gui', 'icons', 'pystxmcontrol_icon.png')
     desktop_dir = os.path.expanduser('~/.local/share/applications')
     os.makedirs(desktop_dir, exist_ok=True)
     desktop_path = os.path.join(desktop_dir, 'pystxmcontrol.desktop')
