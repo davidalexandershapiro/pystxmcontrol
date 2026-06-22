@@ -1826,18 +1826,26 @@ class ToolSet:
             result["warning"] = warning
         return json.dumps(result, indent=2)
 
-    def get_osa_beam_center(self, daq: str = "default", mode: str = "small") -> str:
+    def get_osa_beam_center(self, daq: str = "default", mode: str = "small",
+                            method: str = "auto") -> str:
         """Find the OSA beam center from the last scan image.
 
-        The OSA beam is BRIGHT on a near-dark field. Two regimes:
-        * mode='large': focused central spot inside a concentric annulus of unfocused
-          zero-order light → the intensity-weighted centroid sum(I*x)/sum(I) gives the center
-          (the annulus is concentric, so it does not bias the centroid).
-        * mode='small': mainly the blurred central spot, but if the OSA is not yet centered
-          some unfocused light leaks in — often bright in one CORNER — which pulls the plain
-          centroid off. So small mode isolates the compact focused peak by curvature with a
-          Laplacian-of-Gaussian (see _focused_peak_center), and only falls back to the centroid
-          if no peak is found. The result reports the method used and a 'prominence' confidence.
+        The OSA beam is BRIGHT on a near-dark field. Two estimators are available, chosen with
+        ``method``:
+        * 'centroid' — the intensity-weighted center of mass sum(I*x)/sum(I). Robust for a single
+          broad/concentric blob (a focused spot inside a concentric annulus, or a defocused blob):
+          the symmetry keeps the centroid on the true center.
+        * 'log' — the curvature-isolated focused peak (Laplacian-of-Gaussian, see
+          _focused_peak_center). Rejects an off-centre RAMP of unfocused light (often bright in one
+          CORNER) that would pull the plain centroid off. BUT on a single broad smooth blob with no
+          compact spot the LoG response is a ring and its argmax can lock onto the blob's curvature
+          shoulder — giving a center pushed off toward one side (use 'centroid' instead there).
+        * 'auto' (default) — 'log' for mode='small', 'centroid' for mode='large'. Falls back to the
+          centroid if the LoG finds no compact peak.
+
+        The result always reports BOTH estimates (beam_center_um is the chosen one; centroid_um is
+        the plain COM) plus their disagreement, so you can compare and re-run with an explicit
+        method if the chosen estimate looks wrong.
 
         Returns the center in OSA_X/OSA_Y µm and caches it for zero_osa_position(). For a large
         scan, pass beam_center_um to configure_osa_scan() for the small follow-up; after the
@@ -1845,7 +1853,8 @@ class ToolSet:
 
         Args:
             daq:  detector channel to analyse (default 'default').
-            mode: 'large' (centroid) or 'small' (DoG focused-peak, centroid fallback).
+            mode: 'large' or 'small' — only affects the 'auto' estimator choice.
+            method: 'auto' (default), 'centroid' (intensity COM), or 'log' (focused peak).
         """
         if self._image_model is None:
             return "Image model not available."
@@ -1886,18 +1895,31 @@ class ToolSet:
             y = y_center + (row / max(ny - 1, 1) - 0.5) * y_range
             return round(x, 3), round(y, 3)
 
-        # Choose the center estimate. Small mode uses the curvature-based focused-peak finder
-        # to reject off-centre unfocused light; large mode (and the small-mode fallback) uses
-        # the plain intensity centroid.
+        # Resolve the requested estimator. 'auto' picks LoG for small mode (reject off-centre
+        # unfocused light) and the plain centroid for large mode; explicit 'centroid'/'log'
+        # override that. The LoG can lock onto a broad blob's curvature ring, so 'centroid' is
+        # the escape hatch for a single smooth blob.
+        method_req = (method or "auto").strip().lower()
+        if method_req in ("com", "center_of_mass"):
+            method_req = "centroid"
+        if method_req not in ("auto", "centroid", "log"):
+            return (f"Unknown method '{method}'. Use 'auto' (default), 'centroid' "
+                    f"(intensity center of mass), or 'log' (curvature-isolated focused peak).")
+
         method = "centroid"
         dog_info = None
+        log_note = None
         col_c, row_c = com_col, com_row
-        if mode == "small":
+        want_log = method_req == "log" or (method_req == "auto" and mode == "small")
+        if want_log:
             peak = _focused_peak_center(flat)
             if peak is not None:
                 col_c, row_c = peak["col_c"], peak["row_c"]
                 method = "log_focused_peak"
                 dog_info = {k: peak[k] for k in ("sigma_px", "border_margin_px", "prominence")}
+            elif method_req == "log":
+                log_note = ("Requested method='log' but no compact focused peak was found "
+                            "(likely a broad smooth blob) — used the centroid instead.")
 
         beam_x, beam_y = px_to_um(col_c, row_c)
         com_x, com_y = px_to_um(com_col, com_row)
@@ -1908,27 +1930,37 @@ class ToolSet:
 
         self._osa_beam_center = {"x": beam_x, "y": beam_y, "daq": daq, "mode": mode}
 
+        # Gap between the chosen center and the plain centroid — a large value flags that the
+        # LoG and the COM disagree, so the caller can reconsider the method.
+        disagreement_um = round(float(np.hypot(beam_x - com_x, beam_y - com_y)), 3)
+
         result = {
             "daq": daq,
             "mode": mode,
+            "method_requested": method_req,
             "method": method,
             "image_shape_px": [ny, nx],
             "scan_center_um": {"x": x_center, "y": y_center},
             "beam_center_um": {"x": beam_x, "y": beam_y},
             "centroid_um": {"x": com_x, "y": com_y},   # plain intensity COM, for comparison
             "brightest_pixel_um": {"x": peak_x, "y": peak_y},
+            "centroid_vs_chosen_gap_um": disagreement_um,
             "offset_from_scan_center_um": {"x": round(beam_x - x_center, 3),
                                            "y": round(beam_y - y_center, 3)},
             "next_step": ("For a large scan, pass beam_center_um to configure_osa_scan() for "
                           "a small follow-up scan. For the final small scan, confirm with the "
                           "user, then call zero_osa_position() to set this position as the new OSA zero."),
         }
-        if dog_info is not None:
+        if log_note is not None:
+            result["note"] = log_note
+        elif dog_info is not None:
             result["focused_peak"] = dog_info
-            result["note"] = ("Small mode: center is the curvature-isolated focused peak. "
-                              "Compare beam_center_um vs centroid_um — a large gap means "
-                              "unfocused light was skewing the plain centroid. Low 'prominence' "
-                              "means low confidence; recentre with a larger scan first.")
+            result["note"] = ("Center is the curvature-isolated focused peak (LoG). Compare "
+                              "beam_center_um vs centroid_um (gap = centroid_vs_chosen_gap_um): a "
+                              "large gap with HIGH prominence means unfocused light was skewing the "
+                              "centroid (trust the LoG). A large gap with LOW prominence on a single "
+                              "broad smooth blob means the LoG locked onto the blob's curvature ring "
+                              "— re-run with method='centroid'.")
         return json.dumps(result, indent=2)
 
     def zero_osa_position(self) -> str:
@@ -2667,19 +2699,23 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "get_osa_beam_center",
             "description": (
-                "Find the OSA beam center as the intensity-weighted centroid of the last OSA scan "
-                "image. The OSA beam is BRIGHT on a near-dark field (large scan: focused spot plus a "
-                "concentric annulus of zero-order light; small scan: blurred central spot); the "
-                "centroid gives the center for both, no background subtraction. Returns the center in "
-                "OSA_X/OSA_Y µm and caches it for zero_osa_position(). For a large scan, feed the "
-                "result to configure_osa_scan() for the small follow-up; after the small scan, "
-                "confirm with the user and call zero_osa_position()."
+                "Find the OSA beam center in the last OSA scan image (BRIGHT beam on a near-dark "
+                "field). Two estimators, chosen with 'method': 'centroid' = intensity center of mass "
+                "(robust for a single broad/concentric blob); 'log' = curvature-isolated focused peak "
+                "(rejects an off-centre ramp of unfocused light, but can lock onto a broad blob's "
+                "curvature ring); 'auto' = log for small mode, centroid for large. The result reports "
+                "BOTH estimates and their gap so you can compare and re-run with an explicit method if "
+                "the chosen one looks wrong. Returns the center in OSA_X/OSA_Y µm and caches it for "
+                "zero_osa_position(). For a large scan, feed beam_center_um to configure_osa_scan() for "
+                "the small follow-up; after the small scan, confirm with the user and call "
+                "zero_osa_position()."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "daq":  {"type": "string", "default": "default", "description": "Detector channel to analyse."},
-                    "mode": {"type": "string", "enum": ["large", "small"], "description": "Recorded for context; centroid math is identical for both."},
+                    "mode": {"type": "string", "enum": ["large", "small"], "description": "Only affects the 'auto' estimator choice (log for small, centroid for large)."},
+                    "method": {"type": "string", "enum": ["auto", "centroid", "log"], "description": "Estimator: 'auto' (default), 'centroid' (intensity COM — use for a single broad blob), or 'log' (focused-peak)."},
                 },
                 "required": [],
             },

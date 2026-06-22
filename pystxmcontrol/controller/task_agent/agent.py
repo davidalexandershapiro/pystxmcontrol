@@ -129,6 +129,13 @@ OSA_Z. Procedure:
    — center on the large-scan result if you ran one, else the current OSA position. Then
    check_scan_limits(), start_scan(), wait_for_scan(), get_osa_beam_center(mode='small'). The
    small image shows the blurred central spot.
+   CENTER METHOD: get_osa_beam_center reports two estimates — beam_center_um (the chosen one) and
+   centroid_um (plain center of mass) — plus their gap and a 'prominence'. The default 'log'
+   method (small mode) isolates a compact focused spot, but on a single broad smooth blob with no
+   compact spot it can lock onto the blob's curvature ring and sit off to one side. If the image
+   is one broad symmetric blob, or the log/centroid gap is large with LOW prominence, re-run
+   get_osa_beam_center(mode='small', method='centroid') and use that. When in doubt, prefer the
+   centroid for a single concentric blob.
 4. Report the beam center and its offset from the current zero, then ASK the user to confirm.
    Only on confirmation, call zero_osa_position() — it adjusts the OSA_X/OSA_Y offsets so the
    found center reads as 0 (no motor moves). Zero ONCE, after the small scan.
