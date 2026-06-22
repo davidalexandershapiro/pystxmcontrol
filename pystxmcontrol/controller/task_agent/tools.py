@@ -1785,11 +1785,27 @@ class ToolSet:
                        f"[{_OSA_DWELL_MIN_MS}, {_OSA_DWELL_MAX_MS}] ms band — check "
                        f"extent/points/velocity before starting.")
 
+        # Run at the CURRENT energy. Switching scan_type to 'OSA Image' re-seeds the baseline
+        # from the server's stale lastScan, which carries an old energy_start/energy_list;
+        # start_scan() would then move Energy to that stale value. Pin the scan to a single
+        # energy at the live Energy position (and clear energy_list) so _ensure_scan_energy()
+        # is a no-op and the OSA scan never changes energy.
+        current_energy = self._motor_pos("Energy")
+        energy_kwargs: dict = {}
+        if current_energy is not None:
+            energy_kwargs = {
+                'energy_start': round(current_energy, 3),
+                'energy_stop':  round(current_energy, 3),
+                'energy_points': 1,
+                'energy_list':  None,
+            }
+
         upd = self.update_scan(
             scan_type='OSA Image', x_motor=_OSA_X_MOTOR, y_motor=_OSA_Y_MOTOR,
             x_center=round(float(x_center), 3), y_center=round(float(y_center), 3),
             x_range=extent_um, y_range=extent_um,
             x_points=points, y_points=points, dwell=dwell_ms,
+            **energy_kwargs,
         )
         if upd.startswith("Invalid") or upd.startswith("Unknown") or upd.startswith("Failed"):
             return f"OSA scan configuration failed: {upd}"
@@ -1803,6 +1819,7 @@ class ToolSet:
             "step_um": round(step_um, 4),
             "velocity_mm_s": velocity_mm_s,
             "dwell_ms": dwell_ms,
+            "energy_ev": round(current_energy, 3) if current_energy is not None else "unchanged",
             "next_step": "Call check_scan_limits(), then start_scan(), then wait_for_scan().",
         }
         if warning:
@@ -2017,12 +2034,27 @@ class ToolSet:
         x_step = line_length / (line_points - 1)
         dwell_ms = round(x_step / velocity_mm_s, 4)
 
+        # Run at the CURRENT energy. Switching scan_type re-seeds the baseline from the
+        # server's stale lastScan (old energy_start/energy_list), which start_scan() would
+        # then move Energy to. Pin to a single energy at the live position so the focus scan
+        # never changes energy (mirrors configure_osa_scan).
+        current_energy = self._motor_pos("Energy")
+        energy_kwargs: dict = {}
+        if current_energy is not None:
+            energy_kwargs = {
+                'energy_start': round(current_energy, 3),
+                'energy_stop':  round(current_energy, 3),
+                'energy_points': 1,
+                'energy_list':  None,
+            }
+
         upd = self.update_scan(
             scan_type=scan_type, x_motor=x_motor, y_motor=y_motor, z_motor="ZonePlateZ",
             x_center=round(float(line_center_x), 3), y_center=round(float(line_y), 3),
             x_range=line_length, y_range=0.0, x_points=line_points, y_points=1,
             z_center=round(float(z_center), 3), z_range=z_range, z_points=z_points,
             dwell=dwell_ms,
+            **energy_kwargs,
         )
         if upd.startswith(("Invalid", "Unknown", "Failed")):
             return f"Focus scan configuration failed: {upd}"
