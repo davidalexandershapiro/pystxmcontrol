@@ -988,6 +988,13 @@ class MainController(QObject):
             scan_config = self.scan_model.to_dict()
             message = {"command": "scan", "scan": scan_config}
             self.message_queue.put(message)
+            # Push the just-launched parameters into the TaskAgent so it can repeat or
+            # modify this scan without a get_config()/update_scan() round-trip.
+            if getattr(self, "_task_agent", None) is not None:
+                try:
+                    self._task_agent.set_last_gui_scan(scan_config)
+                except Exception as e:
+                    log.debug("Could not push scan to TaskAgent: %s", e)
             self.scanning = True
             # Reset motor scan data so a new Single Motor scan starts fresh
             self.image_model._data['motor_scan_x_data'] = []

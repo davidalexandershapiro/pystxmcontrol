@@ -67,6 +67,12 @@ get_config() is called once at session start and is NOT repeated. Its results ma
 stale if scans have run since then. When the user asks about recent scan parameters,
 or when you need the actual parameters of the last scan, call get_last_scan_params()
 — it always fetches fresh data from the server.
+The current scan definition (held by update_scan) always reflects the most recent scan
+run from the GUI or by you. When a scan is launched from the GUI, its parameters are
+pushed in as the working baseline and surfaced to you at the start of your next turn.
+To repeat the last scan with modifications (e.g. "repeat that scan but at 708 eV"), call
+update_scan() with ONLY the parameters that differ — do NOT re-specify the whole scan,
+and do NOT call get_config() to rebuild it.
 
 BEAMLINE TUNING (e.g. "tune the beamline at 700 eV"):
 This is an autonomous hill-climb on two beamline parameters — the EPU gap and the
@@ -207,6 +213,14 @@ class TaskAgent:
         """Clear conversation history so the next run() starts a fresh session."""
         self._messages = []
 
+    def set_last_gui_scan(self, scan_config: dict) -> None:
+        """Push the most recent GUI-launched scan in as the agent's working baseline.
+
+        Called by the GUI controller when a scan starts, so the agent can repeat or modify
+        it with a single update_scan(delta) call instead of pulling via get_config().
+        """
+        self._toolset.set_baseline_from_server_scan(scan_config)
+
     def run(self, goal: str, publish_fn: Optional[Callable[[str], None]] = None) -> str:
         """Execute a goal using the tool-use loop.  Blocks until done.
 
@@ -238,6 +252,18 @@ class TaskAgent:
                     f"[The intelligence module has posted the following recommendations "
                     f"based on the last scan]\n{recs_json}\n\n{goal}"
                 )
+
+        # If the user launched a scan from the GUI since the last turn, surface those
+        # parameters: they are now the working baseline, so a "repeat that scan" request
+        # needs only the changed parameters via update_scan().
+        if self._toolset._gui_scan_dirty:
+            self._toolset._gui_scan_dirty = False
+            scan_json = json.dumps(self._toolset._last_gui_scan, indent=2)
+            goal = (
+                "[Since your last message the user launched a scan from the GUI with these "
+                "parameters. This is now the current scan baseline — to repeat it with changes, "
+                f"call update_scan() with ONLY the parameters that differ.]\n{scan_json}\n\n{goal}"
+            )
 
         self._messages.append({"role": "user", "content": goal})
 

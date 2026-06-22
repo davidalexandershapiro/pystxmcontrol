@@ -344,6 +344,12 @@ class ToolSet:
         self._was_scanning: bool = False         # tracks scanning→idle transition
         self._last_was_multiregion: bool = False  # prevent lastScan contamination after multiregion
 
+        # Most recent scan launched from the GUI, pushed in by the controller so the agent's
+        # baseline matches what the user sees without a get_config()/update_scan() round-trip.
+        # _gui_scan_dirty signals run() to surface the new baseline at the start of the next turn.
+        self._last_gui_scan: dict | None = None
+        self._gui_scan_dirty: bool = False
+
         # Most recent OSA beam-center result (µm in OSA_X/OSA_Y motor coordinates),
         # cached by get_osa_beam_center() and consumed by zero_osa_position().
         self._osa_beam_center: dict | None = None
@@ -413,6 +419,28 @@ class ToolSet:
             "  5. Call get_scan_status() to check progress.\n"
             "  6. Report results to the user."
         )
+
+    def set_baseline_from_server_scan(self, scan_config: dict) -> bool:
+        """Adopt a GUI-launched scan (server nested format) as the working baseline.
+
+        Lets the GUI PUSH the most-recent scan parameters into the agent so the user can
+        say "repeat that scan but at 708 eV" and the agent only needs to set the delta —
+        no get_config()/full update_scan() round-trip required. Returns True if adopted.
+        """
+        try:
+            # Multiregion scans carry per-particle geometry beyond Region1; only Region1 is
+            # convertible and would be a misleading baseline. Skip and force a clean re-seed.
+            if len(scan_config.get('scan_regions', {})) > 1:
+                self._last_was_multiregion = True
+                return False
+            self._scan = ScanModel(**_convert_scan(scan_config)).model_dump()
+            self._last_gui_scan = dict(self._scan)
+            self._gui_scan_dirty = True
+            self._last_was_multiregion = False
+            return True
+        except Exception as e:
+            log.warning("[ToolSet] set_baseline_from_server_scan failed: %s", e)
+            return False
 
     def get_config(self) -> str:
         """Fetch current motor positions, scan configs, and DAQ settings from the server."""
