@@ -642,11 +642,11 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._agent_image.getView().invertY(True)
         self._agent_right_tabs.addTab(self._agent_image, "Image")
 
-        # Logbook view — a shared LogbookModel feeds this view and (routed below) the
-        # Browser/Analysis "Add to log" buttons and the agent, so all writers refresh it live.
-        from pystxmcontrol.gui.models.logbook_model import LogbookModel
+        # Logbook view — the controller's shared LogbookModel feeds this view and (routed
+        # below) the Browser/Analysis "Add to log" buttons and the agent, so all writers
+        # refresh it live. The agent already received this model at construction.
         from pystxmcontrol.gui.logbook_widget import LogbookWidget
-        self._logbook_model = LogbookModel()
+        self._logbook_model = self.controller.logbook_model
         self._logbook_widget = LogbookWidget(
             self._logbook_model,
             default_dir_provider=self._logbook_default_dir,

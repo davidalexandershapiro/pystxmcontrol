@@ -11,6 +11,7 @@ ToolSet instance and persists for the lifetime of one TaskAgent run.
 
 import json
 import logging
+import os
 import time
 import numpy as np
 from .scan_model import ScanModel, validate_scan
@@ -325,9 +326,10 @@ class ToolSet:
     individual functions.
     """
 
-    def __init__(self, client, image_model=None):
+    def __init__(self, client, image_model=None, logbook_model=None):
         self._client = client
         self._image_model = image_model
+        self._logbook_model = logbook_model   # shared LogbookModel for add_to_logbook
         # Flat scan definition managed by update_scan / start_scan
         self._scan: dict = ScanModel().model_dump()
         # Cached config — populated on first get_config() call
@@ -2163,6 +2165,78 @@ class ToolSet:
     # Dispatch
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _array_to_qimage(arr):
+        """Render a 2-D detector array to an autoscaled 8-bit grayscale QImage for a logbook
+        snapshot. Returns None if rendering isn't possible. QImage construction is thread-safe
+        (no widgets), so this is fine on the agent's worker thread."""
+        try:
+            from PySide6.QtGui import QImage
+        except ImportError:
+            return None
+        a = np.asarray(arr, dtype=float)
+        if a.ndim > 2:
+            a = a.reshape(a.shape[0], a.shape[1])
+        if a.ndim != 2 or a.size == 0:
+            return None
+        finite = a[np.isfinite(a)]
+        if finite.size == 0:
+            return None
+        lo, hi = float(finite.min()), float(finite.max())
+        scaled = (a - lo) / (hi - lo) * 255.0 if hi > lo else np.zeros_like(a)
+        buf = np.ascontiguousarray(np.clip(scaled, 0, 255).astype(np.uint8))
+        h, w = buf.shape
+        qimg = QImage(buf.data, w, h, w, QImage.Format_Grayscale8)
+        return qimg.copy()   # copy so the QImage owns its pixels (buf is local)
+
+    def add_to_logbook(self, text: str, attach_last_scan: bool = True,
+                       daq: str = "default") -> str:
+        """Add an entry to the active logbook on the user's behalf.
+
+        Use this to record an observation, a result, or an intelligence recommendation —
+        e.g. after a scan completes, summarise what was done and attach the image. The entry
+        is stamped author='agent'. ``attach_last_scan`` embeds the most recent scan image
+        (grayscale, autoscaled) when one is available. Requires a logbook to be open in the
+        Logbook tab; if none is open, ask the user to open or create one.
+        """
+        model = self._logbook_model
+        if model is None:
+            return "Logbook is not available in this session."
+        if not getattr(model, "folder", None):
+            return ("No logbook is open. Ask the user to open or create one in the Logbook "
+                    "tab (New/Open), then try again.")
+        if not (text or "").strip():
+            return "Refusing to add an empty logbook entry — provide text."
+
+        # Best-effort metadata from the current scan context.
+        meta = {}
+        snap_note = ""
+        if self._image_model is not None:
+            scan_type = self._image_model.get('scan_type', '')
+            energy = self._image_model.get('current_energy')
+            if scan_type:
+                meta['scan_type'] = scan_type
+            if energy is not None:
+                meta['energy'] = f"{float(energy):.1f} eV"
+
+        qimg = None
+        if attach_last_scan and self._image_model is not None:
+            all_images = self._image_model.get('all_detector_images')
+            image = all_images.get(daq) if isinstance(all_images, dict) else None
+            if image is None and isinstance(all_images, dict):
+                image = all_images.get('default')
+            if isinstance(image, np.ndarray):
+                qimg = self._array_to_qimage(image)
+            if qimg is None:
+                snap_note = " (no scan image was available to attach)"
+
+        try:
+            index = model.add(snap_qimage=qimg, meta=meta, text=text, author="agent")
+        except Exception as e:
+            return f"Failed to add logbook entry: {e}"
+        return (f"Added logbook entry #{index} to '{os.path.basename(model.folder)}'"
+                f"{' with the last scan image' if qimg is not None else ''}{snap_note}.")
+
     def dispatch(self, name: str, args: dict) -> str:
         fn = getattr(self, name, None)
         if fn is None:
@@ -2784,6 +2858,33 @@ TOOL_SCHEMAS: list[dict] = [
                                                "last focus recommendation."},
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_logbook",
+            "description": (
+                "Add an entry to the active logbook on the user's behalf — e.g. after a scan, "
+                "summarise what was done and attach the image, or record an intelligence "
+                "recommendation. The entry is stamped author='agent'. By default the most recent "
+                "scan image is embedded. Requires a logbook to be open in the Logbook tab; if none "
+                "is open the tool returns a message asking the user to open or create one. Only add "
+                "entries the user asked for or that clearly document the work just done — do not "
+                "spam the logbook."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string",
+                             "description": "The entry body — the observation, result, or recommendation."},
+                    "attach_last_scan": {"type": "boolean",
+                                         "description": "Embed the most recent scan image (default true)."},
+                    "daq": {"type": "string",
+                            "description": "Detector channel for the attached image (default 'default')."},
+                },
+                "required": ["text"],
             },
         },
     },

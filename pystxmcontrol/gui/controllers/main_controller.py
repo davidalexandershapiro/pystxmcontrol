@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 from ..models.scan_model import ScanModel
 from ..models.motor_model import MotorModel
 from ..models.image_model import ImageModel
+from ..models.logbook_model import LogbookModel
 from ...controller.client import stxm_client
 from ...utils.writeNX import stxm
 
@@ -92,6 +93,9 @@ class MainController(QObject):
         self.scan_model = ScanModel()
         self.motor_model = MotorModel()
         self.image_model = ImageModel()
+        # Shared logbook: the GUI view, the Browser/Analysis writers, and the task agent
+        # all operate on this one model so entries appear live wherever they originate.
+        self.logbook_model = LogbookModel()
         
         # Initialize client and communication
         self.client = stxm_client()
@@ -1068,7 +1072,8 @@ class MainController(QObject):
         try:
             from ...controller.task_agent import TaskAgent
             self._task_agent = TaskAgent(self.client.main_config, self.client,
-                                         image_model=self.image_model)
+                                         image_model=self.image_model,
+                                         logbook_model=self.logbook_model)
             log.info("TaskAgent initialized (model=%s)", self._task_agent.model)
             self.status_updated.emit("TaskAgent initialized")
         except Exception as e:

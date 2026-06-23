@@ -37,6 +37,13 @@ Working principles:
 - When a scan completes, summarize what was done and any anomalies observed.
 - Be concise — the user is a scientist, not a general audience.
 
+LOGBOOK:
+You can record entries in the experiment logbook with add_to_logbook(text, attach_last_scan=True).
+Use it when the user asks you to log something, or to document a scan you just ran together with
+any intelligence recommendation (the image is attached by default). Do NOT log unprompted after
+every action — only when asked or when it clearly captures a meaningful result. If no logbook is
+open the tool will say so; relay that and ask the user to open or create one in the Logbook tab.
+
 SCAN POLLING:
 After start_scan() succeeds, call wait_for_scan() once — it blocks internally until
 the scan finishes and returns a completion message. Do NOT poll get_scan_status() in
@@ -184,14 +191,14 @@ class TaskAgent:
     max_iterations is reached.
     """
 
-    def __init__(self, main_config: dict, client, image_model=None):
+    def __init__(self, main_config: dict, client, image_model=None, logbook_model=None):
         cfg = main_config.get("task_agent", {})
         self.model = cfg.get("model", "claude-opus-4-7")
         # Steps allowed WITHOUT a scan completing (stall/loop guard); a completed scan resets it.
         self.max_iterations = cfg.get("max_iterations", 20)
         # Absolute ceiling across the whole run, regardless of progress (final safety net).
         self.max_total_iterations = cfg.get("max_total_iterations", 200)
-        self._toolset = ToolSet(client, image_model=image_model)
+        self._toolset = ToolSet(client, image_model=image_model, logbook_model=logbook_model)
         self._cancel_event = threading.Event()
         self._messages: list[dict] = []  # persists across run() calls
 
