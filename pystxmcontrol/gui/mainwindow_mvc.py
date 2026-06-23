@@ -642,15 +642,23 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._agent_image.getView().invertY(True)
         self._agent_right_tabs.addTab(self._agent_image, "Image")
 
-        # Logbook placeholder (the right-panel home for the future logbook view).
-        _logbook_placeholder = QtWidgets.QWidget()
-        _lb_layout = QtWidgets.QVBoxLayout(_logbook_placeholder)
-        _lb_label = QtWidgets.QLabel("Logbook — coming soon")
-        _lb_label.setAlignment(QtCore.Qt.AlignCenter)
-        _lb_label.setStyleSheet("color: #888888; font-size: 14px;")
-        _lb_layout.addWidget(_lb_label)
-        self._agent_logbook_placeholder = _logbook_placeholder
-        self._agent_right_tabs.addTab(_logbook_placeholder, "Logbook")
+        # Logbook view — a shared LogbookModel feeds this view and (routed below) the
+        # Browser/Analysis "Add to log" buttons and the agent, so all writers refresh it live.
+        from pystxmcontrol.gui.models.logbook_model import LogbookModel
+        from pystxmcontrol.gui.logbook_widget import LogbookWidget
+        self._logbook_model = LogbookModel()
+        self._logbook_widget = LogbookWidget(
+            self._logbook_model,
+            default_dir_provider=self._logbook_default_dir,
+        )
+        self._agent_right_tabs.addTab(self._logbook_widget, "Logbook")
+
+        # Share the model with the existing writers so their "Add to log" routes to the
+        # active logbook (created/opened above) and the view refreshes live.
+        if getattr(self, "browser_widget", None) is not None:
+            self.browser_widget.logbook_model = self._logbook_model
+        if getattr(self, "_analysis2_tab", None) is not None:
+            self._analysis2_tab.logbook_model = self._logbook_model
 
         # Split agent (left) | right-hand tabs, starting roughly even.
         self._agent_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
@@ -675,6 +683,19 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._intelligence_tab.action_requested.connect(self._on_agent_action)
         self._intelligence_tab.cancel_requested.connect(self.controller.cancel_task)
         self._intelligence_tab.clear_history_requested.connect(self.controller.reset_task_history)
+
+    def _logbook_default_dir(self) -> str:
+        """Default base directory for New/Open logbook dialogs — the browser's current
+        day directory if available, else the user's home."""
+        browser = getattr(self, "browser_widget", None)
+        if browser is not None and hasattr(browser, "current_day_dir"):
+            try:
+                d = browser.current_day_dir()
+                if d:
+                    return d
+            except Exception:
+                pass
+        return os.path.expanduser("~")
 
     def _on_agent_query(self, text: str):
         self.controller.send_agent_query(text)

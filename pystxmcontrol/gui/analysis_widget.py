@@ -1702,13 +1702,20 @@ class Analysis2Widget(QtWidgets.QWidget):
             "scan_type": "STXM Stack",
         }
 
-        folder = os.path.dirname(sv.stack.fileName)
         try:
-            from pystxmcontrol.utils.logbook import add_entry
-            index = add_entry(folder, composite, meta, comment, detail_text)
+            # Route to the active logbook (shared model) when one is open; else fall back
+            # to the source file's day folder.
+            model = getattr(self, "logbook_model", None)
+            if model is not None and model.folder:
+                model.add(composite, meta, comment, detail_text, author="human")
+                folder = model.folder
+            else:
+                from pystxmcontrol.utils.logbook import add_entry
+                folder = os.path.dirname(sv.stack.fileName)
+                add_entry(folder, composite, meta, comment, detail_text)
             QtWidgets.QMessageBox.information(
                 self, "Logbook updated",
-                f"Entry {index} added.\n\nLogbook: {os.path.join(folder, 'logbook.pdf')}",
+                f"Entry added.\n\nLogbook: {os.path.join(folder, 'logbook.pdf')}",
             )
         except Exception as exc:
             import traceback

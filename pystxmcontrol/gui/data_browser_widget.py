@@ -693,6 +693,18 @@ class DataBrowserWidget(QtWidgets.QWidget):
         day_str = yr[-2:] + mo + dy          # e.g. "260327"
         return os.path.join(self._root_dir, yr, mo, day_str)
 
+    def current_day_dir(self) -> str:
+        """Best-effort current day directory (used as a default base for logbooks).
+        May not exist yet; returns "" if no root is set."""
+        if self._direct_day_dir and os.path.isdir(self._direct_day_dir):
+            return self._direct_day_dir
+        if self._root_dir:
+            try:
+                return self._get_day_dir(self.date_edit.date())
+            except Exception:
+                return self._root_dir
+        return ""
+
     def _load_for_date(self):
         if not self._root_dir:
             self.status_label.setText("Select a folder first")
@@ -1453,18 +1465,26 @@ class DataBrowserWidget(QtWidgets.QWidget):
         if out is None:
             return
 
-        folder = os.path.dirname(self._current_filepath)
         comment = self.log_comment_edit.text()
         detail_text = self.detail_text.toPlainText()
 
         try:
-            from pystxmcontrol.utils.logbook import add_entry
-            index = add_entry(folder, out, self._export_meta, comment, detail_text)
+            # Route to the active logbook (shared model) when one is open, so the entry
+            # lands in the user's chosen logbook and the live view refreshes. Fall back to
+            # the source file's day folder when no logbook is active.
+            model = getattr(self, "logbook_model", None)
+            if model is not None and model.folder:
+                model.add(out, self._export_meta, comment, detail_text, author="human")
+                folder = model.folder
+            else:
+                from pystxmcontrol.utils.logbook import add_entry
+                folder = os.path.dirname(self._current_filepath)
+                add_entry(folder, out, self._export_meta, comment, detail_text)
             self.log_comment_edit.clear()
             QtWidgets.QMessageBox.information(
                 self,
                 "Logbook updated",
-                f"Entry {index} added.\n\nLogbook PDF: {os.path.join(folder, 'logbook.pdf')}",
+                f"Entry added.\n\nLogbook PDF: {os.path.join(folder, 'logbook.pdf')}",
             )
         except Exception as e:
             import traceback
