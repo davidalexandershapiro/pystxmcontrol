@@ -93,7 +93,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
         header_row = QtWidgets.QHBoxLayout()
         header_row.setSpacing(4)
         header = QtWidgets.QLabel("AI Agent")
-        header.setStyleSheet("color: #aaaaaa; font-size: 11px; font-weight: bold;")
+        header.setStyleSheet("color: #aaaaaa; font-size: 13px; font-weight: bold;")
         header_row.addWidget(header)
         header_row.addStretch()
         self._clear_btn = QtWidgets.QPushButton("New Topic")
@@ -114,7 +114,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
         self._browser.anchorClicked.connect(self._on_anchor_clicked)
         self._browser.setStyleSheet(
             "QTextBrowser { background-color: #1e1e1e; border: 1px solid #3a3a3a; "
-            "color: #e0e0e0; font-size: 12px; }"
+            "color: #e0e0e0; font-size: 14px; }"
         )
         layout.addWidget(self._browser, stretch=1)
 
@@ -126,7 +126,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
         self._query_input.setPlaceholderText("Describe a goal for the agent…")
         self._query_input.setStyleSheet(
             "QLineEdit { background-color: #2a2a2a; color: #e0e0e0; "
-            "border: 1px solid #3a3a3a; padding: 4px; border-radius: 3px; }"
+            "border: 1px solid #3a3a3a; padding: 4px; border-radius: 3px; font-size: 14px; }"
         )
         self._query_input.returnPressed.connect(self._submit_query)
         input_row.addWidget(self._query_input, stretch=1)
@@ -238,7 +238,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'<div style="background-color:{_C["bg_user"]}; '
             f'border-left:3px solid {_C["user"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
-            f'<span style="color:{_C["user"]}; font-size:10px; font-weight:bold;">'
+            f'<span style="color:{_C["user"]}; font-size:12px; font-weight:bold;">'
             f'You &nbsp; {_ts()}</span><br>'
             f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
             f'</div>'
@@ -268,7 +268,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'<div style="background-color:{bg_color}; '
             f'border-left:3px solid {sev_color}; '
             f'padding:6px 8px; margin:3px 1px;">'
-            f'<span style="color:{sev_color}; font-size:10px; font-weight:bold;">'
+            f'<span style="color:{sev_color}; font-size:12px; font-weight:bold;">'
             f'{badge} &nbsp; {anomaly_type} &nbsp; {_ts()}</span><br>'
             f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
             f'{action_html}'
@@ -309,7 +309,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'<div style="background-color:{_C["bg_recommend"]}; '
             f'border-left:3px solid {_C["recommend"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
-            f'<span style="color:{_C["recommend"]}; font-size:10px; font-weight:bold;">'
+            f'<span style="color:{_C["recommend"]}; font-size:12px; font-weight:bold;">'
             f'{label} &nbsp; {_ts()}</span><br>'
             f'<span style="color:{_C["text"]};">{self._escape(reason)}</span>'
             f'{detail_html}'
@@ -323,7 +323,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'<div style="background-color:{_C["bg_agent"]}; '
             f'border-left:3px solid {_C["agent"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
-            f'<span style="color:{_C["agent"]}; font-size:10px; font-weight:bold;">'
+            f'<span style="color:{_C["agent"]}; font-size:12px; font-weight:bold;">'
             f'Agent &nbsp; {_ts()}</span><br>'
             f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
             f'</div>'

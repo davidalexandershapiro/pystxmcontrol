@@ -624,10 +624,44 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self.ui.tabWidget_3.setCurrentWidget(self.ui.tab_9)
 
     def _initialize_intelligence_tab(self):
-        """Embed IntelligenceWidget as a new tab next to the Console tab."""
+        """Build the top-level Agent tab: a split panel with the interactive agent on the
+        left and, on the right, a tab stack holding a live image mirror and (eventually)
+        the logbook. Promoting it out of the nested Acquisition sub-tabs gives the agent
+        view far more room, and the mirrored image lets the operator watch the live scan
+        while talking to the agent."""
         from pystxmcontrol.gui.intelligence_widget import IntelligenceWidget
         self._intelligence_tab = IntelligenceWidget(parent=self)
-        self.ui.tabWidget_2.addTab(self._intelligence_tab, "Agent")
+
+        # Right panel: a tab stack. Tab 1 mirrors mainImage (live scan view); tab 2 is a
+        # placeholder for the upcoming logbook feature.
+        self._agent_right_tabs = QtWidgets.QTabWidget()
+
+        # Live image mirror — a second ImageView fed the same frames as mainImage from
+        # update_image_display(). invertY matches mainImage's orientation.
+        self._agent_image = pg.ImageView()
+        self._agent_image.getView().invertY(True)
+        self._agent_right_tabs.addTab(self._agent_image, "Image")
+
+        # Logbook placeholder (the right-panel home for the future logbook view).
+        _logbook_placeholder = QtWidgets.QWidget()
+        _lb_layout = QtWidgets.QVBoxLayout(_logbook_placeholder)
+        _lb_label = QtWidgets.QLabel("Logbook — coming soon")
+        _lb_label.setAlignment(QtCore.Qt.AlignCenter)
+        _lb_label.setStyleSheet("color: #888888; font-size: 14px;")
+        _lb_layout.addWidget(_lb_label)
+        self._agent_logbook_placeholder = _logbook_placeholder
+        self._agent_right_tabs.addTab(_logbook_placeholder, "Logbook")
+
+        # Split agent (left) | right-hand tabs, starting roughly even.
+        self._agent_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self._agent_splitter.addWidget(self._intelligence_tab)
+        self._agent_splitter.addWidget(self._agent_right_tabs)
+        self._agent_splitter.setStretchFactor(0, 1)
+        self._agent_splitter.setStretchFactor(1, 1)
+        self._agent_splitter.setSizes([700, 700])
+
+        # Promote to a top-level tab beside Acquisition/Browser.
+        self.ui.tabWidget_3.addTab(self._agent_splitter, "Agent")
         self.controller.intelligence_suggestion_received.connect(
             self._intelligence_tab.add_suggestion
         )
@@ -1835,9 +1869,10 @@ class MainWindowMVC(QtWidgets.QMainWindow):
 
         # Image scans: lock aspect ratio so physical proportions are preserved.
         # Focus/Spectrum scans: unlock so the image always stretches to fill the viewport.
-        self.ui.mainImage.getView().setAspectLocked(
-            "Focus" not in scan_type and "Spectrum" not in scan_type
-        )
+        aspect_locked = "Focus" not in scan_type and "Spectrum" not in scan_type
+        self.ui.mainImage.getView().setAspectLocked(aspect_locked)
+        if getattr(self, "_agent_image", None) is not None:
+            self._agent_image.getView().setAspectLocked(aspect_locked)
 
         if "Spectrum" in scan_type:
             energies = np.array(image_model.get('energy_list', [700, 720]))
@@ -1926,8 +1961,28 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     scale=image_scale
                 )
 
+        # Mirror the latest frame into the Agent tab's image view (best-effort).
+        self._mirror_to_agent_image(image_data.T, pos, image_scale, levels, auto_range)
+
         # Disable ROI if the newly arrived image doesn't match the selected scan type
         self._update_roi_for_scan_match()
+
+    def _mirror_to_agent_image(self, arr, pos, scale, levels, auto_range):
+        """Show the latest live frame in the Agent tab's image mirror so the operator can
+        watch the scan while interacting with the agent. Best-effort — a failure here must
+        never disrupt the primary mainImage display."""
+        view = getattr(self, "_agent_image", None)
+        if view is None:
+            return
+        try:
+            if levels is not None:
+                view.setImage(arr, autoRange=auto_range, autoLevels=False, levels=levels,
+                              autoHistogramRange=auto_range, pos=pos, scale=scale)
+            else:
+                view.setImage(arr, autoRange=auto_range, autoLevels=False,
+                              autoHistogramRange=auto_range, pos=pos, scale=scale)
+        except Exception:
+            pass
 
     def update_scan_progress_display(self, progress_info: str):
         """Update scan progress display."""
