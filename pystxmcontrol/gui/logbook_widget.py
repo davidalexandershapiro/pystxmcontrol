@@ -19,13 +19,19 @@ from PySide6 import QtCore, QtWidgets
 from pystxmcontrol.gui.models.logbook_model import LogbookModel
 
 
-# Author → accent colour for the entry card, mirroring the agent panel's palette.
+# Author → accent colour for the entry card's left border + header (no background fill,
+# so the card sits on the theme background and follows light/dark).
 _AUTHOR_COLOR = {
-    "human":        ("#42a5f5", "#0d1a2a"),   # blue
-    "agent":        ("#66bb6a", "#0d1f0d"),   # green
-    "intelligence": ("#4fc3f7", "#0a1e2a"),   # cyan
+    "human":        "#42a5f5",   # blue
+    "agent":        "#66bb6a",   # green
+    "intelligence": "#4fc3f7",   # cyan
 }
-_TEXT = "#e0e0e0"
+# Author → friendly source label shown in the header text.
+_AUTHOR_LABEL = {
+    "human":        "You",
+    "agent":        "Agent",
+    "intelligence": "Intelligence",
+}
 _DIM = "#888888"
 
 
@@ -35,6 +41,41 @@ def _fmt_ts(ts: str) -> str:
         return datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M")
     except (ValueError, TypeError):
         return ts or ""
+
+
+def _looks_like_table_sep(line: str) -> bool:
+    """A Markdown table separator row, e.g. |---|:--:|."""
+    s = line.strip().strip("|").strip()
+    return bool(s) and "-" in s and set(s) <= set("-: |")
+
+
+def _normalize_tables(text: str) -> str:
+    """Insert a blank line before a pipe-table header when a non-blank line directly
+    precedes it. python-markdown only recognises a table when it's separated from the
+    preceding paragraph by a blank line; this makes the common 'lead-in line then table'
+    case render without the user having to remember the blank line (and matches the PDF)."""
+    lines = text.split("\n")
+    out: list = []
+    for i, line in enumerate(lines):
+        is_header = ("|" in line and i + 1 < len(lines)
+                     and _looks_like_table_sep(lines[i + 1]))
+        if is_header and out and out[-1].strip() != "":
+            out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
+def _md_to_html(text: str) -> str:
+    """Render an entry body as Markdown (incl. pipe tables) to HTML. Degrades to escaped
+    plain text with line breaks if the markdown package isn't installed."""
+    try:
+        import markdown as _markdown
+        return _markdown.markdown(
+            _normalize_tables(text), extensions=["tables", "fenced_code", "sane_lists"]
+        )
+    except Exception:
+        esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return esc.replace("\n", "<br>")
 
 
 class LogbookWidget(QtWidgets.QWidget):
@@ -78,9 +119,18 @@ class LogbookWidget(QtWidgets.QWidget):
         self._browser = QtWidgets.QTextBrowser()
         self._browser.setOpenLinks(False)
         self._browser.anchorClicked.connect(self._on_anchor_clicked)
+        # No background/text colour here, so the view follows the light/dark theme palette.
         self._browser.setStyleSheet(
-            "QTextBrowser { background-color: #1e1e1e; border: 1px solid #3a3a3a; "
-            "color: #e0e0e0; font-size: 14px; }"
+            "QTextBrowser { border: 1px solid #3a3a3a; font-size: 14px; }"
+        )
+        # Document-level CSS styles the tables/code that Markdown emits (QTextBrowser
+        # ignores most inline CSS on those, but honours the default style sheet). Colours
+        # are left to the theme; only borders use a mid-grey that reads on light or dark.
+        self._browser.document().setDefaultStyleSheet(
+            "table { border-collapse: collapse; margin: 4px 0; }"
+            "th, td { border: 1px solid #888; padding: 3px 7px; }"
+            "th { font-weight: bold; }"
+            "code, pre { font-family: monospace; }"
         )
         layout.addWidget(self._browser, stretch=1)
 
@@ -95,6 +145,15 @@ class LogbookWidget(QtWidgets.QWidget):
         )
         self._note_input.returnPressed.connect(self._on_add_note)
         input_row.addWidget(self._note_input, stretch=1)
+        self._compose_btn = QtWidgets.QPushButton("Compose…")
+        self._compose_btn.setStyleSheet(
+            "QPushButton { background-color: #333333; color: #cccccc; "
+            "border: 1px solid #555555; padding: 4px 8px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #444444; }"
+        )
+        self._compose_btn.setToolTip("Write a longer entry with Markdown / tables")
+        self._compose_btn.clicked.connect(self._on_compose)
+        input_row.addWidget(self._compose_btn)
         self._add_btn = QtWidgets.QPushButton("Add")
         self._add_btn.setFixedWidth(55)
         self._add_btn.setStyleSheet(
@@ -119,6 +178,7 @@ class LogbookWidget(QtWidgets.QWidget):
         has_logbook = bool(folder)
         self._note_input.setEnabled(has_logbook)
         self._add_btn.setEnabled(has_logbook)
+        self._compose_btn.setEnabled(has_logbook)
 
         entries = self._model.entries
         if not folder:
@@ -143,18 +203,18 @@ class LogbookWidget(QtWidgets.QWidget):
 
     def _render_card(self, i: int, entry: dict, snaps_dir: str) -> str:
         author = entry.get("author", "human")
-        accent, bg = _AUTHOR_COLOR.get(author, _AUTHOR_COLOR["human"])
+        accent = _AUTHOR_COLOR.get(author, _AUTHOR_COLOR["human"])
+        source = _AUTHOR_LABEL.get(author, author.capitalize())
         eid = entry.get("id", "")
         ts = _fmt_ts(entry.get("timestamp", ""))
         title = entry.get("image_file", "") or "note"
-        byline = f' · {author}' if author != "human" else ""
 
         parts = [
-            f'<div style="background-color:{bg}; border-left:3px solid {accent}; '
-            f'padding:6px 8px; margin:4px 1px;">',
+            # No background fill — only the accent left border marks the source.
+            f'<div style="border-left:3px solid {accent}; padding:6px 8px; margin:4px 1px;">',
             f'<span style="color:{accent}; font-size:12px; font-weight:bold;">'
-            f'#{i + 1} &nbsp; {self._esc(title)}</span>'
-            f'<span style="color:{_DIM}; font-size:11px;"> &nbsp; {ts}{byline}</span>'
+            f'{source} - #{i + 1} &nbsp; {self._esc(title)}</span>'
+            f'<span style="color:{_DIM}; font-size:11px;"> &nbsp; {ts}</span>'
             f' &nbsp; <a href="action://edit/{eid}" style="color:{_DIM}; font-size:11px;">edit</a>'
             f' &nbsp; <a href="action://delete/{eid}" style="color:{_DIM}; font-size:11px;">delete</a>'
             f'<br>',
@@ -162,9 +222,9 @@ class LogbookWidget(QtWidgets.QWidget):
 
         body = (entry.get("text", "") or "").strip()
         if body:
-            parts.append(
-                f'<span style="color:{_TEXT};">{self._esc(body).replace(chr(10), "<br>")}</span><br>'
-            )
+            # Render Markdown (incl. pipe tables) in a div so block elements nest correctly.
+            # No explicit text colour, so it follows the theme.
+            parts.append(f'<div>{_md_to_html(body)}</div>')
 
         snap = entry.get("snap_file", "")
         if snap:
@@ -178,7 +238,7 @@ class LogbookWidget(QtWidgets.QWidget):
         comment = (entry.get("comment", "") or "").strip()
         if comment:
             parts.append(
-                f'<span style="color:#90caf9; font-size:12px;">'
+                f'<span style="font-size:12px;">'
                 f'<b>Comment:</b> {self._esc(comment)}</span><br>'
             )
 
@@ -213,6 +273,32 @@ class LogbookWidget(QtWidgets.QWidget):
             return
         self._note_input.clear()
         self._model.add(text=text, author="human")
+
+    def _on_compose(self):
+        """Open a multiline composer for longer entries (Markdown / tables)."""
+        if not self._model.folder:
+            return
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Compose logbook entry")
+        dlg.resize(580, 380)
+        v = QtWidgets.QVBoxLayout(dlg)
+        hint = QtWidgets.QLabel("Markdown supported, including | pipe | tables |.")
+        hint.setStyleSheet("color:#888888;")
+        v.addWidget(hint)
+        editor = QtWidgets.QPlainTextEdit()
+        # Monospace so table columns line up while typing; colours follow the theme.
+        editor.setStyleSheet("font-family:monospace; font-size:13px;")
+        v.addWidget(editor, stretch=1)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        v.addWidget(buttons)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            text = editor.toPlainText().strip()
+            if text:
+                self._model.add(text=text, author="human")
 
     def _edit_entry(self, eid: str):
         entry = next((e for e in self._model.entries if e.get("id") == eid), None)

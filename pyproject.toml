@@ -47,6 +47,7 @@ dependencies = [
     "scikit-learn",
     "PIPython",
     "reportlab",
+    "markdown",
     "anthropic",
     "openai",
     "pydantic>=2.0",

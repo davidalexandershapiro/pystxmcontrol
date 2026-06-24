@@ -112,9 +112,9 @@ class IntelligenceWidget(QtWidgets.QWidget):
         self._browser = QtWidgets.QTextBrowser()
         self._browser.setOpenLinks(False)
         self._browser.anchorClicked.connect(self._on_anchor_clicked)
+        # No background/text colour, so the flow follows the light/dark theme palette.
         self._browser.setStyleSheet(
-            "QTextBrowser { background-color: #1e1e1e; border: 1px solid #3a3a3a; "
-            "color: #e0e0e0; font-size: 14px; }"
+            "QTextBrowser { border: 1px solid #3a3a3a; font-size: 14px; }"
         )
         layout.addWidget(self._browser, stretch=1)
 
@@ -235,12 +235,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
     def add_user_message(self, text: str) -> None:
         """Display the operator's query in the history before the response arrives."""
         html = (
-            f'<div style="background-color:{_C["bg_user"]}; '
-            f'border-left:3px solid {_C["user"]}; '
+            f'<br>'
+            f'<div style="border-left:3px solid {_C["user"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["user"]}; font-size:12px; font-weight:bold;">'
             f'You &nbsp; {_ts()}</span><br>'
-            f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
+            f'<span>{self._escape(text)}</span>'
             f'</div>'
         )
         self._browser.append(html)
@@ -253,7 +253,6 @@ class IntelligenceWidget(QtWidgets.QWidget):
     def _append_anomaly_suggestion(self, anomaly_type: str, severity: str,
                                    text: str) -> None:
         sev_color = _C.get(severity, _C["warn"])
-        bg_color = _C.get(f"bg_{severity}", _C["bg_warn"])
         badge = f"{'⚠' if severity == 'warn' else '✖'} {severity.upper()}"
 
         actions = _ANOMALY_ACTIONS.get(anomaly_type, [])
@@ -265,12 +264,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
             action_html = f'<div style="margin-top:5px;">{links}</div>'
 
         html = (
-            f'<div style="background-color:{bg_color}; '
-            f'border-left:3px solid {sev_color}; '
+            f'<br>'
+            f'<div style="border-left:3px solid {sev_color}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{sev_color}; font-size:12px; font-weight:bold;">'
             f'{badge} &nbsp; {anomaly_type} &nbsp; {_ts()}</span><br>'
-            f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
+            f'<span>{self._escape(text)}</span>'
             f'{action_html}'
             f'</div>'
         )
@@ -306,12 +305,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
             label += f"  [{region}]"
 
         html = (
-            f'<div style="background-color:{_C["bg_recommend"]}; '
-            f'border-left:3px solid {_C["recommend"]}; '
+            f'<br>'
+            f'<div style="border-left:3px solid {_C["recommend"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["recommend"]}; font-size:12px; font-weight:bold;">'
             f'{label} &nbsp; {_ts()}</span><br>'
-            f'<span style="color:{_C["text"]};">{self._escape(reason)}</span>'
+            f'<span>{self._escape(reason)}</span>'
             f'{detail_html}'
             f'</div>'
         )
@@ -320,12 +319,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     def _append_agent_response(self, text: str, query: str = "") -> None:
         html = (
-            f'<div style="background-color:{_C["bg_agent"]}; '
-            f'border-left:3px solid {_C["agent"]}; '
+            f'<br>'
+            f'<div style="border-left:3px solid {_C["agent"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["agent"]}; font-size:12px; font-weight:bold;">'
             f'Agent &nbsp; {_ts()}</span><br>'
-            f'<span style="color:{_C["text"]};">{self._escape(text)}</span>'
+            f'<span>{self._escape(text)}</span>'
             f'</div>'
         )
         self._browser.append(html)

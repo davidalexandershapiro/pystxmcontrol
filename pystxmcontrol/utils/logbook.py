@@ -215,7 +215,7 @@ def regenerate_pdf(folder: str, entries: list = None):
     from reportlab.lib import colors
     from reportlab.platypus import (
         SimpleDocTemplate, Image as RLImage, Paragraph,
-        Spacer, HRFlowable, PageBreak,
+        Spacer, HRFlowable, PageBreak, Table, TableStyle,
     )
 
     styles = getSampleStyleSheet()
@@ -248,12 +248,88 @@ def regenerate_pdf(folder: str, entries: list = None):
         spaceAfter=6,
         leading=14,
     )
+    cell_style = ParagraphStyle(
+        "LogCell",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=11,
+    )
 
     page_w, page_h = A4
     margin = 2 * cm
     usable_w = page_w - 2 * margin
     img_max_w = usable_w        # fill the full usable page width
     img_max_h = page_h * 0.75   # up to 75 % of page height
+
+    def _esc(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _is_sep_row(line: str) -> bool:
+        """A Markdown table separator row, e.g. |---|:--:|."""
+        s = line.strip().strip("|").strip()
+        return bool(s) and "-" in s and set(s) <= set("-: |")
+
+    def _split_row(line: str) -> list:
+        cells = line.strip().split("|")
+        if cells and cells[0].strip() == "":
+            cells = cells[1:]
+        if cells and cells[-1].strip() == "":
+            cells = cells[:-1]
+        return [c.strip() for c in cells]
+
+    def _make_table(header: list, rows: list):
+        ncols = max([len(header)] + [len(r) for r in rows]) if rows else len(header)
+        ncols = max(ncols, 1)
+        pad = lambda r: r + [""] * (ncols - len(r))
+        data = [[Paragraph(_esc(c), cell_style) for c in pad(header)]]
+        for r in rows:
+            data.append([Paragraph(_esc(c), cell_style) for c in pad(r)])
+        col_w = usable_w / ncols
+        t = Table(data, colWidths=[col_w] * ncols)
+        t.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        return t
+
+    def _body_flowables(text: str) -> list:
+        """Split an entry body into paragraphs + Markdown pipe-tables (rendered as
+        reportlab Tables). Non-table lines are emitted as plain (escaped) paragraphs."""
+        out, para = [], []
+        lines = text.split("\n")
+
+        def flush():
+            if para:
+                out.append(Paragraph("<br/>".join(_esc(p) for p in para), body_style))
+                para.clear()
+
+        i, n = 0, len(lines)
+        while i < n:
+            line = lines[i]
+            if ("|" in line and i + 1 < n and "|" in lines[i + 1]
+                    and _is_sep_row(lines[i + 1])):
+                flush()
+                header = _split_row(line)
+                i += 2
+                rows = []
+                while i < n and lines[i].strip() and "|" in lines[i]:
+                    rows.append(_split_row(lines[i]))
+                    i += 1
+                out.append(_make_table(header, rows))
+            elif not line.strip():
+                flush()
+                i += 1
+            else:
+                para.append(line)
+                i += 1
+        flush()
+        return out
 
     story = []
     snaps = _snaps_dir(folder)
@@ -272,10 +348,12 @@ def regenerate_pdf(folder: str, entries: list = None):
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
         story.append(Spacer(1, 0.2 * cm))
 
-        # ── free-form body text (notes / agent entries) ───────────────────────
-        body = (entry.get("text", "") or "").strip().replace("\n", "<br/>")
+        # ── free-form body text (notes / agent entries); Markdown pipe-tables ──
+        body = (entry.get("text", "") or "").strip()
         if body:
-            story.append(Paragraph(body, body_style))
+            for fl in _body_flowables(body):
+                story.append(fl)
+                story.append(Spacer(1, 0.1 * cm))
 
         # ── snapshot image ────────────────────────────────────────────────────
         if snap_path and os.path.isfile(snap_path):
