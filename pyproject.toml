@@ -7,7 +7,7 @@ name = "pystxmcontrol"
 version = "1.0"
 description = "Basic GUI for ALS STXM Control"
 readme = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.9"
 license = "BSD-3-Clause"
 license-files = ["LICENSE.txt"]
 authors = [
