@@ -10,6 +10,8 @@ import time
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Signal, QUrl
 
+from pystxmcontrol.gui.markdown_render import md_to_html, TABLE_STYLESHEET
+
 # ---------------------------------------------------------------------------
 # Actions suggested per anomaly type
 # ---------------------------------------------------------------------------
@@ -116,6 +118,8 @@ class IntelligenceWidget(QtWidgets.QWidget):
         self._browser.setStyleSheet(
             "QTextBrowser { border: 1px solid #3a3a3a; font-size: 14px; }"
         )
+        # Style the tables/code that Markdown-rendered agent responses emit.
+        self._browser.document().setDefaultStyleSheet(TABLE_STYLESHEET)
         layout.addWidget(self._browser, stretch=1)
 
         # Query input row
@@ -324,7 +328,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["agent"]}; font-size:12px; font-weight:bold;">'
             f'Agent &nbsp; {_ts()}</span><br>'
-            f'<span>{self._escape(text)}</span>'
+            f'<div>{md_to_html(text)}</div>'
             f'</div>'
         )
         self._browser.append(html)

@@ -17,6 +17,7 @@ from typing import Callable, Optional
 from PySide6 import QtCore, QtWidgets
 
 from pystxmcontrol.gui.models.logbook_model import LogbookModel
+from pystxmcontrol.gui.markdown_render import md_to_html, TABLE_STYLESHEET
 
 
 # Author → accent colour for the entry card's left border + header (no background fill,
@@ -43,39 +44,6 @@ def _fmt_ts(ts: str) -> str:
         return ts or ""
 
 
-def _looks_like_table_sep(line: str) -> bool:
-    """A Markdown table separator row, e.g. |---|:--:|."""
-    s = line.strip().strip("|").strip()
-    return bool(s) and "-" in s and set(s) <= set("-: |")
-
-
-def _normalize_tables(text: str) -> str:
-    """Insert a blank line before a pipe-table header when a non-blank line directly
-    precedes it. python-markdown only recognises a table when it's separated from the
-    preceding paragraph by a blank line; this makes the common 'lead-in line then table'
-    case render without the user having to remember the blank line (and matches the PDF)."""
-    lines = text.split("\n")
-    out: list = []
-    for i, line in enumerate(lines):
-        is_header = ("|" in line and i + 1 < len(lines)
-                     and _looks_like_table_sep(lines[i + 1]))
-        if is_header and out and out[-1].strip() != "":
-            out.append("")
-        out.append(line)
-    return "\n".join(out)
-
-
-def _md_to_html(text: str) -> str:
-    """Render an entry body as Markdown (incl. pipe tables) to HTML. Degrades to escaped
-    plain text with line breaks if the markdown package isn't installed."""
-    try:
-        import markdown as _markdown
-        return _markdown.markdown(
-            _normalize_tables(text), extensions=["tables", "fenced_code", "sane_lists"]
-        )
-    except Exception:
-        esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        return esc.replace("\n", "<br>")
 
 
 class LogbookWidget(QtWidgets.QWidget):
@@ -124,14 +92,8 @@ class LogbookWidget(QtWidgets.QWidget):
             "QTextBrowser { border: 1px solid #3a3a3a; font-size: 14px; }"
         )
         # Document-level CSS styles the tables/code that Markdown emits (QTextBrowser
-        # ignores most inline CSS on those, but honours the default style sheet). Colours
-        # are left to the theme; only borders use a mid-grey that reads on light or dark.
-        self._browser.document().setDefaultStyleSheet(
-            "table { border-collapse: collapse; margin: 4px 0; }"
-            "th, td { border: 1px solid #888; padding: 3px 7px; }"
-            "th { font-weight: bold; }"
-            "code, pre { font-family: monospace; }"
-        )
+        # ignores most inline CSS on those, but honours the default style sheet).
+        self._browser.document().setDefaultStyleSheet(TABLE_STYLESHEET)
         layout.addWidget(self._browser, stretch=1)
 
         # ── note input row ───────────────────────────────────────────────────
@@ -224,7 +186,7 @@ class LogbookWidget(QtWidgets.QWidget):
         if body:
             # Render Markdown (incl. pipe tables) in a div so block elements nest correctly.
             # No explicit text colour, so it follows the theme.
-            parts.append(f'<div>{_md_to_html(body)}</div>')
+            parts.append(f'<div>{md_to_html(body)}</div>')
 
         snap = entry.get("snap_file", "")
         if snap:
