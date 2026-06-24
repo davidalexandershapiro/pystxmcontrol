@@ -2237,6 +2237,84 @@ class ToolSet:
         return (f"Added logbook entry #{index} to '{os.path.basename(model.folder)}'"
                 f"{' with the last scan image' if qimg is not None else ''}{snap_note}.")
 
+    # ── logbook-as-context (phase 5; only used when task_agent.logbook_context on) ──────
+    def _logbook_entries_for_context(self, authors=None) -> list:
+        model = self._logbook_model
+        if model is None or not getattr(model, "folder", None):
+            return []
+        entries = model.entries
+        if authors:
+            entries = [e for e in entries if e.get("author", "human") in authors]
+        return entries
+
+    def logbook_index(self, max_entries: int = 50, authors=None) -> str | None:
+        """Compact one-line-per-entry index for auto-injection at task start.
+
+        Returns None when no logbook is open or it has no (matching) entries. Entries keep
+        their absolute #number so they line up with the full logbook and with citations.
+        """
+        model = self._logbook_model
+        if model is None or not getattr(model, "folder", None):
+            return None
+        entries = model.entries
+        idx = list(enumerate(entries))                       # (0-based position, entry)
+        if authors:
+            idx = [(i, e) for i, e in idx if e.get("author", "human") in authors]
+        if not idx:
+            return None
+        shown = idx[-max_entries:] if max_entries and len(idx) > max_entries else idx
+        lines = []
+        for i, e in shown:
+            snippet = (e.get("text") or e.get("comment") or "").strip().replace("\n", " ")
+            if len(snippet) > 90:
+                snippet = snippet[:87] + "…"
+            title = e.get("image_file") or "note"
+            lines.append(f"#{i + 1} [{e.get('author', 'human')}] {e.get('timestamp', '')} "
+                         f"{title} (id={e.get('id', '')}): {snippet}")
+        header = f"Logbook '{os.path.basename(model.folder)}' — {len(entries)} entries"
+        if len(shown) < len(idx):
+            header += f" (showing last {len(shown)})"
+        return header + "\n" + "\n".join(lines)
+
+    def search_logbook(self, query: str = "", author: str = "", limit: int = 20) -> str:
+        """Search the active logbook. Substring match (case-insensitive) over the entry text,
+        comment, metadata, and filename; optionally filter by author ('human'/'agent'/
+        'intelligence'). Returns compact hits (id, #, author, timestamp, title, snippet) —
+        call get_logbook_entry(id) for the full text."""
+        model = self._logbook_model
+        if model is None or not getattr(model, "folder", None):
+            return "No logbook is open."
+        q = (query or "").lower().strip()
+        hits = []
+        for i, e in enumerate(model.entries):
+            if author and e.get("author", "human") != author:
+                continue
+            hay = " ".join([e.get("text", ""), e.get("comment", ""),
+                            e.get("detail_text", ""), e.get("image_file", "")]).lower()
+            if q and q not in hay:
+                continue
+            snippet = (e.get("text") or e.get("comment") or "").strip().replace("\n", " ")
+            hits.append({"id": e.get("id"), "n": i + 1, "author": e.get("author", "human"),
+                         "timestamp": e.get("timestamp"),
+                         "title": e.get("image_file") or "note",
+                         "snippet": snippet[:120]})
+        hits = hits[-limit:]   # most recent matches if capped
+        return json.dumps({"count": len(hits), "entries": hits}, indent=2)
+
+    def get_logbook_entry(self, entry_id: str) -> str:
+        """Return the full text/metadata of one logbook entry by id (image not included;
+        has_image flags whether a snapshot exists)."""
+        model = self._logbook_model
+        if model is None or not getattr(model, "folder", None):
+            return "No logbook is open."
+        e = next((x for x in model.entries if x.get("id") == entry_id), None)
+        if e is None:
+            return f"No logbook entry with id '{entry_id}'."
+        out = {k: e.get(k) for k in ("id", "author", "timestamp", "image_file",
+                                     "scan_type", "energy", "text", "comment", "detail_text")}
+        out["has_image"] = bool(e.get("snap_file"))
+        return json.dumps(out, indent=2)
+
     def dispatch(self, name: str, args: dict) -> str:
         fn = getattr(self, name, None)
         if fn is None:
@@ -2885,6 +2963,55 @@ TOOL_SCHEMAS: list[dict] = [
                             "description": "Detector channel for the attached image (default 'default')."},
                 },
                 "required": ["text"],
+            },
+        },
+    },
+]
+
+
+# Logbook-as-context read tools — appended to the agent's tool list ONLY when
+# task_agent.logbook_context is enabled (see TaskAgent). add_to_logbook (writing) lives in
+# TOOL_SCHEMAS above and is always available; these two are read-only and opt-in.
+LOGBOOK_CONTEXT_TOOL_SCHEMAS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_logbook",
+            "description": (
+                "Search the active experiment logbook for entries relevant to your reasoning. "
+                "Case-insensitive substring match over each entry's text, comment, metadata, and "
+                "filename; optionally filter by author. Returns compact hits (id, #, author, "
+                "timestamp, title, snippet); call get_logbook_entry(id) for the full text. "
+                "Human-authored entries are the operator's own observations — weight them above "
+                "your own prior agent entries."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query":  {"type": "string", "description": "Search text; empty lists recent entries."},
+                    "author": {"type": "string", "enum": ["human", "agent", "intelligence"],
+                               "description": "Optional: restrict to one author."},
+                    "limit":  {"type": "integer", "description": "Max hits (default 20, most recent)."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_logbook_entry",
+            "description": (
+                "Return the full text and metadata of one logbook entry by id (from the injected "
+                "index or a search_logbook hit). The image itself is not returned; has_image flags "
+                "whether a snapshot exists."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string", "description": "The entry id."},
+                },
+                "required": ["entry_id"],
             },
         },
     },

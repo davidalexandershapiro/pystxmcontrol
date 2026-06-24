@@ -11,7 +11,7 @@ import os
 import threading
 from typing import Callable, Optional
 
-from .tools import TOOL_SCHEMAS, ToolSet
+from .tools import TOOL_SCHEMAS, LOGBOOK_CONTEXT_TOOL_SCHEMAS, ToolSet
 
 log = logging.getLogger(__name__)
 
@@ -183,6 +183,18 @@ large move), confirm with the user before calling, per the safety rules. If it r
 """
 
 
+_LOGBOOK_CONTEXT_PROMPT = """
+
+LOGBOOK CONTEXT:
+An index of the experiment logbook (one line per entry) is provided at the start of each
+task. Use it for scientific reasoning about the ongoing experiment. To read a relevant
+entry in full, call get_logbook_entry(id); to find entries, call search_logbook(query).
+Entries authored by 'human' (shown as "You") are the operator's own observations — trust
+them above your own earlier 'agent' entries, which may be unverified. Cite entries by their
+#number or id when your reasoning relies on them.
+"""
+
+
 class TaskAgent:
     """Goal-directed instrument control using an OpenAI-compatible LLM.
 
@@ -201,6 +213,26 @@ class TaskAgent:
         self._toolset = ToolSet(client, image_model=image_model, logbook_model=logbook_model)
         self._cancel_event = threading.Event()
         self._messages: list[dict] = []  # persists across run() calls
+
+        # Logbook-as-context (phase 5). An advanced, opt-in feature configured under
+        # task_agent.logbook_context in main.json; default OFF. Accepts a bool or a dict:
+        #   "logbook_context": {"enabled": true, "max_entries": 50, "authors": ["human"]}
+        lc = cfg.get("logbook_context", False)
+        if isinstance(lc, dict):
+            self._logbook_ctx_enabled = bool(lc.get("enabled", False))
+            self._logbook_ctx_max = int(lc.get("max_entries", 50))
+            self._logbook_ctx_authors = lc.get("authors")   # None ⇒ all authors
+        else:
+            self._logbook_ctx_enabled = bool(lc)
+            self._logbook_ctx_max = 50
+            self._logbook_ctx_authors = None
+
+        # When the feature is off the read tools are not advertised and no index is injected,
+        # so there is zero added token cost. (add_to_logbook — writing — is always available.)
+        self._tools = TOOL_SCHEMAS + (LOGBOOK_CONTEXT_TOOL_SCHEMAS
+                                      if self._logbook_ctx_enabled else [])
+        self._system_prompt = _SYSTEM_PROMPT + (_LOGBOOK_CONTEXT_PROMPT
+                                                if self._logbook_ctx_enabled else "")
 
         provider = cfg.get("provider", {})
         api_key_env = provider.get("api_key_env", "OPENAI_API_KEY")
@@ -252,7 +284,7 @@ class TaskAgent:
 
         # Seed history with the system prompt on the very first turn
         if not self._messages:
-            self._messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+            self._messages = [{"role": "system", "content": self._system_prompt}]
 
         # Drain any pending intelligence recommendations and prepend them to the
         # user message so the agent has context regardless of when they arrived.
@@ -278,6 +310,16 @@ class TaskAgent:
                 "parameters. This is now the current scan baseline — to repeat it with changes, "
                 f"call update_scan() with ONLY the parameters that differ.]\n{scan_json}\n\n{goal}"
             )
+
+        # Logbook context (opt-in): prepend a compact index of the logbook so the agent can
+        # reason over the experiment and pull full entries on demand. Refreshed each task.
+        if self._logbook_ctx_enabled:
+            index = self._toolset.logbook_index(self._logbook_ctx_max, self._logbook_ctx_authors)
+            if index:
+                goal = (
+                    "[Experiment logbook — use get_logbook_entry(id) / search_logbook(query) "
+                    f"to read entries in full as needed]\n{index}\n\n{goal}"
+                )
 
         self._messages.append({"role": "user", "content": goal})
 
@@ -306,7 +348,7 @@ class TaskAgent:
             try:
                 response = self._llm.chat.completions.create(
                     model=self.model,
-                    tools=TOOL_SCHEMAS,
+                    tools=self._tools,
                     messages=self._messages,
                 )
             except Exception as e:
