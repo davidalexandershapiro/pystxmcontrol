@@ -95,16 +95,15 @@ class IntelligenceWidget(QtWidgets.QWidget):
         header_row = QtWidgets.QHBoxLayout()
         header_row.setSpacing(4)
         header = QtWidgets.QLabel("AI Agent")
-        header.setStyleSheet("color: #aaaaaa; font-size: 13px; font-weight: bold;")
+        # No text colour, so the label follows the light/dark theme palette.
+        header.setStyleSheet("font-size: 13px; font-weight: bold;")
         header_row.addWidget(header)
         header_row.addStretch()
         self._clear_btn = QtWidgets.QPushButton("New Topic")
         self._clear_btn.setFixedWidth(72)
-        self._clear_btn.setStyleSheet(
-            "QPushButton { background-color: #333333; color: #aaaaaa; "
-            "border: 1px solid #555555; padding: 2px 6px; border-radius: 3px; font-size: 10px; }"
-            "QPushButton:hover { background-color: #444444; color: #cccccc; }"
-        )
+        # Colours come from the active theme's button style; only the compact
+        # font size is pinned so the label fits the fixed width.
+        self._clear_btn.setStyleSheet("QPushButton { font-size: 10px; }")
         self._clear_btn.setToolTip("Clear conversation history and start a new topic")
         self._clear_btn.clicked.connect(self._on_clear)
         header_row.addWidget(self._clear_btn)
@@ -128,9 +127,9 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
         self._query_input = QtWidgets.QLineEdit()
         self._query_input.setPlaceholderText("Describe a goal for the agent…")
+        # No background/text colour, so the field follows the light/dark theme palette.
         self._query_input.setStyleSheet(
-            "QLineEdit { background-color: #2a2a2a; color: #e0e0e0; "
-            "border: 1px solid #3a3a3a; padding: 4px; border-radius: 3px; font-size: 14px; }"
+            "QLineEdit { padding: 4px; border-radius: 3px; font-size: 14px; }"
         )
         self._query_input.returnPressed.connect(self._submit_query)
         input_row.addWidget(self._query_input, stretch=1)

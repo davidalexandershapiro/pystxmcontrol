@@ -174,12 +174,18 @@ You can record the current beamline state into the parameter database at any tim
 save_beamline_entry(desired_energy=<eV>, populate_from_current=True). It auto-fills
 commanded_energy/harmonic/feedback_offset/epu_offset from the current motor positions; pass
 other columns (grating, exit slits, m121/m101 angles, notes) explicitly if the user gives them.
+Entries don't need sub-eV precision: the desired_energy key is rounded to the nearest whole eV.
+For "make a database entry for the current energy", read the live Energy position and pass it as
+desired_energy (it will be rounded) with populate_from_current=True.
 
-To set the beamline FROM a stored entry (e.g. "set the beamline to the 700 eV settings"), use
-set_beamline_from_database(desired_energy=<eV>). It applies the entry's harmonic/EPU offset/
-feedback offset and moves Energy to the desired energy. Because this moves Energy (potentially a
-large move), confirm with the user before calling, per the safety rules. If it returns
-'not_found', tell the user which energies are available.
+To set the beamline FROM a stored entry (e.g. "set the beamline to the 700 eV settings", or "set
+the beamline for the current energy"), use set_beamline_from_database(desired_energy=<eV>). For
+"the current energy", read the live Energy position and pass it; the lookup rounds to the nearest
+whole eV. It applies the entry's harmonic/EPU offset/feedback offset and moves Energy to the
+desired energy. Because this moves Energy (potentially a large move), confirm with the user before
+calling, per the safety rules. If it returns 'not_found', it includes the closest stored energy in
+'nearest_energy_eV' — ask the user whether to apply that nearest entry, and only call again with it
+if they agree.
 """
 
 

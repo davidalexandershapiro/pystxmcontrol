@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from typing import Callable, Optional
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from pystxmcontrol.gui.models.logbook_model import LogbookModel
 from pystxmcontrol.gui.markdown_render import md_to_html, TABLE_STYLESHEET
@@ -34,6 +34,10 @@ _AUTHOR_LABEL = {
     "intelligence": "Intelligence",
 }
 _DIM = "#888888"
+
+# Image file extensions accepted when dragging external files onto the panel.
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff",
+               ".webp", ".svg", ".ico"}
 
 
 def _fmt_ts(ts: str) -> str:
@@ -64,7 +68,8 @@ class LogbookWidget(QtWidgets.QWidget):
         bar = QtWidgets.QHBoxLayout()
         bar.setSpacing(4)
         self._name_label = QtWidgets.QLabel()
-        self._name_label.setStyleSheet("color: #cccccc; font-size: 13px; font-weight: bold;")
+        # No text colour, so the label follows the light/dark theme palette.
+        self._name_label.setStyleSheet("font-size: 13px; font-weight: bold;")
         bar.addWidget(self._name_label)
         bar.addStretch()
         for text, slot, tip in (
@@ -74,11 +79,9 @@ class LogbookWidget(QtWidgets.QWidget):
             ("Export PDF", self._on_export, "Regenerate and open the logbook PDF"),
         ):
             btn = QtWidgets.QPushButton(text)
-            btn.setStyleSheet(
-                "QPushButton { background-color: #333333; color: #cccccc; "
-                "border: 1px solid #555555; padding: 2px 8px; border-radius: 3px; font-size: 11px; }"
-                "QPushButton:hover { background-color: #444444; }"
-            )
+            # Colours come from the active theme's button style; only the
+            # compact font size is pinned.
+            btn.setStyleSheet("QPushButton { font-size: 11px; }")
             btn.clicked.connect(slot)
             bar.addWidget(btn)
         layout.addLayout(bar)
@@ -101,18 +104,16 @@ class LogbookWidget(QtWidgets.QWidget):
         input_row.setSpacing(4)
         self._note_input = QtWidgets.QLineEdit()
         self._note_input.setPlaceholderText("Add a note to the logbook…")
+        # No background/text colour, so the field follows the light/dark theme palette.
         self._note_input.setStyleSheet(
-            "QLineEdit { background-color: #2a2a2a; color: #e0e0e0; "
-            "border: 1px solid #3a3a3a; padding: 4px; border-radius: 3px; font-size: 14px; }"
+            "QLineEdit { padding: 4px; border-radius: 3px; font-size: 14px; }"
         )
         self._note_input.returnPressed.connect(self._on_add_note)
         input_row.addWidget(self._note_input, stretch=1)
         self._compose_btn = QtWidgets.QPushButton("Compose…")
-        self._compose_btn.setStyleSheet(
-            "QPushButton { background-color: #333333; color: #cccccc; "
-            "border: 1px solid #555555; padding: 4px 8px; border-radius: 3px; }"
-            "QPushButton:hover { background-color: #444444; }"
-        )
+        # Colours come from the active theme's button style; only the padding is
+        # pinned to match the Add button height.
+        self._compose_btn.setStyleSheet("QPushButton { padding: 4px 8px; }")
         self._compose_btn.setToolTip("Write a longer entry with Markdown / tables")
         self._compose_btn.clicked.connect(self._on_compose)
         input_row.addWidget(self._compose_btn)
@@ -126,6 +127,12 @@ class LogbookWidget(QtWidgets.QWidget):
         self._add_btn.clicked.connect(self._on_add_note)
         input_row.addWidget(self._add_btn)
         layout.addLayout(input_row)
+
+        # Drag external image files (or image data) onto the panel to add them as
+        # entries. The read-only browser's viewport accepts drops itself, so filter
+        # its events too — otherwise drops over the entry list wouldn't reach us.
+        self.setAcceptDrops(True)
+        self._browser.viewport().installEventFilter(self)
 
         self._model.changed.connect(self._render)
         self._render()
@@ -192,10 +199,9 @@ class LogbookWidget(QtWidgets.QWidget):
         if snap:
             path = os.path.join(snaps_dir, snap)
             if os.path.isfile(path):
-                # Qt rich text loads local images from a file:// URL. Cap the width so
-                # large snapshots don't overflow the panel.
-                url = QtCore.QUrl.fromLocalFile(path).toString()
-                parts.append(f'<img src="{url}" width="360"><br>')
+                url = self._snap_resource(path, eid, width=360)
+                if url:
+                    parts.append(f'<img src="{url}"><br>')
 
         comment = (entry.get("comment", "") or "").strip()
         if comment:
@@ -214,9 +220,117 @@ class LogbookWidget(QtWidgets.QWidget):
         parts.append("</div>")
         return "".join(parts)
 
+    def _snap_resource(self, path: str, eid: str, width: int = 360) -> str | None:
+        """Smooth-scale a snapshot and register it as a document image resource.
+
+        Given an HTML ``width`` attribute, QTextDocument rescales the image with a
+        fast (nearest-neighbour) transform, which makes fine plot/axis text
+        illegible. Instead we pre-scale to the exact device-pixel size with a
+        smooth transform and tag the device-pixel ratio, then reference the image
+        with no width attribute — the document draws it 1:1, crisp on both standard
+        and HiDPI screens. Registered before setHtml() so the document resolves it.
+        """
+        img = QtGui.QImage(path)
+        if img.isNull():
+            return None
+        dpr = self._browser.devicePixelRatioF() or 1.0
+        target_px = max(1, round(width * dpr))
+        if img.width() != target_px:
+            img = img.scaledToWidth(target_px, QtCore.Qt.SmoothTransformation)
+        img.setDevicePixelRatio(dpr)   # lay out at `width` logical px
+        url = QtCore.QUrl(f"snap://{eid or os.path.basename(path)}")
+        self._browser.document().addResource(
+            QtGui.QTextDocument.ImageResource, url, img)
+        return url.toString()
+
     @staticmethod
     def _esc(text: str) -> str:
         return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    # ── drag & drop (external images) ───────────────────────────────────────────
+    @staticmethod
+    def _dropped_image_paths(mime: QtCore.QMimeData) -> list:
+        """Local image-file paths carried by a drag (empty list if none)."""
+        if not mime.hasUrls():
+            return []
+        return [
+            url.toLocalFile() for url in mime.urls()
+            if url.isLocalFile()
+            and os.path.splitext(url.toLocalFile())[1].lower() in _IMAGE_EXTS
+        ]
+
+    def _drag_has_image(self, mime: QtCore.QMimeData) -> bool:
+        return mime.hasImage() or bool(self._dropped_image_paths(mime))
+
+    def dragEnterEvent(self, event):
+        event.acceptProposedAction() if self._drag_has_image(event.mimeData()) \
+            else event.ignore()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction() if self._drag_has_image(event.mimeData()) \
+            else event.ignore()
+
+    def dropEvent(self, event):
+        event.acceptProposedAction() if self._add_dropped_images(event.mimeData()) \
+            else event.ignore()
+
+    def eventFilter(self, obj, event):
+        # The browser viewport receives drops over the entry list; route them here.
+        if obj is self._browser.viewport():
+            et = event.type()
+            if et in (QtCore.QEvent.DragEnter, QtCore.QEvent.DragMove):
+                if self._drag_has_image(event.mimeData()):
+                    event.acceptProposedAction()
+                    return True
+            elif et == QtCore.QEvent.Drop:
+                if self._add_dropped_images(event.mimeData()):
+                    event.acceptProposedAction()
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _add_dropped_images(self, mime: QtCore.QMimeData) -> bool:
+        """Add dropped image file(s) / image data as logbook entries.
+
+        Returns True if at least one image was added (the drop is then consumed).
+        """
+        if not self._drag_has_image(mime):
+            return False
+        if not self._model.folder:
+            QtWidgets.QMessageBox.information(
+                self, "No logbook open",
+                "Open or create a logbook before dropping images.")
+            return False
+
+        added = 0
+        paths = self._dropped_image_paths(mime)
+        if paths:
+            for path in paths:
+                img = QtGui.QImage(path)
+                if img.isNull():
+                    continue
+                meta = {"filename": os.path.basename(path),
+                        "scan_type": "External Image"}
+                self._model.add(img, meta=meta, author="human")
+                added += 1
+        else:
+            data = mime.imageData()
+            img = None
+            if isinstance(data, QtGui.QImage):
+                img = data
+            elif isinstance(data, QtGui.QPixmap):
+                img = data.toImage()
+            if img is not None and not img.isNull():
+                self._model.add(img, meta={"filename": "dropped_image",
+                                           "scan_type": "External Image"},
+                                author="human")
+                added += 1
+
+        if added == 0:
+            QtWidgets.QMessageBox.warning(
+                self, "Could not add image",
+                "No readable image was found in the dropped item(s).")
+            return False
+        return True
 
     # ── actions ────────────────────────────────────────────────────────────────
     def _on_anchor_clicked(self, url: QtCore.QUrl):

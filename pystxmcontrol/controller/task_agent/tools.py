@@ -11,6 +11,7 @@ ToolSet instance and persists for the lifetime of one TaskAgent run.
 
 import json
 import logging
+import math
 import os
 import time
 import numpy as np
@@ -67,6 +68,16 @@ _BEAMLINE_DB_MOTOR_MAP = {
     "feedback_offset":  "FBKOFFSET",
     "epu_offset":       "EPUOFFSET",
 }
+
+
+def _round_to_eV(energy) -> int:
+    """Round a photon energy to the nearest whole eV (half rounds up).
+
+    Beamline-database entries do not need sub-eV precision in their key, so both
+    lookups and new entries snap the energy to the nearest eV before touching the
+    DB. Raises TypeError/ValueError on non-numeric input (callers report that).
+    """
+    return int(math.floor(float(energy) + 0.5))
 
 
 # ---------------------------------------------------------------------------
@@ -1591,7 +1602,9 @@ class ToolSet:
         )
 
         try:
-            desired_energy = float(desired_energy)
+            # Entries are keyed to whole-eV granularity; round the key (the
+            # commanded_energy column keeps the precise live value).
+            desired_energy = _round_to_eV(desired_energy)
         except (TypeError, ValueError):
             return f"Invalid desired_energy {desired_energy!r} — must be a number."
 
@@ -1660,13 +1673,20 @@ class ToolSet:
         )
 
         try:
-            desired_energy = float(desired_energy)
+            requested_energy = float(desired_energy)
         except (TypeError, ValueError):
             return f"Invalid desired_energy {desired_energy!r} — must be a number."
+        # Entries are keyed to whole-eV granularity, so look up the rounded value
+        # (e.g. a live energy of 707.8 eV finds the 708 eV entry).
+        rounded_energy = _round_to_eV(requested_energy)
 
         db = BeamlineDatabaseClient(self._client)
         try:
-            entry = db.get_entry(desired_energy)
+            entry = db.get_entry(rounded_energy)
+            if entry is None and rounded_energy != requested_energy:
+                # Fall back to the exact requested value so a deliberately-passed
+                # legacy/non-integer energy (e.g. a confirmed nearby entry) still matches.
+                entry = db.get_entry(requested_energy)
         except Exception as e:
             return f"Failed to read beamline database: {e}"
 
@@ -1675,13 +1695,27 @@ class ToolSet:
                 energies = db.get_desired_energies()
             except Exception:
                 energies = []
+            nearest = (min(energies, key=lambda e: abs(e - rounded_energy))
+                       if energies else None)
+            if nearest is not None:
+                msg = (f"No beamline entry at {rounded_energy} eV. The closest stored entry is "
+                       f"{nearest} eV. Ask the user whether to apply that entry; only if they "
+                       f"agree, call set_beamline_from_database({nearest}). Do not apply it "
+                       f"without confirmation.")
+            else:
+                msg = ("The beamline database is empty — create an entry with "
+                       "save_beamline_entry().")
             return json.dumps({
                 "status": "not_found",
-                "desired_energy_eV": desired_energy,
+                "requested_energy_eV": requested_energy,
+                "rounded_energy_eV": rounded_energy,
                 "available_energies": energies,
-                "message": ("No entry for this energy. Pass an energy that exists, or create "
-                            "one with save_beamline_entry()."),
+                "nearest_energy_eV": nearest,
+                "message": msg,
             }, indent=2)
+
+        # From here on use the matched entry's own desired_energy as the target.
+        desired_energy = entry["desired_energy"]
 
         # Apply the calibration knobs first (so the harmonic/offset are in place before the
         # Energy move drives the EPU gap), then move Energy to the desired energy.
@@ -2775,8 +2809,9 @@ TOOL_SCHEMAS: list[dict] = [
                 "written; other fields of an existing entry are preserved. Set populate_from_current=true "
                 "to fill commanded_energy/harmonic/feedback_offset/epu_offset from the current motor "
                 "positions — use this right after tuning (the live positions hold the tuned result) or "
-                "whenever the user asks to record the current beamline state. After a tuning run, ASK "
-                "the user before saving."
+                "whenever the user asks to record the current beamline state. The desired_energy key is "
+                "rounded to the nearest whole eV (entries don't need sub-eV precision; commanded_energy "
+                "keeps its precise value). After a tuning run, ASK the user before saving."
             ),
             "parameters": {
                 "type": "object",
@@ -2806,10 +2841,13 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Set the beamline from a stored database entry: apply the entry's harmonic, EPU "
                 "offset, and feedback offset to their motors, then move Energy to the entry's "
-                "desired_energy. Columns without a motor mapping (grating, exit slits, m121/m101 "
-                "angles) are reported under 'set_manually', not moved. Returns 'not_found' (with the "
-                "list of available energies) if no entry exists for that energy. This moves Energy, "
-                "which can be a large move — confirm with the user before calling."
+                "desired_energy. The energy you pass is rounded to the nearest whole eV for the "
+                "lookup (e.g. a live energy of 707.8 eV finds the 708 eV entry). Columns without a "
+                "motor mapping (grating, exit slits, m121/m101 angles) are reported under "
+                "'set_manually', not moved. If no entry exists, returns 'not_found' with the closest "
+                "stored energy in 'nearest_energy_eV' — ASK the user whether to apply that nearest "
+                "entry before calling again with it. This moves Energy, which can be a large move — "
+                "confirm with the user before calling."
             ),
             "parameters": {
                 "type": "object",

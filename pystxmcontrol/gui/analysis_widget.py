@@ -169,6 +169,16 @@ class Analysis2Widget(QtWidgets.QWidget):
         ui.a2_nmfDisplayCombo.currentTextChanged.connect(self._on_a2_nmf_display_changed)
         ui.a2_nmfPlotCombo.currentTextChanged.connect(self._on_a2_nmf_plot_changed)
         ui.a2_nmfCalcRGBMapButton.clicked.connect(self._on_a2_nmf_calc_rgb_map)
+
+        # "Add to Log" buttons next to Calculate PCA / Calculate NNMF — log the
+        # cluster map + cluster spectra. Created here (not in the generated UI)
+        # so regenerating the .ui doesn't drop them.
+        self._a2_pcaAddToLogButton = QtWidgets.QPushButton("Add to Log")
+        ui.a2_calc_pca_layout.insertWidget(1, self._a2_pcaAddToLogButton)
+        self._a2_pcaAddToLogButton.clicked.connect(self._on_a2_pca_add_to_log)
+        self._a2_nmfAddToLogButton = QtWidgets.QPushButton("Add to Log")
+        ui.a2_nmf_calc_layout.insertWidget(1, self._a2_nmfAddToLogButton)
+        self._a2_nmfAddToLogButton.clicked.connect(self._on_a2_nmf_add_to_log)
         ui.a2_workflowTabs.currentChanged.connect(self._on_a2_workflow_tab_changed)
 
         ui.a2_regStartButton.clicked.connect(self._on_a2_reg_start)
@@ -1650,30 +1660,10 @@ class Analysis2Widget(QtWidgets.QWidget):
             )
             return
 
-        # ── Render image view ─────────────────────────────────────────────────
-        from pyqtgraph.exporters import ImageExporter
-
-        def _render_widget(view_item, target_width):
-            exp = ImageExporter(view_item)
-            exp.parameters()['width'] = target_width
-            return exp.export(toBytes=True)   # returns QImage
-
-        img_qimage  = _render_widget(self.ui.a2_imageView.getView(),       800) if want_image    else None
-        spec_qimage = _render_widget(self.ui.a2_spectrumPlot.getPlotItem(), 1200) if want_spectrum else None
-
-        # ── Composite side-by-side ────────────────────────────────────────────
-        parts = [q for q in (img_qimage, spec_qimage) if q is not None]
-        total_w = sum(p.width()  for p in parts)
-        total_h = max(p.height() for p in parts)
-
-        composite = QtGui.QImage(total_w, total_h, QtGui.QImage.Format_RGB32)
-        composite.fill(QtGui.QColor("white"))
-        painter = QtGui.QPainter(composite)
-        x = 0
-        for p in parts:
-            painter.drawImage(x, 0, p)
-            x += p.width()
-        painter.end()
+        # Render the selected views at a common width and stack them vertically.
+        img_qimage  = self._render_log_view(self.ui.a2_imageView.getView())        if want_image    else None
+        spec_qimage = self._render_log_view(self.ui.a2_spectrumPlot.getPlotItem()) if want_spectrum else None
+        composite = self._composite_vertical([img_qimage, spec_qimage])
 
         # ── Metadata text ─────────────────────────────────────────────────────
         detail_text = ""
@@ -1703,16 +1693,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         }
 
         try:
-            # Route to the active logbook (shared model) when one is open; else fall back
-            # to the source file's day folder.
-            model = getattr(self, "logbook_model", None)
-            if model is not None and model.folder:
-                model.add(composite, meta, comment, detail_text, author="human")
-                folder = model.folder
-            else:
-                from pystxmcontrol.utils.logbook import add_entry
-                folder = os.path.dirname(sv.stack.fileName)
-                add_entry(folder, composite, meta, comment, detail_text)
+            folder = self._add_image_to_logbook(composite, meta, comment, detail_text)
             QtWidgets.QMessageBox.information(
                 self, "Logbook updated",
                 f"Entry added.\n\nLogbook: {os.path.join(folder, 'logbook.pdf')}",
@@ -1723,6 +1704,148 @@ class Analysis2Widget(QtWidgets.QWidget):
                 self, "Logbook error",
                 f"Could not add to logbook:\n{exc}\n\n{traceback.format_exc()}",
             )
+
+    # ── Logbook snapshot helpers (shared by the Add-to-Log buttons) ───────────
+    @staticmethod
+    def _render_log_view(view_item, width: int = 1000):
+        """Export a pyqtgraph view item to a QImage at the given pixel width."""
+        from pyqtgraph.exporters import ImageExporter
+        exp = ImageExporter(view_item)
+        exp.parameters()['width'] = width
+        return exp.export(toBytes=True)   # returns QImage
+
+    @staticmethod
+    def _composite_vertical(qimages):
+        """Stack QImages top-to-bottom (centred) on a white background.
+
+        A tall, narrow composite keeps a useful width once the logbook scales the
+        snapshot to its fixed display width; a side-by-side composite would shrink
+        each panel to half-size. Returns None if nothing to composite.
+        """
+        parts = [q for q in qimages if q is not None]
+        if not parts:
+            return None
+        total_w = max(p.width()  for p in parts)
+        total_h = sum(p.height() for p in parts)
+        composite = QtGui.QImage(total_w, total_h, QtGui.QImage.Format_RGB32)
+        composite.fill(QtGui.QColor("white"))
+        painter = QtGui.QPainter(composite)
+        y = 0
+        for p in parts:
+            x = (total_w - p.width()) // 2   # centre horizontally if widths differ
+            painter.drawImage(x, y, p)
+            y += p.height()
+        painter.end()
+        return composite
+
+    def _add_image_to_logbook(self, composite, meta, comment="", detail_text=""):
+        """Route a composite image to the active logbook, else the file's day folder.
+
+        Returns the logbook folder. Raises on failure (callers report it).
+        """
+        model = getattr(self, "logbook_model", None)
+        if model is not None and model.folder:
+            model.add(composite, meta, comment, detail_text, author="human")
+            return model.folder
+        from pystxmcontrol.utils.logbook import add_entry
+        folder = os.path.dirname(self.ui.a2_stack_viewer.stack.fileName)
+        add_entry(folder, composite, meta, comment, detail_text)
+        return folder
+
+    def _log_cluster_pair(self, *, image_combo, image_text, image_handler,
+                          plot_combo, plot_text, plot_handler,
+                          source_label, detail_lines):
+        """Render the cluster map + cluster-spectra views and add them to the logbook.
+
+        The image/spectrum views are shared across tabs, so force the requested
+        content (the combo is set for UI consistency and its handler is invoked
+        directly — signals blocked to avoid a double redraw) rather than trusting
+        the current display, which another tab may have changed.
+        """
+        sv = self.ui.a2_stack_viewer
+        try:
+            for combo, text, handler in (
+                (image_combo, image_text, image_handler),
+                (plot_combo,  plot_text,  plot_handler),
+            ):
+                combo.blockSignals(True)
+                combo.setCurrentText(text)
+                combo.blockSignals(False)
+                handler(text)
+            QtWidgets.QApplication.processEvents()   # flush deferred autorange before export
+            img_q  = self._render_log_view(self.ui.a2_imageView.getView())
+            spec_q = self._render_log_view(self.ui.a2_spectrumPlot.getPlotItem())
+            composite = self._composite_vertical([img_q, spec_q])
+            meta = {
+                "filename":  os.path.basename(sv.stack.fileName),
+                "scan_type": f"{source_label} Clustering",
+            }
+            folder = self._add_image_to_logbook(composite, meta, "",
+                                                "\n".join(detail_lines))
+            QtWidgets.QMessageBox.information(
+                self, "Logbook updated",
+                f"{source_label} cluster map + spectra added.\n\n"
+                f"Logbook: {os.path.join(folder, 'logbook.pdf')}",
+            )
+        except Exception as exc:
+            import traceback
+            QtWidgets.QMessageBox.critical(
+                self, "Logbook error",
+                f"Could not add to logbook:\n{exc}\n\n{traceback.format_exc()}",
+            )
+
+    def _on_a2_pca_add_to_log(self):
+        """Add the PCA cluster map + cluster spectra to the logbook."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            QtWidgets.QMessageBox.warning(self, "No Data", "Load a stack before logging.")
+            return
+        stack = sv.stack
+        if getattr(stack, 'rgbClusterImage', None) is None \
+                or not getattr(stack, 'clusterSpectra', None):
+            QtWidgets.QMessageBox.warning(
+                self, "Clustering Required",
+                "Calculate PCA and clustering before adding the cluster map to the log.")
+            return
+        lines = [f"File: {os.path.basename(stack.fileName)}"]
+        if stack.energies is not None and len(stack.energies) > 0:
+            e = stack.energies
+            lines.append(f"Energies: {len(e)}  ({e[0]:.2f} – {e[-1]:.2f} eV)")
+        if getattr(stack, 'pcaImages', None) is not None:
+            lines.append(f"PCA components: {stack.pcaImages.shape[0]}")
+        lines.append(f"Clusters: {len(stack.clusterSpectra)}")
+        self._log_cluster_pair(
+            image_combo=self.ui.a2_clusterImageCombo, image_text='Clusters',
+            image_handler=self._on_a2_cluster_image_changed,
+            plot_combo=self.ui.a2_clusterPlotCombo, plot_text='Cluster Spectra',
+            plot_handler=self._on_a2_cluster_plot_changed,
+            source_label="PCA", detail_lines=lines)
+
+    def _on_a2_nmf_add_to_log(self):
+        """Add the NNMF cluster map + cluster spectra to the logbook."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            QtWidgets.QMessageBox.warning(self, "No Data", "Load a stack before logging.")
+            return
+        stack = sv.stack
+        if getattr(stack, 'nmfComponents', None) is None \
+                or not getattr(stack, 'clusterSpectra', None):
+            QtWidgets.QMessageBox.warning(
+                self, "NNMF Required",
+                "Calculate NNMF (with clustering) before adding the cluster map to the log.")
+            return
+        lines = [f"File: {os.path.basename(stack.fileName)}"]
+        if stack.energies is not None and len(stack.energies) > 0:
+            e = stack.energies
+            lines.append(f"Energies: {len(e)}  ({e[0]:.2f} – {e[-1]:.2f} eV)")
+        lines.append(f"NMF components: {len(stack.nmfComponents)}")
+        lines.append(f"Clusters: {len(stack.clusterSpectra)}")
+        self._log_cluster_pair(
+            image_combo=self.ui.a2_nmfDisplayCombo, image_text='Cluster Map',
+            image_handler=self._on_a2_nmf_display_changed,
+            plot_combo=self.ui.a2_nmfPlotCombo, plot_text='Cluster Spectra',
+            plot_handler=self._on_a2_nmf_plot_changed,
+            source_label="NNMF", detail_lines=lines)
 
     # ── Analysis2 Clustering tab ─────────────────────────────────────────────
 
