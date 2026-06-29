@@ -134,11 +134,17 @@ class LogbookWidget(QtWidgets.QWidget):
         self.setAcceptDrops(True)
         self._browser.viewport().installEventFilter(self)
 
+        # Entry ids whose (otherwise collapsed) "Motor positions" block is expanded.
+        self._expanded_motors: set[str] = set()
+
         self._model.changed.connect(self._render)
         self._render()
 
     # ── rendering ─────────────────────────────────────────────────────────────
-    def _render(self, *_):
+    def _render(self, *_, scroll_to_bottom: bool = True):
+        # Toggling a collapsible block re-renders in place; in that case we keep the
+        # current scroll position instead of jumping to the newest entry.
+        prev_scroll = self._browser.verticalScrollBar().value()
         folder = self._model.folder
         if folder:
             self._name_label.setText(f"📓 {os.path.basename(folder)}")
@@ -166,9 +172,12 @@ class LogbookWidget(QtWidgets.QWidget):
         snaps_dir = os.path.join(folder, "logbook_snaps")
         cards = [self._render_card(i, e, snaps_dir) for i, e in enumerate(entries)]
         self._browser.setHtml("".join(cards))
-        # Keep the newest entry in view.
         sb = self._browser.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        if scroll_to_bottom:
+            # Keep the newest entry in view.
+            sb.setValue(sb.maximum())
+        else:
+            sb.setValue(prev_scroll)
 
     def _render_card(self, i: int, entry: dict, snaps_dir: str) -> str:
         author = entry.get("author", "human")
@@ -212,13 +221,46 @@ class LogbookWidget(QtWidgets.QWidget):
 
         detail = (entry.get("detail_text", "") or "").strip()
         if detail:
-            parts.append(
-                f'<span style="color:{_DIM}; font-size:11px; font-family:monospace;">'
-                f'{self._esc(detail).replace(chr(10), "<br>")}</span>'
-            )
+            head, motors = self._split_motor_detail(detail)
+            mono = (f'<span style="color:{_DIM}; font-size:11px; '
+                    f'font-family:monospace;">%s</span>')
+            if head:
+                parts.append(mono % self._esc(head).replace(chr(10), "<br>"))
+            if motors:
+                expanded = eid in self._expanded_motors
+                arrow = "▾" if expanded else "▸"
+                n = sum(1 for ln in motors.split("\n") if ln.strip())
+                # Collapsible toggle reuses the anchor-click → re-render path that
+                # edit/delete use; QTextBrowser can't render HTML <details>.
+                parts.append(
+                    f'<br><a href="action://motors/{eid}" style="color:{_DIM}; '
+                    f'font-size:11px; text-decoration:none;">'
+                    f'{arrow} Motor positions ({n})</a>'
+                )
+                if expanded:
+                    parts.append(
+                        "<br>" + mono % self._esc(motors).replace(chr(10), "<br>")
+                    )
 
         parts.append("</div>")
         return "".join(parts)
+
+    @staticmethod
+    def _split_motor_detail(detail: str) -> tuple[str, str]:
+        """Split a detail block into (always-shown head, collapsible motor list).
+
+        The browser-tab export writes scan parameters followed by a ``Motor positions:``
+        header and one indented line per motor (see data_browser_widget). The motor list
+        is the bulky part, so it folds away behind a toggle while the scan parameters stay
+        visible. Entries without that header (notes, agent entries) keep their full text.
+        """
+        lines = detail.split("\n")
+        for idx, line in enumerate(lines):
+            if line.strip() == "Motor positions:":
+                head = "\n".join(lines[:idx]).rstrip("\n")
+                motors = "\n".join(lines[idx + 1:]).strip("\n")
+                return head, motors
+        return detail, ""
 
     def _snap_resource(self, path: str, eid: str, width: int = 360) -> str | None:
         """Smooth-scale a snapshot and register it as a document image resource.
@@ -336,12 +378,19 @@ class LogbookWidget(QtWidgets.QWidget):
     def _on_anchor_clicked(self, url: QtCore.QUrl):
         if url.scheme() != "action":
             return
-        action = url.host()                       # "edit" or "delete"
+        action = url.host()                       # "edit", "delete" or "motors"
         eid = url.path().lstrip("/")              # the entry id
         if action == "edit":
             self._edit_entry(eid)
         elif action == "delete":
             self._delete_entry(eid)
+        elif action == "motors":
+            # Toggle the motor-positions block for this entry and re-render in place.
+            if eid in self._expanded_motors:
+                self._expanded_motors.discard(eid)
+            else:
+                self._expanded_motors.add(eid)
+            self._render(scroll_to_bottom=False)
 
     def _on_add_note(self):
         text = self._note_input.text().strip()

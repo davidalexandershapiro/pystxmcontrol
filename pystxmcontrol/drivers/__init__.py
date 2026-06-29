@@ -52,3 +52,11 @@ except:
 else:
     __all__.append('aerotechMotor')
     __all__.append('aerotechController')
+try:
+    from pystxmcontrol.drivers.galilController import galilController
+    from pystxmcontrol.drivers.galilMotor import galilMotor
+except:
+    print("Galil gclib not installed.")
+else:
+    __all__.append('galilMotor')
+    __all__.append('galilController')

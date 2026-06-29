@@ -121,12 +121,16 @@ class energyDefWidget(QtWidgets.QWidget, Ui_energyDef):
         self.regionChanged.emit()
 
     def setSingleEnergy(self):
+        # Start energy is pinned to the current energy motor position in single
+        # energy mode, so disable the field — users change it via current energy.
+        self.energyDef.energyStart.setEnabled(False)
         self.energyDef.energyStop.setEnabled(False)
         self.energyDef.energyStep.setEnabled(False)
         self.energyDef.nEnergies.setEnabled(False)
         self.energyDef.singleEnergy = True
 
     def setMultiEnergy(self):
+        self.energyDef.energyStart.setEnabled(True)
         self.energyDef.energyStop.setEnabled(True)
         self.energyDef.energyStep.setEnabled(True)
         self.energyDef.nEnergies.setEnabled(True)
