@@ -532,16 +532,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._refresh_a0_display()
         self._refresh_a1_display()
 
-        # Add Beamline Panel button to the beamline tab
+        # Add Beamline Panel button to the EPU tab
         self._beamline_panel_btn = QtWidgets.QPushButton("Beamline Panel…")
         self._beamline_panel_btn.clicked.connect(self._open_beamline_panel)
-        self.ui.beamlineTab.layout() or self.ui.beamlineTab.setLayout(
-            QtWidgets.QVBoxLayout(self.ui.beamlineTab)
+        self.ui.epuTab.layout() or self.ui.epuTab.setLayout(
+            QtWidgets.QVBoxLayout(self.ui.epuTab)
         )
         # Use a simple absolute-position approach to avoid disrupting the
         # existing fixed-geometry grid; place the button below the grid widget.
-        self._beamline_panel_btn.setParent(self.ui.beamlineTab)
-        self._beamline_panel_btn.move(10, 160)
+        self._beamline_panel_btn.setParent(self.ui.epuTab)
+        self._beamline_panel_btn.move(10, 210)
         self._beamline_panel_btn.resize(160, 28)
         self._beamline_panel_btn.show()
 
