@@ -61,6 +61,9 @@ class derivedEnergy(motor):
             return self.position
 
     def connect(self, axis = None):
+        # A derived motor has no simulation mode of its own; it inherits the mode of the
+        # axis it drives (axis1 — the mono/energy primary axis).
+        self.simulation = self.axes["axis1"].simulation
         self.axis = axis
         self.position = self.getPos()
         self.calibratedPosition = self.getZonePlateCalibration()

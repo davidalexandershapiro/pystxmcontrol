@@ -79,7 +79,7 @@ class xpsMotor(motor):
     def connect(self, axis = None):
         self.axis = axis
         self.group = self.axis.split('.')[0]
-        self.simulation = self.controller.simulation
+        self.simulation = self.config.get("simulation", True)
         if not(self.simulation):
             self.position = self.getPos()
             self.getAxisParams()

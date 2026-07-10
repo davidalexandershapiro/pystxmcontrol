@@ -118,7 +118,7 @@ class galilMotor(motor):
             return False
 
         self.axis = axis
-        self.simulation = self.controller.simulation if self.controller else False
+        self.simulation = self.config.get("simulation", True) if self.config else True
 
         if not self.simulation:
             if not self._checkConnection():

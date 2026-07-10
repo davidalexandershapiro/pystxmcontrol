@@ -320,7 +320,9 @@ class inclinedSampleDerivedPiezo(motor):
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():
             self.logger = kwargs["logger"]
-        self.simulation = self.config["simulation"]
+        # A derived motor has no simulation mode of its own; it inherits the mode of the
+        # axis it drives (axis1 — the fine/trajectory axis whose controller it commands).
+        self.simulation = self.axes["axis1"].simulation
         self.axis = axis
         self.position = self.getPos()
         self.piezoAxis = self.axes["axis1"].axis #str X/Y

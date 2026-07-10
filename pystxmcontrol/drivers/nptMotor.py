@@ -41,7 +41,7 @@ class nptMotor(motor):
         self.units = 1.
 
     def connect(self, axis = 'x'):
-        self.simulation = self.controller.simulation
+        self.simulation = self.config.get("simulation", True)
         self.axis = axis
         self.fastAxis = axis
         if not(self.simulation):

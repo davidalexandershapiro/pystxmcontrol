@@ -161,7 +161,7 @@ class aerotechMotor(motor):
         
         self.axis = axis
         self.group = self.axis.split('.')[0]  # Extract group from axis name
-        self.simulation = self.controller.simulation if self.controller else False
+        self.simulation = self.config.get("simulation", True) if self.config else True
         
         if not(self.simulation):
             if not self._checkConnection():

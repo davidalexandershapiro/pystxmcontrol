@@ -10,11 +10,13 @@ class bcsMotor(motor):
         self.offset = 0.
         self.units = 1.
         self.moving = False
+        self.simulation = True
         self.config = {"minValue":-5000,"maxValue":5000,"offset":0,"units":1.,"timeout": 1.}
 
     def connect(self, axis = 'x'):
         self.axis = axis
-        if not(self.controller.simulation):
+        self.simulation = self.config.get("simulation", True)
+        if not(self.simulation):
             self.lock = self.controller.lock
             ##The controller connects with controller.initialize()
             ##maybe put something to check connection???
@@ -45,7 +47,7 @@ class bcsMotor(motor):
             if timeout is None:
                 timeout = self.config.get("timeout",5)
             pos = (pos - self.config["offset"]) / self.config["units"]
-            if (self.axis is not None) and not(self.controller.simulation):
+            if (self.axis is not None) and not(self.simulation):
                 with self.lock:
                     print(f"[bcsMotor] {self.axis} timeout = {timeout}")
                     t0 = time.time()
@@ -67,7 +69,7 @@ class bcsMotor(motor):
                         return
                 self.moving = False
                 return retval
-            elif self.controller.simulation:
+            elif self.simulation:
                 self.position = pos
                 self.moving = True
                 time.sleep(1)
@@ -79,7 +81,7 @@ class bcsMotor(motor):
 
     def getPos(self):
 
-        if (self.axis is not None) and not(self.controller.simulation):
+        if (self.axis is not None) and not(self.simulation):
             with self.lock:
                 message = ('getpos %s\r\n') % (self.axis)
                 self.controller.monitorSocket.sendall(message.encode())
@@ -93,13 +95,13 @@ class bcsMotor(motor):
                     iPos = 0.0
             iPos = iPos * self.config["units"] + self.config["offset"]
             return iPos
-        elif self.controller.simulation:
+        elif self.simulation:
             return self.position
         else:
             return -1
 
     def getVar(self, varType):
-        if (self.axis is not None) and not(self.controller.simulation):
+        if (self.axis is not None) and not(self.simulation):
             with self.lock:
                 if varType == "Double":
                     message = ('getdoublevar %s\r\n') % (self.axis)
@@ -116,14 +118,14 @@ class bcsMotor(motor):
                 except:
                     iPos = 0.0
             return iPos
-        elif self.controller.simulation:
+        elif self.simulation:
             return self.position
         else:
             return -1
 
     def setVar(self, value, varType):
         print("Setting variable %s to value: %.2f" %(self.axis,value))
-        if (self.axis is not None) and not(self.controller.simulation):
+        if (self.axis is not None) and not(self.simulation):
             with self.lock:
                 if varType == "Double":
                     message = ('SetDoubleVar(%s,%f)\r\n') % (self.axis, value)
@@ -137,7 +139,7 @@ class bcsMotor(motor):
                 self.position = self.getVar(varType)
                 retval = True
             return retval
-        elif self.controller.simulation:
+        elif self.simulation:
             self.position = value
         else:
             return -1

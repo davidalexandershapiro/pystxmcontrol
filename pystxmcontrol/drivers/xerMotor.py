@@ -19,7 +19,7 @@ class xerMotor(motor):
         self.moving = False
     
     def connect(self, axis = 'X'):
-        self.simulation = self.controller.simulation
+        self.simulation = self.config.get("simulation", True)
         self.axis = axis
         if not(self.simulation):
             self.lock = self.controller.lock

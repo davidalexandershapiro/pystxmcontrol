@@ -100,7 +100,7 @@ class mmcMotor(motor):
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():
             self.logger = kwargs["logger"]
-        self.simulation = self.controller.simulation
+        self.simulation = self.config.get("simulation", True)
         self.lock = self.controller.lock
         self.axis = axis
         if axis == 'x':

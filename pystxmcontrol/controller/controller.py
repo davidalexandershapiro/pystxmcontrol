@@ -113,10 +113,12 @@ class controller:
         for key in self.motorConfig.keys():
             setattr(self.motors[key]["motor"], "config", self.motorConfig[key])
 
-    def addController(self, config):
+    def addController(self, config, simulation=True):
         """
         :param config: motor configuration dictionary
         :type config: dict
+        :param simulation: whether the controller should run in simulation mode
+        :type simulation: bool
         :return: None
         Adds to an existing dictionary with a newly defined controller.  For
         | controller = config["controller"]
@@ -124,26 +126,44 @@ class controller:
         | port = config['port']
         | This executes: controllerType(address = address, port = port) which initializes the controller class
         and communication with the device.
+
+        A controller runs live if *any* motor on it is live; it is only simulated when
+        every one of its axes is simulated.  The caller computes this and passes it in.
         """
-        print("Adding controller type %s with ID %s" %(config["controller"],config["controllerID"]))
+        print("Adding controller type %s with ID %s (simulation=%s)" %(config["controller"],config["controllerID"],bool(simulation)))
         self.controllers[config["controllerID"]] = {}
         self.controllers[config["controllerID"]]["device"] = eval("%s(address = '%s', port = %i, simulation = %i)" \
-                                      %(config["controller"], config["controllerID"], config["port"], config["simulation"]))
+                                      %(config["controller"], config["controllerID"], config["port"], int(simulation)))
 
     def initialize(self):
+        # Simulation is per-axis.  Fold the global CLI --simulation flag into each motor's
+        # config (global sim forces every axis simulated; when the server runs live each
+        # axis' own config decides) and default a missing entry to True (safe default).
+        for key, mc in self.motorConfig.items():
+            if mc["type"] == "primary":
+                mc["simulation"] = bool(self.simulation) or bool(mc.get("simulation", True))
+
+        # A controller is simulated only if ALL of its primary motors are simulated;
+        # if any axis is live the controller must open its real connection.
+        controller_sim = {}
+        for mc in self.motorConfig.values():
+            if mc["type"] == "primary":
+                cid = mc["controllerID"]
+                controller_sim[cid] = controller_sim.get(cid, True) and bool(mc["simulation"])
+
         for key in self.motorConfig.keys():
             if self.motorConfig[key]["type"] == "primary":
+                cid = self.motorConfig[key]["controllerID"]
                 ##for this motor, add the controller if it doesn't exist
-                if self.motorConfig[key]["controllerID"] not in self.controllers.keys():
-                    self.addController(self.motorConfig[key])
-                    simulation = bool(self.motorConfig[key]["simulation"])
-                    self.controllers[self.motorConfig[key]["controllerID"]]["device"].initialize(simulation = simulation)
+                if cid not in self.controllers.keys():
+                    self.addController(self.motorConfig[key], simulation=controller_sim[cid])
+                    self.controllers[cid]["device"].initialize(simulation=controller_sim[cid])
                 else:
-                    print("controller %s already available" %self.motorConfig[key]["controllerID"])
+                    print("controller %s already available" % cid)
 
                 ##initialize the motor driver and add the controller
                 self.motors[key] = {"motor": eval(self.motorConfig[key]["driver"] + '()')} #{"motor":xpsMotor()}
-                self.motors[key]["motor"].controller = self.controllers[self.motorConfig[key]["controllerID"]]["device"]
+                self.motors[key]["motor"].controller = self.controllers[cid]["device"]
 
                 ##add the config to the motor, then connect
                 setattr(self.motors[key]["motor"], "config", self.motorConfig[key])

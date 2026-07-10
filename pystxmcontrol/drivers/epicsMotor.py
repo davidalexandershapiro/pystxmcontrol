@@ -58,7 +58,7 @@ class epicsMotor(motor):
             return self._controller_position * self.config["units"] + self.config["offset"]
 
     def connect(self, axis = None):
-        self.simulation = self.controller.simulation
+        self.simulation = self.config.get("simulation", True)
         self.axis = axis
         if not(self.simulation):
             self.position = self.getPos()
