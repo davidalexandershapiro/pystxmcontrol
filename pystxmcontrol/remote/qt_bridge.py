@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 import traceback
 
 from PySide6 import QtCore
@@ -56,6 +57,11 @@ class RemoteBackend(QtCore.QThread):
         self._monitor_factory = monitor_factory
         self._monitor_min_period_s = monitor_min_period_s
         self._monitor = None
+        # _monitor is set from the loop thread (_start_monitor) and
+        # read/cleared from the caller thread (shutdown); _shutting_down
+        # ensures no monitor starts after shutdown began.
+        self._monitor_lock = threading.Lock()
+        self._shutting_down = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_ready = QtCore.QMutex()
         self._loop_ready_cond = QtCore.QWaitCondition()
@@ -144,17 +150,39 @@ class RemoteBackend(QtCore.QThread):
     def abort_scan(self) -> None:
         self._schedule(self._do_abort_scan())
 
-    def shutdown(self) -> None:
-        if self._monitor is not None:
+    def shutdown(self) -> bool:
+        """Stop the monitor set and the asyncio loop, then join the thread.
+
+        Returns True once the thread has exited. If the loop never became
+        ready or the thread refuses to die within the timeout, emits
+        remote_error and returns False (loudly, never silently).
+        """
+        with self._monitor_lock:
+            self._shutting_down = True
+            monitor, self._monitor = self._monitor, None
+        if monitor is not None:
             try:
-                self._monitor.stop()
+                monitor.stop()
             except Exception:
-                pass
-            self._monitor = None
-        loop = self._loop
-        if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(loop.stop)
-        self.wait(5000)
+                traceback.print_exc(file=sys.stderr)
+        if self.isRunning() or self._loop is not None:
+            # Wait for run() to publish the loop before scheduling its stop;
+            # reading self._loop directly races a just-started thread and
+            # would silently leave it running forever.
+            try:
+                loop = self._wait_for_loop()
+            except RuntimeError as exc:
+                if self.isRunning():
+                    self.remote_error.emit(str(exc))
+                    return False
+                return True
+            if loop.is_running():
+                loop.call_soon_threadsafe(loop.stop)
+        if not self.wait(5000):
+            self.remote_error.emit(
+                "RemoteBackend thread did not exit within 5 s of shutdown()")
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Coroutine bodies
@@ -206,19 +234,26 @@ class RemoteBackend(QtCore.QThread):
         self._start_monitor(motors)
 
     def _start_monitor(self, motors: dict[str, dict]) -> None:
-        if self._monitor is not None:
+        with self._monitor_lock:
+            old, self._monitor = self._monitor, None
+        if old is not None:
             try:
-                self._monitor.stop()
+                old.stop()
             except Exception:
-                pass
-            self._monitor = None
+                traceback.print_exc(file=sys.stderr)
         pv_map = {name: info["pv"] for name, info in motors.items()}
         if not pv_map:
             return
-        self._monitor = self._monitor_factory(
+        monitor = self._monitor_factory(
             pv_map, self._on_monitor_update,
             min_period_s=self._monitor_min_period_s)
-        self._monitor.start()
+        with self._monitor_lock:
+            if self._shutting_down:
+                # shutdown() already ran its monitor sweep; starting now
+                # would leak CA contexts/threads nobody will ever stop.
+                return
+            self._monitor = monitor
+            monitor.start()
 
     def _on_monitor_update(self, payload: dict) -> None:
         # Signal emission is thread-safe from any thread (queued delivery

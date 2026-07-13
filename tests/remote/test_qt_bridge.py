@@ -291,6 +291,61 @@ def test_runs_complete_and_engine_state_events(qapp, backend, fake_client):
     assert states[0] == "running"
 
 
+def test_shutdown_immediately_after_start_joins_thread(qapp, fake_client):
+    """shutdown() racing run()'s loop assignment must still stop the thread."""
+    backend = RemoteBackend(fake_client, monitor_factory=FakeMonitorSet)
+    backend.start()
+    assert backend.shutdown() is True
+    assert not backend.isRunning()
+
+
+def test_shutdown_before_start_is_clean(qapp, fake_client):
+    backend = RemoteBackend(fake_client, monitor_factory=FakeMonitorSet)
+    assert backend.shutdown() is True
+    assert not backend.isRunning()
+
+
+def test_monitor_not_started_when_shutdown_interleaves_fetch_config(qapp, fake_client):
+    """A fetch_config in flight during shutdown must not leak a started
+    monitor: the factory blocks until shutdown has begun, then _start_monitor
+    must refuse to start it (or stop it)."""
+    import time
+
+    fake_client.call_handlers["device.search"] = lambda p: {
+        "status": "ok", "devices": ["SampleX"]}
+    fake_client.call_handlers["device.info"] = lambda p: {
+        "status": "ok", "pv": "STXM:SampleX", "category": "motor"}
+    fake_client.call_handlers["plan.list"] = lambda p: {"status": "ok", "plans": []}
+
+    holder = {}
+    constructing = __import__("threading").Event()
+
+    class LatchedMonitor(FakeMonitorSet):
+        def __init__(self, motors, on_update, min_period_s=0.2):
+            constructing.set()
+            # Block construction (on the loop thread) until shutdown began,
+            # guaranteeing the shutdown-vs-start interleaving under test.
+            deadline = time.monotonic() + 5.0
+            while not holder["backend"]._shutting_down:
+                if time.monotonic() > deadline:
+                    raise AssertionError("shutdown never began")
+                time.sleep(0.005)
+            super().__init__(motors, on_update, min_period_s)
+
+    backend = RemoteBackend(fake_client, monitor_factory=LatchedMonitor)
+    holder["backend"] = backend
+    backend.start()
+    backend.connect_and_authenticate()
+    assert _wait_for(qapp, lambda: fake_client.session_token is not None)
+    backend.fetch_config()
+    assert constructing.wait(5.0)
+    assert backend.shutdown() is True
+    assert not backend.isRunning()
+    # The interleaved monitor must never remain started.
+    for monitor in FakeMonitorSet.instances:
+        assert not monitor.started or monitor.stopped
+
+
 def test_shutdown_joins_thread_cleanly(qapp, fake_client):
     backend = RemoteBackend(fake_client, monitor_factory=FakeMonitorSet)
     backend.start()
