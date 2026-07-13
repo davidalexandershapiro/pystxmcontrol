@@ -86,6 +86,8 @@ class MotorMonitorSet:
         with self._lock:
             self._running = False
             if self._timer is not None:
+                # Intentionally drops any pending trailing flush: guaranteeing
+                # no callbacks after stop() beats delivering the last value.
                 self._timer.cancel()
                 self._timer = None
         for sub in self._subscriptions:

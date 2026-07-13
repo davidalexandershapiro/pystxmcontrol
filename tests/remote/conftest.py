@@ -50,8 +50,12 @@ from types import SimpleNamespace
 
 _HERE = Path(__file__).resolve().parent
 _DATA_DIR = _HERE / "data"
-_DEFAULT_IOCS_SRC = Path(
-    r"C:\Users\rp\PycharmProjects\ncs\lightfall-pystxmcontrol\_pystxmcontrol_iocs_wt")
+# This worktree lives at <plugin-repo>/_pystxmcontrol_remote_wt and the iocs
+# worktree at <plugin-repo>/_pystxmcontrol_iocs_wt: conftest.py -> parents[0]
+# = tests/remote, [1] = tests, [2] = worktree root, so .parents[2].parent is
+# the plugin repo root. PYSTXMCONTROL_IOCS_SRC env var overrides.
+_DEFAULT_IOCS_SRC = (
+    Path(__file__).resolve().parents[2].parent / "_pystxmcontrol_iocs_wt")
 
 
 @pytest.fixture(scope="session")
