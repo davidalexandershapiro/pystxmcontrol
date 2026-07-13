@@ -9,66 +9,7 @@ from PySide6 import QtCore
 from pystxmcontrol.remote.client import RemoteError
 from pystxmcontrol.remote.qt_bridge import RemoteBackend
 
-
-class FakeLightfallClient:
-    """Duck-types the async surface RemoteBackend consumes; canned replies."""
-
-    def __init__(self):
-        self.session_token = None
-        self.tiled_url = None
-        self.tiled_token = None
-        self.call_log: list[tuple[str, dict]] = []
-        self.subscriptions: dict[str, callable] = {}
-        self.call_handlers: dict[str, callable] = {}
-        self.connected = False
-        self.closed = False
-
-    async def connect(self) -> None:
-        self.connected = True
-
-    async def authenticate(self, timeout: float = 90.0) -> dict:
-        self.session_token = "tok123"
-        self.tiled_url = "http://tiled"
-        self.tiled_token = "tt"
-        return {"status": "approved", "session_token": "tok123"}
-
-    async def call(self, suffix: str, payload: dict | None = None, timeout: float = 5.0) -> dict:
-        payload = dict(payload or {})
-        self.call_log.append((suffix, payload))
-        handler = self.call_handlers.get(suffix)
-        if handler is not None:
-            return handler(payload)
-        return {"status": "ok"}
-
-    async def subscribe_event(self, suffix: str, callback) -> None:
-        self.subscriptions[suffix] = callback
-
-    async def close(self) -> None:
-        self.closed = True
-
-    # test helper: fire a broadcast event as if received off the wire
-    def fire(self, suffix: str, payload: dict) -> None:
-        cb = self.subscriptions[suffix]
-        cb(payload)
-
-
-class FakeMonitorSet:
-    """Stand-in for MotorMonitorSet -- injected via monitor_factory."""
-
-    instances: list["FakeMonitorSet"] = []
-
-    def __init__(self, motors, on_update, min_period_s: float = 0.2):
-        self.motors = motors
-        self.on_update = on_update
-        self.started = False
-        self.stopped = False
-        FakeMonitorSet.instances.append(self)
-
-    def start(self) -> None:
-        self.started = True
-
-    def stop(self) -> None:
-        self.stopped = True
+from .fakes import FakeLightfallClient, FakeMonitorSet
 
 
 @pytest.fixture(autouse=True)

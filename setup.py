@@ -61,12 +61,15 @@ setup(  name = 'pystxmcontrol',
         author = 'David Shapiro',
         author_email = 'dashapiro@lbl.gov',
         packages = ['pystxmcontrol','pystxmcontrol.gui','pystxmcontrol.controller',\
-            'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans'],
+            'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans',\
+            'pystxmcontrol.remote'],
+        package_data = {'pystxmcontrol.remote': ['remote.json']},
         entry_points = {
             'console_scripts': [
                 'stxmcontrol = pystxmcontrol.gui.main:main',
                 'stxmserver   = pystxmcontrol.controller.server:main',
                 'stxmbrowser  = pystxmcontrol.gui.browser_analysis_app:main',
+                'stxmcontrol-remote = pystxmcontrol.remote.app:main',
             ],
         },
         cmdclass={'install': _PostInstall, 'develop': _PostDevelop},

@@ -110,15 +110,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     This class is now primarily responsible for view-related operations.
     """
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, controller=None):
         super(MainWindowMVC, self).__init__(parent)
-        
+
         # Set up the UI
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        
-        # Initialize the controller
-        self.controller = MainController()
+
+        # Initialize the controller (spec #4: pass a MainController(backend=...)
+        # to run against the remote GUI instead of David's legacy ZMQ client)
+        self.controller = controller if controller is not None else MainController()
         
         # View-specific state
         self.scan_region_widgets = []

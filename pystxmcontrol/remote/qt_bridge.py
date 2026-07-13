@@ -66,6 +66,11 @@ class RemoteBackend(QtCore.QThread):
         self._loop_ready = QtCore.QMutex()
         self._loop_ready_cond = QtCore.QWaitCondition()
 
+    @property
+    def client(self):
+        """The wrapped LightfallClient (read-only access for e.g. tiled_client())."""
+        return self._client
+
     # ------------------------------------------------------------------
     # Thread lifecycle
     # ------------------------------------------------------------------
