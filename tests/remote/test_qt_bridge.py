@@ -68,7 +68,7 @@ def test_connect_and_authenticate_emits_authenticated(qapp, backend):
 
 
 def test_fetch_config_emits_config_ready_with_motors_filtered(qapp, backend, fake_client):
-    fake_client.call_handlers["device.search"] = lambda p: {
+    fake_client.call_handlers["commands.device.search"] = lambda p: {
         "status": "ok", "devices": ["SampleX", "SampleY", "Shutter"]}
 
     def _info(payload):
@@ -80,8 +80,8 @@ def test_fetch_config_emits_config_ready_with_motors_filtered(qapp, backend, fak
         }
         return {"status": "ok", **table[device]}
 
-    fake_client.call_handlers["device.info"] = _info
-    fake_client.call_handlers["plan.list"] = lambda p: {
+    fake_client.call_handlers["commands.device.info"] = _info
+    fake_client.call_handlers["commands.plan.list"] = lambda p: {
         "status": "ok", "plans": ["stxm_fly_raster", "stxm_energy_stack"]}
 
     events = []
@@ -102,11 +102,11 @@ def test_fetch_config_emits_config_ready_with_motors_filtered(qapp, backend, fak
 
 
 def test_motor_positions_relayed_from_monitor(qapp, backend, fake_client):
-    fake_client.call_handlers["device.search"] = lambda p: {
+    fake_client.call_handlers["commands.device.search"] = lambda p: {
         "status": "ok", "devices": ["SampleX"]}
-    fake_client.call_handlers["device.info"] = lambda p: {
+    fake_client.call_handlers["commands.device.info"] = lambda p: {
         "status": "ok", "pv": "STXM:SampleX", "category": "motor"}
-    fake_client.call_handlers["plan.list"] = lambda p: {"status": "ok", "plans": []}
+    fake_client.call_handlers["commands.plan.list"] = lambda p: {"status": "ok", "plans": []}
 
     positions = []
     backend.motor_positions.connect(lambda d: positions.append(d))
@@ -121,7 +121,7 @@ def test_motor_positions_relayed_from_monitor(qapp, backend, fake_client):
 
 
 def test_submit_scan_happy_path_calls_plan_run_with_mapped_params(qapp, backend, fake_client):
-    fake_client.call_handlers["plan.run"] = lambda p: {"status": "ok", "run_id": "r1"}
+    fake_client.call_handlers["commands.plan.run"] = lambda p: {"status": "ok", "run_id": "r1"}
     scan = {
         "scan_type": "Image",
         "scan_regions": {"r1": {
@@ -136,7 +136,7 @@ def test_submit_scan_happy_path_calls_plan_run_with_mapped_params(qapp, backend,
     backend.submit_scan(scan)
     assert _wait_for(qapp, lambda: len(events) == 1)
     suffix, payload = fake_client.call_log[-1]
-    assert suffix == "plan.run"
+    assert suffix == "commands.plan.run"
     assert payload["plan_name"] == "stxm_fly_raster"
     assert payload["behavior"] == "reject"
     assert payload["params"]["nx"] == 10
@@ -151,14 +151,14 @@ def test_submit_scan_unsupported_mode_emits_scan_error(qapp, backend, fake_clien
     backend.submit_scan(scan)
     assert _wait_for(qapp, lambda: len(errors) == 1)
     assert "Ptychography" in errors[0]
-    assert not fake_client.call_log or fake_client.call_log[-1][0] != "plan.run"
+    assert not fake_client.call_log or fake_client.call_log[-1][0] != "commands.plan.run"
 
 
 def test_submit_scan_busy_remote_error_emits_scan_error_no_crash(qapp, backend, fake_client):
     def _busy(payload):
         raise RemoteError("busy", "engine busy")
 
-    fake_client.call_handlers["plan.run"] = _busy
+    fake_client.call_handlers["commands.plan.run"] = _busy
     scan = {
         "scan_type": "Image",
         "scan_regions": {"r1": {
@@ -184,7 +184,7 @@ def test_move_motor_limits_error_emits_remote_error(qapp, backend, fake_client):
     def _limits(payload):
         raise RemoteError("limits", "target outside soft limits")
 
-    fake_client.call_handlers["device.put"] = _limits
+    fake_client.call_handlers["commands.device.put"] = _limits
     errors = []
     backend.remote_error.connect(lambda m: errors.append(m))
     backend.connect_and_authenticate()
@@ -195,16 +195,16 @@ def test_move_motor_limits_error_emits_remote_error(qapp, backend, fake_client):
 
 
 def test_move_motor_happy_path_calls_device_put(qapp, backend, fake_client):
-    fake_client.call_handlers["device.put"] = lambda p: {"status": "ok"}
+    fake_client.call_handlers["commands.device.put"] = lambda p: {"status": "ok"}
     backend.connect_and_authenticate()
     assert _wait_for(qapp, lambda: fake_client.session_token is not None)
     backend.move_motor("SampleX", 3.5)
 
     def _called():
-        return any(s == "device.put" for s, _ in fake_client.call_log)
+        return any(s == "commands.device.put" for s, _ in fake_client.call_log)
 
     assert _wait_for(qapp, _called)
-    suffix, payload = [c for c in fake_client.call_log if c[0] == "device.put"][-1]
+    suffix, payload = [c for c in fake_client.call_log if c[0] == "commands.device.put"][-1]
     assert payload["device"] == "SampleX"
     assert payload["value"] == 3.5
     assert payload["wait"] is True
@@ -257,11 +257,11 @@ def test_monitor_not_started_when_shutdown_interleaves_fetch_config(qapp, fake_c
     must refuse to start it (or stop it)."""
     import time
 
-    fake_client.call_handlers["device.search"] = lambda p: {
+    fake_client.call_handlers["commands.device.search"] = lambda p: {
         "status": "ok", "devices": ["SampleX"]}
-    fake_client.call_handlers["device.info"] = lambda p: {
+    fake_client.call_handlers["commands.device.info"] = lambda p: {
         "status": "ok", "pv": "STXM:SampleX", "category": "motor"}
-    fake_client.call_handlers["plan.list"] = lambda p: {"status": "ok", "plans": []}
+    fake_client.call_handlers["commands.plan.list"] = lambda p: {"status": "ok", "plans": []}
 
     holder = {}
     constructing = __import__("threading").Event()

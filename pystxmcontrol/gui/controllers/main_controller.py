@@ -145,6 +145,16 @@ class MainController(QObject):
         ZMQ path never touches these connections.
         """
         self.backend.auth_failed.connect(self._on_backend_auth_failed)
+        # fetch_config must not run until authentication actually completes:
+        # against a real (non-instant) LightfallClient, connect()/authenticate()
+        # really suspend on network I/O, so calling connect_and_authenticate()
+        # and fetch_config() back-to-back (as _initialize_backend_client used
+        # to) races -- fetch_config's device.search call can execute before
+        # authenticate()'s session_token is set, raising "Not authenticated"
+        # inside the backend loop and silently killing config_ready forever.
+        # Chaining off the real authenticated signal makes the ordering
+        # correct unconditionally.
+        self.backend.authenticated.connect(lambda _reply: self.backend.fetch_config())
         self.backend.config_ready.connect(self._on_backend_config_ready)
         self.backend.motor_positions.connect(self._on_backend_motor_positions)
         self.backend.scan_error.connect(self._on_backend_scan_error)
@@ -167,7 +177,8 @@ class MainController(QObject):
         """
         try:
             self.backend.connect_and_authenticate()
-            self.backend.fetch_config()
+            # fetch_config() itself is triggered by the `authenticated`
+            # signal wired in _wire_backend_signals -- see that comment.
             return True
         except Exception as e:
             self.error_occurred.emit(f"Failed to connect to server: {str(e)}")
@@ -203,7 +214,10 @@ class MainController(QObject):
         self.error_occurred.emit(message)
 
     def _on_backend_run_new(self, payload: dict):
-        run_uid = payload.get("uid")
+        # lightfall's runs.new broadcast schema is {"item_id", "run_uid",
+        # "plan_name"} (src/lightfall/remote/service.py:_register_events) --
+        # not "uid".
+        run_uid = payload.get("run_uid")
         if not run_uid or self._run_streamer is not None:
             return
         self._current_run_uid = run_uid
@@ -215,6 +229,21 @@ class MainController(QObject):
         self._run_streamer.start()
 
     def _on_backend_run_image(self, image_dict: dict, extents):
+        # RunStreamer keys image_dict by the run's actual detector/data-field
+        # name (e.g. "STXMLineFlyer" for the real pystxmcontrol flyer, or
+        # whatever data_field it was constructed with) -- not "default". The
+        # legacy image-handling branch below (_handle_monitor_message)
+        # selects image_dict[channel_key] falling back to image_dict['default'],
+        # and channel_key defaults to 'default' until the user picks a real
+        # channel from motor_info, so a remote single-detector run would
+        # otherwise never display: log a warning and silently no-op forever.
+        # Alias the sole entry under 'default' too so the existing selection
+        # logic (unchanged, still used by legacy ZMQ multi-channel scans)
+        # picks it up out of the box.
+        if "default" not in image_dict and len(image_dict) == 1:
+            image_dict = dict(image_dict)
+            image_dict["default"] = next(iter(image_dict.values()))
+
         # Synthesize the same message shape the legacy image branch of
         # _handle_monitor_message consumes: {"image": {field: ndarray},
         # "mode": <one of the recognized scan modes>, ...}.

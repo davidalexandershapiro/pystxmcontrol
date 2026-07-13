@@ -37,9 +37,31 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeoutError
 from typing import Any
 
 import numpy as np
+
+
+def _call_with_timeout(fn: Callable[[], Any], *, timeout_s: float) -> Any:
+    """Run ``fn()`` on a helper thread and raise ``TimeoutError`` if it
+    doesn't return within ``timeout_s`` -- turns a client-library stall
+    (no exception, no response, ever) into something the caller can treat
+    as an ordinary poll failure instead of hanging forever."""
+    # NOT a context manager: Executor.__exit__ calls shutdown(wait=True),
+    # which would block on the very stall this helper exists to escape.
+    # The one worker thread is leaked (daemon-equivalent: process exit
+    # doesn't wait on it) if fn() never returns; that's the accepted
+    # trade-off for never hanging the poll loop itself.
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn)
+    try:
+        return future.result(timeout=timeout_s)
+    except _FutureTimeoutError as exc:
+        raise TimeoutError(
+            f"{fn!r} did not complete within {timeout_s}s") from exc
+    finally:
+        executor.shutdown(wait=False)
 
 
 class RunStreamer:
@@ -65,7 +87,7 @@ class RunStreamer:
                  on_image: Callable[[dict, tuple], None],
                  on_progress: Callable[[int, int], None], *,
                  on_error: Callable[[BaseException], None] | None = None,
-                 poll_s: float = 1.0, data_field: str = "Counter1") -> None:
+                 poll_s: float = 1.0, data_field: str | None = None) -> None:
         self._factory = tiled_client_factory
         self._run_uid = run_uid
         self._on_image = on_image
@@ -77,6 +99,7 @@ class RunStreamer:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._rows_done = 0
+        self._failing_since: float | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -102,21 +125,65 @@ class RunStreamer:
             catalog = self._factory()
             run = catalog[self._run_uid]
             layout = self._resolve_layout(run)
+            if self._data_field is None:
+                # No explicit column configured: derive it from the start
+                # doc's ``detectors`` list (plans.py always sets exactly one
+                # entry to the flying detector's ophyd .name, which is the
+                # primary-stream column key -- see stxm_fly_raster/
+                # stxm_energy_stack in lightfall_pystxmcontrol/plans.py).
+                # Falls back to "Counter1" only if the start doc carries no
+                # detectors metadata at all (defensive, should not happen).
+                detectors = run.metadata["start"].get("detectors") or []
+                self._data_field = detectors[0] if detectors else "Counter1"
         except Exception as exc:  # noqa: BLE001 - report, never crash
             self._report_error(exc)
             return
 
+        # Tolerate a bounded run of transient poll failures rather than
+        # reporting on the first one. RunStreamer starts as soon as the
+        # "runs.new" broadcast fires (the run's "start" doc), but the
+        # "primary" stream container is only created moments later,
+        # server-side, on the first descriptor doc from the plan's first
+        # row -- so an initial GET of "primary" can race its own concurrent
+        # creation. Against a real Tiled HTTP server this has been observed
+        # to surface as more than one transient error in a row (not just a
+        # single 404 on the very first poll): the in-process writer's own
+        # subsequent metadata calls for that run can also spuriously 500
+        # while the race resolves. ``_failing_since`` tracks how long
+        # polling has been continuously failing (reset to None on any
+        # success) so a real, permanent failure (stream never appears,
+        # malformed table, ...) still gets reported -- just not before a
+        # grace window has elapsed.
+        self._failing_since: float | None = None
+        grace_s = max(0.5, self._poll_s * 10)
+
         while not self._stop_event.is_set():
             try:
                 self._poll_once(run, layout)
+                self._failing_since = None
             except Exception as exc:  # noqa: BLE001 - report, never crash
+                now = time.monotonic()
+                if self._failing_since is None:
+                    self._failing_since = now
+                if now - self._failing_since < grace_s:
+                    self._stop_event.wait(min(self._poll_s, 0.5))
+                    continue
                 self._report_error(exc)
                 return
             self._stop_event.wait(self._poll_s)
 
     def _poll_once(self, run: Any, layout: "_Layout") -> None:
-        stream = run["primary"]
-        table = stream.read()
+        # A real Tiled HTTP client can, under concurrent read/write load,
+        # stall well beyond any sane poll interval instead of raising
+        # (observed in the live-service e2e harness: no exception, no
+        # server-side request even logged -- consistent with a client-side
+        # connection-pool wait that never resolves). This can happen on
+        # EITHER the "primary" node lookup or the subsequent read, so both
+        # run on a watchdog thread: a stall becomes a TimeoutError that
+        # flows through the normal grace-period retry/report path instead
+        # of wedging this poll thread forever with no error ever reported.
+        table = _call_with_timeout(
+            lambda: run["primary"].read(), timeout_s=20.0)
         column = table[self._data_field]
         rows_done = len(column)
         self._rows_done = rows_done

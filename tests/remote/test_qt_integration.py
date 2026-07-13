@@ -144,9 +144,9 @@ def test_initialize_client_populates_motor_model_from_config(qapp, controller, f
         name = payload["device"]
         return {"pv": f"STXMSIM:{name}", "category": "motor"}
 
-    fake_client.call_handlers["device.search"] = _device_search
-    fake_client.call_handlers["device.info"] = _device_info
-    fake_client.call_handlers["plan.list"] = lambda payload: {"plans": ["stxm_fly_raster"]}
+    fake_client.call_handlers["commands.device.search"] = _device_search
+    fake_client.call_handlers["commands.device.info"] = _device_info
+    fake_client.call_handlers["commands.plan.list"] = lambda payload: {"plans": ["stxm_fly_raster"]}
 
     assert controller.initialize_client() is True
     assert wait_for(qapp, lambda: controller.motor_model.get("motor_info") == {
@@ -157,15 +157,15 @@ def test_move_motor_routes_to_device_put(qapp, controller, fake_client):
     controller.motor_model.set_motor_info({"SampleX": {"minValue": -10, "maxValue": 10,
                                                          "minScanValue": -10, "maxScanValue": 10}})
     assert controller.move_motor("SampleX", 1.5) is True
-    assert wait_for(qapp, lambda: ("device.put", {"device": "SampleX", "value": 1.5, "wait": True})
+    assert wait_for(qapp, lambda: ("commands.device.put", {"device": "SampleX", "value": 1.5, "wait": True})
                      in fake_client.call_log)
 
 
 def test_start_scan_raster_routes_to_plan_run(qapp, controller, fake_client):
     _make_raster_scan_model(controller)
     assert controller.start_scan() is True
-    assert wait_for(qapp, lambda: any(suffix == "plan.run" for suffix, _ in fake_client.call_log))
-    suffix, payload = next(c for c in fake_client.call_log if c[0] == "plan.run")
+    assert wait_for(qapp, lambda: any(suffix == "commands.plan.run" for suffix, _ in fake_client.call_log))
+    suffix, payload = next(c for c in fake_client.call_log if c[0] == "commands.plan.run")
     assert payload["plan_name"] == "stxm_fly_raster"
 
 
@@ -188,7 +188,7 @@ def test_run_new_starts_streamer_and_image_flows_to_image_model(qapp, controller
 
     controller.initialize_client()
     assert wait_for(qapp, lambda: "runs.new" in fake_client.subscriptions)
-    fake_client.fire("runs.new", {"uid": "run-1"})
+    fake_client.fire("runs.new", {"run_uid": "run-1"})
     assert wait_for(qapp, lambda: len(FakeRunStreamer.instances) == 1)
     streamer = FakeRunStreamer.instances[0]
     assert streamer.run_uid == "run-1"
@@ -204,14 +204,14 @@ def test_run_complete_stops_scanning_and_streamer(qapp, controller, backend, fak
     controller.scanning = True
     controller.initialize_client()
     assert wait_for(qapp, lambda: "runs.new" in fake_client.subscriptions)
-    fake_client.fire("runs.new", {"uid": "run-2"})
+    fake_client.fire("runs.new", {"run_uid": "run-2"})
     assert wait_for(qapp, lambda: len(FakeRunStreamer.instances) == 1)
     streamer = FakeRunStreamer.instances[0]
 
     state_events = []
     controller.scan_state_changed.connect(lambda v: state_events.append(v))
 
-    fake_client.fire("runs.complete", {"uid": "run-2", "exit_status": "success"})
+    fake_client.fire("runs.complete", {"run_uid": "run-2", "exit_status": "success"})
     assert wait_for(qapp, lambda: controller.scanning is False)
     assert wait_for(qapp, lambda: False in state_events)
     assert streamer.stopped is True

@@ -221,15 +221,15 @@ class RemoteBackend(QtCore.QThread):
 
     async def _do_fetch_config(self) -> None:
         try:
-            search_reply = await self._client.call("device.search", {})
+            search_reply = await self._client.call("commands.device.search", {})
             device_names = search_reply.get("devices", [])
             motors: dict[str, dict] = {}
             for name in device_names:
-                info = await self._client.call("device.info", {"device": name})
+                info = await self._client.call("commands.device.info", {"device": name})
                 category = info.get("category", "")
                 if "motor" in category:
                     motors[name] = {"pv": info.get("pv"), "category": category}
-            plan_reply = await self._client.call("plan.list", {})
+            plan_reply = await self._client.call("commands.plan.list", {})
             plans = plan_reply.get("plans", [])
         except RemoteError as exc:
             self.remote_error.emit(exc.message)
@@ -268,7 +268,7 @@ class RemoteBackend(QtCore.QThread):
     async def _do_move_motor(self, name: str, position: float) -> None:
         try:
             await self._client.call(
-                "device.put", {"device": name, "value": position, "wait": True})
+                "commands.device.put", {"device": name, "value": position, "wait": True})
         except RemoteError as exc:
             self.remote_error.emit(exc.message)
 
@@ -283,7 +283,7 @@ class RemoteBackend(QtCore.QThread):
             return
         try:
             reply = await self._client.call(
-                "plan.run",
+                "commands.plan.run",
                 {"plan_name": plan_name, "params": params, "behavior": "reject"})
         except RemoteError as exc:
             self.scan_error.emit(exc.message)
@@ -292,6 +292,6 @@ class RemoteBackend(QtCore.QThread):
 
     async def _do_abort_scan(self) -> None:
         try:
-            await self._client.call("plan.abort", {})
+            await self._client.call("commands.plan.abort", {})
         except RemoteError as exc:
             self.remote_error.emit(exc.message)
