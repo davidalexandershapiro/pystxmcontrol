@@ -15,7 +15,11 @@ from __future__ import annotations
 
 import pytest
 
-from pystxmcontrol.remote.scan_mapping import UnsupportedScanMode, map_scan
+from pystxmcontrol.remote.scan_mapping import (
+    MultiRegionNotSupported,
+    UnsupportedScanMode,
+    map_scan,
+)
 
 
 def _image_region(x_center=0.0, y_center=0.0, x_range=10.0, y_range=10.0,
@@ -113,15 +117,38 @@ def test_multiple_energy_regions_concatenate_in_order():
     assert params["energies"] == [280.0, 281.0, 290.0]
 
 
-def test_energy_stack_uses_first_region_dwell():
+def test_differing_energy_region_dwells_raise():
     scan = _base_scan(
         energy_regions={
             "EnergyRegion1": _energy_region(start=280.0, stop=281.0, n_energies=2, dwell=3.0),
             "EnergyRegion2": _energy_region(start=290.0, stop=291.0, n_energies=2, dwell=99.0),
         },
     )
-    _, params = map_scan(scan)
-    assert params["dwell_ms"] == 3.0
+    with pytest.raises(UnsupportedScanMode, match="differing dwells.*3.0.*99.0"):
+        map_scan(scan)
+
+
+def test_multiple_energy_regions_same_dwell_ok():
+    scan = _base_scan(
+        energy_regions={
+            "EnergyRegion1": _energy_region(start=280.0, stop=281.0, n_energies=2, dwell=7.0),
+            "EnergyRegion2": _energy_region(start=290.0, stop=291.0, n_energies=2, dwell=7.0),
+        },
+    )
+    plan_name, params = map_scan(scan)
+    assert plan_name == "stxm_energy_stack"
+    assert params["dwell_ms"] == 7.0
+    assert params["energies"] == [280.0, 281.0, 290.0, 291.0]
+
+
+def test_multi_region_image_scan_raises_naming_regions():
+    scan = _base_scan(
+        scan_regions={"Region1": _image_region(), "Region2": _image_region(x_center=5.0)},
+    )
+    with pytest.raises(MultiRegionNotSupported, match="Region1, Region2") as excinfo:
+        map_scan(scan)
+    assert isinstance(excinfo.value, UnsupportedScanMode)
+    assert excinfo.value.scan_type == "Image"
 
 
 # --- unsupported scan modes ---
