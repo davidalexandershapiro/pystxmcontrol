@@ -62,6 +62,12 @@ docs = [
     "sphinx>=6.0",
     "sphinx-rtd-theme>=1.2",
 ]
+remote = [
+    "nats-py",
+    "tiled",
+    "caproto>=1.1",
+    "netifaces",
+]
 
 [project.urls]
 Homepage = "https://github.com/davidalexandershapiro/pystxmcontrol"
@@ -72,6 +78,7 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 [project.scripts]
 stxmcontrol = "pystxmcontrol.gui.main:main"
 stxmserver = "pystxmcontrol.controller.server:main"
+stxmcontrol-remote = "pystxmcontrol.remote.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -104,3 +111,5 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
