@@ -217,6 +217,38 @@ def test_run_complete_stops_scanning_and_streamer(qapp, controller, backend, fak
     assert streamer.stopped is True
 
 
+def test_late_image_after_run_complete_keeps_scanning_false(
+        qapp, controller, backend, fake_client):
+    """Regression: a run's last image, delivered right after run_complete
+    cleared scanning, must NOT flip scanning back to True.
+
+    The RunStreamer emits images from a background thread; one can be queued
+    before the run_complete broadcast stops it and then delivered afterwards.
+    The legacy _on_external_scan_detected inference (image data -> "a scan is
+    running") would resurrect scanning=True and leave it stuck. In backend
+    mode the explicit run lifecycle is authoritative, so that inference is
+    disabled. This raced ~50/50 as an e2e flake before the fix.
+    """
+    controller.scanning = True
+    controller.initialize_client()
+    assert wait_for(qapp, lambda: "runs.new" in fake_client.subscriptions)
+    fake_client.fire("runs.new", {"run_uid": "run-late"})
+    assert wait_for(qapp, lambda: len(FakeRunStreamer.instances) == 1)
+    streamer = FakeRunStreamer.instances[0]
+
+    fake_client.fire("runs.complete", {"run_uid": "run-late", "exit_status": "success"})
+    assert wait_for(qapp, lambda: controller.scanning is False)
+
+    # A late image arrives after completion (streamer callback still bound).
+    img_events = []
+    controller.image_updated.connect(lambda im: img_events.append(im))
+    streamer.fire_image({"default": np.zeros((20, 10))})
+    assert wait_for(qapp, lambda: len(img_events) >= 1), \
+        "late image was never delivered — test would pass vacuously"
+    assert controller.scanning is False, \
+        "late image resurrected scanning (external-scan inference raced the lifecycle)"
+
+
 # ---------------------------------------------------------------------------
 # disabled-in-remote-mode surface
 # ---------------------------------------------------------------------------

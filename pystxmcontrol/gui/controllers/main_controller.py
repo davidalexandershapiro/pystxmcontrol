@@ -659,7 +659,18 @@ class MainController(QObject):
 
         Sets the controller scanning state and emits external_scan_started so
         the view can configure itself exactly as if the user had pressed Begin.
+
+        Backend (remote) mode drives scan state exclusively from the explicit
+        run lifecycle (start_scan -> scanning=True; the run_complete broadcast
+        -> scanning=False). Inferring scan state from incoming image data races
+        that lifecycle: an image for a just-finished run, delivered right after
+        run_complete cleared the flag, would resurrect scanning=True and leave
+        it stuck. So this legacy-ZMQ inference is disabled when a backend is
+        wired. (Reflecting a scan started by another remote client is a
+        multi-operator concern deferred out of v1 scope.)
         """
+        if self.backend is not None:
+            return
         if not self.scanning and scan_type:
             self.scanning = True
             self.image_model._data['motor_scan_x_data'] = []
