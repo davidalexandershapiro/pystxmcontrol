@@ -432,8 +432,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._main_scale_bar.setVisible(False)
 
         # Facility logo — filename from main_config['gui']['logo'], falls back to als-logo.png.
-        _logo_filename = (self.controller.client.main_config
-                          .get('gui', {}).get('logo', 'als-logo.png'))
+        _main_cfg = getattr(self.controller.client, 'main_config', None) or {}
+        _logo_filename = _main_cfg.get('gui', {}).get('logo', 'als-logo.png')
         _logo_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), '..', '..', 'icons', _logo_filename))
         _logo_pix = QtGui.QPixmap(_logo_path)
@@ -2575,6 +2575,12 @@ class MainWindowMVC(QtWidgets.QMainWindow):
     def _update_server_address_display(self):
         """Update the server address label, edit, and window title to reflect the connected server."""
         client = self.controller.client
+        if client is None:  # remote-backend mode: no ZMQ client to describe
+            self.ui.serverAddress.setText("remote")
+            if hasattr(self.ui, 'serverAddressEdit'):
+                self.ui.serverAddressEdit.setText("remote")
+            self.setWindowTitle("STXM Control: remote")
+            return
         address_text = f"{client.server_address}:{client.command_port}"
         self.ui.serverAddress.setText(address_text)
         if hasattr(self.ui, 'serverAddressEdit'):

@@ -39,10 +39,25 @@ def _clear_fake_instances():
 
 @pytest.fixture
 def qapp():
+    # Full QApplication (not QCoreApplication): the window-construction test
+    # needs widgets, and whichever test file runs first fixes the app type
+    # for the whole process.
+    from PySide6 import QtWidgets
+
     app = QtCore.QCoreApplication.instance()
     if app is None:
-        app = QtCore.QCoreApplication([])
+        app = QtWidgets.QApplication([])
     return app
+
+
+@pytest.fixture
+def qapp_widgets(qapp):
+    from PySide6 import QtWidgets
+
+    if not isinstance(qapp, QtWidgets.QApplication):
+        pytest.skip("process QCoreApplication is not a QApplication; "
+                     "widget construction impossible in this run")
+    return qapp
 
 
 @pytest.fixture
@@ -205,6 +220,27 @@ def test_run_complete_stops_scanning_and_streamer(qapp, controller, backend, fak
 # ---------------------------------------------------------------------------
 # disabled-in-remote-mode surface
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# full-window construction tripwire (the stxmcontrol-remote entry point path)
+# ---------------------------------------------------------------------------
+
+def test_mainwindow_constructs_in_backend_mode(qapp_widgets, controller):
+    """Regression tripwire: MainWindowMVC must construct with a backend-mode
+    controller (client=None) -- exactly what app.py::main() does. Any
+    unguarded self.controller.client.* reach during __init__ crashes the
+    stxmcontrol-remote entry point before the window ever shows."""
+    from pystxmcontrol.gui.mainwindow_mvc import MainWindowMVC
+
+    window = MainWindowMVC(controller=controller)
+    try:
+        assert window.controller is controller
+        assert controller.backend is not None
+    finally:
+        window.close()
+        window.deleteLater()
+        qapp_widgets.processEvents()
+
 
 @pytest.mark.parametrize("method,args", [
     ("set_gate", ("auto",)),

@@ -21,9 +21,14 @@ def _clear_monitor_instances():
 
 @pytest.fixture
 def qapp():
+    # Full QApplication (not QCoreApplication): test_qt_integration's
+    # window-construction test needs widgets, and whichever test file runs
+    # first fixes the application type for the whole process.
+    from PySide6 import QtWidgets
+
     app = QtCore.QCoreApplication.instance()
     if app is None:
-        app = QtCore.QCoreApplication([])
+        app = QtWidgets.QApplication([])
     return app
 
 

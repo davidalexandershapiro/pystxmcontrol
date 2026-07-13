@@ -690,12 +690,16 @@ class MainController(QObject):
             self.scan_model.set('experimenters', view.ui.experimentersLineEdit.text())
             self.scan_model.set('sample', view.ui.sampleLineEdit.text())
             self.scan_model.set('comment', view.ui.commentEdit.toPlainText() if hasattr(view.ui, 'commentEdit') else '')
-            self.scan_model.set('driver', self.client.scanConfig[scan_type]['driver'])
-            self.scan_model.set('mode', self.client.scanConfig[scan_type].get('mode', 'continuousLine'))
+            # Remote-backend mode has no ZMQ client: fall back to empty
+            # configs (driver/mode/daq_list keep their model defaults).
+            scan_cfg = (getattr(self.client, 'scanConfig', None) or {}).get(scan_type, {})
+            daq_cfg = getattr(self.client, 'daqConfig', None) or {}
+            self.scan_model.set('driver', scan_cfg.get('driver', ''))
+            self.scan_model.set('mode', scan_cfg.get('mode', 'continuousLine'))
 
             # DAQ list - get from scan config but filter by what's available in daqConfig
-            if 'daq_list' in self.client.scanConfig[scan_type]:
-                daq_list_str = self.client.scanConfig[scan_type]['daq_list']
+            if 'daq_list' in scan_cfg:
+                daq_list_str = scan_cfg['daq_list']
                 if isinstance(daq_list_str, str):
                     requested_daqs = daq_list_str.split(',')
                 else:
@@ -704,8 +708,8 @@ class MainController(QObject):
                 # Filter by what's actually available and recordable in daqConfig
                 daq_list = []
                 for daq_key in requested_daqs:
-                    if daq_key in self.client.daqConfig:
-                        if self.client.daqConfig[daq_key].get('record', True):
+                    if daq_key in daq_cfg:
+                        if daq_cfg[daq_key].get('record', True):
                             daq_list.append(daq_key)
 
                 # If nothing passed the filter, use default
@@ -716,8 +720,8 @@ class MainController(QObject):
             else:
                 # Build from daqConfig - all DAQs with record=True
                 daq_list = []
-                for daq_key in self.client.daqConfig.keys():
-                    if self.client.daqConfig[daq_key].get('record', True):
+                for daq_key in daq_cfg.keys():
+                    if daq_cfg[daq_key].get('record', True):
                         daq_list.append(daq_key)
 
                 if not daq_list:
