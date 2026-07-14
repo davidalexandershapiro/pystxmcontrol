@@ -12,6 +12,7 @@ from ..models.motor_model import MotorModel
 from ..models.image_model import ImageModel
 from ...controller.client import stxm_client
 from ...utils.writeNX import stxm
+from ...remote.tiled_stream import RunStreamer
 
 
 class ControlThread(QThread):
@@ -56,20 +57,42 @@ class MainController(QObject):
     motor_scan_updated = Signal()                # single motor scan data ready to plot
     live_data_ready = Signal(object, object)     # (stxm object, raw message dict) for stack viewer
     external_scan_started = Signal(str)          # scan started externally (carries scan_type string)
-    
-    def __init__(self):
+
+    # Backend-thread -> Qt-thread bridges for RunStreamer callbacks (RunStreamer
+    # invokes on_image/on_progress/on_error from its own background poll
+    # thread; emitting a Qt signal here queues delivery onto this QObject's
+    # own thread instead of touching models cross-thread directly).
+    _run_image_ready = Signal(object, object)
+    _run_progress_ready = Signal(object, object)
+    _run_error_ready = Signal(object)
+
+    def __init__(self, backend=None):
         super().__init__()
-        
+
         # Initialize models
         self.scan_model = ScanModel()
         self.motor_model = MotorModel()
         self.image_model = ImageModel()
-        
-        # Initialize client and communication
-        self.client = stxm_client()
-        self.message_queue = Queue()
-        self.control_thread = None
-        
+
+        # Remote-GUI mode (spec #4): when a RemoteBackend is supplied, skip
+        # the legacy ZMQ client/control-thread entirely and speak to the
+        # server exclusively through the backend. backend=None (default)
+        # preserves David's local ZMQ mode untouched.
+        self.backend = backend
+        self._run_streamer = None
+        self._current_run_uid = None
+
+        if self.backend is None:
+            # Initialize client and communication
+            self.client = stxm_client()
+            self.message_queue = Queue()
+            self.control_thread = None
+        else:
+            self.client = None
+            self.message_queue = None
+            self.control_thread = None
+            self._wire_backend_signals()
+
         # State tracking
         self.scanning = False
         self.server_status = False
@@ -110,6 +133,142 @@ class MainController(QObject):
         self.scan_model.data_changed.connect(self._on_scan_model_changed)
         self.motor_model.data_changed.connect(self._on_motor_model_changed)
         self.image_model.data_changed.connect(self._on_image_model_changed)
+
+    # ------------------------------------------------------------------
+    # Remote-GUI mode (spec #4): RemoteBackend wiring
+    # ------------------------------------------------------------------
+
+    def _wire_backend_signals(self):
+        """Connect a RemoteBackend's signals to controller handlers.
+
+        Only called when a backend was supplied to __init__; the legacy
+        ZMQ path never touches these connections.
+        """
+        self.backend.auth_failed.connect(self._on_backend_auth_failed)
+        # fetch_config must not run until authentication actually completes:
+        # against a real (non-instant) LightfallClient, connect()/authenticate()
+        # really suspend on network I/O, so calling connect_and_authenticate()
+        # and fetch_config() back-to-back (as _initialize_backend_client used
+        # to) races -- fetch_config's device.search call can execute before
+        # authenticate()'s session_token is set, raising "Not authenticated"
+        # inside the backend loop and silently killing config_ready forever.
+        # Chaining off the real authenticated signal makes the ordering
+        # correct unconditionally.
+        self.backend.authenticated.connect(lambda _reply: self.backend.fetch_config())
+        self.backend.config_ready.connect(self._on_backend_config_ready)
+        self.backend.motor_positions.connect(self._on_backend_motor_positions)
+        self.backend.scan_error.connect(self._on_backend_scan_error)
+        self.backend.remote_error.connect(self._on_backend_remote_error)
+        self.backend.run_new.connect(self._on_backend_run_new)
+        self.backend.run_complete.connect(self._on_backend_run_complete)
+        # RunStreamer callbacks arrive on a background thread; bounce them
+        # through Qt signals so the receiving slots run on this QObject's
+        # own thread before touching any model.
+        self._run_image_ready.connect(self._on_backend_run_image)
+        self._run_progress_ready.connect(self._on_backend_run_progress)
+        self._run_error_ready.connect(self._on_backend_run_error)
+
+    def _initialize_backend_client(self) -> bool:
+        """Kick off connect+auth+config fetch on the RemoteBackend.
+
+        Non-blocking: results surface later via the signals wired in
+        _wire_backend_signals (config_ready populates the motor model,
+        auth_failed reports connection failure, etc).
+        """
+        try:
+            self.backend.connect_and_authenticate()
+            # fetch_config() itself is triggered by the `authenticated`
+            # signal wired in _wire_backend_signals -- see that comment.
+            return True
+        except Exception as e:
+            self.error_occurred.emit(f"Failed to connect to server: {str(e)}")
+            self.server_status = False
+            return False
+
+    def _on_backend_auth_failed(self, message: str):
+        self.server_status = False
+        self.error_occurred.emit(f"Authentication failed: {message}")
+
+    def _on_backend_config_ready(self, config: dict):
+        motors = config.get("motors", {})
+        # Minimal motorInfo-shaped dict: the remote device.info API only
+        # exposes {"pv", "category"} today, not hardware limits, so
+        # get_motor_limits()/get_scan_limits() fall back to their defaults
+        # (0.0/100.0) for every motor until a richer config channel exists.
+        motor_info = {name: {} for name in motors}
+        self.motor_model.set_motor_info(motor_info)
+        self.server_status = True
+        self.status_updated.emit("Connected to server")
+
+    def _on_backend_motor_positions(self, payload: dict):
+        # payload is {name: float, ..., "status": {name: bool}} -- the same
+        # shape the legacy monitor message carries under 'motorPositions'.
+        self._handle_monitor_message({"motorPositions": payload})
+
+    def _on_backend_scan_error(self, message: str):
+        self.scanning = False
+        self.error_occurred.emit(message)
+        self.scan_state_changed.emit(False)
+
+    def _on_backend_remote_error(self, message: str):
+        self.error_occurred.emit(message)
+
+    def _on_backend_run_new(self, payload: dict):
+        # lightfall's runs.new broadcast schema is {"item_id", "run_uid",
+        # "plan_name"} (src/lightfall/remote/service.py:_register_events) --
+        # not "uid".
+        run_uid = payload.get("run_uid")
+        if not run_uid or self._run_streamer is not None:
+            return
+        self._current_run_uid = run_uid
+        self._run_streamer = RunStreamer(
+            self.backend.client.tiled_client, run_uid,
+            on_image=lambda image_dict, extents: self._run_image_ready.emit(image_dict, extents),
+            on_progress=lambda done, total: self._run_progress_ready.emit(done, total),
+            on_error=lambda exc: self._run_error_ready.emit(exc))
+        self._run_streamer.start()
+
+    def _on_backend_run_image(self, image_dict: dict, extents):
+        # RunStreamer keys image_dict by the run's actual detector/data-field
+        # name (e.g. "STXMLineFlyer" for the real pystxmcontrol flyer, or
+        # whatever data_field it was constructed with) -- not "default". The
+        # legacy image-handling branch below (_handle_monitor_message)
+        # selects image_dict[channel_key] falling back to image_dict['default'],
+        # and channel_key defaults to 'default' until the user picks a real
+        # channel from motor_info, so a remote single-detector run would
+        # otherwise never display: log a warning and silently no-op forever.
+        # Alias the sole entry under 'default' too so the existing selection
+        # logic (unchanged, still used by legacy ZMQ multi-channel scans)
+        # picks it up out of the box.
+        if "default" not in image_dict and len(image_dict) == 1:
+            image_dict = dict(image_dict)
+            image_dict["default"] = next(iter(image_dict.values()))
+
+        # Synthesize the same message shape the legacy image branch of
+        # _handle_monitor_message consumes: {"image": {field: ndarray},
+        # "mode": <one of the recognized scan modes>, ...}.
+        message = {
+            "image": image_dict,
+            "mode": "rasterLine",
+            "type": "Image",
+            "scanRegion": "Region1",
+            "energyIndex": 0,
+            "scanID": self._current_run_uid or "",
+        }
+        self._handle_monitor_message(message)
+
+    def _on_backend_run_progress(self, rows_done, rows_total):
+        self.scan_progress_updated.emit(f"{rows_done}/{rows_total}")
+
+    def _on_backend_run_error(self, exc):
+        self.error_occurred.emit(str(exc))
+
+    def _on_backend_run_complete(self, payload: dict):
+        if self._run_streamer is not None:
+            self._run_streamer.stop()
+            self._run_streamer = None
+        self._current_run_uid = None
+        self._handle_monitor_message("scan_complete")
         
     def _resolve_daq_list(self, scan_type: str) -> list:
         """
@@ -182,6 +341,8 @@ class MainController(QObject):
             
     def initialize_client(self):
         """Initialize the client connection."""
+        if self.backend is not None:
+            return self._initialize_backend_client()
         try:
             # Set up control thread
             self.control_thread = ControlThread(self.client, self.message_queue)
@@ -498,7 +659,18 @@ class MainController(QObject):
 
         Sets the controller scanning state and emits external_scan_started so
         the view can configure itself exactly as if the user had pressed Begin.
+
+        Backend (remote) mode drives scan state exclusively from the explicit
+        run lifecycle (start_scan -> scanning=True; the run_complete broadcast
+        -> scanning=False). Inferring scan state from incoming image data races
+        that lifecycle: an image for a just-finished run, delivered right after
+        run_complete cleared the flag, would resurrect scanning=True and leave
+        it stuck. So this legacy-ZMQ inference is disabled when a backend is
+        wired. (Reflecting a scan started by another remote client is a
+        multi-operator concern deferred out of v1 scope.)
         """
+        if self.backend is not None:
+            return
         if not self.scanning and scan_type:
             self.scanning = True
             self.image_model._data['motor_scan_x_data'] = []
@@ -558,12 +730,16 @@ class MainController(QObject):
             self.scan_model.set('experimenters', view.ui.experimentersLineEdit.text())
             self.scan_model.set('sample', view.ui.sampleLineEdit.text())
             self.scan_model.set('comment', view.ui.commentEdit.toPlainText() if hasattr(view.ui, 'commentEdit') else '')
-            self.scan_model.set('driver', self.client.scanConfig[scan_type]['driver'])
-            self.scan_model.set('mode', self.client.scanConfig[scan_type].get('mode', 'continuousLine'))
+            # Remote-backend mode has no ZMQ client: fall back to empty
+            # configs (driver/mode/daq_list keep their model defaults).
+            scan_cfg = (getattr(self.client, 'scanConfig', None) or {}).get(scan_type, {})
+            daq_cfg = getattr(self.client, 'daqConfig', None) or {}
+            self.scan_model.set('driver', scan_cfg.get('driver', ''))
+            self.scan_model.set('mode', scan_cfg.get('mode', 'continuousLine'))
 
             # DAQ list - get from scan config but filter by what's available in daqConfig
-            if 'daq_list' in self.client.scanConfig[scan_type]:
-                daq_list_str = self.client.scanConfig[scan_type]['daq_list']
+            if 'daq_list' in scan_cfg:
+                daq_list_str = scan_cfg['daq_list']
                 if isinstance(daq_list_str, str):
                     requested_daqs = daq_list_str.split(',')
                 else:
@@ -572,8 +748,8 @@ class MainController(QObject):
                 # Filter by what's actually available and recordable in daqConfig
                 daq_list = []
                 for daq_key in requested_daqs:
-                    if daq_key in self.client.daqConfig:
-                        if self.client.daqConfig[daq_key].get('record', True):
+                    if daq_key in daq_cfg:
+                        if daq_cfg[daq_key].get('record', True):
                             daq_list.append(daq_key)
 
                 # If nothing passed the filter, use default
@@ -584,8 +760,8 @@ class MainController(QObject):
             else:
                 # Build from daqConfig - all DAQs with record=True
                 daq_list = []
-                for daq_key in self.client.daqConfig.keys():
-                    if self.client.daqConfig[daq_key].get('record', True):
+                for daq_key in daq_cfg.keys():
+                    if daq_cfg[daq_key].get('record', True):
                         daq_list.append(daq_key)
 
                 if not daq_list:
@@ -889,8 +1065,11 @@ class MainController(QObject):
             
         try:
             scan_config = self.scan_model.to_dict()
-            message = {"command": "scan", "scan": scan_config}
-            self.message_queue.put(message)
+            if self.backend is not None:
+                self.backend.submit_scan(scan_config)
+            else:
+                message = {"command": "scan", "scan": scan_config}
+                self.message_queue.put(message)
             self.scanning = True
             # Reset motor scan data so a new Single Motor scan starts fresh
             self.image_model._data['motor_scan_x_data'] = []
@@ -915,8 +1094,11 @@ class MainController(QObject):
     def cancel_scan(self):
         """Cancel the current scan."""
         if self.scanning:
-            message = {"command": "cancel"}
-            self.message_queue.put(message)
+            if self.backend is not None:
+                self.backend.abort_scan()
+            else:
+                message = {"command": "cancel"}
+                self.message_queue.put(message)
             self.scanning = False
             self.status_updated.emit("Scan cancelled")
             self.scan_state_changed.emit(False)  # Signal scan completed
@@ -925,21 +1107,41 @@ class MainController(QObject):
 
     def set_gate(self, mode: str):
         """Set the shutter/gate mode. mode must be 'auto', 'open', or 'closed'."""
+        if self.backend is not None:
+            self.status_updated.emit("not available in remote mode")
+            return
         self.message_queue.put({"command": "setGate", "mode": mode})
+
+    def move_to_focus(self):
+        """Move to the last calibrated focus position (legacy ZMQ mode only)."""
+        if self.backend is not None:
+            self.status_updated.emit("not available in remote mode")
+            return
+        self.client.move_to_focus()
+
+    def change_motor_config(self, motor: str, key: str, value):
+        """Change a motor configuration value on the server (legacy ZMQ mode only)."""
+        if self.backend is not None:
+            self.status_updated.emit("not available in remote mode")
+            return
+        self.client.change_motor_config(motor, key, value)
 
     def move_motor(self, motor_name: str, position: float) -> bool:
         """Move a motor to the specified position."""
         if not self.motor_model.is_scan_position_valid(motor_name, position):
             self.error_occurred.emit(f"Position {position} out of range for {motor_name}")
             return False
-            
+
         try:
-            message = {
-                "command": "moveMotor",
-                "axis": motor_name,
-                "pos": position
-            }
-            self.message_queue.put(message)
+            if self.backend is not None:
+                self.backend.move_motor(motor_name, position)
+            else:
+                message = {
+                    "command": "moveMotor",
+                    "axis": motor_name,
+                    "pos": position
+                }
+                self.message_queue.put(message)
             self.motor_model.set_target_position(motor_name, position)
             self.status_updated.emit(f"Moving {motor_name} to {position}")
             return True
@@ -1175,13 +1377,30 @@ class MainController(QObject):
             return False
             
     def quit_application(self):
-        """Quit the application."""
+        """Quit the application.
+
+        sys.exit() from inside a Qt slot terminates the process immediately —
+        app.exec() never returns, so any cleanup app.py placed after it is
+        skipped. All teardown must therefore happen HERE, before sys.exit().
+        In backend (remote) mode that means stopping any live RunStreamer and
+        shutting the RemoteBackend down (which stops the CA monitor Context +
+        threads and joins the asyncio-loop thread); otherwise those threads and
+        the NATS connection are killed by raw process death instead of drained.
+        """
         self.exiting = True
         if self.control_thread:
             self.control_thread.monitor = False
             self.message_queue.put("exit")
         if self.client:
             self.client.disconnect()
+        if self._run_streamer is not None:
+            try:
+                self._run_streamer.stop()
+            except Exception:
+                pass
+            self._run_streamer = None
+        if self.backend is not None:
+            self.backend.shutdown()
         sys.exit()
         
     def get_scan_model(self) -> ScanModel:
@@ -1200,6 +1419,9 @@ class MainController(QObject):
         Returns a list of dicts with 'timestamp' and 'actual_position' keys,
         sorted chronologically.  Returns [] on error or if not connected.
         """
+        if self.backend is not None:
+            self.status_updated.emit("not available in remote mode")
+            return []
         try:
             response = self.client.query_motor_history(
                 motor_name, start_time, end_time, limit

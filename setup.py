@@ -3,26 +3,40 @@ from setuptools.command.install import install
 from setuptools.command.develop import develop
 import os
 import subprocess
+import sys
+import shutil
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _install_desktop_file():
-    icon_path = os.path.join(_REPO_ROOT, 'icons', 'pystxmcontrol_icon.png')
-    desktop_dir = os.path.expanduser('~/.local/share/applications')
-    os.makedirs(desktop_dir, exist_ok=True)
-    desktop_path = os.path.join(desktop_dir, 'pystxmcontrol.desktop')
-    with open(desktop_path, 'w') as f:
-        f.write(
-            '[Desktop Entry]\n'
-            'Name=pystxmControl\n'
-            'Exec=python -m pystxmcontrol.gui.main\n'
-            f'Icon={icon_path}\n'
-            'Type=Application\n'
-            'Categories=Science;\n'
-        )
-    subprocess.run(['update-desktop-database', desktop_dir], check=False)
-    print(f'Installed desktop file: {desktop_path}')
+    # Optional Linux desktop integration. Skip on non-Linux platforms (the
+    # freedesktop .desktop file and `update-desktop-database` are Linux-only),
+    # skip when the tool is absent, and never let it fail the build/install —
+    # it is a packaging convenience, not a runtime requirement. Running it
+    # unconditionally raised FileNotFoundError ([WinError 2]) during the wheel
+    # build on Windows, which aborted `pip install`.
+    if not sys.platform.startswith('linux'):
+        return
+    try:
+        icon_path = os.path.join(_REPO_ROOT, 'icons', 'pystxmcontrol_icon.png')
+        desktop_dir = os.path.expanduser('~/.local/share/applications')
+        os.makedirs(desktop_dir, exist_ok=True)
+        desktop_path = os.path.join(desktop_dir, 'pystxmcontrol.desktop')
+        with open(desktop_path, 'w') as f:
+            f.write(
+                '[Desktop Entry]\n'
+                'Name=pystxmControl\n'
+                'Exec=python -m pystxmcontrol.gui.main\n'
+                f'Icon={icon_path}\n'
+                'Type=Application\n'
+                'Categories=Science;\n'
+            )
+        if shutil.which('update-desktop-database'):
+            subprocess.run(['update-desktop-database', desktop_dir], check=False)
+        print(f'Installed desktop file: {desktop_path}')
+    except Exception as exc:  # never block install on desktop integration
+        print(f'Skipped desktop file install: {exc}')
 
 
 class _PostInstall(install):
@@ -47,12 +61,15 @@ setup(  name = 'pystxmcontrol',
         author = 'David Shapiro',
         author_email = 'dashapiro@lbl.gov',
         packages = ['pystxmcontrol','pystxmcontrol.gui','pystxmcontrol.controller',\
-            'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans'],
+            'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans',\
+            'pystxmcontrol.remote'],
+        package_data = {'pystxmcontrol.remote': ['remote.json']},
         entry_points = {
             'console_scripts': [
                 'stxmcontrol = pystxmcontrol.gui.main:main',
                 'stxmserver   = pystxmcontrol.controller.server:main',
                 'stxmbrowser  = pystxmcontrol.gui.browser_analysis_app:main',
+                'stxmcontrol-remote = pystxmcontrol.remote.app:main',
             ],
         },
         cmdclass={'install': _PostInstall, 'develop': _PostDevelop},

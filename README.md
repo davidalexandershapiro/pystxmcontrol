@@ -73,6 +73,77 @@ pip install .
 - In one terminal (or Anaconda Powershell on Windows) enter: stxmserver
 - In another terminal enter: stxmcontrol
 
+# Remote GUI (stxmcontrol-remote)
+
+The `stxmcontrol-remote` console script provides a Qt-based GUI for the pystxmcontrol client wired to a Lightfall RemoteBackend, enabling remote control of STXM experiments via a running Lightfall instance with the remote-control service enabled.
+
+## Installation
+
+Install the remote-GUI extra dependencies:
+
+```
+pip install pystxmcontrol[remote]
+```
+
+This installs: `nats-py`, `tiled`, `caproto>=1.1`, and `netifaces`.
+
+## Configuration
+
+The GUI uses a JSON config file to connect to Lightfall's remote-control service via NATS. The config is loaded from a packaged default (`pystxmcontrol/remote/remote.json`) but may be overridden:
+
+```
+stxmcontrol-remote [--config /path/to/remote.json]
+```
+
+Config file structure (JSON):
+
+```json
+{
+    "nats_url": "nats://127.0.0.1:4222",
+    "prefix": "als.stxm",
+    "app_name": "pystxmcontrol-remote"
+}
+```
+
+- `nats_url`: NATS server URL (default: local NATS at port 4222)
+- `prefix`: NATS subject prefix for device/control channels (default: `als.stxm`)
+- `app_name`: Client identifier sent to Lightfall (default: `pystxmcontrol-remote`)
+
+## Prerequisites
+
+- A running Lightfall instance with the remote-control service enabled (spec #1)
+- For demo/testing: the spec #2 stxm-iocs simulator fleet running
+- Network access to the Lightfall NATS broker and Tiled server
+- Environment variable `OPHYD_CONTROL_LAYER=caproto` (set automatically by RemoteBackend)
+
+## Transport Mechanisms
+
+The remote GUI uses three separate transports for different control/monitoring needs:
+
+1. **NATS (Control):** Orchestrates scan lifecycle (plan run/abort) and manual device moves via Lightfall's capability-channel protocol
+2. **Direct CA (Motor Readback Monitoring):** Subscribes to caproto monitors for real-time motor positions without roundtrip latency
+3. **Tiled (Live Scan Images):** Streams live image data via RunStreamer for on-GUI visualization
+
+## v1 Scan-Mode Scope
+
+The initial remote GUI implementation supports:
+
+- Fly raster scans
+- Energy stack scans
+
+Other scan modes will be rejected with an `UnsupportedScanMode` error.
+
+## Disabled Features in Remote Mode
+
+The following features are disabled when controlling via the remote GUI (limitations of the remote backend or deferred to spec follow-ups):
+
+- `set_gate` (shutter control)
+- `move_to_focus` (focus-mode motions)
+- Motor configuration editing
+- `query_motor_history` (motor move logs)
+- CCD and ptychography data monitors
+- Scan-state inference from data (state is driven by explicit run lifecycle events)
+
 # Contact us
 
 For questions, bug reports, feature requests, or if you want to collaborate with us, contact dashapiro@lbl.gov
