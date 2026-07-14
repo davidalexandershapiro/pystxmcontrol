@@ -249,6 +249,29 @@ def test_late_image_after_run_complete_keeps_scanning_false(
         "late image resurrected scanning (external-scan inference raced the lifecycle)"
 
 
+def test_quit_application_shuts_down_backend(qapp, controller, backend, monkeypatch):
+    """quit_application must tear the backend down before sys.exit().
+
+    sys.exit() inside a Qt slot ends the process before app.exec() returns, so
+    app.py's post-loop cleanup never runs -- the graceful shutdown has to
+    happen in quit_application itself. Neutralize sys.exit so it doesn't kill
+    pytest, then assert the backend was actually shut down.
+    """
+    exits = []
+    monkeypatch.setattr(main_controller_mod.sys, "exit", lambda *a: exits.append(a))
+    shutdown_calls = []
+    real_shutdown = backend.shutdown
+    monkeypatch.setattr(
+        backend, "shutdown",
+        lambda: (shutdown_calls.append(True), real_shutdown())[1])
+
+    controller.quit_application()
+
+    assert shutdown_calls, "quit_application did not shut the backend down in remote mode"
+    assert exits, "sys.exit was not reached"
+    assert not backend.isRunning(), "backend thread still alive after quit_application"
+
+
 # ---------------------------------------------------------------------------
 # disabled-in-remote-mode surface
 # ---------------------------------------------------------------------------

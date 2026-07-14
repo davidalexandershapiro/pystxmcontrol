@@ -1377,13 +1377,30 @@ class MainController(QObject):
             return False
             
     def quit_application(self):
-        """Quit the application."""
+        """Quit the application.
+
+        sys.exit() from inside a Qt slot terminates the process immediately —
+        app.exec() never returns, so any cleanup app.py placed after it is
+        skipped. All teardown must therefore happen HERE, before sys.exit().
+        In backend (remote) mode that means stopping any live RunStreamer and
+        shutting the RemoteBackend down (which stops the CA monitor Context +
+        threads and joins the asyncio-loop thread); otherwise those threads and
+        the NATS connection are killed by raw process death instead of drained.
+        """
         self.exiting = True
         if self.control_thread:
             self.control_thread.monitor = False
             self.message_queue.put("exit")
         if self.client:
             self.client.disconnect()
+        if self._run_streamer is not None:
+            try:
+                self._run_streamer.stop()
+            except Exception:
+                pass
+            self._run_streamer = None
+        if self.backend is not None:
+            self.backend.shutdown()
         sys.exit()
         
     def get_scan_model(self) -> ScanModel:
