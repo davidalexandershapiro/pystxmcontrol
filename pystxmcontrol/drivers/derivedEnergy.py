@@ -28,37 +28,30 @@ class derivedEnergy(motor):
         return self.calibratedPosition
 
     def moveBy(self, energy_step):
-        if not(self.simulation):
-            self.moving = True
-            self.getPos()
-            self.moveTo(self.position + energy_step)
-            self.moving = False
-        else:
-            self.position = self.position + step
+        self.moving = True
+        self.getPos()
+        self.moveTo(self.position + energy_step)
+        self.moving = False
 
     def moveTo(self, energy):
-        if not(self.simulation):
-            self.moving = True
-            if abs(energy - self.position) > 50. or energy<self.position:
-                self.axes["axis1"].moveTo(energy - 1.)
-                self.axes["axis1"].moveTo(energy)
-            else:
-                self.axes["axis1"].moveTo(energy)
-            self.getPos()
-            self.axes["axis2"].moveTo(self.getZonePlateCalibration(energy))
-            self.axes["axis2"].calibratedPosition = self.calibratedPosition
-            self.moving = False
-            self.getPos()
+        # No direct hardware access here: everything delegates to the underlying axes,
+        # which honour their own (per-axis) simulation mode.
+        self.moving = True
+        if abs(energy - self.position) > 50. or energy<self.position:
+            self.axes["axis1"].moveTo(energy - 1.)
+            self.axes["axis1"].moveTo(energy)
         else:
-            self.position = pos
+            self.axes["axis1"].moveTo(energy)
+        self.getPos()
+        self.axes["axis2"].moveTo(self.getZonePlateCalibration(energy))
+        self.axes["axis2"].calibratedPosition = self.calibratedPosition
+        self.moving = False
+        self.getPos()
 
     def getPos(self):
-        if not(self.simulation):
-            self.position = self.axes["axis1"].getPos()
-            self.getZonePlateCalibration()
-            return self.position
-        else:
-            return self.position
+        self.position = self.axes["axis1"].getPos()
+        self.getZonePlateCalibration()
+        return self.position
 
     def connect(self, axis = None):
         # A derived motor has no simulation mode of its own; it inherits the mode of the
