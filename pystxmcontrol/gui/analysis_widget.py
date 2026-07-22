@@ -833,12 +833,42 @@ class Analysis2Widget(QtWidgets.QWidget):
             n_spectrum_rois = sum(1 for e in self._a2_rois if e['type'] == 'Spectrum')
             self.ui.a2_mapButton.setEnabled(2 <= n_spectrum_rois <= 3)
 
+    def _a2_od_active(self):
+        """True iff OD is actually displayable: checkbox checked AND OD data present.
+        This is the single authoritative condition — axis-label code must use it too,
+        or the label and the plotted values can disagree (e.g. after OD computation
+        fails but the checkbox is left checked)."""
+        return (hasattr(self.ui, 'a2_odCheckbox')
+                and self.ui.a2_odCheckbox.isChecked()
+                and self._a2_od_frames is not None)
+
+    def _a2_set_y_axis_od_mode(self, pi, od: bool):
+        """Set the spectrum plot's left axis to OD or Counts display, including SI-prefix state.
+
+        pyqtgraph's AxisItem recomputes its auto-SI-prefix tick scale from the axis's
+        *current* range every time enableAutoSIPrefix() is called — even when disabling
+        it — because that recompute only checks the enable-ranges, not the flag itself.
+        Since OD values are typically < 1 and this label has no units, they fall inside
+        pyqtgraph's default no-units SI range (0, 1), so any later call re-enables an
+        effective x1000-ish tick rescale with no annotation in the label to reveal it
+        (that annotation IS gated by the flag, just not the rescale itself). Passing an
+        empty SI-prefix-enable-range makes "OD, no rescale" durable regardless of when or
+        how many times this gets called afterward.
+        """
+        axis = pi.getAxis('left')
+        if od:
+            pi.setLabel('left', 'Optical Density')
+            axis.setSIPrefixEnableRanges(())
+            axis.enableAutoSIPrefix(False)
+        else:
+            pi.setLabel('left', 'Counts')
+            axis.setSIPrefixEnableRanges(None)
+            axis.enableAutoSIPrefix(True)
+
     def _a2_get_display_frames(self):
         """Return OD frames when the OD checkbox is active, otherwise raw frames."""
         sv = self.ui.a2_stack_viewer
-        if (hasattr(self.ui, 'a2_odCheckbox')
-                and self.ui.a2_odCheckbox.isChecked()
-                and self._a2_od_frames is not None):
+        if self._a2_od_active():
             return self._a2_od_frames
         return sv.stack.processedFrames
 
@@ -911,12 +941,7 @@ class Analysis2Widget(QtWidgets.QWidget):
                 entry['curve'].setVisible(not od_on)
         # Update y-axis label and disable SI prefix multiplier for OD (values 0–5)
         pi = self.ui.a2_spectrumPlot.getPlotItem()
-        if od_on:
-            pi.setLabel('left', 'Optical Density')
-            pi.getAxis('left').enableAutoSIPrefix(False)
-        else:
-            pi.setLabel('left', 'Counts')
-            pi.getAxis('left').enableAutoSIPrefix(True)
+        self._a2_set_y_axis_od_mode(pi, self._a2_od_active())
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
         self._a2_update_norm_button_state()
@@ -1207,8 +1232,7 @@ class Analysis2Widget(QtWidgets.QWidget):
             self.ui.a2_odCheckbox.blockSignals(False)
         # Update spectrum plot axis label to match OD display
         pi = self.ui.a2_spectrumPlot.getPlotItem()
-        pi.setLabel('left', 'Optical Density')
-        pi.getAxis('left').enableAutoSIPrefix(False)
+        self._a2_set_y_axis_od_mode(pi, True)
         # Display OD frames in imageView
         frames = sv.stack.odFrames
         self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
@@ -1263,8 +1287,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self.ui.a2_odCheckbox.setChecked(True)
         self.ui.a2_odCheckbox.blockSignals(False)
         pi = self.ui.a2_spectrumPlot.getPlotItem()
-        pi.setLabel('left', 'Optical Density')
-        pi.getAxis('left').enableAutoSIPrefix(False)
+        self._a2_set_y_axis_od_mode(pi, True)
         pb.setValue(80)
         QtWidgets.QApplication.processEvents()
 
@@ -1935,9 +1958,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         if text == 'ROI Spectra':
             self._a2_set_roi_curves_visible(True)
             pi.setLabel('bottom', 'Energy', units='eV')
-            pi.setLabel('left', 'Counts' if not (
-                hasattr(self.ui, 'a2_odCheckbox') and self.ui.a2_odCheckbox.isChecked()
-            ) else 'Optical Density')
+            self._a2_set_y_axis_od_mode(pi, self._a2_od_active())
             self._on_a2_roi_changed()
 
         elif text == 'Cluster Spectra':
@@ -1955,7 +1976,7 @@ class Analysis2Widget(QtWidgets.QWidget):
                                 name=f'Cluster {i + 1}')
                 self._a2_cluster_curves.append(curve)
             pi.setLabel('bottom', 'Energy', units='eV')
-            pi.setLabel('left', 'Optical Density')
+            self._a2_set_y_axis_od_mode(pi, True)
 
         elif text == 'PCA Eigenvalues':
             self._a2_set_roi_curves_visible(False)
@@ -2276,20 +2297,21 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._a2_clear_cluster_curves()
             self._a2_set_roi_curves_visible(True)
             self._a2_set_roi_overlays_visible(True)
+            # The I0 ROI (and its curve) must stay hidden while OD is active —
+            # _a2_set_roi_overlays_visible/_a2_set_roi_curves_visible above just
+            # unhid it again, so re-apply that invariant here.
+            if self._a2_od_active():
+                for entry in self._a2_rois:
+                    if entry['type'] == 'I0':
+                        entry['roi'].setVisible(False)
+                        entry['curve'].setVisible(False)
             # Refresh display from existing _a2_od_frames without recomputing OD,
             # so post-OD modifications (e.g. pre-edge subtraction) are preserved.
             self._a2_refresh_image_view()
             self._a2_update_roi_curves()
             # Restore axis labels to match the current OD/Transmission state
             pi = self.ui.a2_spectrumPlot.getPlotItem()
-            od_on = (hasattr(self.ui, 'a2_odCheckbox')
-                     and self.ui.a2_odCheckbox.isChecked())
-            if od_on:
-                pi.setLabel('left', 'Optical Density')
-                pi.getAxis('left').enableAutoSIPrefix(False)
-            else:
-                pi.setLabel('left', 'Counts')
-                pi.getAxis('left').enableAutoSIPrefix(True)
+            self._a2_set_y_axis_od_mode(pi, self._a2_od_active())
             pi.setLabel('bottom', 'Energy', units='eV')
 
         elif name == 'a2_tab_clustering':
@@ -2441,8 +2463,7 @@ class Analysis2Widget(QtWidgets.QWidget):
             color = tuple(int(c * 255) for c in raw_color)
             curve = pi.plot(energies, spec, pen=pg.mkPen(color, width=1.5), name=f"Cluster {i+1}")
             self._a2_cluster_curves.append(curve)
-        pi.setLabel('left', 'Optical Density')
-        pi.getAxis('left').enableAutoSIPrefix(False)
+        self._a2_set_y_axis_od_mode(pi, True)
 
     def _on_a2_nmf_calc_rgb_map(self):
         """Compute an NMF RGB map using the selected target spectra.
@@ -2725,12 +2746,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         # Set spectrum plot axes
         pi = self.ui.a2_spectrumPlot.getPlotItem()
         pi.setLabel('bottom', 'Energy', units='eV')
-        if self._ls_od_cb.isChecked():
-            pi.setLabel('left', 'Optical Density')
-            pi.getAxis('left').enableAutoSIPrefix(False)
-        else:
-            pi.setLabel('left', 'Counts')
-            pi.getAxis('left').enableAutoSIPrefix(True)
+        self._a2_set_y_axis_od_mode(pi, self._ls_od_cb.isChecked())
         self._ls_curve.setVisible(True)
         self._ls_update_spectrum()
 
@@ -2808,11 +2824,11 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._ls_od_cb.blockSignals(False)
         self._ls_update_image_view()
         pi = self.ui.a2_spectrumPlot.getPlotItem()
-        pi.setLabel('left', 'Counts')
-        pi.getAxis('left').enableAutoSIPrefix(True)
+        self._a2_set_y_axis_od_mode(pi, False)
         self._ls_update_spectrum()
 
     def _on_ls_od_toggled(self, state):
+        pi = self.ui.a2_spectrumPlot.getPlotItem()
         if state:
             if self._ls_i0 is None:
                 self._ls_od_cb.blockSignals(True)
@@ -2822,13 +2838,9 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._ls_i0_cb.blockSignals(True)
             self._ls_i0_cb.setChecked(False)
             self._ls_i0_cb.blockSignals(False)
-            pi = self.ui.a2_spectrumPlot.getPlotItem()
-            pi.setLabel('left', 'Optical Density')
-            pi.getAxis('left').enableAutoSIPrefix(False)
+            self._a2_set_y_axis_od_mode(pi, True)
         else:
-            pi = self.ui.a2_spectrumPlot.getPlotItem()
-            pi.setLabel('left', 'Counts')
-            pi.getAxis('left').enableAutoSIPrefix(True)
+            self._a2_set_y_axis_od_mode(pi, False)
         self._ls_update_image_view()
         self._ls_update_spectrum()
 
