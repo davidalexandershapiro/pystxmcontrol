@@ -52,14 +52,23 @@ get_intelligence_recommendations() immediately before proceeding — the intelli
 module may have posted actionable suggestions (e.g. recentre the scan). Act on any
 recommendations unless the user has already given explicit contrary instructions.
 
-FINDING ELEMENT-SPECIFIC PARTICLES (e.g. "find particles containing iron"):
+FINDING / COUNTING ELEMENT-SPECIFIC PARTICLES (e.g. "how many particles contain iron?"):
 This requires elemental contrast, not a single image. Run a two-energy scan (element edge +
-pre-edge). When it completes, get_intelligence_recommendations() returns a 'two_energy_particles'
-report — the AUTHORITATIVE particle locations, computed from the elemental map. To image them:
-load_intelligence_particles() then start_multiregion_scan(). Do NOT use find_particles() to count
-or locate an element: it thresholds a single transmission image and finds generic absorbers, which
-will disagree with the elemental-map count. Use find_particles() only for plain "absorbing feature"
-requests with no element specified.
+pre-edge). When it completes, call count_element_particles(pre_energy=..., edge_energy=...): it
+builds the elemental map (the Analysis-tab Map / OD difference) and reports total_particles,
+element_particles, and fraction_with_element. This is the sole tool for two-energy element
+mapping — it works directly on the in-memory buffered scan and also caches the map, so
+add_to_logbook(attach="computed") can save the elemental map to the logbook. It stores the
+element-containing regions, so start_multiregion_scan() can immediately image them.
+Do NOT use find_particles() to count or locate an element: it thresholds a single transmission
+image and finds generic absorbers, which will disagree with the elemental-map count. Use
+find_particles() only for plain "absorbing feature" requests with no element specified.
+
+MEMORY OF PAST SCANS:
+The GUI keeps the last several completed scans (full multi-energy stacks) in memory. You are NOT
+limited to the most recent scan. list_buffered_scans() shows what is available; pass an entry's
+index to count_element_particles(scan_index=...) to analyse an earlier scan (e.g. to compare or to
+revisit a two-energy scan after running others).
 
 SCAN LIMITS (before starting any scan):
 Call check_scan_limits() before start_scan(). If it reports needs_decision=True, the scan
@@ -209,14 +218,19 @@ class TaskAgent:
     max_iterations is reached.
     """
 
-    def __init__(self, main_config: dict, client, image_model=None, logbook_model=None):
+    def __init__(self, main_config: dict, client, image_model=None, logbook_model=None,
+                 on_scan_started=None):
         cfg = main_config.get("task_agent", {})
         self.model = cfg.get("model", "claude-opus-4-7")
         # Steps allowed WITHOUT a scan completing (stall/loop guard); a completed scan resets it.
         self.max_iterations = cfg.get("max_iterations", 20)
         # Absolute ceiling across the whole run, regardless of progress (final safety net).
         self.max_total_iterations = cfg.get("max_total_iterations", 200)
-        self._toolset = ToolSet(client, image_model=image_model, logbook_model=logbook_model)
+        # on_scan_started: optional callback invoked with the scan config dict when the
+        # agent launches a scan, so the GUI controller can build the live stxm object
+        # and buffer the completed scan for post-scan analysis (see ToolSet.start_scan).
+        self._toolset = ToolSet(client, image_model=image_model, logbook_model=logbook_model,
+                                on_scan_started=on_scan_started)
         self._cancel_event = threading.Event()
         self._messages: list[dict] = []  # persists across run() calls
 

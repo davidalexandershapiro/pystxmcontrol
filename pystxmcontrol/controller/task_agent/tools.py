@@ -337,10 +337,14 @@ class ToolSet:
     individual functions.
     """
 
-    def __init__(self, client, image_model=None, logbook_model=None):
+    def __init__(self, client, image_model=None, logbook_model=None, on_scan_started=None):
         self._client = client
         self._image_model = image_model
         self._logbook_model = logbook_model   # shared LogbookModel for add_to_logbook
+        # Callback(scan_dict) invoked when start_scan launches a scan, letting the GUI
+        # controller build the live stxm object so the completed scan gets buffered for
+        # post-scan analysis (agent scans otherwise bypass that GUI machinery).
+        self._on_scan_started = on_scan_started
         # Flat scan definition managed by update_scan / start_scan
         self._scan: dict = ScanModel().model_dump()
         # Cached config — populated on first get_config() call
@@ -350,10 +354,12 @@ class ToolSet:
         self._positions: dict | None = None
 
         self._particle_regions: list[dict] | None = None
-        # Latest element-specific particle list from the intelligence two-energy map report,
-        # cached whenever get_intelligence_recommendations() drains one so it survives the
-        # queue clear and can be loaded into a multi-region scan.
-        self._last_particle_report: list[dict] | None = None
+        # Most recent image produced by a *calculation* tool (e.g. the two-energy
+        # elemental/difference map) rather than read live from a scan.  Kept so
+        # add_to_logbook(attach="computed") can embed it — computed arrays are not
+        # in _image_model['all_detector_images'], which only holds live scan frames.
+        # Shape: {'array': np.ndarray, 'label': str, 'meta': dict}.
+        self._last_computed_image: dict | None = None
         self._was_scanning: bool = False         # tracks scanning→idle transition
         self._last_was_multiregion: bool = False  # prevent lastScan contamination after multiregion
 
@@ -723,6 +729,14 @@ class ToolSet:
             return f"Scan not started — {energy_note}"
         try:
             scan_dict = _build_scan_dict(self._scan, self._scans_config or {})
+            # Let the GUI controller build the live stxm object BEFORE the scan command
+            # is sent, so no early frames are missed and the completed scan is buffered
+            # for post-scan analysis (two-energy maps, particle counting).
+            if self._on_scan_started is not None:
+                try:
+                    self._on_scan_started(scan_dict)
+                except Exception as e:
+                    log.debug("on_scan_started callback failed: %s", e)
             response = self._client.send_message({"command": "scan", "scan": scan_dict})
             if response and response.get('status'):
                 self._was_scanning = True
@@ -887,8 +901,8 @@ class ToolSet:
 
         Uses Otsu thresholding on the inverted image plus connected-component analysis — this
         finds *generic* absorbers in ONE image; it is NOT element-specific.  For an element
-        request (e.g. iron) after a two-energy scan, use the intelligence module's elemental-map
-        result instead: get_intelligence_recommendations() -> load_intelligence_particles().
+        request (e.g. iron) after a two-energy scan, use count_element_particles() instead,
+        which builds the elemental (OD-difference) map and finds the element-bearing particles.
         Results are stored internally and can be submitted immediately with start_multiregion_scan().
 
         Args:
@@ -962,7 +976,7 @@ class ToolSet:
     def start_multiregion_scan(self, pixel_size_nm: float | None = None) -> str:
         """Start an image scan covering every loaded particle region.
 
-        Region list comes from whichever you called last: load_intelligence_particles()
+        Region list comes from whichever you called last: count_element_particles()
         (element-specific, from the two-energy map — preferred for element requests) or
         find_particles() (generic absorbers in a single image).
         Uses the current scan parameters (energy, dwell, proposal, etc.) but replaces
@@ -974,7 +988,7 @@ class ToolSet:
                 If omitted, uses the overview scan's pixel size as the default.
         """
         if not getattr(self, '_particle_regions', None):
-            return ("No particle regions available — call load_intelligence_particles() "
+            return ("No particle regions available — call count_element_particles() "
                     "(element-specific, from the two-energy map) or find_particles() first.")
         if self._scans_config is None:
             return "Scan config not loaded — call get_config() first."
@@ -1032,14 +1046,10 @@ class ToolSet:
         """Return any pending recommendations from the intelligence module and clear the queue.
 
         The intelligence module analyses each completed scan and posts structured
-        recommendations here, e.g.:
-          * recentre suggestions (off-centre feature, focus decline), and
-          * 'two_energy_particles' — element-specific particle locations computed from a
-            two-energy elemental map (edge/pre-edge).  These are the AUTHORITATIVE particle
-            locations for an element-finding request and already give each particle's
-            center_um and size_um.  To image them, call load_intelligence_particles() then
-            start_multiregion_scan() — do NOT re-derive particles with find_particles(),
-            which only thresholds a single transmission image (generic absorbers).
+        recommendations here, e.g. recentre suggestions (off-centre feature) and focus
+        calibrations. (Two-energy element mapping is NOT posted here — the task agent owns
+        that: call count_element_particles() to build the elemental map and find element
+        particles on demand.)
 
         This tool drains the queue — call it after every wait_for_scan().
         """
@@ -1049,10 +1059,7 @@ class ToolSet:
         pending = list(self._image_model.get("pending_recommendations") or [])
         self._image_model.set("pending_recommendations", [])
 
-        # Cache the most recent two-energy particle report so it survives the queue clear.
         for rec in pending:
-            if rec.get("subtype") == "two_energy_particles" and rec.get("particles"):
-                self._last_particle_report = rec["particles"]
             # Cache the most recent focus recommendation for apply_focus_calibration().
             if rec.get("subtype") == "focus" and rec.get("delta_z") is not None:
                 self._last_focus_report = rec
@@ -1062,60 +1069,217 @@ class ToolSet:
 
         return json.dumps({"recommendations": pending}, indent=2)
 
-    def load_intelligence_particles(self, region_size_um: float | None = None,
-                                    padding_fraction: float = 0.5) -> str:
-        """Load the intelligence module's two-energy particle locations as multi-region scan targets.
+    # ------------------------------------------------------------------
+    # Multi-scan memory buffer (GUI-side ring buffer of completed scans)
+    # ------------------------------------------------------------------
 
-        Prefer this over find_particles() for element-specific requests (e.g. 'iron particles'):
-        the locations come from the two-energy elemental map, whereas find_particles() thresholds
-        a single transmission image and finds generic absorbers (often a different count).
+    def _get_scan_buffer(self) -> list:
+        """Return the buffered-scan records (newest last), or [] if unavailable."""
+        if self._image_model is None:
+            return []
+        buf = self._image_model.get('scan_buffer')
+        if buf is None:
+            return []
+        try:
+            return list(buf)
+        except TypeError:
+            return []
 
-        Populates the region list consumed by start_multiregion_scan().  Each region is centred
-        on a reported particle; its size is the particle's extent grown by padding_fraction on
-        each side (floored at 0.5 µm), unless region_size_um forces a uniform square FOV.
+    def _get_buffered_scan(self, scan_id: str | None = None,
+                           index: int | None = None,
+                           min_energies: int = 1) -> dict | None:
+        """Resolve a single buffered-scan record.
+
+        Selection order: explicit *index* (0 = oldest, -1 = newest), then *scan_id*
+        substring match, otherwise the most recent record with >= min_energies frames.
+        Returns None when nothing matches.
+        """
+        records = self._get_scan_buffer()
+        if not records:
+            return None
+        if index is not None:
+            try:
+                return records[index]
+            except IndexError:
+                return None
+        if scan_id:
+            for rec in reversed(records):
+                if scan_id in (rec.get('scan_id') or ''):
+                    return rec
+            return None
+        for rec in reversed(records):
+            if len(rec.get('energies') or []) >= min_energies:
+                return rec
+        return None
+
+    def list_buffered_scans(self) -> str:
+        """List the completed scans held in memory, newest last.
+
+        The GUI retains the last several completed scans (full multi-energy stacks) so
+        the agent can analyse a prior scan without re-running it — e.g. count_element_particles()
+        on a two-energy scan that is no longer the most recent.  Each entry's 'index' can be
+        passed to count_element_particles(scan_index=...).
+        """
+        records = self._get_scan_buffer()
+        if not records:
+            return ("No scans buffered yet. Buffering happens when an Image scan completes "
+                    "in the GUI (requires the GUI controller; not available in headless runs).")
+        out = []
+        for i, rec in enumerate(records):
+            energies = rec.get('energies') or []
+            out.append({
+                "index": i,
+                "scan_id": os.path.basename(rec.get('scan_id') or '') or None,
+                "scan_type": rec.get('scan_type') or None,
+                "n_energies": len(energies),
+                "energy_range_eV": ([round(float(min(energies)), 2),
+                                     round(float(max(energies)), 2)] if energies else None),
+            })
+        return json.dumps({"buffered_scans": out, "count": len(out)}, indent=2)
+
+    def count_element_particles(self, pre_energy: float | None = None,
+                                edge_energy: float | None = None,
+                                daq: str = "default", region: int = 0,
+                                scan_id: str | None = None,
+                                scan_index: int | None = None,
+                                max_particles: int | None = None) -> str:
+        """Count particles and how many contain an element, from a buffered two-energy scan.
+
+        Builds the two-energy elemental map (the same OD-difference the Analysis tab's Map
+        button computes) from a buffered multi-energy scan, then counts (a) all particles
+        via pre-edge absorption and (b) the element-containing subset via the elemental map.
+        Frames within one scan are already co-registered, so no alignment is needed.
+
+        Use this for element questions (e.g. "how many particles contain iron?") after a
+        two-energy scan (pre-edge + edge).  Unlike find_particles() (generic absorbers in one
+        image) this needs two energies.  This is the single owner of two-energy elemental
+        mapping — it works directly on the in-memory buffered scan and also caches the map so
+        add_to_logbook(attach="computed") can save it.
+
+        The element-containing regions are stored for start_multiregion_scan(), so you can
+        immediately zoom into the element-bearing particles.
 
         Args:
-            region_size_um:   force a uniform square FOV (µm) per particle; omit to size each
-                              region to its particle.
-            padding_fraction: fractional margin added to each side of the particle extent
-                              when region_size_um is not given (default 0.5 = +50%).
+            pre_energy:  pre-edge energy in eV; snaps to the nearest frame. Omit to use the
+                         lowest-energy frame.
+            edge_energy: on-edge energy in eV; snaps to the nearest frame. Omit to use the
+                         highest-energy frame.
+            daq:         detector channel to analyse (default 'default').
+            region:      scan-region index for multi-region scans (default 0).
+            scan_id:     analyse a specific buffered scan by id substring; default = most
+                         recent scan with >= 2 energies.
+            scan_index:  analyse a specific buffered scan by index (see list_buffered_scans);
+                         takes precedence over scan_id.
+            max_particles: cap on element regions returned, ordered by size (default: all).
         """
-        particles = self._last_particle_report
-        if not particles and self._image_model is not None:
-            # Fall back to peeking the queue (non-destructively) for the latest report.
-            pending = list(self._image_model.get("pending_recommendations") or [])
-            for rec in reversed(pending):
-                if rec.get("subtype") == "two_energy_particles" and rec.get("particles"):
-                    particles = rec["particles"]
-                    break
-        if not particles:
-            return ("No intelligence particle report available. Run a two-energy scan, then "
-                    "get_intelligence_recommendations(), before calling this.")
+        from pystxmcontrol.utils.image import (two_energy_map, otsu_absorption_mask,
+                                               find_feature_boxes)
+
+        rec = self._get_buffered_scan(scan_id=scan_id, index=scan_index, min_energies=2)
+        if rec is None:
+            return ("No buffered two-energy scan found. Run a two-energy scan (pre-edge + edge), "
+                    "or call list_buffered_scans() to see what is available.")
+
+        stx = rec.get('stxm')
+        energies = np.asarray(rec.get('energies') or [], dtype=float)
+        if stx is None or energies.size < 2:
+            return "Buffered scan has fewer than two energies — element mapping needs two."
+
+        interp = getattr(stx, 'interp_counts', None)
+        if not isinstance(interp, dict):
+            return "Buffered scan has no image data."
+        if daq not in interp and 'default' in interp:
+            daq = 'default'
+        if daq not in interp:
+            return f"No detector channel '{daq}' in buffered scan."
+        try:
+            stack3 = np.asarray(interp[daq][region], dtype=float)
+        except (IndexError, TypeError):
+            return f"Region {region} not available in buffered scan."
+        if stack3.ndim != 3 or stack3.shape[0] < 2:
+            return "Buffered scan region does not contain a two-energy stack."
+
+        # Resolve the two frame indices: nearest-energy snap, or first/last fallback.
+        pre_idx = (int(np.argmin(np.abs(energies - pre_energy)))
+                   if pre_energy is not None else 0)
+        edge_idx = (int(np.argmin(np.abs(energies - edge_energy)))
+                    if edge_energy is not None else energies.size - 1)
+        if pre_idx == edge_idx:
+            return ("Pre-edge and edge energies resolved to the same frame "
+                    f"({float(energies[pre_idx])} eV). Choose two distinct energies.")
+        pre = stack3[pre_idx]
+        edge = stack3[edge_idx]
+
+        # Element map (bright where the element absorbs more on the edge) and total particles.
+        element_map, valid = two_energy_map(pre, edge)
+
+        # Retain the computed map so the agent can save it to the logbook
+        # (add_to_logbook(attach="computed")); it is not a live scan frame.
+        self._remember_computed_image(
+            element_map,
+            label="two-energy elemental map",
+            meta={
+                "computation": "two-energy elemental (OD-difference) map",
+                "pre_energy": f"{float(energies[pre_idx]):.2f} eV",
+                "edge_energy": f"{float(energies[edge_idx]):.2f} eV",
+                "daq": daq,
+                "scan_id": os.path.basename(rec.get('scan_id') or '') or None,
+            },
+        )
+        element_mask = otsu_absorption_mask(element_map, dark=False, valid=valid)
+        total_mask = otsu_absorption_mask(pre, dark=True)
+
+        element_boxes = find_feature_boxes(element_mask, max_features=max_particles)
+        total_boxes = find_feature_boxes(total_mask)
+
+        # Pixel boxes -> µm scan regions, using the buffered scan's requested grid.
+        ny, nx = pre.shape[:2]
+        try:
+            xpos = np.asarray(stx.xPos[region], dtype=float)
+            ypos = np.asarray(stx.yPos[region], dtype=float)
+        except (AttributeError, IndexError, TypeError):
+            xpos = ypos = None
 
         regions = []
-        for p in particles:
-            c = p.get("center_um", {})
-            s = p.get("size_um", {}) or {}
-            if region_size_um is not None:
-                rx = ry = float(region_size_um)
-            else:
-                rx = max(float(s.get("x", 0.0)) * (1.0 + 2.0 * padding_fraction), 0.5)
-                ry = max(float(s.get("y", 0.0)) * (1.0 + 2.0 * padding_fraction), 0.5)
-            regions.append({
-                "xCenter": round(float(c.get("x", 0.0)), 3),
-                "yCenter": round(float(c.get("y", 0.0)), 3),
-                "xRange": round(rx, 3), "yRange": round(ry, 3),
-            })
+        if xpos is not None and ypos is not None and xpos.size >= 2 and ypos.size >= 2:
+            pad_px = 2
+            cols = np.arange(xpos.size)
+            rows = np.arange(ypos.size)
+            for b in element_boxes:
+                minr = max(0, b['minr'] - pad_px)
+                minc = max(0, b['minc'] - pad_px)
+                maxr = min(ny - 1, b['maxr'] + pad_px)
+                maxc = min(nx - 1, b['maxc'] + pad_px)
+                cx = float(np.interp((minc + maxc) / 2.0, cols, xpos))
+                cy = float(np.interp((minr + maxr) / 2.0, rows, ypos))
+                rx = abs(float(xpos[min(maxc, nx - 1)] - xpos[minc]))
+                ry = abs(float(ypos[min(maxr, ny - 1)] - ypos[minr]))
+                regions.append({
+                    'xCenter': round(cx, 3), 'yCenter': round(cy, 3),
+                    'xRange': round(rx, 3), 'yRange': round(ry, 3),
+                })
+            self._particle_regions = regions
+            px_x = abs(float(xpos[-1] - xpos[0])) / max(nx - 1, 1)
+            px_y = abs(float(ypos[-1] - ypos[0])) / max(ny - 1, 1)
+            self._overview_pixel_size_um = (px_x, px_y)
 
-        self._particle_regions = regions
-        self._overview_pixel_size_um = None  # no overview grid here; require explicit pixel size
-        return json.dumps({
-            "source": "intelligence two_energy_particles",
-            "particle_regions_loaded": len(regions),
-            "regions": regions,
-            "next_step": "Call update_scan(energy_list=[...]) to set the follow-up energy, then "
-                         "start_multiregion_scan(pixel_size_nm=...) to image these particles.",
-        }, indent=2)
+        total = len(total_boxes)
+        n_elem = len(element_boxes)
+        result = {
+            "total_particles": total,
+            "element_particles": n_elem,
+            "fraction_with_element": round(n_elem / total, 3) if total else None,
+            "pre_energy_eV": round(float(energies[pre_idx]), 2),
+            "edge_energy_eV": round(float(energies[edge_idx]), 2),
+            "daq": daq,
+            "scan_id": os.path.basename(rec.get('scan_id') or '') or None,
+            "element_regions": regions,
+            "next_step": ("Element regions stored. Call start_multiregion_scan(pixel_size_nm=...) "
+                          "to image the element-containing particles at higher resolution."
+                          if regions else
+                          "No element-containing particles detected at these two energies."),
+        }
+        return json.dumps(result, indent=2)
 
     def get_image_center_of_mass(self, daq: str = "default") -> str:
         """Return the center of mass of the Otsu-thresholded absorption mask.
@@ -2199,6 +2363,65 @@ class ToolSet:
     # Dispatch
     # ------------------------------------------------------------------
 
+    def _latest_two_energy_map(self):
+        """Build the OD-difference (two-energy elemental) map from the newest buffered
+        two-energy scan. Returns (array, meta) on success, or (None, reason).
+
+        This lets add_to_logbook(attach="computed") save the map even when the agent
+        obtained its particle count from the intelligence module (which computes the map
+        server-side and cannot ship the array over the monitor stream) rather than from
+        count_element_particles. Requires the GUI scan buffer — unavailable headless.
+        """
+        try:
+            from pystxmcontrol.utils.image import two_energy_map
+        except Exception as e:
+            return None, f"image utilities unavailable ({e})"
+        rec = self._get_buffered_scan(min_energies=2)
+        if rec is None:
+            return None, ("no buffered two-energy scan (buffering needs a completed two-energy "
+                          "Image scan in the GUI; unavailable in headless runs)")
+        stx = rec.get('stxm')
+        energies = np.asarray(rec.get('energies') or [], dtype=float)
+        interp = getattr(stx, 'interp_counts', None)
+        if stx is None or energies.size < 2 or not isinstance(interp, dict):
+            return None, "buffered scan has no two-energy image data"
+        daq = 'default' if 'default' in interp else next(iter(interp), None)
+        if daq is None:
+            return None, "no detector channel in buffered scan"
+        try:
+            stack3 = np.asarray(interp[daq][0], dtype=float)
+        except (IndexError, TypeError):
+            return None, "buffered scan region unavailable"
+        if stack3.ndim != 3 or stack3.shape[0] < 2:
+            return None, "buffered scan is not a two-energy stack"
+        diff, _valid = two_energy_map(stack3[0], stack3[-1])
+        meta = {
+            "computation": "two-energy elemental (OD-difference) map",
+            "pre_energy": f"{float(energies[0]):.2f} eV",
+            "edge_energy": f"{float(energies[-1]):.2f} eV",
+            "daq": daq,
+            "scan_id": os.path.basename(rec.get('scan_id') or '') or None,
+        }
+        return diff, meta
+
+    def _remember_computed_image(self, arr, label: str, meta: dict | None = None) -> None:
+        """Cache an image produced by a calculation tool for later logbook attachment.
+
+        Calculation results (e.g. the two-energy difference map) never enter
+        ``_image_model['all_detector_images']`` (which the GUI fills with live scan
+        frames), so without this the agent has no way to embed them in the logbook.
+        """
+        try:
+            a = np.asarray(arr, dtype=float)
+        except (ValueError, TypeError):
+            return
+        if a.ndim >= 2 and a.size:
+            self._last_computed_image = {
+                "array": a,
+                "label": label,
+                "meta": dict(meta or {}),
+            }
+
     @staticmethod
     def _array_to_qimage(arr):
         """Render a 2-D detector array to an autoscaled 8-bit grayscale QImage for a logbook
@@ -2223,15 +2446,24 @@ class ToolSet:
         qimg = QImage(buf.data, w, h, w, QImage.Format_Grayscale8)
         return qimg.copy()   # copy so the QImage owns its pixels (buf is local)
 
-    def add_to_logbook(self, text: str, attach_last_scan: bool = True,
-                       daq: str = "default") -> str:
+    def add_to_logbook(self, text: str, attach: str = "scan",
+                       daq: str = "default", attach_last_scan: bool | None = None) -> str:
         """Add an entry to the active logbook on the user's behalf.
 
         Use this to record an observation, a result, or an intelligence recommendation —
         e.g. after a scan completes, summarise what was done and attach the image. The entry
-        is stamped author='agent'. ``attach_last_scan`` embeds the most recent scan image
-        (grayscale, autoscaled) when one is available. Requires a logbook to be open in the
-        Logbook tab; if none is open, ask the user to open or create one.
+        is stamped author='agent'. Requires a logbook to be open in the Logbook tab; if none
+        is open, ask the user to open or create one.
+
+        Args:
+            attach: which image to embed (grayscale, autoscaled):
+                "scan"     — the most recent live scan image (default);
+                "computed" — the most recent image produced by a calculation tool, e.g. the
+                             two-energy elemental/difference map from count_element_particles.
+                             Use this to save a computed result, not a raw scan;
+                "none"     — text-only entry, no image.
+            daq:    detector channel for the "scan" image (default 'default').
+            attach_last_scan: deprecated — True maps to attach="scan", False to attach="none".
         """
         model = self._logbook_model
         if model is None:
@@ -2242,9 +2474,15 @@ class ToolSet:
         if not (text or "").strip():
             return "Refusing to add an empty logbook entry — provide text."
 
+        # Backward compatibility with the old boolean parameter.
+        if attach_last_scan is not None:
+            attach = "scan" if attach_last_scan else "none"
+        attach = (attach or "scan").lower()
+        if attach not in ("scan", "computed", "none"):
+            return (f"Unknown attach mode '{attach}'. Use 'scan', 'computed', or 'none'.")
+
         # Best-effort metadata from the current scan context.
         meta = {}
-        snap_note = ""
         if self._image_model is not None:
             scan_type = self._image_model.get('scan_type', '')
             energy = self._image_model.get('current_energy')
@@ -2254,13 +2492,41 @@ class ToolSet:
                 meta['energy'] = f"{float(energy):.1f} eV"
 
         qimg = None
-        if attach_last_scan and self._image_model is not None:
-            all_images = self._image_model.get('all_detector_images')
+        attach_desc = ""
+        snap_note = ""
+        if attach == "computed":
+            comp = self._last_computed_image
+            arr = comp.get('array') if isinstance(comp, dict) else None
+            fallback_reason = ""
+            if not isinstance(arr, np.ndarray):
+                # Nothing cached (e.g. the count came from the intelligence module, which
+                # can't ship the map array): build the two-energy map from the buffered scan.
+                built, info = self._latest_two_energy_map()
+                if isinstance(built, np.ndarray):
+                    self._remember_computed_image(built, "two-energy elemental map", info)
+                    comp = self._last_computed_image
+                    arr = comp.get('array')
+                else:
+                    fallback_reason = info
+            if isinstance(arr, np.ndarray):
+                qimg = self._array_to_qimage(arr)
+                meta.update(comp.get('meta') or {})
+                attach_desc = f" with the {comp.get('label', 'computed image')}"
+            if qimg is None:
+                snap_note = (f" (no computed image was available to attach — {fallback_reason}; "
+                             "run a calculation such as count_element_particles first)"
+                             if fallback_reason else
+                             " (no computed image was available to attach — run a "
+                             "calculation such as count_element_particles first)")
+        elif attach == "scan":
+            all_images = (self._image_model.get('all_detector_images')
+                          if self._image_model is not None else None)
             image = all_images.get(daq) if isinstance(all_images, dict) else None
             if image is None and isinstance(all_images, dict):
                 image = all_images.get('default')
             if isinstance(image, np.ndarray):
                 qimg = self._array_to_qimage(image)
+                attach_desc = " with the last scan image"
             if qimg is None:
                 snap_note = " (no scan image was available to attach)"
 
@@ -2269,7 +2535,7 @@ class ToolSet:
         except Exception as e:
             return f"Failed to add logbook entry: {e}"
         return (f"Added logbook entry #{index} to '{os.path.basename(model.folder)}'"
-                f"{' with the last scan image' if qimg is not None else ''}{snap_note}.")
+                f"{attach_desc}{snap_note}.")
 
     # ── logbook-as-context (phase 5; only used when task_agent.logbook_context on) ──────
     def _logbook_entries_for_context(self, authors=None) -> list:
@@ -2540,12 +2806,10 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "get_intelligence_recommendations",
             "description": (
-                "Return and clear pending recommendations from the intelligence module. "
-                "Includes recentre suggestions AND 'two_energy_particles' reports — the "
-                "AUTHORITATIVE element-specific particle locations from a two-energy elemental "
-                "map (each with center_um and size_um). For an element-finding request, act on "
-                "this: call load_intelligence_particles() then start_multiregion_scan(); do NOT "
-                "re-derive counts with find_particles(). Call after every wait_for_scan()."
+                "Return and clear pending recommendations from the intelligence module: "
+                "recentre suggestions (off-centre feature) and focus calibrations. Two-energy "
+                "element mapping is NOT posted here — use count_element_particles() to find "
+                "element-bearing particles on demand. Call after every wait_for_scan()."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -2553,27 +2817,65 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "load_intelligence_particles",
+            "name": "list_buffered_scans",
             "description": (
-                "Load the intelligence module's two-energy particle locations (from "
-                "get_intelligence_recommendations / the elemental map) as multi-region scan "
-                "targets, then call start_multiregion_scan() to image them. PREFER this over "
-                "find_particles() for element-specific requests (e.g. iron): it uses the "
-                "edge/pre-edge map, not a single-image threshold. Each region is centred on a "
-                "reported particle and sized to it (plus margin) unless region_size_um is given."
+                "List the completed scans held in memory (newest last). The GUI retains the last "
+                "several full multi-energy scans so you can analyse a prior scan without re-running "
+                "it. Each entry's 'index' can be passed to count_element_particles(scan_index=...). "
+                "Use when the user refers to an earlier scan or asks to compare scans."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "count_element_particles",
+            "description": (
+                "Count particles AND how many contain an element, from a buffered two-energy scan. "
+                "Builds the two-energy elemental map (the Analysis-tab Map / OD-difference) and counts "
+                "all particles (pre-edge absorption) plus the element-containing subset (elemental map). "
+                "Use for element questions like 'how many particles contain iron?' after a two-energy "
+                "scan (pre-edge + edge). This is the sole owner of two-energy elemental mapping; it "
+                "works directly on the in-memory buffered scan and caches the map so "
+                "add_to_logbook(attach='computed') can save it. "
+                "Element regions are stored for start_multiregion_scan() to image them. Returns "
+                "total_particles, element_particles, and fraction_with_element."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "region_size_um": {
+                    "pre_energy": {
                         "type": "number",
-                        "description": "Force a uniform square FOV (µm) per particle. "
-                                       "Omit to size each region to its particle extent.",
+                        "description": "Pre-edge energy in eV; snaps to nearest frame. "
+                                       "Omit to use the lowest-energy frame.",
                     },
-                    "padding_fraction": {
+                    "edge_energy": {
                         "type": "number",
-                        "description": "Margin added per side of the particle extent when "
-                                       "region_size_um is omitted (default 0.5 = +50%).",
+                        "description": "On-edge energy in eV; snaps to nearest frame. "
+                                       "Omit to use the highest-energy frame.",
+                    },
+                    "daq": {
+                        "type": "string",
+                        "description": "Detector channel to analyse (default 'default').",
+                    },
+                    "region": {
+                        "type": "integer",
+                        "description": "Scan-region index for multi-region scans (default 0).",
+                    },
+                    "scan_id": {
+                        "type": "string",
+                        "description": "Analyse a specific buffered scan by id substring. "
+                                       "Default: most recent scan with >= 2 energies.",
+                    },
+                    "scan_index": {
+                        "type": "integer",
+                        "description": "Analyse a specific buffered scan by index "
+                                       "(see list_buffered_scans). Takes precedence over scan_id.",
+                    },
+                    "max_particles": {
+                        "type": "integer",
+                        "description": "Cap on element regions returned, ordered by size (default: all).",
                     },
                 },
                 "required": [],
@@ -2651,7 +2953,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "thresholding + connected components (NOT element-specific). "
                 "Returns scan regions (center, range, points) in µm per particle. Use for a plain "
                 "'find absorbing features' request. For an element (e.g. iron) after a two-energy "
-                "scan, use load_intelligence_particles() instead. "
+                "scan, use count_element_particles() instead. "
                 "Then call start_multiregion_scan() to image all particles."
             ),
             "parameters": {
@@ -2677,7 +2979,7 @@ TOOL_SCHEMAS: list[dict] = [
             "name": "start_multiregion_scan",
             "description": (
                 "Start an image scan covering every loaded particle region (from "
-                "load_intelligence_particles() or find_particles(), whichever you called last). "
+                "count_element_particles() or find_particles(), whichever you called last). "
                 "Uses the current scan parameters (energy, dwell, proposal, etc.) with particle regions as geometry. "
                 "Each region's point count is computed from pixel_size_nm so all regions have uniform pixel size. "
                 "find_particles() reports the overview pixel size — pass a smaller value here for higher resolution. "
@@ -2984,21 +3286,25 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Add an entry to the active logbook on the user's behalf — e.g. after a scan, "
                 "summarise what was done and attach the image, or record an intelligence "
-                "recommendation. The entry is stamped author='agent'. By default the most recent "
-                "scan image is embedded. Requires a logbook to be open in the Logbook tab; if none "
-                "is open the tool returns a message asking the user to open or create one. Only add "
-                "entries the user asked for or that clearly document the work just done — do not "
-                "spam the logbook."
+                "recommendation. The entry is stamped author='agent'. Choose what image to embed "
+                "with 'attach': 'scan' (the live scan image, default), 'computed' (the most recent "
+                "calculated image, e.g. the two-energy elemental/difference map from "
+                "count_element_particles — use this to save a computed result), or 'none'. "
+                "Requires a logbook to be open in the Logbook tab; if none is open the tool returns "
+                "a message asking the user to open or create one. Only add entries the user asked "
+                "for or that clearly document the work just done — do not spam the logbook."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string",
                              "description": "The entry body — the observation, result, or recommendation."},
-                    "attach_last_scan": {"type": "boolean",
-                                         "description": "Embed the most recent scan image (default true)."},
+                    "attach": {"type": "string", "enum": ["scan", "computed", "none"],
+                               "description": "Which image to embed: 'scan' (live scan image, "
+                                              "default), 'computed' (last calculated map, e.g. a "
+                                              "two-energy difference map), or 'none'."},
                     "daq": {"type": "string",
-                            "description": "Detector channel for the attached image (default 'default')."},
+                            "description": "Detector channel for the 'scan' image (default 'default')."},
                 },
                 "required": ["text"],
             },

@@ -6,6 +6,7 @@ import re
 import time
 import sys
 import numpy as np
+from collections import deque
 from queue import Queue
 
 log = logging.getLogger(__name__)
@@ -291,6 +292,78 @@ class MainController(QObject):
         else:
             self.status_updated.emit(f"Command response: {response.get('status', 'Unknown')}")
         
+    def _buffer_completed_scan(self):
+        """Push the just-finished _live_stxm into a bounded ring buffer.
+
+        Keeps the last N completed multi-energy scans in memory so the task agent can
+        analyse them after the fact (two-energy element maps, particle counting) without
+        filesystem access to the server's save location.  No copy is needed: the next
+        scan start (start_scan) assigns a *new* stxm object to self._live_stxm, so the
+        buffered reference is never mutated afterward.  Only Image scans build a
+        _live_stxm; for everything else it is None and nothing is buffered.
+        """
+        live = self._live_stxm
+        if live is None:
+            return
+        try:
+            depth = int((self.client.main_config or {}).get(
+                "task_agent", {}).get("scan_buffer_depth", 8))
+        except Exception:
+            depth = 8
+        if depth < 1:
+            return
+        buf = self.image_model._data.get('scan_buffer')
+        if not isinstance(buf, deque) or buf.maxlen != depth:
+            # (Re)create with the configured depth, preserving any existing entries.
+            buf = deque(buf or [], maxlen=depth)
+            self.image_model._data['scan_buffer'] = buf
+        try:
+            energies = list(np.asarray(live.energies.get("default", [])).ravel())
+        except Exception:
+            energies = []
+        scan_id = (getattr(live, 'NXfile', '') or
+                   self.image_model.get('scan_file_name') or '')
+        buf.append({
+            'stxm': live,
+            'scan_id': scan_id,
+            'energies': energies,
+            'scan_type': self.image_model.get('scan_type', ''),
+            'timestamp': time.time(),
+        })
+
+    def _create_live_stxm(self, scan_config, scan_type):
+        """Build the live stxm data object for an Image scan, or None otherwise.
+
+        Shared by the GUI path (start_scan) and the agent path
+        (_on_agent_scan_started) so both buffer completed scans identically. Only
+        Image scans build a _live_stxm; for everything else it is None.
+        """
+        if scan_type and 'Image' in scan_type:
+            try:
+                return stxm(scan_config)
+            except Exception as e:
+                print(f"Warning: could not create live stxm object: {e}")
+        return None
+
+    def _on_agent_scan_started(self, scan_config):
+        """Called by the TaskAgent when it launches a scan straight to the server.
+
+        The task agent bypasses start_scan (it sends {"command": "scan"} via the
+        client), so _live_stxm is never created and the completed scan is never
+        buffered — leaving the agent unable to run post-scan analysis (two-energy
+        element maps, particle counting) on its own scans. Building _live_stxm here,
+        before the scan command is sent, lets the existing monitor handler fill it
+        frame-by-frame and _buffer_completed_scan retain it on scan_complete, exactly
+        as for a GUI scan. Runs in the agent worker thread; the assignment is atomic
+        and agent/GUI scans are mutually exclusive, so no lock is needed.
+        """
+        try:
+            scan_type = scan_config.get('scan_type', '') if isinstance(scan_config, dict) else ''
+            self._live_stxm = self._create_live_stxm(scan_config, scan_type)
+        except Exception as e:
+            log.debug("Could not prepare live stxm for agent scan: %s", e)
+            self._live_stxm = None
+
     def _handle_monitor_message(self, message):
         """Handle real-time monitor messages from client.  These messages are python dictionaries which
         contain the data and it's definition for live display.  It may either be the idle monitor stream
@@ -305,6 +378,9 @@ class MainController(QObject):
             if final_image is not None:
                 self._last_display_time = 0.0  # reset throttle
                 self.image_model.set_current_image(final_image)
+            # Retain the completed multi-energy scan so the task agent can analyse it
+            # later (e.g. two-energy element maps) even after newer scans run.
+            self._buffer_completed_scan()
             self.scan_state_changed.emit(False)  # Signal scan completed
             return  # Early return - nothing else to do
 
@@ -1005,14 +1081,7 @@ class MainController(QObject):
             self.image_model._data['motor_scan_y_data'] = {}
             # Create stxm data object for Image-type scans (used by stack viewer live display)
             scan_type = self.scan_model.get('scan_type', '')
-            if 'Image' in scan_type:
-                try:
-                    self._live_stxm = stxm(scan_config)
-                except Exception as e:
-                    print(f"Warning: could not create live stxm object: {e}")
-                    self._live_stxm = None
-            else:
-                self._live_stxm = None
+            self._live_stxm = self._create_live_stxm(scan_config, scan_type)
             self.status_updated.emit("Scan started")
             self.scan_state_changed.emit(True)  # Signal scan started
             return True
@@ -1073,7 +1142,8 @@ class MainController(QObject):
             from ...controller.task_agent import TaskAgent
             self._task_agent = TaskAgent(self.client.main_config, self.client,
                                          image_model=self.image_model,
-                                         logbook_model=self.logbook_model)
+                                         logbook_model=self.logbook_model,
+                                         on_scan_started=self._on_agent_scan_started)
             log.info("TaskAgent initialized (model=%s)", self._task_agent.model)
             self.status_updated.emit("TaskAgent initialized")
         except Exception as e:
