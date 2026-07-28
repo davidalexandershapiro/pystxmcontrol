@@ -10,6 +10,7 @@ Separated from dataHandler for clarity and testability.
 """
 
 import zmq
+import json
 import zmq.asyncio
 import atexit
 
@@ -42,6 +43,7 @@ class ZMQPublisher:
         # Socket references
         self.ccd_pub_socket = None
         self.stxm_pub_socket = None
+        self.prefect_pub_socket = None
 
         # Setup CCD publisher if CCD DAQ is present
         if daq_dict and "CCD" in daq_dict and self._publish_zmq:
@@ -54,11 +56,19 @@ class ZMQPublisher:
         atexit.register(self.cleanup)
 
     def _setup_ccd_publisher(self, config):
-        """Setup CCD frame publisher socket"""
-        #This is actually a misnomer because it publishes everything except the data going to the STXM GUI
-        host = config.get("zmq_publish_address", "localhost")
-        port = config.get("ccd_data_port", 9997)
 
+        """Setup CCD frame publisher socket"""
+        #This goes to the prefect server for downstream analysis
+        host = config.get("prefect_publish_address", "localhost")
+        port = config.get("ccd_data_port", 9997)
+        self.prefect_pub_address = f'tcp://{host}:{port}'
+        self.prefect_pub_socket = self.context.socket(zmq.PUB)
+        self.prefect_pub_socket.set_hwm(2000)  # High water mark for buffering
+        self.prefect_pub_socket.bind(self.prefect_pub_address)
+        if self._logger:
+            self._logger.log(f"Prefect publisher bound to {self.prefect_pub_address}", level="info")
+
+        #this goes to the GUI for visualization
         host = config.get("ccd_address", "127.0.0.1")
         port = config.get("ccd_data_port", 9998)
         self.ccd_pub_address = f'tcp://{host}:{port}'
@@ -121,14 +131,11 @@ class ZMQPublisher:
 
         :param data: Dictionary to be sent as JSON
         """
-        if not self._publish_zmq or self.stxm_pub_socket is None:
+        if not self._publish_zmq or self.prefect_pub_socket is None:
             return
 
         try:
-            import json
-            #Not currently using stxm socket.
-            #self.stxm_pub_socket.send_string(json.dumps(data))
-            self.ccd_pub_socket.send_string(json.dumps(data))
+            self.prefect_pub_socket.send_string(json.dumps(data))
         except Exception as e:
             if self._logger:
                 self._logger.log(f"Error publishing STXM string: {e}", level="error")
@@ -211,6 +218,19 @@ class ZMQPublisher:
                 self._logger.log(f"Error closing ccd_pub_socket: {e}", level="error")
             else:
                 print(f"Error closing ccd_pub_socket: {e}")
+
+        try:
+            if hasattr(self, 'prefect_pub_socket') and self.prefect_pub_socket is not None:
+                self.prefect_pub_socket.close(linger=0)
+                if self._logger:
+                    self._logger.log("Prefect publisher socket closed", level="info")
+                else:
+                    print("Prefect publisher socket closed")
+        except Exception as e:
+            if self._logger:
+                self._logger.log(f"Error closing prefect_pub_socket: {e}", level="error")
+            else:
+                print(f"Error closing prefect_pub_socket: {e}")
 
         try:
             if hasattr(self, 'context') and self.context is not None:

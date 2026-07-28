@@ -39,11 +39,13 @@ __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
 try:
     from pystxmcontrol.drivers.mcsController import mcsController
     from pystxmcontrol.drivers.mcsMotor import mcsMotor
+    from pystxmcontrol.drivers.mcsRelativeController import mcsRelativeController
 except:
     print("SmarAct SDK not installed.")
 else:
     __all__.append('mcsMotor')
     __all__.append('mcsController')
+    __all__.append('mcsRelativeController')
 try:
     from pystxmcontrol.drivers.aerotechController import aerotechController
     from pystxmcontrol.drivers.aerotechMotor import aerotechMotor
