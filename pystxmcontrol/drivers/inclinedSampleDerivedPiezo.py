@@ -230,10 +230,14 @@ class inclinedSampleDerivedPiezo(motor):
             self.axes["axis1"].moveTo(newFinePos)
         else:
             self.axes["axis1"].moveTo(pos = 0.)
+            relax_offset = 0.
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
-                time.sleep(0.03)
-                self.axes["axis1"].setZero()
+                #Let the piezo relax open-loop and measure the drift.  setZero() has
+                #been moved to after the zone-plate move so the relaxation offset can
+                #be undone rather than baked into the reference.
+                time.sleep(self.config.get("relax_time", 0.5))
+                relax_offset = self.axes["axis1"].getPos()
             #for an inclined sample the zone plate needs to move to stay in focus, first calculate how far
             #zonePlateZ is axis3
             zp_delta = deltaPos / np.tan(self.config["sample angle"] * np.pi / 180.0)
@@ -241,8 +245,8 @@ class inclinedSampleDerivedPiezo(motor):
             if self.config["reset_after_move"]:
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
-                #use the piezo to clean up slop in the coarse motion
-                deltaPos = pos - self.getPos()
+                #clean up slop and undo the relaxation drift
+                deltaPos = pos - self.getPos() - relax_offset
                 if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
                     self.axes["axis1"].moveTo(deltaPos)
         self.moving = False
@@ -251,13 +255,20 @@ class inclinedSampleDerivedPiezo(motor):
         pos = (pos - self.config["offset"]) / self.config["units"]
         self.moving = True
         self.axes["axis1"].moveTo(pos = 0.)
+        relax_offset = 0.
         if self.config["reset_after_move"]:
             self.axes["axis1"].servoState(False)
-            self.axes["axis1"].setZero()
+            #measure the open-loop relaxation drift before the coarse move
+            time.sleep(self.config.get("relax_time", 0.5))
+            relax_offset = self.axes["axis1"].getPos()
         self.axes["axis2"].moveTo(pos)
         if self.config["reset_after_move"]:
             self.axes["axis1"].setZero()
             self.axes["axis1"].servoState(True)
+            #undo the relaxation drift so the interferometer reference is preserved
+            deltaPos = pos - self.getPos() - relax_offset
+            if self.axes["axis1"].checkLimits(deltaPos):
+                self.axes["axis1"].moveTo(deltaPos)
         self.getPos()
         self.moving = False
 

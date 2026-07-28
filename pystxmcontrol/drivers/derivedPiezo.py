@@ -248,15 +248,25 @@ class derivedPiezo(motor):
                 print(f"[inclined piezo] {self._finePos},{self.coarsePos},{deltaPos},{newFinePos},{pos}")
                 print(f"[inclined piezo] check limit failed for fine {self.axis} position {newFinePos} at coarse position {pos}")
             self.axes["axis1"].moveTo(pos = 0.)
+            relax_offset = 0.
             if self.config["reset_after_move"]:
                 self.axes["axis1"].servoState(False)
+                #Let the piezo relax open-loop, then measure the drift.  The coarse
+                #stage has not moved yet, so the interferometer reading is the pure
+                #relaxation offset that setZero() would otherwise bake into the new
+                #reference.  Capturing it lets us undo it below, preserving the
+                #interferometer reference across the coarse move (cf.
+                #nptController.resetInterferometer).
+                time.sleep(self.config.get("relax_time", 0.5))
+                relax_offset = self.axes["axis1"].getPos()
             self.axes["axis2"].moveTo(pos)
             if self.config["reset_after_move"]:
-                time.sleep(0.03)
                 self.axes["axis1"].setZero()
                 self.axes["axis1"].servoState(True)
-                #use the piezo to clean up slop in the coarse motion
-                deltaPos = pos - self.getPos()
+                #Clean up coarse slop AND undo the relaxation drift captured above.
+                #Without the -relax_offset term the true position ends up biased by
+                #the piezo's open-loop relaxation (the "several microns" lost per move).
+                deltaPos = pos - self.getPos() - relax_offset
                 if self.axes["axis1"].checkLimits(deltaPos) and not(coarse_only):
                     self.axes["axis1"].moveTo(deltaPos)
         self.moving = False
@@ -265,13 +275,22 @@ class derivedPiezo(motor):
         pos = (pos - self.config["offset"]) / self.config["units"]
         self.moving = True
         self.axes["axis1"].moveTo(pos = 0.)
+        relax_offset = 0.
         if self.config["reset_after_move"]:
             self.axes["axis1"].servoState(False)
-            self.axes["axis1"].setZero()
+            #Measure the open-loop relaxation drift before the coarse move.  (The
+            #previous setZero() here was zeroing a reference that the coarse move
+            #immediately invalidated, so it has been removed.)
+            time.sleep(self.config.get("relax_time", 0.5))
+            relax_offset = self.axes["axis1"].getPos()
         self.axes["axis2"].moveTo(pos)
         if self.config["reset_after_move"]:
             self.axes["axis1"].setZero()
             self.axes["axis1"].servoState(True)
+            #Undo the relaxation drift so the interferometer reference is preserved.
+            deltaPos = pos - self.getPos() - relax_offset
+            if self.axes["axis1"].checkLimits(deltaPos):
+                self.axes["axis1"].moveTo(deltaPos)
         self.getPos()
         self.moving = False
 
