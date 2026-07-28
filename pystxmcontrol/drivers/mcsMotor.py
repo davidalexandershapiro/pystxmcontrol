@@ -75,12 +75,25 @@ class mcsMotor(motor):
     def moveLine(self):
         pass
 
+    def setPositionTriggerOn(self, pos, increment=None):
+        """Enable the DAQ pixel-clock trigger output on this motor's channel."""
+        if not self.simulation:
+            self.controller.setPositionTrigger(pos=pos, axis=self._axis,
+                                               mode="on", increment=increment)
+
+    def setPositionTriggerOff(self):
+        if not self.simulation:
+            self.controller.setPositionTrigger(axis=self._axis, mode="off")
+
     def connect(self, axis=None, **kwargs):
         if "logger" in kwargs.keys():
             self.logger = kwargs["logger"]
         self.simulation = self.config.get("simulation", True)
         self.lock = self.controller.lock
         self.axis = axis
+        # Stage type governs whether this channel can run trajectory streams
+        # (spiral scans).  Defaults to stick-slip to preserve historical behaviour.
+        self.stage_type = self.config.get("stage_type", "stick-slip")
         if axis == 'x':
             self._axis = self.config.get("controller_index",0)
         elif axis == 'y':
@@ -88,5 +101,8 @@ class mcsMotor(motor):
         elif axis == 'z':
             self._axis = self.config.get("controller_index",2)
         if not self.simulation:
-            self.controller.setup_axis(self._axis)
+            self.controller.setup_axis(self._axis, stage_type=self.stage_type)
+            # Publish the (scan axis -> channel) mapping so the shared controller
+            # can assemble 2-D trajectory streams across both fine axes.
+            self.controller.register_axis(axis, self._axis, stage_type=self.stage_type)
         return True
