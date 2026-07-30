@@ -260,7 +260,7 @@ def _load_preview(filepath):
                 with h5py.File(recon_matches[0], "r") as rf:
                     obj = rf["obj"][()]
                 obj_cropped = obj[CROP:-CROP, CROP:-CROP]
-                arr = np.abs(obj_cropped).T
+                arr = np.abs(obj_cropped)
             except Exception:
                 pass  # fall back to stxm image if recon can't be read
 
@@ -1205,7 +1205,14 @@ class DataBrowserWidget(QtWidgets.QWidget):
             obj_cropped = obj[CROP:-CROP, CROP:-CROP]
 
             obj_amp   = np.abs(obj_cropped).T
-            obj_phase = np.angle(obj_cropped).T
+            obj_phase = np.angle(obj_cropped)
+            # unwrap 2-D phase to remove ±π discontinuities before display
+            try:
+                from skimage.restoration import unwrap_phase
+                obj_phase = unwrap_phase(obj_phase)
+            except Exception:
+                pass  # fall back to wrapped phase if skimage is unavailable
+            obj_phase = obj_phase.T
             # incoherent sum over probe modes: sqrt(sum |mode|^2)
             probe_amp = np.sqrt(np.sum(np.abs(probe) ** 2, axis=0)).T
 
@@ -1277,7 +1284,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
         px_um = self._ptycho_pixel_um[index] if self._ptycho_pixel_um else 0.0
         scale = (px_um, px_um) if px_um > 0 else (1.0, 1.0)
         self.ptycho_image.setImage(
-            self._ptycho_arrays[index].T, autoRange=True, autoLevels=True,
+            self._ptycho_arrays[index], autoRange=True, autoLevels=True,
             scale=scale,
         )
 

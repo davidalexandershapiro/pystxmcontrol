@@ -2704,6 +2704,34 @@ class MainWindowMVC(QtWidgets.QMainWindow):
                     scan_type=scan_type,
                 )
 
+                # Refresh the mainImage metadata overlay to match the loaded file.
+                # (_update_image_overlays reads proposal/sample/scan_type from the
+                # scan_model, so update those first.)
+                try:
+                    m = self.controller.scan_model
+                    m.set('proposal', self.nx.meta.get('proposal', ''))
+                    m.set('sample', self.nx.meta.get('sample_description', ''))
+                    m.set('scan_type', scan_type)
+
+                    # overall displayed x-range across all regions (µm)
+                    x_min = min(float(np.atleast_1d(self.nx.data[f'entry{ri}']['xpos']).min())
+                                for ri in range(self.nx.nRegions))
+                    x_max = max(float(np.atleast_1d(self.nx.data[f'entry{ri}']['xpos']).max())
+                                for ri in range(self.nx.nRegions))
+                    overlay_x_range = x_max - x_min
+
+                    xp0 = np.atleast_1d(self.nx.data['entry0']['xpos']).flatten()
+                    pixel_size = float(xp0[1] - xp0[0]) if xp0.size > 1 else None
+                    self._update_image_overlays(
+                        overlay_x_range,
+                        pixel_size=pixel_size,
+                        dwell=dwell_val,
+                        energy=float(energy_arr[0]) if energy_arr.size else None,
+                        channel='default',
+                    )
+                except Exception as e:
+                    print(f"Could not update image overlay from file: {e}")
+
             elif scan_type == "Single Motor":
                 self.ui.scanFileName.setText(self.currentLoadFile.split('/')[-1])
                 self.ui.plotType.setCurrentText("Motor Scan")
