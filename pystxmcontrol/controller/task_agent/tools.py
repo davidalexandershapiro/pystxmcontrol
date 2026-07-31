@@ -748,6 +748,25 @@ class ToolSet:
         except Exception as e:
             return f"Failed to start scan: {e}"
 
+    def cancel_scan(self) -> str:
+        """Stop the scan currently running on the instrument.
+
+        Sends the same 'cancel' command the acquisition tab's Cancel button issues, so the
+        server aborts the in-progress acquisition. This is distinct from cancelling the agent's
+        own tool loop (the GUI's stop-agent button) — that leaves the scan running; this stops
+        the scan itself. Returns as soon as the server acknowledges.
+        """
+        try:
+            response = self._client.send_message({"command": "cancel"})
+        except Exception as e:
+            return f"Failed to cancel scan: {e}"
+        # The server replies status=True when it aborted a running scan, False when there was
+        # no scan to cancel (see server.py cancel handler).
+        self._was_scanning = False
+        if response and response.get("status"):
+            return "Scan cancelled — the server is aborting the current acquisition."
+        return "No scan is currently running on the instrument, so there was nothing to cancel."
+
     def get_scan_status(self) -> str:
         """Check whether a scan is currently running."""
         try:
@@ -2735,6 +2754,19 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "start_scan",
             "description": "Submit the current scan definition and start acquisition. Runs check_scan_limits() first and refuses if a range exceeds fine travel with no tiled/coarse_only mode set. Returns when the server acknowledges the start.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_scan",
+            "description": (
+                "Stop the scan currently running on the instrument — the same action as the "
+                "acquisition tab's Cancel button. Use this when the user asks to stop, cancel, "
+                "or abort the ongoing scan. This is different from stopping the agent's own task "
+                "loop: it aborts the acquisition itself. Reports if no scan was running."
+            ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },

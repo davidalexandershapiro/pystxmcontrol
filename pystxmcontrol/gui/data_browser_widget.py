@@ -1197,9 +1197,12 @@ class DataBrowserWidget(QtWidgets.QWidget):
                 except Exception:
                     energy_str = ""
 
-            # pixel sizes: norm of basis matrix, converted to µm
-            obj_px_um   = float(np.linalg.norm(obj_basis)) * 1e6
-            probe_px_um = float(np.linalg.norm(probe_basis)) * 1e6
+            # pixel sizes, converted to µm. Each basis is a matrix whose columns
+            # are the two per-axis real-space step vectors, so the pixel size is the
+            # length of one column — NOT the Frobenius norm of the whole matrix, which
+            # combines both axes and overstates the size by ~√2 for a square grid.
+            obj_px_um   = float(np.linalg.norm(obj_basis[:, 0])) * 1e6
+            probe_px_um = float(np.linalg.norm(probe_basis[:, 0])) * 1e6
 
             # crop border artefacts from the object
             obj_cropped = obj[CROP:-CROP, CROP:-CROP]

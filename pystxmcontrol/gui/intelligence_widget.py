@@ -48,6 +48,33 @@ def _ts() -> str:
     return time.strftime("%H:%M:%S")
 
 
+def _is_light_theme() -> bool:
+    """True when the app is running the light qdarktheme palette.
+
+    The trace colours below are tuned for the dark theme; on a light background the
+    pale teal/grey wash out. Detect the theme from the active palette's base-colour
+    lightness so the light-theme shades can be darkened. Defaults to dark on failure.
+    """
+    try:
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return False
+        return app.palette().base().color().lightnessF() > 0.5
+    except Exception:
+        return False
+
+
+# Tool-trace line colours, keyed by (icon, color) role. The dark values are the
+# originals; the light values are darkened so they stay legible on a white background
+# (the faint pale-teal "Tool:" lines were the reported problem).
+_TRACE_COLORS_DARK = {"accent": "#80cbc4", "muted": "#757575", "faint": "#888888"}
+_TRACE_COLORS_LIGHT = {"accent": "#00695c", "muted": "#4a4a4a", "faint": "#5a5a5a"}
+
+
+def _trace_colors() -> dict:
+    return _TRACE_COLORS_LIGHT if _is_light_theme() else _TRACE_COLORS_DARK
+
+
 def _action_link(label: str, action: str) -> str:
     return (
         f'<a href="action://{action}" style="'
@@ -213,16 +240,17 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     def add_task_status(self, msg: str) -> None:
         """Display a TaskAgent trace line (tool calls, results, progress)."""
+        tc = _trace_colors()
         if msg.startswith("Starting:"):
-            color, icon = "#80cbc4", "▶"
+            color, icon = tc["accent"], "▶"
         elif msg.startswith("Tool:"):
-            color, icon = "#80cbc4", "⚙"
+            color, icon = tc["accent"], "⚙"
         elif msg.startswith("  →"):
-            color, icon = "#757575", ""
+            color, icon = tc["muted"], ""
         elif msg.startswith("[Done"):
-            color, icon = "#888888", "✓"
+            color, icon = tc["faint"], "✓"
         else:
-            color, icon = "#888888", ""
+            color, icon = tc["faint"], ""
         prefix = f"{icon} " if icon else ""
         html = (
             f'<span style="color:{color}; font-size:11px; font-family:monospace;">'

@@ -44,6 +44,12 @@ any intelligence recommendation (the image is attached by default). Do NOT log u
 every action — only when asked or when it clearly captures a meaningful result. If no logbook is
 open the tool will say so; relay that and ask the user to open or create one in the Logbook tab.
 
+CANCELLING A SCAN:
+If the user asks to stop, cancel, or abort the scan that is running, call cancel_scan().
+That aborts the acquisition on the instrument (same as the acquisition tab's Cancel button).
+This is separate from stopping your own task loop — the user can stop the agent without
+stopping the scan, so honour an explicit request to cancel the scan itself with this tool.
+
 SCAN POLLING:
 After start_scan() succeeds, call wait_for_scan() once — it blocks internally until
 the scan finishes and returns a completion message. Do NOT poll get_scan_status() in
