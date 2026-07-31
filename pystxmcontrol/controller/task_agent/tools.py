@@ -740,6 +740,7 @@ class ToolSet:
             response = self._client.send_message({"command": "scan", "scan": scan_dict})
             if response and response.get('status'):
                 self._was_scanning = True
+                self._clear_scan_alarms()   # fresh alarm slate for this scan
                 msg = f"Scan started: {self._scan['scan_type']} ({self._scan['x_range']}×{self._scan['y_range']} µm)"
                 return msg + (f" ({energy_note})" if energy_note else "")
             else:
@@ -808,6 +809,13 @@ class ToolSet:
         self._was_scanning = True   # ensure completion message fires on idle
 
         while _time.monotonic() < deadline:
+            # Break out immediately if the intelligence module raised an anomaly alarm
+            # (e.g. beam loss) during the scan, so the agent can surface it and let the
+            # user decide whether to abort. The scan keeps running; this just hands the
+            # loop back to the agent instead of blocking until the scan finishes.
+            alarm_msg = self._drain_scan_alarms()
+            if alarm_msg is not None:
+                return alarm_msg
             try:
                 response = self._client.get_status()
                 mode = response.get('mode', 'unknown') if response else 'unknown'
@@ -830,6 +838,41 @@ class ToolSet:
         self._was_scanning = False
         return (f"Timed out after {timeout_seconds:.0f} s waiting for scan to finish. "
                 "Call get_scan_status() to check current state.")
+
+    def _clear_scan_alarms(self) -> None:
+        """Drop any queued anomaly alarms so a new scan starts with a clean slate."""
+        if self._image_model is not None:
+            self._image_model.set('pending_alarms', [])
+
+    def _drain_scan_alarms(self) -> str | None:
+        """Return a formatted anomaly-alarm message if the intelligence module raised one
+        during the current scan, clearing the queue; else None.
+
+        Alarms are anomaly diagnoses (e.g. beam loss, focus decline) posted by the server
+        intelligence module and routed into image_model['pending_alarms'] by the GUI
+        controller. wait_for_scan() drains them so it can hand control back to the agent —
+        with the scan STILL RUNNING — instead of blocking until the scan finishes.
+        """
+        if self._image_model is None:
+            return None
+        alarms = self._image_model.get('pending_alarms')
+        if not alarms:
+            return None
+        self._image_model.set('pending_alarms', [])
+        lines = []
+        for a in alarms:
+            sev = a.get('severity', 'unknown')
+            atype = a.get('anomaly_type', 'anomaly')
+            text = (a.get('suggestion') or a.get('message') or '').strip()
+            lines.append(f"[{sev}] {atype}: {text}".rstrip(': ').strip())
+        joined = "\n".join(lines)
+        return (
+            "SCAN INTERRUPTED BY ANOMALY ALARM — the scan is STILL RUNNING.\n"
+            f"{joined}\n\n"
+            "Report this alarm to the user and ask whether to abort the scan or continue. "
+            "If they say abort, call cancel_scan(). If they say continue, call wait_for_scan() "
+            "again to keep waiting. Do NOT silently proceed past this alarm."
+        )
 
     def get_last_scan_stats(self, daq: str = "default") -> str:
         """Return statistics and spatial analysis of the most recently completed scan image.
@@ -1057,6 +1100,7 @@ class ToolSet:
         if response and response.get('status'):
             self._last_was_multiregion = True
             self._was_scanning = True
+            self._clear_scan_alarms()   # fresh alarm slate for this scan
             return f"Multi-region scan started: {n} particle region(s)."
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"

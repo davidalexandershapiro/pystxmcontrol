@@ -57,6 +57,11 @@ a loop; that wastes iteration budget. When wait_for_scan() returns, call
 get_intelligence_recommendations() immediately before proceeding — the intelligence
 module may have posted actionable suggestions (e.g. recentre the scan). Act on any
 recommendations unless the user has already given explicit contrary instructions.
+wait_for_scan() may also return EARLY with a "SCAN INTERRUPTED BY ANOMALY ALARM"
+message if the intelligence module detects a problem mid-scan (e.g. beam loss). The
+scan is STILL RUNNING in that case: tell the user what the alarm reported and ask
+whether to abort (cancel_scan()) or continue (call wait_for_scan() again). Never
+silently continue past an anomaly alarm — surfacing it to the user is required.
 
 FINDING / COUNTING ELEMENT-SPECIFIC PARTICLES (e.g. "how many particles contain iron?"):
 This requires elemental contrast, not a single image. Run a two-energy scan (element edge +

@@ -188,10 +188,11 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
         anomaly_type = message.get("anomaly_type", "")
         severity = message.get("severity", "warn")
-        text = message.get("suggestion", "")
+        # A present-but-None value survives .get()'s default, so coerce explicitly.
+        text = message.get("suggestion") or ""
 
         if anomaly_type == "user_query":
-            self._append_agent_response(text, message.get("query", ""))
+            self._append_agent_response(text, message.get("query") or "")
         else:
             self._append_anomaly_suggestion(anomaly_type, severity, text)
 
@@ -372,6 +373,10 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     @staticmethod
     def _escape(text: str) -> str:
+        # Coerce None/non-str (e.g. a suggestion published with an empty body) to a
+        # string so an anomaly with no text renders blank instead of crashing.
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         return (text
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")

@@ -370,6 +370,10 @@ class AgentInterface:
             text = await loop.run_in_executor(None, self._call_api, prompt)
         except Exception as exc:
             text = f"[Agent unavailable: {exc}]"
+        # The API can return None/empty content; keep 'suggestion' a string so every
+        # consumer (GUI display, task-agent alarm queue) is safe.
+        if not text:
+            text = "[Agent returned no diagnosis text]"
 
         suggestion = {
             "type": "intelligence_suggestion",

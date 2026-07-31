@@ -390,6 +390,13 @@ class MainController(QObject):
 
         # Intelligence agent suggestion — route directly, skip scan data processing
         if message.get("type") == "intelligence_suggestion":
+            # Anomaly diagnoses (beam loss, focus decline, …) also feed the task agent's
+            # alarm queue so its wait_for_scan() can break out mid-scan and let the user
+            # decide whether to abort. User-query answers are not alarms — skip those.
+            if message.get("anomaly_type") not in (None, "user_query"):
+                alarms = list(self.image_model.get("pending_alarms") or [])
+                alarms.append(message)
+                self.image_model.set("pending_alarms", alarms)
             self.intelligence_suggestion_received.emit(message)
             return
 
