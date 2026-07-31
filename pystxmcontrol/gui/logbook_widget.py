@@ -210,7 +210,10 @@ class LogbookWidget(QtWidgets.QWidget):
             if os.path.isfile(path):
                 url = self._snap_resource(path, eid, width=360)
                 if url:
-                    parts.append(f'<img src="{url}"><br>')
+                    # Wrap the image in its own block <div> (like the body above) so it
+                    # always starts on a new line. A bare <img> is inline, so QTextBrowser
+                    # sometimes tucks it onto the end of the preceding text instead.
+                    parts.append(f'<div><img src="{url}"></div>')
 
         comment = (entry.get("comment", "") or "").strip()
         if comment:
