@@ -12,6 +12,9 @@
     "ndim": 0,
     "gate": true,
     "gate address": "/dev/arduino",
+    "minimum_dwell": 1,
+    "dwell_pad": 0,
+    "time_resolution": 1,
     "record": true,
     "simulation": true
   }

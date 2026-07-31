@@ -69,9 +69,9 @@ daq.json example
         "ndim": 0,
         "gate": true,
         "gate address": "/dev/arduino",
-        "minimum dwell": 1,
-        "dwell pad": 0,
-        "time resolution": 1,
+        "minimum_dwell": 1,
+        "dwell_pad": 0,
+        "time_resolution": 1,
         "record": true,
         "simulation": false
     },
@@ -87,9 +87,9 @@ daq.json example
         "oversampling_factor": 1,
         "ndim": 0,
         "gate": false,
-        "minimum dwell": 1,
-        "dwell pad": 0,
-        "time resolution": 1,
+        "minimum_dwell": 1,
+        "dwell_pad": 0,
+        "time_resolution": 1,
         "record": true,
         "simulation": false
     }
@@ -204,9 +204,9 @@ class keysight53230A_2channel(daq):
             "name": "Keysight 53230A (2ch)",
             "channel": 1,
             "gate": False,
-            "minimum dwell": 1,
-            "dwell pad": 0,
-            "time resolution": 1,
+            "minimum_dwell": 1,
+            "dwell_pad": 0,
+            "time_resolution": 1,
             # "TOT" (single-channel totalize, fast) or "FREQ" (dual-channel
             # capable; auto-selected whenever 2 channels are active).
             "measurement_mode": "TOT",

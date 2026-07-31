@@ -62,3 +62,10 @@ except:
 else:
     __all__.append('galilMotor')
     __all__.append('galilController')
+try:
+    import uldaq
+    from pystxmcontrol.drivers.mccUSB1808X import mccUSB1808X
+except:
+    print("MCC uldaq not installed.")
+else:
+    __all__.append('mccUSB1808X')

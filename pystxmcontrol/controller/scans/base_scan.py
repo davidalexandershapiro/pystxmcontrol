@@ -107,21 +107,21 @@ class BaseScan(ABC):
 
         # Find minimum dwell from non-simulation DAQs
         min_dwell = max([
-            float(self.scanInfo["rawData"][daq]["meta"]["minimum dwell"])
+            float(self.scanInfo["rawData"][daq]["meta"]["minimum_dwell"])
             for daq in daq_list
             if not self.scanInfo["rawData"][daq]["meta"]["simulation"]
         ] + [0.001])
 
         # Find maximum dwell padding
         dwell_pad = max([
-            float(self.scanInfo["rawData"][daq]["meta"]["dwell pad"])
+            float(self.scanInfo["rawData"][daq]["meta"]["dwell_pad"])
             for daq in daq_list
             if not self.scanInfo["rawData"][daq]["meta"]["simulation"]
         ] + [0.0])
 
         # Find worst time resolution
         time_resolution = max([
-            float(self.scanInfo["rawData"][daq]["meta"]["time resolution"])
+            float(self.scanInfo["rawData"][daq]["meta"]["time_resolution"])
             for daq in daq_list
             if not self.scanInfo["rawData"][daq]["meta"]["simulation"]
         ] + [0.001])
