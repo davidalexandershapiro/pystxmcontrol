@@ -323,23 +323,17 @@ class ThumbnailLoader(QtCore.QThread):
 # ───────────────────────── ThumbnailCard ──────────────────────────────────────
 
 class ThumbnailCard(QtWidgets.QWidget):
-    """A clickable card showing a small preview image and scan metadata."""
+    """A clickable card showing a small preview image and scan metadata.
 
-    clicked = QtCore.Signal(str)  # emits filepath
+    Two independent visual states:
+    - ``selected`` (left-click): the card whose scan is currently displayed in the
+      detail view — blue border + tint.
+    - ``marked`` (right-click): the card is in the ROI-mapping set — green border and a
+      numbered badge giving its map order. A card can be both selected and marked.
+    """
 
-    _NORMAL = (
-        "QWidget#ThumbnailCard {"
-        "  border: 1px solid #555;"
-        "  border-radius: 4px;"
-        "}"
-    )
-    _SELECTED = (
-        "QWidget#ThumbnailCard {"
-        "  border: 2px solid #4a9fd5;"
-        "  border-radius: 4px;"
-        "  background-color: rgba(74,159,213,30);"
-        "}"
-    )
+    clicked = QtCore.Signal(str)        # left-click: emits filepath (show in detail view)
+    right_clicked = QtCore.Signal(str)  # right-click: emits filepath (toggle ROI mapping)
 
     def __init__(self, filepath, parent=None):
         super().__init__(parent)
@@ -347,8 +341,10 @@ class ThumbnailCard(QtWidgets.QWidget):
         self.filepath = filepath
         self.setFixedSize(152, 188)
         self.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-        self.setStyleSheet(self._NORMAL)
+        self._selected = False
+        self._marked = False
         self._build_ui()
+        self._refresh_style()
 
     def _build_ui(self):
         self.scan_type = ""
@@ -360,6 +356,18 @@ class ThumbnailCard(QtWidgets.QWidget):
         self.image_label.setFixedSize(128, 128)
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setStyleSheet("border: 1px solid #333; background-color: #222;")
+
+        # Numbered badge shown at the top-left when the card is marked for ROI mapping.
+        # A child of the card (not in the layout) so it floats over the thumbnail corner.
+        self.badge = QtWidgets.QLabel("", self)
+        self.badge.setAlignment(QtCore.Qt.AlignCenter)
+        self.badge.setFixedSize(20, 20)
+        self.badge.move(9, 9)
+        self.badge.setStyleSheet(
+            "background-color: #2e7d32; color: white; border-radius: 10px;"
+            " font-weight: bold; font-size: 11px;"
+        )
+        self.badge.hide()
 
         fname = os.path.basename(self.filepath)
         self.name_label = QtWidgets.QLabel(fname)
@@ -395,11 +403,36 @@ class ThumbnailCard(QtWidgets.QWidget):
             self.setToolTip(f"{os.path.basename(self.filepath)}\n{start_time}")
 
     def set_selected(self, selected):
-        self.setStyleSheet(self._SELECTED if selected else self._NORMAL)
+        self._selected = selected
+        self._refresh_style()
+
+    def set_marked(self, marked, number=None):
+        """Mark/unmark this card for ROI mapping; ``number`` sets the badge label."""
+        self._marked = marked
+        if marked and number is not None:
+            self.badge.setText(str(number))
+            self.badge.show()
+            self.badge.raise_()
+        else:
+            self.badge.hide()
+        self._refresh_style()
+
+    def _refresh_style(self):
+        # Marked (green) takes border precedence over selected (blue); selected adds a
+        # background tint so a card that is both reads as "displayed and mapped".
+        border = "#2e7d32" if self._marked else ("#4a9fd5" if self._selected else "#555")
+        width = "2px" if (self._marked or self._selected) else "1px"
+        bg = "  background-color: rgba(74,159,213,30);" if self._selected else ""
+        self.setStyleSheet(
+            f"QWidget#ThumbnailCard {{ border: {width} solid {border};"
+            f" border-radius: 4px;{bg} }}"
+        )
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton:
             self.clicked.emit(self.filepath)
+        elif event.button() == QtCore.Qt.RightButton:
+            self.right_clicked.emit(self.filepath)
         super().mousePressEvent(event)
 
 
@@ -439,6 +472,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self._is_tiled_detail = False
         self._detail_origin = (0.0, 0.0)  # (x_min, y_min) motor position of non-tiled detail image
         self._browser_tile_items = []   # pg.ImageItems added for tiled composite display
+        self._map_selection = []        # filepaths right-click-marked for ROI mapping, in order
+        self._map_overlay_items = []    # rect/label items drawn on the overview for "Map Selected"
         self._setup_ui()
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -587,6 +622,24 @@ class DataBrowserWidget(QtWidgets.QWidget):
         add_log_btn.clicked.connect(self._add_to_log)
         export_bar.addWidget(add_log_btn)
 
+        # ROI mapping: right-click thumbnails to mark them, then overlay their scan
+        # footprints on the currently displayed overview image.
+        self.map_btn = QtWidgets.QPushButton("Map Selected")
+        self.map_btn.setFixedWidth(110)
+        self.map_btn.setToolTip(
+            "Overlay the scan regions of right-click-marked thumbnails as labelled "
+            "boxes on the displayed overview image."
+        )
+        self.map_btn.setEnabled(False)
+        self.map_btn.clicked.connect(self._map_selected)
+        export_bar.addWidget(self.map_btn)
+
+        self.clear_map_btn = QtWidgets.QPushButton("Clear Map")
+        self.clear_map_btn.setFixedWidth(85)
+        self.clear_map_btn.setEnabled(False)
+        self.clear_map_btn.clicked.connect(self._clear_map)
+        export_bar.addWidget(self.clear_map_btn)
+
         self.log_comment_edit = QtWidgets.QLineEdit()
         self.log_comment_edit.setPlaceholderText("Comment for logbook…")
         export_bar.addWidget(self.log_comment_edit, stretch=1)
@@ -715,7 +768,8 @@ class DataBrowserWidget(QtWidgets.QWidget):
             self._loader.abort()
             self._loader.wait()
 
-        # clear existing thumbnails
+        # clear existing thumbnails and any ROI-mapping selection (cards are recreated)
+        self._clear_map()
         for card in self._cards.values():
             self._thumb_grid.removeWidget(card)
             card.deleteLater()
@@ -746,6 +800,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
         for i, fp in enumerate(filepaths):
             card = ThumbnailCard(fp)
             card.clicked.connect(self._on_card_clicked)
+            card.right_clicked.connect(self._on_card_right_clicked)
             self._thumb_grid.addWidget(
                 card, i // self.THUMB_COLS, i % self.THUMB_COLS
             )
@@ -792,6 +847,138 @@ class DataBrowserWidget(QtWidgets.QWidget):
         self.send_acquisition_btn.setEnabled(not self._scanning)
         self.file_selected.emit(filepath)
 
+    # ── ROI mapping ─────────────────────────────────────────────────────────────
+
+    def _on_card_right_clicked(self, filepath):
+        """Toggle a thumbnail in the ROI-mapping set and renumber the badges."""
+        if filepath in self._map_selection:
+            self._map_selection.remove(filepath)
+        else:
+            self._map_selection.append(filepath)
+        self._refresh_map_badges()
+        self._update_map_buttons()
+
+    def _refresh_map_badges(self):
+        """Sync each card's marked state and badge number to the selection order."""
+        order = {fp: i + 1 for i, fp in enumerate(self._map_selection)}
+        for fp, card in self._cards.items():
+            card.set_marked(fp in order, order.get(fp))
+
+    def _update_map_buttons(self):
+        n = len(self._map_selection)
+        self.map_btn.setText(f"Map Selected ({n})" if n else "Map Selected")
+        self.map_btn.setEnabled(n > 0 and bool(self._current_filepath))
+        self.clear_map_btn.setEnabled(n > 0 or bool(self._map_overlay_items))
+
+    def _clear_map_overlay(self):
+        """Remove the drawn ROI boxes/labels from the overview, keeping the selection."""
+        view = self.detail_image.getView()
+        for item in self._map_overlay_items:
+            try:
+                view.removeItem(item)
+            except Exception:
+                pass
+        self._map_overlay_items = []
+        if hasattr(self, "clear_map_btn"):
+            self._update_map_buttons()
+
+    def _clear_map(self):
+        """Full reset: remove drawn boxes, unmark all thumbnails, empty the selection."""
+        self._clear_map_overlay()
+        self._map_selection = []
+        for card in self._cards.values():
+            card.set_marked(False)
+        self._update_map_buttons()
+
+    @staticmethod
+    def _read_scan_footprint(filepath):
+        """Read a scan's sample-XY footprint in motor µm.
+
+        Returns ``(x_min, x_max, y_min, y_max, x_motor, y_motor)`` unioned across all
+        ``entry*`` regions, or ``None`` if the file has no usable sample-XY extent.
+        """
+        x_lo = y_lo = float("inf")
+        x_hi = y_hi = float("-inf")
+        x_motor = y_motor = ""
+        try:
+            with h5py.File(filepath, "r") as hf:
+                for ekey in (k for k in hf.keys() if k.startswith("entry")):
+                    grp = hf.get(f"{ekey}/default")
+                    if grp is None or "sample_x" not in grp or "sample_y" not in grp:
+                        continue
+                    xp = np.atleast_1d(grp["sample_x"][()])
+                    yp = np.atleast_1d(grp["sample_y"][()])
+                    if xp.size == 0 or yp.size == 0:
+                        continue
+                    x_lo, x_hi = min(x_lo, float(xp.min())), max(x_hi, float(xp.max()))
+                    y_lo, y_hi = min(y_lo, float(yp.min())), max(y_hi, float(yp.max()))
+                    if not x_motor and "motor_name_x" in grp:
+                        x_motor = _h5str(grp["motor_name_x"][()])
+                    if not y_motor and "motor_name_y" in grp:
+                        y_motor = _h5str(grp["motor_name_y"][()])
+        except Exception:
+            return None
+        if x_hi <= x_lo or y_hi <= y_lo:
+            return None
+        return (x_lo, x_hi, y_lo, y_hi, x_motor, y_motor)
+
+    def _map_selected(self):
+        """Overlay each marked scan's footprint as a labelled box on the overview image."""
+        if not self._current_filepath or not self._map_selection:
+            return
+        # Boxes are drawn on the normal STXM view (page 0). A ptychography reconstruction
+        # is shown on a different view, so mapping there would draw onto a hidden widget.
+        if self.detail_stack.currentIndex() != 0:
+            QtWidgets.QMessageBox.information(
+                self, "Map Selected",
+                "Display a normal STXM scan as the overview before mapping regions."
+            )
+            return
+
+        self._clear_map_overlay()
+        overview = self._read_scan_footprint(self._current_filepath)
+        ov_xmot, ov_ymot = (overview[4], overview[5]) if overview else ("", "")
+
+        view = self.detail_image.getView()
+        # Distinct colours cycled per box; cosmetic pens keep a constant on-screen width.
+        colors = ["#ff5252", "#ffd740", "#69f0ae", "#40c4ff", "#e040fb",
+                  "#ffab40", "#b2ff59", "#64ffda"]
+        mismatched = []
+        drawn = 0
+        for i, fp in enumerate(self._map_selection):
+            fprint = self._read_scan_footprint(fp)
+            if fprint is None:
+                continue
+            x_lo, x_hi, y_lo, y_hi, x_mot, y_mot = fprint
+            # Flag scans taken on different motors than the overview — their µm
+            # coordinates may not correspond, so the box position is unreliable.
+            if overview and ((ov_xmot and x_mot and x_mot != ov_xmot) or
+                             (ov_ymot and y_mot and y_mot != ov_ymot)):
+                mismatched.append(os.path.basename(fp))
+
+            color = QtGui.QColor(colors[i % len(colors)])
+            pen = pg.mkPen(color, width=2)
+            pen.setCosmetic(True)
+            rect = QtWidgets.QGraphicsRectItem(x_lo, y_lo, x_hi - x_lo, y_hi - y_lo)
+            rect.setPen(pen)
+            view.addItem(rect, ignoreBounds=True)
+            self._map_overlay_items.append(rect)
+
+            label = pg.TextItem(str(i + 1), color="w", anchor=(0, 0),
+                                fill=pg.mkBrush(color))
+            label.setPos(x_lo, y_hi)   # top-left corner in data coords (y increases upward)
+            view.addItem(label, ignoreBounds=True)
+            self._map_overlay_items.append(label)
+            drawn += 1
+
+        self._update_map_buttons()
+        if mismatched:
+            QtWidgets.QMessageBox.warning(
+                self, "Motor mismatch",
+                "These scans use different X/Y motors than the overview, so their box "
+                "positions may be wrong:\n\n  " + "\n  ".join(mismatched)
+            )
+
     def set_scanning(self, scanning: bool):
         """Enable/disable 'Send to Acquisition' based on whether a scan is running.
 
@@ -835,6 +1022,9 @@ class DataBrowserWidget(QtWidgets.QWidget):
     def _show_detail(self, filepath):
         self._current_filepath = filepath
         self._clear_browser_tile_items()
+        # Drawn ROI boxes belong to the previously displayed overview; drop them but keep
+        # the marked-thumbnail selection so the same set can be re-mapped onto this image.
+        self._clear_map_overlay()
         try:
             recon = self._find_recon_file(filepath)
             if recon:
