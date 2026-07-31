@@ -1443,10 +1443,35 @@ class ToolSet:
                 "shutter": shutter,
             })
             value = response.get('data') if response else None
-            return f"DAQ reading ({daq}, {dwell} ms): {round(float(value), 4)}" \
-                   if value is not None else "No data returned from DAQ"
+            scalar, n = self._daq_value_to_scalar(value)
+            if scalar is None:
+                return "No data returned from DAQ"
+            suffix = f" (mean of {n} samples)" if n > 1 else ""
+            return f"DAQ reading ({daq}, {dwell} ms): {round(scalar, 4)}{suffix}"
         except Exception as e:
             return f"DAQ read failed: {e}"
+
+    @staticmethod
+    def _daq_value_to_scalar(value):
+        """Reduce a DAQ getPoint() result to (scalar, n_samples), or (None, 0).
+
+        getPoint() shapes vary by DAQ: a bare scalar, a numpy array of raw samples
+        (size 1 or more — float() on a size-≥1 array raises in modern numpy, which was
+        the read_daq failure), or a {channel: array} dict for multi-channel counters.
+        Reduce to a single mean intensity so read_daq can report one number.
+        """
+        if value is None:
+            return None, 0
+        # Multi-channel counters return {channel: array([...])}; pool all channels.
+        if isinstance(value, dict):
+            value = list(value.values())
+        try:
+            arr = np.asarray(value, dtype=float).reshape(-1)
+        except (TypeError, ValueError):
+            return None, 0
+        if arr.size == 0:
+            return None, 0
+        return float(arr.mean()), int(arr.size)
 
     def get_toolset_debug(self) -> str:
         """Return a diagnostic dump of ToolSet internal state for debugging."""
