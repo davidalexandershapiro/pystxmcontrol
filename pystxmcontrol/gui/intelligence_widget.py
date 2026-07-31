@@ -256,6 +256,10 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'<span style="color:{color}; font-size:11px; font-family:monospace;">'
             f'{prefix}{self._escape(msg)}</span>'
         )
+        # The "[Done ...]" line closes out a turn's tool trace — add trailing space
+        # after it to separate the execution block from the Agent response below.
+        if msg.startswith("[Done"):
+            html += '<br>'
         self._browser.append(html)
         self._scroll_to_bottom()
 
@@ -266,11 +270,11 @@ class IntelligenceWidget(QtWidgets.QWidget):
     def add_user_message(self, text: str) -> None:
         """Display the operator's query in the history before the response arrives."""
         html = (
-            f'<br>'
             f'<div style="border-left:3px solid {_C["user"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["user"]}; font-size:12px; font-weight:bold;">'
-            f'You &nbsp; {_ts()}</span><br>'
+            f'You &nbsp; {_ts()}</span>'
+            f'<hr>'
             f'<span>{self._escape(text)}</span>'
             f'</div>'
         )
@@ -295,11 +299,11 @@ class IntelligenceWidget(QtWidgets.QWidget):
             action_html = f'<div style="margin-top:5px;">{links}</div>'
 
         html = (
-            f'<br>'
             f'<div style="border-left:3px solid {sev_color}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{sev_color}; font-size:12px; font-weight:bold;">'
-            f'{badge} &nbsp; {anomaly_type} &nbsp; {_ts()}</span><br>'
+            f'{badge} &nbsp; {anomaly_type} &nbsp; {_ts()}</span>'
+            f'<hr>'
             f'<span>{self._escape(text)}</span>'
             f'{action_html}'
             f'</div>'
@@ -336,11 +340,11 @@ class IntelligenceWidget(QtWidgets.QWidget):
             label += f"  [{region}]"
 
         html = (
-            f'<br>'
             f'<div style="border-left:3px solid {_C["recommend"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["recommend"]}; font-size:12px; font-weight:bold;">'
-            f'{label} &nbsp; {_ts()}</span><br>'
+            f'{label} &nbsp; {_ts()}</span>'
+            f'<hr>'
             f'<span>{self._escape(reason)}</span>'
             f'{detail_html}'
             f'</div>'
@@ -350,11 +354,11 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     def _append_agent_response(self, text: str, query: str = "") -> None:
         html = (
-            f'<br>'
             f'<div style="border-left:3px solid {_C["agent"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["agent"]}; font-size:12px; font-weight:bold;">'
-            f'Agent &nbsp; {_ts()}</span><br>'
+            f'Agent &nbsp; {_ts()}</span>'
+            f'<hr>'
             f'<div>{md_to_html(text)}</div>'
             f'</div>'
         )
