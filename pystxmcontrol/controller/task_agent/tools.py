@@ -1344,6 +1344,152 @@ class ToolSet:
         }
         return json.dumps(result, indent=2)
 
+    def analyze_energy_stack(self,
+                             file: str | None = None,
+                             daq: str = "default", region: int = 0,
+                             scan_id: str | None = None,
+                             scan_index: int | None = None,
+                             n_components: int = 4, n_clusters: int = 4,
+                             max_iter: int = 500, init: str = "nndsvda",
+                             log: bool = True, note: str | None = None) -> str:
+        """Analyse a multi-energy stack with autoProcess + non-negative matrix factorisation.
+
+        Runs the same pipeline as the Analysis tab's Auto Process + Calculate NNMF buttons,
+        headless: subtract dark field -> despike -> align frames -> optical density (calcOD),
+        then NMF (sklearn) with k-means clustering of the NMF weight maps. Produces a
+        colour-coded cluster map and the per-cluster mean OD spectra.
+
+        Use this for a many-energy spectral stack (a NEXAFS / energy-stack scan), NOT a
+        two-energy scan (use count_element_particles for two energies). By default it analyses
+        the most recent buffered multi-energy scan; pass file=... to analyse a saved
+        .stxm/.hdr/.cxi stack instead.
+
+        When log is True (default) and a logbook is open, it posts one entry containing a
+        combined figure — the cluster map beside the cluster spectra — authored as 'agent'.
+        The figure is also cached so add_to_logbook(attach='computed') can re-post it.
+
+        Args:
+            file:         analyse a saved stack file (.stxm/.hdr/.cxi) by path; omit to use a
+                          buffered in-memory scan.
+            daq:          detector channel (buffered scans only; default 'default').
+            region:       scan-region index for multi-region scans/files (default 0).
+            scan_id:      analyse a specific buffered scan by id substring (buffered only).
+            scan_index:   analyse a specific buffered scan by index (see list_buffered_scans);
+                          takes precedence over scan_id.
+            n_components: NMF components (default 4). Clamped to the number of energies.
+            n_clusters:   k-means clusters of the NMF weight maps (default 4).
+            max_iter:     NMF max iterations (default 500).
+            init:         NMF initialisation ('nndsvda' default, or 'random').
+            log:          post the result to the logbook (default True).
+            note:         logbook entry text; a summary is generated when omitted.
+        """
+        from pystxmcontrol.utils.stack import stack
+
+        # ---- resolve the stack: saved file, or in-memory buffered scan --------------
+        if file:
+            path = os.path.expanduser(file)
+            if not os.path.isfile(path):
+                return f"Stack file not found: {file}"
+            if not path.lower().endswith(('.stxm', '.hdr', '.cxi')):
+                return "Unsupported stack file — expected a .stxm, .hdr, or .cxi file."
+            try:
+                stk = stack(fileName=path, iRegion=region)
+            except Exception as e:
+                return f"Failed to open stack file {os.path.basename(path)}: {e}"
+            source = os.path.basename(path)
+            if getattr(stk, 'processedFrames', None) is None or len(stk.energies) < 3:
+                return (f"Stack '{source}' has fewer than 3 energies — NMF needs a multi-energy "
+                        "stack. Use count_element_particles for a two-energy scan.")
+        else:
+            rec = self._get_buffered_scan(scan_id=scan_id, index=scan_index, min_energies=3)
+            if rec is None:
+                return ("No buffered multi-energy stack found. Run an energy stack (>= 3 "
+                        "energies), pass file=..., or call list_buffered_scans().")
+            stk, err = self._stack_from_buffered_scan(rec, daq=daq, region=region)
+            if stk is None:
+                return err
+            source = os.path.basename(rec.get('scan_id') or '') or "buffered scan"
+
+        n_energies = int(len(stk.energies))
+        # NMF requires n_components <= n_features (energies); clamp with a note.
+        clamp_note = ""
+        if n_components > n_energies:
+            clamp_note = (f"n_components reduced from {n_components} to {n_energies} "
+                          "to match the number of energies")
+            n_components = n_energies
+
+        # ---- autoProcess (dark field -> despike -> align -> OD), then NMF -----------
+        try:
+            stk.subtractDarkField()
+            stk.despike()
+            stk.alignFrames(mode='manualtranslation')
+            stk.calcOD()
+        except Exception as e:
+            return f"autoProcess failed on '{source}': {e}"
+        try:
+            stk.calcNMF(n_components=n_components, n_clusters=n_clusters,
+                        max_iter=max_iter, init=init)
+        except Exception as e:
+            return f"NMF failed on '{source}': {e}"
+
+        energies = np.asarray(stk.energies, dtype=float)
+        cluster_sizes = [int((stk.clusters == i).sum()) for i in range(n_clusters)]
+
+        meta = {
+            "computation": "autoProcess + NNMF (cluster map + cluster spectra)",
+            "source": source,
+            "n_components": n_components,
+            "n_clusters": n_clusters,
+            "n_energies": n_energies,
+            "energy_range_eV": f"{energies.min():.2f}-{energies.max():.2f}",
+            "daq": None if file else daq,
+        }
+
+        # Render the combined cluster-map + cluster-spectra figure and cache it so the
+        # logbook post below (or a later add_to_logbook(attach='computed')) can embed it.
+        title = f"NNMF of {source}: {n_components} components, {n_clusters} clusters"
+        qimg = self._render_nmf_figure(stk, title=title)
+        self._remember_computed_figure(qimg, label="NNMF cluster map + spectra", meta=meta)
+
+        result = {
+            "source": source,
+            "n_components": n_components,
+            "n_clusters": n_clusters,
+            "n_energies": n_energies,
+            "energy_range_eV": [round(float(energies.min()), 2),
+                                round(float(energies.max()), 2)],
+            "cluster_pixel_counts": cluster_sizes,
+            "stack_shape": list(stk.odFrames.shape),
+        }
+        if clamp_note:
+            result["clamp_note"] = clamp_note
+
+        # ---- one-shot logbook post -------------------------------------------------
+        if log:
+            model = self._logbook_model
+            if model is None or not getattr(model, "folder", None):
+                result["logbook"] = ("not posted — no logbook is open; open one in the Logbook "
+                                     "tab, then call add_to_logbook(attach='computed').")
+            elif qimg is None:
+                result["logbook"] = "not posted — the figure could not be rendered."
+            else:
+                text = note or (
+                    f"NNMF analysis of {source}: {n_components} NMF components, "
+                    f"{n_clusters} clusters over {n_energies} energies "
+                    f"({energies.min():.2f}-{energies.max():.2f} eV). "
+                    "Cluster map and per-cluster OD spectra attached.")
+                try:
+                    index = model.add(snap_qimage=qimg, meta=meta, text=text, author="agent")
+                    result["logbook"] = (f"posted entry #{index} to "
+                                         f"'{os.path.basename(model.folder)}'.")
+                except Exception as e:
+                    result["logbook"] = f"failed to post: {e}"
+        else:
+            result["logbook"] = ("not requested — the figure is cached; call "
+                                 "add_to_logbook(attach='computed') to post it.")
+
+        return json.dumps(result, indent=2)
+
     def get_image_center_of_mass(self, daq: str = "default") -> str:
         """Return the center of mass of the Otsu-thresholded absorption mask.
 
@@ -2534,6 +2680,103 @@ class ToolSet:
         qimg = QImage(buf.data, w, h, w, QImage.Format_Grayscale8)
         return qimg.copy()   # copy so the QImage owns its pixels (buf is local)
 
+    def _stack_from_buffered_scan(self, rec: dict, daq: str = "default", region: int = 0):
+        """Build a bare stack object from a buffered scan's in-memory transmission cube.
+
+        Returns (stack, "") on success or (None, error_message).  The returned stack has
+        processedFrames / energies populated so the autoProcess + NMF stack methods run
+        headless exactly as they would on a file-loaded stack (they operate on ndarrays,
+        not on the rawFrames image objects that file loading builds)."""
+        from pystxmcontrol.utils.stack import stack
+        stx = rec.get('stxm')
+        energies = np.asarray(rec.get('energies') or [], dtype=float)
+        if stx is None or energies.size < 3:
+            return None, "Buffered scan has fewer than three energies — NMF needs a stack."
+        interp = getattr(stx, 'interp_counts', None)
+        if not isinstance(interp, dict):
+            return None, "Buffered scan has no image data."
+        if daq not in interp and 'default' in interp:
+            daq = 'default'
+        if daq not in interp:
+            return None, f"No detector channel '{daq}' in buffered scan."
+        try:
+            cube = np.asarray(interp[daq][region], dtype=float)
+        except (IndexError, TypeError):
+            return None, f"Region {region} not available in buffered scan."
+        if cube.ndim != 3 or cube.shape[0] < 3:
+            return None, "Buffered scan region is not a multi-energy stack."
+        stk = stack()
+        stk.processedFrames = cube.copy()
+        stk.energies = energies
+        stk.shape = stk.processedFrames.shape
+        return stk, ""
+
+    def _render_nmf_figure(self, stk, title: str | None = None):
+        """Render a combined NMF figure (colour cluster map + cluster OD spectra) to a
+        QImage for a logbook snapshot.  Uses matplotlib's Agg canvas directly (no pyplot,
+        no GUI backend) so it is safe on the agent's worker thread.  Returns None on failure."""
+        try:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+        except ImportError:
+            return None
+        try:
+            rgb = stk.rgbClusterMap()
+            energies = np.asarray(stk.energies, dtype=float)
+            # ~2:1 landscape (image + plot side by side) so the logbook renders it double-width;
+            # tall enough that the square cluster map fills its half rather than letterboxing.
+            fig = Figure(figsize=(10.0, 5.0), dpi=120)
+            FigureCanvasAgg(fig)
+            ax_map = fig.add_subplot(1, 2, 1)
+            ax_spec = fig.add_subplot(1, 2, 2)
+            ax_map.imshow(rgb)
+            ax_map.set_title("Cluster map")
+            ax_map.set_xticks([])
+            ax_map.set_yticks([])
+            for i, spec in enumerate(stk.clusterSpectra):
+                c = np.asarray(stk.penColors[i], dtype=float)
+                if c.size >= 3 and c.max() > 1:   # 0-255 ints -> 0-1 for matplotlib
+                    c = c / 255.0
+                ax_spec.plot(energies, np.asarray(spec, dtype=float),
+                             color=tuple(c[:3]), label=f"Cluster {i}")
+            ax_spec.set_xlabel("Energy (eV)")
+            ax_spec.set_ylabel("Optical density")
+            ax_spec.set_title("Cluster spectra")
+            ax_spec.legend(fontsize="small", loc="best")
+            if title:
+                fig.suptitle(title, fontsize="medium")
+            fig.tight_layout()
+            return self._figure_to_qimage(fig)
+        except Exception as e:
+            log.warning("[ToolSet] _render_nmf_figure failed: %s", e)
+            return None
+
+    @staticmethod
+    def _figure_to_qimage(fig):
+        """Convert a drawn matplotlib Figure to an RGBA QImage.  Thread-safe (no widgets)."""
+        try:
+            from PySide6.QtGui import QImage
+        except ImportError:
+            return None
+        fig.canvas.draw()
+        w, h = fig.canvas.get_width_height()
+        buf = np.ascontiguousarray(np.asarray(fig.canvas.buffer_rgba()))
+        qimg = QImage(buf.data, w, h, 4 * w, QImage.Format_RGBA8888)
+        return qimg.copy()   # copy so the QImage owns its pixels (buf is local)
+
+    def _remember_computed_figure(self, qimage, label: str, meta: dict | None = None) -> None:
+        """Cache a pre-rendered figure (QImage) from a calculation tool so
+        add_to_logbook(attach='computed') can embed it directly.  Used for colour/composite
+        results (e.g. the NNMF cluster map + spectra) that _array_to_qimage cannot render."""
+        if qimage is None:
+            return
+        self._last_computed_image = {
+            "array": None,
+            "qimage": qimage,
+            "label": label,
+            "meta": dict(meta or {}),
+        }
+
     def add_to_logbook(self, text: str, attach: str = "scan",
                        daq: str = "default", attach_last_scan: bool | None = None) -> str:
         """Add an entry to the active logbook on the user's behalf.
@@ -2547,7 +2790,8 @@ class ToolSet:
             attach: which image to embed (grayscale, autoscaled):
                 "scan"     — the most recent live scan image (default);
                 "computed" — the most recent image produced by a calculation tool, e.g. the
-                             two-energy elemental/difference map from count_element_particles.
+                             two-energy elemental/difference map from count_element_particles
+                             or the NNMF cluster map + spectra figure from analyze_energy_stack.
                              Use this to save a computed result, not a raw scan;
                 "none"     — text-only entry, no image.
             daq:    detector channel for the "scan" image (default 'default').
@@ -2584,22 +2828,30 @@ class ToolSet:
         snap_note = ""
         if attach == "computed":
             comp = self._last_computed_image
-            arr = comp.get('array') if isinstance(comp, dict) else None
+            # A pre-rendered figure (e.g. the NNMF cluster map + spectra) is embedded as-is;
+            # only raw arrays go through _array_to_qimage's grayscale autoscale below.
+            pre_qimg = comp.get('qimage') if isinstance(comp, dict) else None
             fallback_reason = ""
-            if not isinstance(arr, np.ndarray):
-                # Nothing cached (e.g. the count came from the intelligence module, which
-                # can't ship the map array): build the two-energy map from the buffered scan.
-                built, info = self._latest_two_energy_map()
-                if isinstance(built, np.ndarray):
-                    self._remember_computed_image(built, "two-energy elemental map", info)
-                    comp = self._last_computed_image
-                    arr = comp.get('array')
-                else:
-                    fallback_reason = info
-            if isinstance(arr, np.ndarray):
-                qimg = self._array_to_qimage(arr)
+            if pre_qimg is not None:
+                qimg = pre_qimg
                 meta.update(comp.get('meta') or {})
                 attach_desc = f" with the {comp.get('label', 'computed image')}"
+            else:
+                arr = comp.get('array') if isinstance(comp, dict) else None
+                if not isinstance(arr, np.ndarray):
+                    # Nothing cached (e.g. the count came from the intelligence module, which
+                    # can't ship the map array): build the two-energy map from the buffered scan.
+                    built, info = self._latest_two_energy_map()
+                    if isinstance(built, np.ndarray):
+                        self._remember_computed_image(built, "two-energy elemental map", info)
+                        comp = self._last_computed_image
+                        arr = comp.get('array')
+                    else:
+                        fallback_reason = info
+                if isinstance(arr, np.ndarray):
+                    qimg = self._array_to_qimage(arr)
+                    meta.update(comp.get('meta') or {})
+                    attach_desc = f" with the {comp.get('label', 'computed image')}"
             if qimg is None:
                 snap_note = (f" (no computed image was available to attach — {fallback_reason}; "
                              "run a calculation such as count_element_particles first)"
@@ -2977,6 +3229,79 @@ TOOL_SCHEMAS: list[dict] = [
                     "max_particles": {
                         "type": "integer",
                         "description": "Cap on element regions returned, ordered by size (default: all).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_energy_stack",
+            "description": (
+                "Analyse a many-energy spectral stack with autoProcess + non-negative matrix "
+                "factorisation (NNMF), the headless equivalent of the Analysis tab's Auto Process "
+                "+ Calculate NNMF buttons. Pipeline: subtract dark field -> despike -> align "
+                "frames -> optical density, then sklearn NMF with k-means clustering of the NMF "
+                "weight maps, producing a colour-coded cluster map and per-cluster OD spectra. "
+                "Use for a NEXAFS / energy-stack scan (>= 3 energies), NOT a two-energy scan (use "
+                "count_element_particles for two energies). Analyses the most recent buffered "
+                "multi-energy scan by default, or a saved .stxm/.hdr/.cxi file via 'file'. When "
+                "log is true (default) and a logbook is open, it posts one entry with a combined "
+                "cluster-map + cluster-spectra figure; the figure is also cached so "
+                "add_to_logbook(attach='computed') can re-post it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "description": "Analyse a saved stack file (.stxm/.hdr/.cxi) by path. "
+                                       "Omit to use the most recent buffered in-memory scan.",
+                    },
+                    "daq": {
+                        "type": "string",
+                        "description": "Detector channel for buffered scans (default 'default').",
+                    },
+                    "region": {
+                        "type": "integer",
+                        "description": "Scan-region index for multi-region scans/files (default 0).",
+                    },
+                    "scan_id": {
+                        "type": "string",
+                        "description": "Analyse a specific buffered scan by id substring "
+                                       "(buffered scans only).",
+                    },
+                    "scan_index": {
+                        "type": "integer",
+                        "description": "Analyse a specific buffered scan by index "
+                                       "(see list_buffered_scans). Takes precedence over scan_id.",
+                    },
+                    "n_components": {
+                        "type": "integer",
+                        "description": "Number of NMF components (default 4). "
+                                       "Clamped to the number of energies.",
+                    },
+                    "n_clusters": {
+                        "type": "integer",
+                        "description": "Number of k-means clusters of the NMF weight maps (default 4).",
+                    },
+                    "max_iter": {
+                        "type": "integer",
+                        "description": "NMF maximum iterations (default 500).",
+                    },
+                    "init": {
+                        "type": "string",
+                        "description": "NMF initialisation: 'nndsvda' (default) or 'random'.",
+                    },
+                    "log": {
+                        "type": "boolean",
+                        "description": "Post the result to the logbook (default true).",
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Logbook entry text; a summary is generated when omitted.",
                     },
                 },
                 "required": [],

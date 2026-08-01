@@ -75,11 +75,22 @@ Do NOT use find_particles() to count or locate an element: it thresholds a singl
 image and finds generic absorbers, which will disagree with the elemental-map count. Use
 find_particles() only for plain "absorbing feature" requests with no element specified.
 
+ANALYSING A MANY-ENERGY SPECTRAL STACK (NEXAFS / energy stack, chemical mapping, clustering):
+For a stack with many energies (not just two), call analyze_energy_stack(). It runs the
+Analysis-tab pipeline headless — Auto Process (dark-field subtract, despike, align, optical
+density) then NNMF (non-negative matrix factorisation) with k-means clustering — and produces a
+colour-coded cluster map plus the per-cluster OD spectra. Defaults are n_components=4 and
+n_clusters=4; change them only when the user asks (e.g. "use 6 clusters"). By default it analyses
+the most recent buffered multi-energy scan; pass file="..." to analyse a saved .stxm/.hdr/.cxi
+stack. With log=True (default) it posts one logbook entry containing the combined cluster-map +
+cluster-spectra figure. Use analyze_energy_stack for many energies; use count_element_particles
+only for two-energy element mapping.
+
 MEMORY OF PAST SCANS:
 The GUI keeps the last several completed scans (full multi-energy stacks) in memory. You are NOT
 limited to the most recent scan. list_buffered_scans() shows what is available; pass an entry's
-index to count_element_particles(scan_index=...) to analyse an earlier scan (e.g. to compare or to
-revisit a two-energy scan after running others).
+index to count_element_particles(scan_index=...) or analyze_energy_stack(scan_index=...) to
+analyse an earlier scan (e.g. to compare or to revisit a stack after running others).
 
 SCAN LIMITS (before starting any scan):
 Call check_scan_limits() before start_scan(). If it reports needs_decision=True, the scan

@@ -208,7 +208,7 @@ class LogbookWidget(QtWidgets.QWidget):
         if snap:
             path = os.path.join(snaps_dir, snap)
             if os.path.isfile(path):
-                url = self._snap_resource(path, eid, width=360)
+                url = self._snap_resource(path, eid, width=self._snap_display_width(path))
                 if url:
                     # Wrap the image in its own block <div> (like the body above) so it
                     # always starts on a new line. A bare <img> is inline, so QTextBrowser
@@ -264,6 +264,22 @@ class LogbookWidget(QtWidgets.QWidget):
                 motors = "\n".join(lines[idx + 1:]).strip("\n")
                 return head, motors
         return detail, ""
+
+    def _snap_display_width(self, path: str, base: int = 360) -> int:
+        """Choose a card display width (logical px) for a snapshot.
+
+        Wide-aspect figures — e.g. the NNMF cluster-map-beside-cluster-spectra panel, which
+        packs an image and a plot side by side — get up to double the base width so both
+        halves stay legible; roughly-square scan snapshots keep the base width. The result is
+        capped to the browser viewport so a wide figure never forces a horizontal scrollbar.
+        """
+        img = QtGui.QImage(path)
+        if img.isNull() or img.height() == 0:
+            return base
+        if img.width() / img.height() < 1.6:      # square/portrait — normal width
+            return base
+        avail = self._browser.viewport().width() - 24   # minus the card border/padding
+        return max(base, min(base * 2, avail)) if avail > base else base
 
     def _snap_resource(self, path: str, eid: str, width: int = 360) -> str | None:
         """Smooth-scale a snapshot and register it as a document image resource.
