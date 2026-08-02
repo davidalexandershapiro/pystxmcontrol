@@ -429,7 +429,12 @@ class TaskAgent:
                     })
                     # A completed scan is a unit of real progress: reset the stall budget so a
                     # long sequence of scans (e.g. a tiled scan) isn't capped by step count.
-                    if name == "wait_for_scan" and result.startswith("Scan complete"):
+                    # Completion surfaces from either wait_for_scan (caught the idle
+                    # transition) OR get_scan_status (polled after wait_for_scan timed out on a
+                    # long scan) — both emit the same "Scan complete" prefix, so key off the
+                    # result content across both tools rather than wait_for_scan alone.
+                    if (name in ("wait_for_scan", "get_scan_status")
+                            and result.startswith("Scan complete")):
                         stalled = 0
                         _publish("  [scan completed — step budget reset]")
 
