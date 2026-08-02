@@ -48,31 +48,14 @@ def _ts() -> str:
     return time.strftime("%H:%M:%S")
 
 
-def _is_light_theme() -> bool:
-    """True when the app is running the light qdarktheme palette.
-
-    The trace colours below are tuned for the dark theme; on a light background the
-    pale teal/grey wash out. Detect the theme from the active palette's base-colour
-    lightness so the light-theme shades can be darkened. Defaults to dark on failure.
-    """
-    try:
-        app = QtWidgets.QApplication.instance()
-        if app is None:
-            return False
-        return app.palette().base().color().lightnessF() > 0.5
-    except Exception:
-        return False
-
-
-# Tool-trace line colours, keyed by (icon, color) role. The dark values are the
-# originals; the light values are darkened so they stay legible on a white background
-# (the faint pale-teal "Tool:" lines were the reported problem).
-_TRACE_COLORS_DARK = {"accent": "#80cbc4", "muted": "#757575", "faint": "#888888"}
+# Tool-trace line colours, keyed by (icon, color) role. qdarktheme is applied as a
+# stylesheet rather than a palette, so the widget can't reliably sniff the active theme
+# from QApplication.palette(); instead the main window pushes the theme in via
+# set_light_theme()/set_dark_theme(). The light values are darkened so they stay legible
+# on a white background; the dark values are lightened so they don't sink into a black
+# one (the two reported problems were washed-out light-theme and too-dark dark-theme).
+_TRACE_COLORS_DARK = {"accent": "#80cbc4", "muted": "#9e9e9e", "faint": "#9e9e9e"}
 _TRACE_COLORS_LIGHT = {"accent": "#00695c", "muted": "#4a4a4a", "faint": "#5a5a5a"}
-
-
-def _trace_colors() -> dict:
-    return _TRACE_COLORS_LIGHT if _is_light_theme() else _TRACE_COLORS_DARK
 
 
 def _action_link(label: str, action: str) -> str:
@@ -106,6 +89,12 @@ class IntelligenceWidget(QtWidgets.QWidget):
         super().__init__(parent)
         self._task_running = False
         self._proposal_active = False   # input is gated until a proposal is selected
+        self._theme = "dark"            # set_light_theme()/set_dark_theme() override this
+        self._show_traces = True        # tool-activity lines visible until toggled off
+        # Ordered log of rendered items so the document can be rebuilt when the theme
+        # changes or tool-activity lines are collapsed. Trace entries keep their raw
+        # message (re-coloured per theme on rebuild); others keep their final HTML.
+        self._entries = []
         self._setup_ui()
         self._refresh_input_state()
 
@@ -126,6 +115,13 @@ class IntelligenceWidget(QtWidgets.QWidget):
         header.setStyleSheet("font-size: 13px; font-weight: bold;")
         header_row.addWidget(header)
         header_row.addStretch()
+        # Toggle to collapse/expand the tool-call trace lines. Colours follow the theme.
+        self._traces_check = QtWidgets.QCheckBox("Tool activity")
+        self._traces_check.setChecked(self._show_traces)
+        self._traces_check.setStyleSheet("QCheckBox { font-size: 10px; }")
+        self._traces_check.setToolTip("Show or hide the agent's tool-call trace lines")
+        self._traces_check.toggled.connect(self._on_toggle_traces)
+        header_row.addWidget(self._traces_check)
         self._clear_btn = QtWidgets.QPushButton("New Topic")
         self._clear_btn.setFixedWidth(72)
         # Colours come from the active theme's button style; only the compact
@@ -241,7 +237,18 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     def add_task_status(self, msg: str) -> None:
         """Display a TaskAgent trace line (tool calls, results, progress)."""
-        tc = _trace_colors()
+        self._entries.append({"kind": "trace", "msg": msg})
+        if self._show_traces:
+            self._browser.append(self._trace_html(msg))
+            self._scroll_to_bottom()
+
+    def _trace_colors(self) -> dict:
+        """Trace-line colours for the active theme (pushed in by the main window)."""
+        return _TRACE_COLORS_LIGHT if self._theme == "light" else _TRACE_COLORS_DARK
+
+    def _trace_html(self, msg: str) -> str:
+        """Render one tool-activity line, coloured for the active theme."""
+        tc = self._trace_colors()
         if msg.startswith("Starting:"):
             color, icon = tc["accent"], "▶"
         elif msg.startswith("Tool:"):
@@ -261,8 +268,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
         # after it to separate the execution block from the Agent response below.
         if msg.startswith("[Done"):
             html += '<br>'
-        self._browser.append(html)
-        self._scroll_to_bottom()
+        return html
 
     def add_task_result(self, text: str) -> None:
         """Display the final TaskAgent response as a prominent agent message."""
@@ -270,17 +276,20 @@ class IntelligenceWidget(QtWidgets.QWidget):
 
     def add_user_message(self, text: str) -> None:
         """Display the operator's query in the history before the response arrives."""
+        # Wrap the body in <div><p>…</p></div> to mirror the Agent block's structure
+        # (its md_to_html output is paragraph-wrapped). Matching the block layout keeps the
+        # header→rule gap and the trailing space between blocks identical to the Agent block;
+        # a bare inline <span> here loses the paragraph margins and the spacing drifts.
         html = (
             f'<div style="border-left:3px solid {_C["user"]}; '
             f'padding:6px 8px; margin:3px 1px;">'
             f'<span style="color:{_C["user"]}; font-size:12px; font-weight:bold;">'
             f'You &nbsp; {_ts()}</span>'
             f'<hr>'
-            f'<span>{self._escape(text)}</span>'
+            f'<div><p>{self._escape(text)}</p></div>'
             f'</div>'
         )
-        self._browser.append(html)
-        self._scroll_to_bottom()
+        self._append_other(html)
 
     # ------------------------------------------------------------------
     # Internal rendering helpers
@@ -309,8 +318,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'{action_html}'
             f'</div>'
         )
-        self._browser.append(html)
-        self._scroll_to_bottom()
+        self._append_other(html)
 
     def _append_task_recommendation(self, message: dict) -> None:
         subtype = message.get("subtype", "recommendation")
@@ -350,8 +358,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'{detail_html}'
             f'</div>'
         )
-        self._browser.append(html)
-        self._scroll_to_bottom()
+        self._append_other(html)
 
     def _append_agent_response(self, text: str, query: str = "") -> None:
         html = (
@@ -363,8 +370,44 @@ class IntelligenceWidget(QtWidgets.QWidget):
             f'<div>{md_to_html(text)}</div>'
             f'</div>'
         )
+        self._append_other(html)
+
+    def _append_other(self, html: str) -> None:
+        """Record and display a permanent (non-trace) message."""
+        self._entries.append({"kind": "other", "html": html})
         self._browser.append(html)
         self._scroll_to_bottom()
+
+    def _rebuild(self) -> None:
+        """Re-render the whole document from the entry log.
+
+        Used when the theme changes (trace lines re-colour) or the tool-activity
+        toggle flips (trace lines appear/disappear).
+        """
+        self._browser.clear()
+        for entry in self._entries:
+            if entry["kind"] == "trace":
+                if self._show_traces:
+                    self._browser.append(self._trace_html(entry["msg"]))
+            else:
+                self._browser.append(entry["html"])
+        self._scroll_to_bottom()
+
+    def set_light_theme(self) -> None:
+        """Switch trace-line colours to the light-theme shades."""
+        if self._theme != "light":
+            self._theme = "light"
+            self._rebuild()
+
+    def set_dark_theme(self) -> None:
+        """Switch trace-line colours to the dark-theme shades."""
+        if self._theme != "dark":
+            self._theme = "dark"
+            self._rebuild()
+
+    def _on_toggle_traces(self, checked: bool) -> None:
+        self._show_traces = checked
+        self._rebuild()
 
     def _scroll_to_bottom(self) -> None:
         self._browser.verticalScrollBar().setValue(
@@ -388,6 +431,7 @@ class IntelligenceWidget(QtWidgets.QWidget):
     # ------------------------------------------------------------------
 
     def _on_clear(self) -> None:
+        self._entries.clear()
         self._browser.clear()
         self.clear_history_requested.emit()
 

@@ -2857,6 +2857,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self._apply_plot_theme(light=True)
         if hasattr(self, '_analysis2_tab'):
             self._analysis2_tab.set_light_theme()
+        if hasattr(self, '_intelligence_tab'):
+            self._intelligence_tab.set_light_theme()
 
     def set_dark_theme(self):
         """Set dark theme."""
@@ -2866,6 +2868,8 @@ class MainWindowMVC(QtWidgets.QMainWindow):
             self._apply_plot_theme(light=False)
         if hasattr(self, '_analysis2_tab'):
             self._analysis2_tab.set_dark_theme()
+        if hasattr(self, '_intelligence_tab'):
+            self._intelligence_tab.set_dark_theme()
 
     # Initialization methods
     def re_init(self):
