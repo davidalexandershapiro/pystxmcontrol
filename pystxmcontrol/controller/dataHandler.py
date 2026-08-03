@@ -624,17 +624,9 @@ class dataHandler:
                             region=f"Region{region + 1}",
                             energy_index=last_energy_index,
                         )
-                        # Full multi-energy stack analysis (e.g. two-energy elemental map).
-                        # endOfRegion fires once per energy pass (energies are the outer loop),
-                        # so only analyze on the final energy, when every frame is populated.
-                        if (image.ndim == 3 and image.shape[0] >= 2
-                                and last_energy_index == image.shape[0] - 1):
-                            intel.on_region_stack(
-                                stack=image,
-                                energies=self.data.energies.get("default"),
-                                scan_type=getattr(self, '_current_scan_type', ''),
-                                region=f"Region{region + 1}",
-                            )
+                        # Two-energy elemental-map analysis was removed from the intelligence
+                        # module: the task agent now owns that computation (count_element_particles)
+                        # so the map/image is produced where it is also saved to the logbook.
             else:
                 self.regionComplete = False
                 region = int(scanInfo["scanRegion"].split("Region")[1]) - 1
@@ -756,9 +748,42 @@ class dataHandler:
                 pixel_size, dwell, y_center, x_center,
                 sample_type=sample_type, energy=energy)
 
+        # If this scan measured the achieved positions (e.g. the USB-1808X ADC reading
+        # the nPoint monitors alongside the counts), override line_positions from that
+        # aux_data.  The flag is computed once at scan setup, so the common case is a
+        # single dict lookup here.  Must run after buffer reduction, before the deepcopy
+        # that carries line_positions to the stack/gridding stage.
+        if scanInfo.get("position_readback"):
+            self._apply_position_readback(scanInfo)
+
         await self.dataQueue.put(deepcopy(scanInfo))
         #print(f"[Get Line] Acquisition time: {t1-t0}")
         return True
+
+    def _apply_position_readback(self, scanInfo):
+        """Overwrite scanInfo["line_positions"] with ADC-measured positions from the DAQ
+        whose meta declares ``position_readback``.  Only called when the scan set
+        ``scanInfo["position_readback"]`` (see getLine), and skipped in simulation (sim
+        aux_data is noise, and the commanded spiral is already the right answer there).
+
+        The DAQ's ``aux_data`` is a list of 1-D arrays [xmon, ymon] (volts), same length
+        and order as the counts.  Converts to microns via configured calibration.
+        """
+        for daq in scanInfo.get("daq_list", []):
+            meta = self.controller.daqConfig.get(daq, {})
+            if not meta.get("position_readback", False) or meta.get("simulation"):
+                continue
+            aux = getattr(self.daq[daq], "aux_data", None)
+            if aux is None or len(aux) < 2:
+                continue
+            cal = meta.get("monitor_um_per_volt", 1.0)
+            cal_x, cal_y = cal if isinstance(cal, (list, tuple)) else (cal, cal)
+            x = np.asarray(aux[0], dtype=float) * cal_x + meta.get("monitor_offset_x", 0.0)
+            y = np.asarray(aux[1], dtype=float) * cal_y + meta.get("monitor_offset_y", 0.0)
+            if scanInfo.get("direction") == "backward":
+                x, y = x[::-1], y[::-1]
+            scanInfo["line_positions"] = [x, y]
+            return
         
     def updateDwells(self, scanInfo):
         self.data.DAQdwell = scanInfo['DAQDwell']

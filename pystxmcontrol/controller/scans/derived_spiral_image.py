@@ -39,6 +39,12 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
         else:
             scanInfo["rawData"][daq]["meta"]["n_energies"] = len(energies)
         scanInfo["rawData"][daq]["interpolate"] = True
+    # Compute once whether any attached DAQ measures the achieved positions (e.g. the
+    # USB-1808X ADC reading the nPoint monitors); gates the per-line readback override
+    # in dataHandler.getLine so the common case pays only one dict lookup.
+    scanInfo["position_readback"] = any(
+        controller.daq[daq].meta.get("position_readback", False)
+        for daq in scanInfo["daq_list"])
     # Find minimum dwell, dwell padding, and worst time resolution for attached daqs.
     minDAQDwell = max([float(scanInfo["rawData"][daq]["meta"]["minimum_dwell"]) for daq in scanInfo["daq_list"] if not \
                       scanInfo["rawData"][daq]["meta"]["simulation"]]+[0.001])

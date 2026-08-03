@@ -69,3 +69,11 @@ except:
     print("MCC uldaq not installed.")
 else:
     __all__.append('mccUSB1808X')
+try:
+    from pystxmcontrol.drivers.keysightAWGController import keysightAWGController
+    from pystxmcontrol.drivers.keysightAWGMotor import keysightAWGMotor
+except:
+    print("Keysight AWG (usbtmc) not installed.")
+else:
+    __all__.append('keysightAWGController')
+    __all__.append('keysightAWGMotor')

@@ -40,11 +40,16 @@ class usb1808x:
         self.device = None              # DaqDevice
         self.ai_device = None           # AiDevice
         self.ctr_device = None          # CtrDevice
+        self.daqi_device = None         # DaqiDevice (synchronous mixed AI+counter scan)
         self._ai_info = None
 
         # configuration, filled by config()
-        self.mode = "counter"           # "counter" or "adc"
-        self.channel = 0                # AI channel or counter number
+        self.mode = "counter"           # "counter", "adc", or "adc+counter" (synchronous dual)
+        self.channel = 0                # AI channel or counter number (single-subsystem modes)
+        self.ai_channels = [0]          # AI channels scanned in dual mode, e.g. [xmon, ymon]
+        self.ctr_channel = 0            # counter number used in "adc+counter" mode
+        self.primary = "counter"        # which subsystem feeds getLine/getPoint in dual mode;
+                                        # the other is stashed on self.aux_data (list of arrays)
         self.dwell = 1.0                # ms
         self.count = 1                  # number of hardware triggers
         self.samples = 1               # measurement windows per trigger
@@ -64,6 +69,10 @@ class usb1808x:
         self._armed = False
         self._scan_running = False
         self._buffer = None
+        #: in "adc+counter" mode the primary subsystem is returned from getLine/getPoint
+        #: and the secondary channel(s) are latched here as a list of 1-D arrays (same
+        #: length/order as the primary), e.g. [xmon, ymon]; None otherwise.
+        self.aux_data = None
 
     # ------------------------------------------------------------------ #
     #  Connection
@@ -109,6 +118,7 @@ class usb1808x:
         self.device.connect()
         self.ai_device = self.device.get_ai_device()
         self.ctr_device = self.device.get_ctr_device()
+        self.daqi_device = self.device.get_daqi_device()
         self._ai_info = self.ai_device.get_info() if self.ai_device else None
         print("Connected to %s (%s)" % (descriptor.product_name, descriptor.unique_id))
 
@@ -124,6 +134,7 @@ class usb1808x:
         self.device = None
         self.ai_device = None
         self.ctr_device = None
+        self.daqi_device = None
 
     # ------------------------------------------------------------------ #
     #  uldaq enum helpers
@@ -147,7 +158,8 @@ class usb1808x:
     #  Configuration
     # ------------------------------------------------------------------ #
     def config(self, dwell, count=1, samples=1, trigger="BUS", output="OFF",
-               channel=0, mode="counter"):
+               channel=0, mode="counter", ai_channels=None, ctr_channel=None,
+               primary=None):
         """
         Configure an acquisition.
 
@@ -157,7 +169,12 @@ class usb1808x:
         :param trigger:  "BUS" (software timed) or "EXT" (external hardware trigger)
         :param output:   retained for API parity with the Keysight driver (unused here)
         :param channel:  AI channel (adc mode) or counter number (counter mode)
-        :param mode:     "counter" or "adc"
+        :param mode:     "counter", "adc", or "adc+counter" (synchronous dual scan)
+        :param ai_channels: list of AI channels in "adc+counter" mode, e.g. [xmon, ymon]
+                            (int accepted; falls back to attribute if None)
+        :param ctr_channel: counter number in "adc+counter" mode (falls back to attribute)
+        :param primary:  in "adc+counter" mode, which subsystem is returned by
+                         getLine/getPoint ("counter" or "adc"); the other is on aux_data
         """
         self.dwell = dwell
         self.count = int(count)
@@ -166,11 +183,21 @@ class usb1808x:
         self.output = output
         self.channel = int(channel)
         self.mode = mode
+        # dual-mode channels/primary: keep the attribute (set from meta) if not passed
+        if ai_channels is not None:
+            self.ai_channels = [int(c) for c in
+                                (ai_channels if isinstance(ai_channels, (list, tuple))
+                                 else [ai_channels])]
+        if ctr_channel is not None:
+            self.ctr_channel = int(ctr_channel)
+        if primary is not None:
+            self.primary = primary
 
         # number of raw ADC samples to average per dwell window; always digitize at
-        # the hardware ceiling and average down to the requested dwell.
-        self._oversamples = max(1, int(round(self.dwell * 1e-3 * self.adc_max_rate)))
+        # the per-channel ceiling and average down to the requested dwell.
+        self._oversamples = max(1, int(round(self.dwell * 1e-3 * self._scan_rate())))
 
+        self.aux_data = None
         self._stop_scan()
         self._armed = False
 
@@ -200,17 +227,67 @@ class usb1808x:
         """Total number of dwell windows in the current line."""
         return max(1, self.count * self.samples)
 
-    def _rate(self):
-        """Raw sample rate for the current scan (always the ADC ceiling for adc mode)."""
-        if self.mode == "adc":
-            return self.adc_max_rate
+    def _dual(self):
+        """True when acquiring AI + counter synchronously on one pacer clock."""
+        return self.mode == "adc+counter"
+
+    def _nchan(self):
+        """Number of scan channels (len(ai_channels)+1 counter for dual mode, else 1)."""
+        return len(self.ai_channels) + 1 if self._dual() else 1
+
+    def _scan_rate(self):
+        """Per-channel raw sample rate for the current scan.
+
+        adc / dual modes oversample at the ADC ceiling and average down to the
+        requested dwell.  The USB-1808X's 200 kS/s is an *aggregate* across scan
+        channels, so dual mode gets the ceiling divided by the channel count.
+        """
+        if self.mode == "adc" or self._dual():
+            return self.adc_max_rate / self._nchan()
         # counter mode is paced one latch per dwell window
         return 1.0 / (self.dwell * 1e-3)
 
+    def _rate(self):
+        """Alias kept for the single-subsystem scan paths."""
+        return self._scan_rate()
+
+    def _daqi_descriptors(self):
+        """Build the mixed AI+counter channel descriptor list for a daqi scan.
+
+        Order is fixed [ai0, ai1, ..., CTR]; the interleaved scan buffer therefore
+        holds one row [ai0, ai1, ..., ctr] per sample, which _reduce_line() splits.
+        """
+        ul = self._ul
+        ai_type = (ul.DaqInChanType.ANALOG_SE
+                   if str(self.input_mode).lower().startswith("single")
+                   else ul.DaqInChanType.ANALOG_DIFF)
+        descriptors = [ul.DaqInChanDescriptor(c, ai_type, self._range())
+                       for c in self.ai_channels]
+        descriptors.append(ul.DaqInChanDescriptor(self.ctr_channel, ul.DaqInChanType.CTR32))
+        return descriptors
+
     def _start_scan(self, external):
-        """Kick off a buffered a_in_scan / c_in_scan that fills self._buffer."""
+        """Kick off a buffered a_in_scan / c_in_scan / daq_in_scan into self._buffer."""
         ul = self._ul
         windows = self._windows()
+
+        if self._dual():
+            # Synchronous AI + counter on one pacer clock.  For this driver the AWG
+            # emits a single trajectory-start pulse, so an external trigger *starts*
+            # the internally-paced scan (EXTTRIGGER) rather than clocking each sample.
+            n_scan = windows * self._oversamples          # samples per channel
+            self._buffer = ul.create_float_buffer(self._nchan(), n_scan)
+            if external:
+                self.daqi_device.set_trigger(ul.TriggerType.POS_EDGE, 0, 0.0, 0.0, 0)
+                scan_options = ul.ScanOption.EXTTRIGGER
+            else:
+                scan_options = ul.ScanOption.DEFAULTIO
+            self.ctr_device.c_clear(self.ctr_channel)
+            self.daqi_device.daq_in_scan(
+                self._daqi_descriptors(), n_scan, self._scan_rate(),
+                scan_options, ul.DaqInScanFlag.DEFAULT, self._buffer)
+            self._scan_running = True
+            return
 
         if external:
             scan_options = ul.ScanOption.EXTCLOCK
@@ -235,12 +312,18 @@ class usb1808x:
 
         self._scan_running = True
 
+    def _scan_device(self):
+        """The uldaq scan subsystem driving the current mode."""
+        if self._dual():
+            return self.daqi_device
+        return self.ai_device if self.mode == "adc" else self.ctr_device
+
     def _wait_scan(self):
         """Block until the running scan finishes, then stop it.  Raises on timeout."""
         ul = self._ul
         expected = self._windows() * self.dwell * 1e-3
         timeout = expected * self.TIMEOUT_MARGIN + 1.0
-        device = self.ai_device if self.mode == "adc" else self.ctr_device
+        device = self._scan_device()
         # WAIT_UNTIL_DONE returns early if already done; timeout is in seconds here.
         try:
             device.scan_wait(ul.WaitType.WAIT_UNTIL_DONE, timeout)
@@ -251,7 +334,7 @@ class usb1808x:
     def _stop_scan(self):
         if not self._scan_running:
             return
-        device = self.ai_device if self.mode == "adc" else self.ctr_device
+        device = self._scan_device()
         try:
             if device is not None:
                 device.scan_stop()
@@ -259,10 +342,40 @@ class usb1808x:
             pass
         self._scan_running = False
 
+    def _split_primary(self, ai_list, ctr):
+        """Return the primary channel (per self.primary), stash the rest on aux_data.
+
+        ai_list is a list of 1-D AI arrays (e.g. [xmon, ymon]); ctr is 1-D counts.
+        aux_data is always a list of 1-D arrays for a uniform downstream interface.
+        """
+        ai_list = [np.asarray(a, dtype="float") for a in ai_list]
+        ctr = np.asarray(ctr, dtype="float")
+        if self.primary == "adc":
+            # first AI channel is the returned signal; counts + any other AI go to aux
+            self.aux_data = [ctr] + ai_list[1:]
+            return ai_list[0]
+        # default: counts primary, AI position monitors on aux
+        self.aux_data = ai_list
+        return ctr
+
     def _reduce_line(self):
         """Turn the raw scan buffer into a length-(count*samples) float array."""
         windows = self._windows()
         raw = np.array(self._buffer[:], dtype="float")
+        if self._dual():
+            # interleaved rows [ai0, ai1, ..., ctr] -> (n_raw, nchan)
+            nchan = self._nchan()
+            n_ai = len(self.ai_channels)
+            n = windows * self._oversamples
+            raw = raw[:n * nchan].reshape(n, nchan)
+            # AI: average each oversamples block into one window value, per channel
+            ai_list = [raw[:, i].reshape(windows, self._oversamples).mean(axis=1)
+                       for i in range(n_ai)]
+            # CTR (last column): cumulative counts latched every raw sample; take the
+            # last latch in each window and difference to recover per-window counts.
+            ctr_cum = raw[:, -1].reshape(windows, self._oversamples)[:, -1]
+            ctr = np.diff(ctr_cum, prepend=0.0)
+            return self._split_primary(ai_list, ctr)
         if self.mode == "adc":
             # average each block of oversamples raw ADC samples into one window value
             raw = raw[:windows * self._oversamples]
@@ -281,6 +394,22 @@ class usb1808x:
     # ------------------------------------------------------------------ #
     async def getPoint(self):
         ul = self._ul
+        if self._dual():
+            # one dwell window's worth of synchronous AI + counter samples
+            nchan = self._nchan()
+            n_ai = len(self.ai_channels)
+            n_scan = self._oversamples
+            buf = ul.create_float_buffer(nchan, n_scan)
+            self.ctr_device.c_clear(self.ctr_channel)
+            self.daqi_device.daq_in_scan(
+                self._daqi_descriptors(), n_scan, self._scan_rate(),
+                ul.ScanOption.DEFAULTIO, ul.DaqInScanFlag.DEFAULT, buf)
+            self.daqi_device.scan_wait(ul.WaitType.WAIT_UNTIL_DONE,
+                                       self.dwell * 1e-3 * self.TIMEOUT_MARGIN + 1.0)
+            raw = np.array(buf[:], dtype="float").reshape(n_scan, nchan)
+            ai_list = [np.array([raw[:, i].mean()]) for i in range(n_ai)]
+            ctr = np.array([raw[-1, -1] - raw[0, -1]])   # counter cleared before scan
+            return self._split_primary(ai_list, ctr)
         if self.mode == "adc":
             n_raw = self._oversamples
             buf = ul.create_float_buffer(1, n_raw)

@@ -47,8 +47,10 @@ class A33500B:
         self.session.write('SOURCE2:FUNCtion:ARB:SRATe ' + str(srate))
         self.session.write('SOURCE1:VOLT:HIGH %.2f' %(maxAmplitude[0] * self._voltage_calibration))
         self.session.write('SOURCE2:VOLT:LOW %.2f' %(-maxAmplitude[1] * self._voltage_calibration))        
-        self.session.write('SOURCE1:VOLT:OFFSET 0')
-        self.session.write('SOURCE2:VOLT:OFFSET 0')
+        # DC offset positions a non-zero-centred trajectory (nPoint input sets absolute
+        # position).  offset is in microns; convert with the same volts/micron cal.
+        self.session.write('SOURCE1:VOLT:OFFSET %.4f' % (offset[0] * self._voltage_calibration))
+        self.session.write('SOURCE2:VOLT:OFFSET %.4f' % (offset[1] * self._voltage_calibration))
         
         dataStr = ''
         for dataPoint in waveform:
@@ -72,7 +74,30 @@ class A33500B:
     def stop(self):
         self.session.write('OUTPut1 OFF')
         self.session.write('OUTPut2 OFF')
-            
+
+    def configStartTrigger(self, slope="POS"):
+        """Arm a single-cycle triggered burst on both channels and enable a Trig Out
+        pulse at burst start.  fire() then plays the trajectory once and emits one TTL
+        edge on the rear Trig Out BNC -- that edge is what launches the DAQ scan.
+
+        NOTE (verify on bench): the 33500B documents Trig Out for sweep/burst; the exact
+        burst+trig-out SCPI and two-channel coupling should be confirmed against the
+        instrument.  With DATA:ARB2 the two channels share one sample clock.
+        """
+        slope_scpi = "POSitive" if str(slope).upper().startswith("P") else "NEGative"
+        for ch in (1, 2):
+            self.session.write('SOURce%d:BURSt:MODE TRIGgered' % ch)
+            self.session.write('SOURce%d:BURSt:NCYCles 1' % ch)
+            self.session.write('SOURce%d:BURSt:STATe ON' % ch)
+        self.session.write('TRIGger1:SOURce BUS')            # software *TRG starts it
+        self.session.write('OUTPut:TRIGger:SLOPe %s' % slope_scpi)
+        self.session.write('OUTPut:TRIGger ON')
+
+    def fire(self):
+        """Software-trigger the armed single-cycle burst (one trajectory playthrough
+        plus the Trig Out start pulse)."""
+        self.session.write('*TRG')
+
     def disconnect(self):
         self.session.close()
         
