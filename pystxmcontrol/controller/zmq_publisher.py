@@ -68,17 +68,20 @@ class ZMQPublisher:
         if self._logger:
             self._logger.log(f"Prefect publisher bound to {self.prefect_pub_address}", level="info")
 
-        #this goes to the GUI for visualization
-        host = config.get("ccd_address", "127.0.0.1")
-        port = config.get("ccd_data_port", 9998)
-        self.ccd_pub_address = f'tcp://{host}:{port}'
-        self.ccd_pub_socket = self.context.socket(zmq.PUB)
-        self.ccd_pub_socket.set_hwm(2000)  # High water mark for buffering
-        self.ccd_pub_socket.bind(self.ccd_pub_address)
+        #This is no longer needed because the CCD data now routes through the DAQ -> stxm_monitor (stxm_address:port)
+        #this also errors if stxm_address and ccd_address are the same, which they usually are
+        #this also means that ccd_address is not needed in main.json
+        # #this goes to the GUI for visualization
+        # host = config.get("ccd_address", "127.0.0.1")
+        # port = config.get("ccd_data_port", 9998)
+        # self.ccd_pub_address = f'tcp://{host}:{port}'
+        # self.ccd_pub_socket = self.context.socket(zmq.PUB)
+        # self.ccd_pub_socket.set_hwm(2000)  # High water mark for buffering
+        # self.ccd_pub_socket.bind(self.ccd_pub_address)
 
-        print(f"Publishing CCD frames on: {self.ccd_pub_address}")
-        if self._logger:
-            self._logger.log(f"CCD publisher bound to {self.ccd_pub_address}", level="info")
+        # print(f"Publishing CCD frames on: {self.ccd_pub_address}")
+        # if self._logger:
+        #     self._logger.log(f"CCD publisher bound to {self.ccd_pub_address}", level="info")
 
     def _setup_stxm_publisher(self, config):
         """Setup STXM data publisher socket"""

@@ -270,17 +270,18 @@ class MainController(QObject):
         try:
             # Connect to scan data monitor for motor positions and image updates
             self.client.monitor.scan_data.connect(self._handle_monitor_message)
-            
-            # Try to connect to other monitors
-            try:
-                self.client.ccd.framedata.connect(self._handle_ccd_data)
-            except:
-                pass  # CCD monitor not available
+
+            #NOT USED
+            # # Try to connect to other monitors
+            # try:
+            #     self.client.ccd.framedata.connect(self._handle_ccd_data)
+            # except:
+            #     pass  # CCD monitor not available
                 
-            try:
-                self.client.ptycho.ptychoData.connect(self._handle_ptycho_data)
-            except:
-                pass  # Ptycho monitor not available
+            # try:
+            #     self.client.ptycho.ptychoData.connect(self._handle_ptycho_data)
+            # except:
+            #     pass  # Ptycho monitor not available
                 
         except Exception as e:
             print(f"Warning: Could not connect all monitors: {e}")
@@ -662,16 +663,18 @@ class MainController(QObject):
 
         except Exception as e:
             print(f"Error handling monitor message: {e}")
-            
-    def _handle_ccd_data(self, ccd_data):
-        """Handle CCD frame data."""
-        # Update image model with CCD data
-        self.image_model.set('ccd_data', ccd_data)
-        
-    def _handle_ptycho_data(self, ptycho_data):
-        """Handle ptychography data."""
-        # Update image model with ptycho data
-        self.image_model.set('ptycho_data', ptycho_data)
+
+    #NOT USED            
+    # def _handle_ccd_data(self, ccd_data):
+    #     """Handle CCD frame data."""
+    #     # Update image model with CCD data
+    #     self.image_model.set('ccd_data', ccd_data)
+    
+    #NOT USED
+    # def _handle_ptycho_data(self, ptycho_data):
+    #     """Handle ptychography data."""
+    #     # Update image model with ptycho data
+    #     self.image_model.set('ptycho_data', ptycho_data)
 
     def _on_external_scan_detected(self, scan_type: str):
         """Called when scan data arrives while self.scanning is False.
