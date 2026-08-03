@@ -1,4 +1,9 @@
 {
+    "gui": {
+        "theme": "light",
+        "icon": "als-logo.png",
+        "font_scale": 0.85
+    },
     "server": {
         "stxm_address": "127.0.0.1",
         "prefect_publish_address": "127.0.0.1",
