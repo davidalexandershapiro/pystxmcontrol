@@ -177,7 +177,9 @@ is rendered in a green box.
 |------|--------------|-------------|
 | `get_last_scan_stats(daq)` | `daq` channel | Mean, std, contrast, darkest-pixel position, and dark-region centroid in µm.  The centroid is a good re-centre target for a zoom scan. |
 | `find_particles(max_particles, daq)` | optional cap | Otsu thresholding + connected-component analysis on the last image to locate absorbing particles.  Returns per-particle scan regions in µm and stores them for `start_multiregion_scan()`. |
-| `start_multiregion_scan()` | — | Submits one Image scan whose `scan_regions` are the particle regions found by `find_particles()`.  Inherits energy and dwell from the current scan definition. |
+| `list_buffered_scans()` | — | Lists the last several completed scans held in memory (index, scan id, n_energies, energy range).  The agent is **not** limited to the most recent scan. |
+| `count_element_particles(pre_energy, edge_energy, daq, region, scan_id, scan_index, max_particles)` | two energies in eV | Builds the two-energy elemental map (the Analysis-tab Map / OD difference) from a buffered multi-energy scan and counts `total_particles` vs `element_particles` (+ `fraction_with_element`).  Works directly on the in-memory scan — no intelligence module required.  Stores the element regions for `start_multiregion_scan()`.  Use for "how many particles contain iron?". |
+| `start_multiregion_scan()` | — | Submits one Image scan whose `scan_regions` are the particle regions found by `find_particles()`, `count_element_particles()`, or `load_intelligence_particles()` (whichever ran last).  Inherits energy and dwell from the current scan definition. |
 
 ### Diagnostics
 
@@ -252,6 +254,7 @@ All settings live under `task_agent` in `config/main.json`:
     "enabled": false,
     "model": "claude-opus-4-7",
     "max_iterations": 20,
+    "scan_buffer_depth": 8,
     "provider": {
         "base_url": null,
         "api_key_env": "OPENAI_API_KEY"
@@ -264,6 +267,7 @@ All settings live under `task_agent` in `config/main.json`:
 | `enabled` | `false` | Set `true` to activate the task agent |
 | `model` | `"claude-opus-4-7"` | Model identifier passed to the API |
 | `max_iterations` | `20` | Maximum tool-call rounds before the agent gives up |
+| `scan_buffer_depth` | `8` | Number of completed scans (full multi-energy stacks) retained in memory for `list_buffered_scans()` / `count_element_particles()` |
 | `provider.api_key_env` | `"OPENAI_API_KEY"` | Environment variable holding the API key |
 | `provider.base_url` | `null` | Override endpoint for local or alternative providers |
 

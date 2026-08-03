@@ -92,6 +92,12 @@
         "enabled": false,
         "model": "claude-opus-4-7",
         "max_iterations": 20,
+        "scan_buffer_depth": 8,
+        "logbook_context": {
+            "enabled": false,
+            "max_entries": 50,
+            "authors": null
+        },
         "provider": {
             "base_url": null,
             "api_key_env": "OPENAI_API_KEY"
