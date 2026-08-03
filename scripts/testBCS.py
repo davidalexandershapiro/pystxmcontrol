@@ -4,8 +4,7 @@ from pystxmcontrol.drivers.xpsController import *
 from pystxmcontrol.drivers.xpsMotor import *
 import time
 
-#c = bcsController(address = "192.168.168.100", port = 50000)
-c = bcsController(address = "131.243.73.68", port = 50000)
+c = bcsController(address = "192.168.168.100", port = 50000)
 c.initialize()
 m = bcsMotor(controller = c)
 m.connect(axis = "Beamline Energy")

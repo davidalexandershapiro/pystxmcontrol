@@ -19,6 +19,7 @@ pystxmcontrol includes a GUI (with underlying client), server which executes var
 - Keysight 53230A frequency counter
 - Keysight A33500B arbitrary waveform generator
 - Keysight U2356A multi-channel ADC
+- [Measurement Computing USB-1808X](https://www.mccdaq.com/usb-data-acquisition/USB-1808-Series.aspx) multifunction DAQ (counter or ADC input)
 - SmarAct MCS/MCS2 controlled stages
 - Xeryon controlled stages
 - Arduino Due

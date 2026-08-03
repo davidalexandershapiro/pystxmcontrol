@@ -449,7 +449,7 @@ class stackViewerWidget(QtWidgets.QWidget):
             self.progress_updated.emit(0)
             self.stack.subtractDarkField()
             self.stack.despike()
-            self.stack.alignFrames(mode='translation',
+            self.stack.alignFrames(mode='manualtranslation',
                                    progress_callback=lambda pct: self.progress_updated.emit(pct))
             self.stack.calcOD()
             self.ui.toggleOD.setCheckState(QtCore.Qt.Checked)
