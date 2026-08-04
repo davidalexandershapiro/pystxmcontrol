@@ -318,6 +318,14 @@ class BaseScan(ABC):
         :param samples: Number of samples per acquisition
         :param trigger: Trigger type ('EXT', 'BUS', etc.)
         """
+        # DAQ-master rigs (e.g. SmarAct MCS2) invert the clock direction: the DAQ
+        # emits the pixel clock (gate output) and drives the slave stage stream, so
+        # the external-trigger-IN mode ("EXT") becomes a gate-OUT master mode.  Only
+        # remap the stage-master default; explicit BUS/other triggers are untouched.
+        # NB: use trigger_mode="point" in scan.json alongside daq_master so the DAQ
+        # takes one sample per stream frame (count=frames, samples=1).
+        if self.scan.get("daq_master", False) and trigger == "EXT":
+            trigger = "GATE_OUT"
         self.controller.config_daqs(dwell=dwell, count=count,
                                    samples=samples, trigger=trigger, daq_list = self.scan.get("daq_list", ["default"]))
 

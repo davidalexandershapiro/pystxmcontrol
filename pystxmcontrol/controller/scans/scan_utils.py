@@ -62,18 +62,38 @@ def executeReturnTrajectory(self, motor, xStart, xStop, yStart, yStop):
     motor.moveLine()
 
 async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=[1,]):
-    for daq in scanInfo["daq_list"]:
-        controller.daq[daq].initLine()
-    controller.daq["default"].autoGateOpen()
-    #Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
-    if scan["spiral"]:
-        sleep(0.02)
+    daq_master = scan.get("daq_master", False)
+    x_motor = controller.motors[scan["x_motor"]]["motor"]
     if "offset" not in scanInfo.keys():
         scanInfo["offset"] = 0,0
-    await asyncio.sleep(waitTime)
-    controller.motors[scan["x_motor"]]["motor"].moveLine(coarse_offset = \
-        scanInfo["offset"], coarse_only = scan["coarse_only"],axes=axes)
-    scanInfo["line_positions"] = controller.motors[scan["x_motor"]]["motor"].positions
+    if daq_master:
+        # DAQ-master clocking (e.g. SmarAct MCS2): the stage stream is the SLAVE and
+        # must be armed and *waiting* before the DAQ emits its first gate edge, else
+        # the earliest edges are lost and the stage trails the detector all line.
+        # Order: arm slave -> open gate -> start DAQ (gate clock) -> drain slave.
+        x_motor.armLine(coarse_offset = scanInfo["offset"],
+                        coarse_only = scan["coarse_only"], axes=axes)
+        controller.daq["default"].autoGateOpen()
+        if scan["spiral"]:
+            sleep(0.02)
+        await asyncio.sleep(waitTime)
+        for daq in scanInfo["daq_list"]:
+            controller.daq[daq].initLine()
+        x_motor.finishLine(coarse_offset = scanInfo["offset"],
+                          coarse_only = scan["coarse_only"], axes=axes)
+    else:
+        # Stage-master clocking (historical, e.g. MCL): the stage emits the per-pixel
+        # clock and the DAQ is triggered "EXT".  Unchanged legacy order.
+        for daq in scanInfo["daq_list"]:
+            controller.daq[daq].initLine()
+        controller.daq["default"].autoGateOpen()
+        #Wait time I assume for initializing detector. Without it, spiral scan doesn't work.
+        if scan["spiral"]:
+            sleep(0.02)
+        await asyncio.sleep(waitTime)
+        x_motor.moveLine(coarse_offset = scanInfo["offset"],
+                        coarse_only = scan["coarse_only"], axes=axes)
+    scanInfo["line_positions"] = x_motor.positions
     controller.daq["default"].autoGateClosed()
     try:
         #this will timeout if there is a missed trigger.  That can happen at the start of
@@ -95,7 +115,7 @@ async def doFlyscanLine(controller, dataHandler, scan, scanInfo, waitTime, axes=
         controller.config_daqs(dwell = scanInfo["dwell"],
                                count = scanInfo["trigger_count"],
                                samples = scanInfo["trigger_samples"],
-                               trigger = "EXT",
+                               trigger = "GATE_OUT" if daq_master else "EXT",
                                daq_list=scanInfo["daq_list"])
         return False
     return True

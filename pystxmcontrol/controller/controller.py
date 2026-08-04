@@ -501,6 +501,11 @@ class controller:
         # trigger_mode is now a per-scan setting (scan.json), not a per-daq one.  Inject it
         # here so every scan path (GUI, scripter, agent) carries it on the scan dict.
         scan["trigger_mode"] = self.scanConfig.get(scan["scan_type"], {}).get("trigger_mode", "line")
+        # daq_master selects the fly-scan pixel-clock direction (persistent instrument
+        # config in scan.json, set once per rig): False (default) = stage emits the
+        # clock, DAQ triggered "EXT" (e.g. MCL); True = DAQ masters the clock via its
+        # gate output and drives the (slave) stage stream (e.g. SmarAct MCS2).
+        scan["daq_master"] = self.scanConfig.get(scan["scan_type"], {}).get("daq_master", False)
         def run_scan():
             asyncio.run(self.scan_helper(scan))
         if not self.scanThread.is_alive():

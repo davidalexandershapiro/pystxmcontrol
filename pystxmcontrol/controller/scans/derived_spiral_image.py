@@ -246,7 +246,19 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             yList = ySpiral.reshape(totalSplit, int(nPosSamples / totalSplit))
 
             # Set up DAQ acquisition for short dwell times
-            if minDAQDwell < minMotorDwell:
+            if scan.get("daq_master", False):
+                # DAQ-master clocking (e.g. SmarAct MCS2): the DAQ gate advances the
+                # stream one frame per pulse, so there is exactly one DAQ measurement
+                # per motor frame (samples=1) — DAQ points == motor points and each
+                # carries its own captured position.  Counter-internal oversampling
+                # (samples>1) is not possible here; DAQ points are forced to match the
+                # streamed frame count so the data arrays size consistently.
+                DAQcount = numTrajMotorPoints
+                DAQsamples = 1
+                numTrajDAQPoints = numTrajMotorPoints
+                actDAQDwell = actMotorDwell
+                daq_trigger = "GATE_OUT"
+            elif minDAQDwell < minMotorDwell:
                 DAQcount = numTrajMotorPoints
                 DAQsamples = int(np.ceil(numTrajDAQPoints / DAQcount))
                 numTrajDAQPoints = DAQsamples * DAQcount
@@ -255,9 +267,11 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                 dwellPad = 0.005 * DAQsamples
                 actDAQDwell = int(
                     np.floor((actMotorDwell - dwellPad) / DAQsamples / DAQTimeResolution)) * DAQTimeResolution
+                daq_trigger = "EXT"
             else:
                 DAQcount = numTrajMotorPoints
                 DAQsamples = 1
+                daq_trigger = "EXT"
 
             scanInfo["trigger_count"] = DAQcount
             scanInfo["trigger_samples"] = DAQsamples
@@ -268,8 +282,8 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             print('motor dwell: {}'.format(actMotorDwell))
 
 
-            #print('Configuring DAQ: {} ms dwell, {} count, {} samples, "EXT" trigger'.format(actDAQDwell,DAQcount,DAQsamples))
-            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = "EXT", daq_list = scanInfo["daq_list"])
+            #print('Configuring DAQ: {} ms dwell, {} count, {} samples, trigger'.format(actDAQDwell,DAQcount,DAQsamples))
+            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = daq_trigger, daq_list = scanInfo["daq_list"])
 
             # Move to first position
             # print(f'[spiral scan] moving x motor to {scanInfo['xFineCenter']}')

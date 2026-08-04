@@ -40,10 +40,22 @@ class keysight53230A(daq):
         self.trigger = trigger
         self.samples = samples
         self.output = output
+        # DAQ-master (gate-out) mode: the counter is the pixel-clock MASTER.  It
+        # self-paces its gated-totalize measurements and emits its gate TTL on the
+        # rear-panel output; that pulse train is the pixel clock driving the (slave)
+        # SmarAct stream (one frame per gate edge).  Translate the logical
+        # "GATE_OUT" trigger into a self-paced SCPI source + gate output enabled.
+        # NOTE: "IMM" runs measurements back-to-back after INIT; if the bench shows
+        # gaps/jitter between gates, switch to a TIMER-paced or continuous-totalize
+        # source here (see the 53230A programming guide).
+        source, out = trigger, output
+        if trigger == "GATE_OUT":
+            source = "IMM"
+            out = "ON"
         if self.simulation:
             pass
         else:
-            self.counter.config(self.dwell, count=count, samples=samples, trigger=trigger, output=output, channel = self.meta["channel"])
+            self.counter.config(self.dwell, count=count, samples=samples, trigger=source, output=out, channel = self.meta["channel"])
             if self.meta["gate"]:
                 self.setGateDwell(0,0)
 

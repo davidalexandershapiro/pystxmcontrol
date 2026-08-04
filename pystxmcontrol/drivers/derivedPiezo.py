@@ -210,6 +210,37 @@ class derivedPiezo(motor):
                 ypositions = self.trajectory_y_positions
                 self.positions = xpositions + offset[0], ypositions + offset[1]
 
+    def armLine(self, **kwargs):
+        """DAQ-master path: arm the fine axis' externally-clocked stream.
+
+        Called before the DAQ starts emitting its gate clock.  The trajectory must
+        already be loaded by update_trajectory().  Delegates to the fine (axis1)
+        controller, which opens an EXTERNAL_SYNC stream that waits for the DAQ gate
+        edges.  No-op in simulation or on a coarse-only move (no fine stream).
+        """
+        coarse_only = kwargs.get("coarse_only", False)
+        if self.simulation or coarse_only:
+            return
+        cfg = self.axes["axis1"].config
+        self.axes["axis1"].controller.set_stream_clock(
+            "external", input_index=cfg.get("stream_trigger_input"))
+        self.axes["axis1"].controller.arm_xy()
+
+    def finishLine(self, **kwargs):
+        """DAQ-master path: drain the DAQ-clocked fine stream and store positions.
+
+        Mirrors moveLine()'s post-processing (scale to GUI units + coarse offset).
+        Falls back to moveLine() in simulation or on a coarse-only move, where no
+        fine stream was armed.
+        """
+        offset = kwargs.get("coarse_offset", [0, 0])
+        coarse_only = kwargs.get("coarse_only", False)
+        if self.simulation or coarse_only:
+            return self.moveLine(**kwargs)
+        self.positions = self.axes["axis1"].controller.finish_xy()
+        self.positions = self.scale2gui(self.positions[0]) + offset[0], \
+                         self.scale2gui(self.positions[1]) + offset[1]
+
     def moveBy(self, step):
         if not (self.simulation):
             self.moving = True
