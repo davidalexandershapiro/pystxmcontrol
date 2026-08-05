@@ -194,8 +194,9 @@ class usb1808x:
             self.primary = primary
 
         # number of raw ADC samples to average per dwell window; always digitize at
-        # the per-channel ceiling and average down to the requested dwell.
-        self._oversamples = max(1, int(round(self.dwell * 1e-3 * self._scan_rate())))
+        # the per-channel ceiling and average down to the requested dwell.  Uses the
+        # *ceiling* rate (not _scan_rate, which is derived back from _oversamples).
+        self._oversamples = max(1, int(round(self.dwell * 1e-3 * self._ceiling_rate())))
 
         self.aux_data = None
         self._stop_scan()
@@ -235,15 +236,32 @@ class usb1808x:
         """Number of scan channels (len(ai_channels)+1 counter for dual mode, else 1)."""
         return len(self.ai_channels) + 1 if self._dual() else 1
 
-    def _scan_rate(self):
-        """Per-channel raw sample rate for the current scan.
+    def _ceiling_rate(self):
+        """Per-channel raw sample-rate ceiling, before dwell alignment.
 
         adc / dual modes oversample at the ADC ceiling and average down to the
         requested dwell.  The USB-1808X's 200 kS/s is an *aggregate* across scan
         channels, so dual mode gets the ceiling divided by the channel count.
+        This sets how many raw samples fall in a dwell window (_oversamples).
         """
         if self.mode == "adc" or self._dual():
             return self.adc_max_rate / self._nchan()
+        # counter mode is paced one latch per dwell window
+        return 1.0 / (self.dwell * 1e-3)
+
+    def _scan_rate(self):
+        """Per-channel pacing rate for the internally-paced (dual) scan.
+
+        Oversample at the ceiling, but pace so each dwell window is *exactly*
+        self.dwell long: rate = oversamples / dwell.  Using the raw ceiling
+        directly would make the window oversamples/ceiling seconds -- not dwell,
+        because _oversamples is round()ed -- so an internally-paced scan would
+        drift against an external trajectory (e.g. the AWG spiral) by that
+        rounding error accumulated over every window.  For the AWG dual mode this
+        is what keeps the position readback phase-locked to the commanded points.
+        """
+        if self.mode == "adc" or self._dual():
+            return self._oversamples / (self.dwell * 1e-3)
         # counter mode is paced one latch per dwell window
         return 1.0 / (self.dwell * 1e-3)
 
@@ -278,7 +296,11 @@ class usb1808x:
             n_scan = windows * self._oversamples          # samples per channel
             self._buffer = ul.create_float_buffer(self._nchan(), n_scan)
             if external:
-                self.daqi_device.set_trigger(ul.TriggerType.POS_EDGE, 0, 0.0, 0.0, 0)
+                # POS_EDGE is the dedicated hardware TTL-trigger pin: level/variance
+                # and the descriptor's channel are ignored, but ulDaqInSetTrigger still
+                # requires a valid DaqInChanDescriptor struct, so hand it ai0's.
+                trig_chan = self._daqi_descriptors()[0]
+                self.daqi_device.set_trigger(ul.TriggerType.POS_EDGE, trig_chan, 0.0, 0.0, 0)
                 scan_options = ul.ScanOption.EXTTRIGGER
             else:
                 scan_options = ul.ScanOption.DEFAULTIO

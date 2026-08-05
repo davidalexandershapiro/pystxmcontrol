@@ -67,6 +67,17 @@ class keysightAWGController:
         self.xpos_measured = None
         self.ypos_measured = None
 
+        # Arb-reuse cache: the trajectory currently downloaded to the AWG, and whether
+        # the burst/Trig-Out has been configured.  setup_xy skips the (slow, relay-
+        # clicking) reload when the trajectory is unchanged -- so an identical-line
+        # linear fly scan downloads once and just re-fires, while a chunked spiral
+        # reloads only when its segment actually changes.  Reset on connect (*RST wipes
+        # the device state).
+        self._loaded_x = None
+        self._loaded_y = None
+        self._loaded_dwell = None
+        self._prepared = False
+
     # ------------------------------------------------------------------ #
     #  Lifecycle
     # ------------------------------------------------------------------ #
@@ -78,7 +89,9 @@ class keysightAWGController:
     def connect(self):
         if self.simulation or self.connected:
             return
-        self.device.connect(self.visa_address)
+        self.device.connect(self.visa_address)     # *RST wipes any loaded arb + burst
+        self._loaded_x = self._loaded_y = self._loaded_dwell = None
+        self._prepared = False
         self.connected = True
 
     def disconnect(self):
@@ -129,12 +142,27 @@ class keysightAWGController:
     #  Trajectory (the mcsController streaming contract)
     # ------------------------------------------------------------------ #
     def setup_xy(self, ax1pos, ax2pos, dwell):
-        """Prepare (download) the X/Y arbitrary waveform; does not start motion.
+        """Prepare the X/Y arbitrary waveform and enable the outputs; does not start
+        motion (the burst waits for the *TRG in trigger_xy).
 
         ``ax1pos``/``ax2pos`` are the ordered controller-unit arrays (X then Y, per
         getAxis) in microns; ``dwell`` is per-point in ms.  The AWG plays one arb point
         per dwell, so the sample rate is ``1000/dwell`` Hz and the whole trajectory
         lasts ``npositions * dwell``.
+
+        Reuses the loaded arb when the trajectory is UNCHANGED: reloading the arb is the
+        slow (~0.7 s USB transfer) and relay-clicking step, so an identical-line linear
+        fly scan downloads once and every later line just re-arms + re-fires, while a
+        chunked spiral reloads only when its segment actually differs.  The one-time
+        burst/Trig-Out config (configStartTrigger) is likewise done once.
+
+        The outputs are turned ON *here* (not in trigger_xy) on purpose: *RST and the
+        arb download glitch the rear Trig Out line with transient pulses that settle
+        once the burst is configured, and enabling the outputs is itself quiet.  Since
+        the DAQ is armed (initLine) *between* setup_xy and trigger_xy, doing all of
+        that here means the DAQ arms only after the line is quiet, so it latches onto
+        the single real start edge from *TRG rather than a setup transient.  The settle
+        is only needed on an actual reload (no download -> no transients).
         """
         x = np.asarray(ax1pos, dtype=np.float64)
         y = np.asarray(ax2pos, dtype=np.float64)
@@ -146,12 +174,24 @@ class keysightAWGController:
         if self.simulation:
             return 0
 
-        srate = 1000.0 / float(dwell)                 # arb points per second
-        maxAmp, offset, waveform = self._build_waveform(x, y)
+        reload_needed = not (self._loaded_dwell == dwell
+                             and self._loaded_x is not None
+                             and np.array_equal(x, self._loaded_x)
+                             and np.array_equal(y, self._loaded_y))
         with self.lock:
-            self.device.setWaveform(waveform, maxAmplitude=maxAmp, offset=offset,
-                                    srate=srate)
-            self.device.configStartTrigger(slope="POS")   # 1-cycle burst + Trig Out
+            if reload_needed:
+                srate = 1000.0 / float(dwell)             # arb points per second
+                maxAmp, offset, waveform = self._build_waveform(x, y)
+                self.device.setWaveform(waveform, maxAmplitude=maxAmp, offset=offset,
+                                        srate=srate)
+                self._loaded_x, self._loaded_y, self._loaded_dwell = x, y, dwell
+            if not self._prepared:
+                self.device.configStartTrigger(slope="POS")   # 1-cycle burst + Trig Out
+                self._prepared = True
+            self.device.start()                                # OUTPut ON, armed for *TRG
+        if reload_needed:
+            # let the Trig Out line settle after the arb download before the DAQ arms
+            time.sleep(0.05)
         return 0
 
     def _build_waveform(self, x, y):
@@ -170,8 +210,12 @@ class keysightAWGController:
         return (xa, ya), (xc, yc), waveform
 
     def trigger_xy(self):
-        """Start the trajectory: output on, fire the single-cycle burst (emits the
-        Trig Out start pulse that launches the DAQ), block until it has played out."""
+        """Fire the single-cycle burst (emits the one clean Trig Out start pulse that
+        launches the DAQ), block until it has played out, then idle the output.
+
+        The outputs are already ON from setup_xy; this only sends *TRG so that the
+        sole Trig Out edge the (already-armed) DAQ can see is the real trajectory
+        start."""
         if self._traj_x is None:
             raise RuntimeError("[AWG] trigger_xy called before setup_xy.")
         duration = self.npositions * float(self._traj_dwell) * 1e-3
@@ -179,7 +223,6 @@ class keysightAWGController:
             time.sleep(min(0.01, duration))
             return
         with self.lock:
-            self.device.start()      # OUTPut ON (armed, waiting for *TRG)
             self.device.fire()       # *TRG -> single burst + Trig Out start pulse
         time.sleep(duration + 0.02)  # blocking: let the trajectory play out
         with self.lock:
