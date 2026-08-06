@@ -309,8 +309,11 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                 # params['numTrajDAQPoints'] = numTrajDAQPoints
                 # dataHandler.data.updateArrays(j, params)
 
-            # MCL "position" trigger does not need a position. I am unsure whether this is the pixel triggering mode.
-            controller.motors[scan["x_motor"]]["motor"].axes["axis1"].controller.setPositionTrigger(pos = 0, axis = 1, mode = 'on')
+            # Arm the trajectory pixel trigger through the driver method (symmetric with
+            # the OFF path in terminateFlyscan).  For MCL/nPoint this arms the controller
+            # position trigger as before; derivedPiezoWithAWG suppresses it in arbitrary
+            # mode, where the DAQ is launched by the AWG start pulse instead.
+            controller.motors[scan["x_motor"]]["motor"].setPositionTriggerOn(pos = 0)
 
             for i in range(len(xList)):
 

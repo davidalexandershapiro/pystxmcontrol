@@ -76,6 +76,8 @@ class keysightAWGController:
         self._loaded_x = None
         self._loaded_y = None
         self._loaded_dwell = None
+        self._loaded_amp = None
+        self._loaded_off = None
         self._prepared = False
 
     # ------------------------------------------------------------------ #
@@ -91,6 +93,7 @@ class keysightAWGController:
             return
         self.device.connect(self.visa_address)     # *RST wipes any loaded arb + burst
         self._loaded_x = self._loaded_y = self._loaded_dwell = None
+        self._loaded_amp = self._loaded_off = None
         self._prepared = False
         self.connected = True
 
@@ -141,7 +144,7 @@ class keysightAWGController:
     # ------------------------------------------------------------------ #
     #  Trajectory (the mcsController streaming contract)
     # ------------------------------------------------------------------ #
-    def setup_xy(self, ax1pos, ax2pos, dwell):
+    def setup_xy(self, ax1pos, ax2pos, dwell, amplitude=None, offset=None):
         """Prepare the X/Y arbitrary waveform and enable the outputs; does not start
         motion (the burst waits for the *TRG in trigger_xy).
 
@@ -149,6 +152,15 @@ class keysightAWGController:
         getAxis) in microns; ``dwell`` is per-point in ms.  The AWG plays one arb point
         per dwell, so the sample rate is ``1000/dwell`` Hz and the whole trajectory
         lasts ``npositions * dwell``.
+
+        ``amplitude``/``offset`` (per-axis (ax1, ax2) microns) FIX the normalization
+        instead of deriving it per-call from the data.  This is what the relative-motion
+        nPoint spiral needs (see derivedPiezoWithAWG): with ``offset=(0, 0)`` the AWG
+        emits a pure zero-DC dither that the nPoint sums onto the centre it holds
+        digitally, and a FIXED amplitude keeps a chunk-split spiral's centre and gain
+        identical across chunks so the segments stitch into one continuous figure.  When
+        omitted, the centre/amplitude are derived from the data as before (self-contained
+        linear or single-shot trajectories).
 
         Reuses the loaded arb when the trajectory is UNCHANGED: reloading the arb is the
         slow (~0.7 s USB transfer) and relay-clicking step, so an identical-line linear
@@ -177,14 +189,18 @@ class keysightAWGController:
         reload_needed = not (self._loaded_dwell == dwell
                              and self._loaded_x is not None
                              and np.array_equal(x, self._loaded_x)
-                             and np.array_equal(y, self._loaded_y))
+                             and np.array_equal(y, self._loaded_y)
+                             and self._loaded_amp == amplitude
+                             and self._loaded_off == offset)
         with self.lock:
             if reload_needed:
                 srate = 1000.0 / float(dwell)             # arb points per second
-                maxAmp, offset, waveform = self._build_waveform(x, y)
-                self.device.setWaveform(waveform, maxAmplitude=maxAmp, offset=offset,
-                                        srate=srate)
+                built_amp, built_off, waveform = self._build_waveform(
+                    x, y, amplitude=amplitude, offset=offset)
+                self.device.setWaveform(waveform, maxAmplitude=built_amp,
+                                        offset=built_off, srate=srate)
                 self._loaded_x, self._loaded_y, self._loaded_dwell = x, y, dwell
+                self._loaded_amp, self._loaded_off = amplitude, offset
             if not self._prepared:
                 self.device.configStartTrigger(slope="POS")   # 1-cycle burst + Trig Out
                 self._prepared = True
@@ -194,16 +210,27 @@ class keysightAWGController:
             time.sleep(0.05)
         return 0
 
-    def _build_waveform(self, x, y):
+    def _build_waveform(self, x, y, amplitude=None, offset=None):
         """Normalize X, Y (microns) to +/-1 about each axis' centre and concatenate
         [x..., y...] as A33500B.setWaveform expects.
+
+        By default the centre (DC offset) and half-amplitude are derived per-call from
+        the data (mean and max-abs deviation) -- correct for a self-contained linear or
+        single-shot spiral.  When ``amplitude`` and ``offset`` are supplied (per-axis
+        (x, y) tuples in microns) they are used verbatim, fixing the normalization across
+        calls (see setup_xy / derivedPiezoWithAWG).
 
         Returns ``(maxAmplitude, offset, waveform)`` where maxAmplitude/offset are
         per-axis microns; the low-level class maps them to output volts.
         """
-        xc, yc = float(np.mean(x)), float(np.mean(y))
-        xa = max(float(np.max(np.abs(x - xc))), 1e-6)   # avoid /0 for a static point
-        ya = max(float(np.max(np.abs(y - yc))), 1e-6)
+        if amplitude is not None and offset is not None:
+            xc, yc = float(offset[0]), float(offset[1])
+            xa = max(float(amplitude[0]), 1e-6)
+            ya = max(float(amplitude[1]), 1e-6)
+        else:
+            xc, yc = float(np.mean(x)), float(np.mean(y))
+            xa = max(float(np.max(np.abs(x - xc))), 1e-6)   # avoid /0 for a static point
+            ya = max(float(np.max(np.abs(y - yc))), 1e-6)
         xn = (x - xc) / xa
         yn = (y - yc) / ya
         waveform = np.concatenate([xn, yn])

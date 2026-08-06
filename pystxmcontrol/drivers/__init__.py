@@ -18,6 +18,7 @@ from pystxmcontrol.drivers.derivedEnergy_SGM import derivedEnergy_SGM
 from pystxmcontrol.drivers.mclController import mclController
 from pystxmcontrol.drivers.mclMotor import mclMotor
 from pystxmcontrol.drivers.derivedPiezo import derivedPiezo
+from pystxmcontrol.drivers.derivedPiezoWithAWG import derivedPiezoWithAWG
 from pystxmcontrol.drivers.inclinedDerivedPiezo import inclinedDerivedPiezo
 from pystxmcontrol.drivers.inclinedSampleDerivedPiezo import inclinedSampleDerivedPiezo
 from pystxmcontrol.drivers.areaDetector import areaDetector
@@ -32,7 +33,7 @@ from pystxmcontrol.drivers.zmqFrameReaderDAQ import zmq_frame_reader
 __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
     'nptController', 'bcsController', 'mmcController','keysight53230A','keysight53230A_2channel',\
            'epicsController', 'shutter', 'keysightU2356A', 'fccd_control', 'xerMotor', \
-           'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo',\
+           'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo','derivedPiezoWithAWG',\
            'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM','E712Controller','E712Motor',\
             'xspress3','inclinedDerivedPiezo','inclinedSampleDerivedPiezo','zmq_frame_reader']
 
