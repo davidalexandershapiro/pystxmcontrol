@@ -64,8 +64,12 @@ INPUT_MODE = "differential"                  # or "single-ended"
 VOLTAGE_RANGE = 10.0                         # +/- V full scale
 ADC_MAX_RATE = 200000.0                      # S/s aggregate ceiling of the 1808X
 
-# nPoint analog monitor sensitivity: 10 V full scale == 100 um  ->  10 um/V.
-POSITION_CAL_UM_PER_V = 100.0 / 10.0
+# nPoint analog monitor sensitivity.  Cross-checking the monitor against the (accurate)
+# digital encoder showed the monitor reads 2x the true position: the 100 um travel spans
+# +/-10 V (20 V total) -> 5 um/V, NOT the 10 um/V (0-10 V == 100 um) originally assumed.
+# The digital moveTo/getPos path is correct on this 100 um stage, so ONLY the monitor cal
+# used for the DAQ readback needed halving.
+POSITION_CAL_UM_PER_V = 100.0 / 20.0
 XMON_OFFSET_V = 0.0                          # monitor volts at X = 0 um
 YMON_OFFSET_V = 0.0                          # monitor volts at Y = 0 um
 

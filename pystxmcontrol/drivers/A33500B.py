@@ -34,7 +34,13 @@ class A33500B:
         self.session.write("*RST")
         self.session.write("*CLS")
         self.device_info = self.session.ask("*IDN?")
-        self._voltage_calibration = 10./100./2. ##volts per micron analog input/output.  OUtput is doubled for some reason
+        # Volts per micron for the nPoint analog command.  Bench result (spiral checked
+        # against the correctly-centred digital encoder frame): the earlier /2 under-drove
+        # the AWG by 2x -- correct centre but a half-amplitude spiral.  Removing it makes
+        # the played spiral match the commanded amplitude.  (The nPoint's true monitor/
+        # input scale is ~5 um/V, i.e. 0.2 V/um; the effective output likely reaches that
+        # via the 33500B's high-Z 2x, which is why the programmed value here is 0.1 V/um.)
+        self._voltage_calibration = 10./100.  ## volts per micron analog input/output
         print(self.device_info)
 
     def config(self, amplitude = (1,1), offset = (0,0), srate = 10000):
