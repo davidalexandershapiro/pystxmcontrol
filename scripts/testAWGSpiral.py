@@ -3,10 +3,15 @@ Bench test: play a spiral trajectory through the Keysight 33500B AWG and read th
 achieved positions back with the USB-1808X, then plot commanded vs acquired.
 
 This exercises exactly the fly-scan seam without the full controller/dataHandler
-stack:
+stack, mirroring the derivedPiezoWithAWG split: the nPoint DIGITAL interface holds the
+absolute scan CENTRE while the AWG plays a ZERO-CENTRED dither the nPoint sums onto it.
 
+  0. move the nPoint fine stage (X and Y nptMotor) to the requested centre positions and
+     hold them there (closed loop) for the duration of the scan;
   1. build a spiral (spiralcreator) centered at (0, 0) for a requested field size and
-     pixel count -- the same generator derived_spiral_image uses;
+     pixel count -- the same generator derived_spiral_image uses.  The spiral centre is
+     ALWAYS 0: it is a pure offset the nPoint adds onto its held centre, so the absolute
+     commanded position is (nPoint centre + spiral);
   2. download it to the AWG as a 2-channel arbitrary waveform (keysightAWGController
      .setup_xy), which also arms the single Trig Out start pulse;
   3. arm the USB-1808X for an EXT-triggered synchronous "adc+counter" scan
@@ -37,11 +42,19 @@ import matplotlib.pyplot as plt
 from pystxmcontrol.controller.spiral import spiralcreator
 from pystxmcontrol.drivers.keysightAWGController import keysightAWGController
 from pystxmcontrol.drivers.mccUSB1808X import mccUSB1808X
+from pystxmcontrol.drivers.nptController import nptController
+from pystxmcontrol.drivers.nptMotor import nptMotor
 
 # ---- hardware wiring (edit for your bench) -------------------------------- #
 AWG_ADDRESS = "USB::0x0957::0x2807::INSTR"   # Keysight 33500B VISA resource
 AWG_X_CHANNEL = 1                            # AWG output -> nPoint X
 AWG_Y_CHANNEL = 2                            # AWG output -> nPoint Y
+
+# nPoint digital interface: holds the absolute scan CENTRE while the AWG plays a
+# zero-centred dither summed onto it (see derivedPiezoWithAWG).  axis 'x' -> 1, 'y' -> 2.
+NPT_ADDRESS = "7340010"                      # nPoint controller FTDI device ID
+NPT_MIN_UM = -50.0                           # fine-stage software travel limits
+NPT_MAX_UM = 50.0
 
 DAQ_SERIAL = None                            # None -> first USB-1808X found
 XMON_AI_CH = 0                               # AI channel reading the nPoint X monitor
@@ -105,6 +118,40 @@ def build_spiral(range_um, n_pixels, motor_dwell_ms):
     print(f"[spiral] {n_points} motor points  dwell={motor_dwell_ms} ms  "
           f"scan_time={n_points * motor_dwell_ms / 1000.0:.3f} s")
     return x_spiral, y_spiral
+
+
+def make_npt_motors(center_x, center_y, address=NPT_ADDRESS):
+    """Connect the nPoint fine stage and move X/Y to their requested centres.
+
+    Returns (controller, xMotor, yMotor).  Both leaves share one nptController and one
+    micron frame (units=1, offset=0) so the held centre and the AWG dither add cleanly.
+    The stage is left holding the centre (closed loop) -- the AWG then plays a
+    zero-centred spiral that the nPoint sums onto this position.
+    """
+    controller = nptController(address=address, simulation=False)
+    controller.initialize(simulation=False)
+
+    motors = {}
+    for axis, center in (("x", center_x), ("y", center_y)):
+        m = nptMotor(controller=controller)
+        m.controller = controller
+        m.config = {
+            "simulation": False,
+            "offset": 0.0,
+            "units": 1.0,
+            "minValue": NPT_MIN_UM,
+            "maxValue": NPT_MAX_UM,
+        }
+        m.connect(axis=axis)
+        m.servoState(True)                 # closed loop so it holds the centre under dither
+        m.moveTo(center)
+        motors[axis] = m
+
+    time.sleep(0.05)                       # let the fine stage settle at centre
+    xpos, ypos = motors["x"].getPos(), motors["y"].getPos()
+    print(f"[npt] centre commanded=({center_x:.3f}, {center_y:.3f}) um  "
+          f"measured=({xpos:.3f}, {ypos:.3f}) um")
+    return controller, motors["x"], motors["y"]
 
 
 def make_daq(count, dwell_ms, no_trigger=False):
@@ -308,6 +355,10 @@ async def main():
                    help="pixels across the field (sets loop count / point count)")
     p.add_argument("--dwell", type=float, default=0.5,
                    help="motor point dwell in ms (AWG sample period)")
+    p.add_argument("--center-x", type=float, default=0.0,
+                   help="nPoint X centre in microns (spiral is a zero-centred offset on it)")
+    p.add_argument("--center-y", type=float, default=0.0,
+                   help="nPoint Y centre in microns (spiral is a zero-centred offset on it)")
     p.add_argument("--out", default="awg_spiral_test.png", help="output plot path")
     p.add_argument("--no-trigger", action="store_true",
                    help="USB-only bench smoke test: software-start the DAQ instead of "
@@ -334,6 +385,12 @@ async def main():
     if args.timing:
         characterize_awg(controller, x_spiral, y_spiral, args.dwell, args.timing_iters)
 
+    # Move the nPoint fine stage to the requested centre and hold it there (closed loop).
+    # The spiral stays centred at 0; the nPoint sums the AWG dither onto this held centre,
+    # so the absolute commanded position is (centre + spiral).
+    with time_block(T, "npt_center"):
+        npt, npt_x, npt_y = make_npt_motors(args.center_x, args.center_y)
+
     # Download the arb + arm the outputs ONCE, up front -- before the DAQ even exists.
     # This is the *RST/arb-download step that glitches the Trig Out line; doing it here
     # lets those transients settle (during DAQ connect below) so that when the scan
@@ -356,11 +413,14 @@ async def main():
     finally:
         daq.stop()
         controller.disconnect()
+        # Return the fine stage to 0 so it does not sit parked at the scan centre.
+        npt_x.moveTo(0.0)
+        npt_y.moveTo(0.0)
 
     if args.timing:
         traj_ms = len(x_spiral) * args.dwell        # nominal trajectory playback
         print("\nend-to-end phase wall times (single acquisition):")
-        for k in ("connect", "setup_xy", "setup_xy_cached", "make_daq",
+        for k in ("connect", "npt_center", "setup_xy", "setup_xy_cached", "make_daq",
                   "daq_initLine", "awg_trigger_xy", "daq_getLine"):
             print("  %-16s %9.2f ms" % (k, T.get(k, float("nan"))))
         print("  (of awg_trigger_xy, ~%.1f ms is trajectory playback)" % traj_ms)
@@ -372,7 +432,11 @@ async def main():
     x_meas = volts_to_um(xmon_v, XMON_OFFSET_V)
     y_meas = volts_to_um(ymon_v, YMON_OFFSET_V)
 
-    plot(x_spiral, y_spiral, x_meas, y_meas, args.out)
+    # Absolute commanded position = nPoint held centre + zero-centred spiral dither.
+    x_cmd = args.center_x + x_spiral
+    y_cmd = args.center_y + y_spiral
+
+    plot(x_cmd, y_cmd, x_meas, y_meas, args.out)
 
 
 if __name__ == "__main__":
