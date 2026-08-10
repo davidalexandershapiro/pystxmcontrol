@@ -457,6 +457,7 @@ class MainController(QObject):
                     raw = message["rawData"]
                     daq_cfg = getattr(self.client, 'daqConfig', {})
                     monitor_data = self.image_model.get('monitor_data', {}).copy()
+                    monitor_frames = {}   # latest full 2-D frame per image-type DAQ
                     for daq_key, daq_data in raw.items():
                         if isinstance(daq_data, dict) and "data" in daq_data:
                             data = daq_data["data"]
@@ -469,10 +470,18 @@ class MainController(QObject):
                                 value = float(np.sum(data))
                                 buf = monitor_data.get(daq_key, []) + [value]
                                 monitor_data[daq_key] = buf[-500:]
+                                # The monitor trace keeps only the scalar sum; retain the
+                                # full frame too so a live-detector view can show it
+                                # without having to make it the selected channel.
+                                if isinstance(data, np.ndarray) and data.ndim >= 2:
+                                    monitor_frames[daq_key] = data
                             else:
                                 value = float(data[0])
                                 buf = monitor_data.get(daq_key, []) + [value]
                                 monitor_data[daq_key] = buf[-500:]
+                    # Silent write (no extra signal): consumers read it when the
+                    # monitor_data_updated signal fires for the trace update below.
+                    self.image_model._data['latest_monitor_frames'] = monitor_frames
                     if self.PROFILE_IMAGE_UPDATE:
                         self._prof_tick('2a_monitor_data_accumulate', time.perf_counter() - _t0)
                         _t0 = time.perf_counter()

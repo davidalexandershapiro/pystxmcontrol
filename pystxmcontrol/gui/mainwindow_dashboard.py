@@ -74,6 +74,49 @@ def _spectrum():
     return e, od
 
 
+_SUP = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _exp_str(exp):
+    """'×10ⁿ' label for a power-of-ten, or '' when the exponent is zero."""
+    return "" if exp == 0 else f"×10{str(exp).translate(_SUP)}"
+
+
+class SciAxis(pg.AxisItem):
+    """Left axis that renders each tick as a mantissa (one decimal) against a
+    common power-of-ten shared by the whole axis, and reports that exponent via
+    ``on_exp_changed`` so it can be shown once above the plot — keeping the tick
+    labels narrow instead of spelling out full magnitudes like ``4218000``."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._exp = None
+        self.on_exp_changed = None
+        # Take full control of tick formatting: pyqtgraph's auto SI prefix would
+        # otherwise pre-scale the values handed to tickStrings, desyncing our
+        # computed exponent from the mantissa actually drawn.
+        self.enableAutoSIPrefix(False)
+
+    def tickStrings(self, values, scale, spacing):
+        if not len(values):
+            return []
+        mx = max(abs(float(v)) for v in values)
+        exp = int(np.floor(np.log10(mx))) if mx > 0 else 0
+        # Report the exponent for EVERY render (not only on change) so the label
+        # above the plot can never lag the mantissa actually drawn on the ticks.
+        self._exp = exp
+        if self.on_exp_changed is not None:
+            self.on_exp_changed(exp)
+        div = 10.0 ** exp
+        # One decimal for large-magnitude data (the wide-label case), but keep
+        # enough precision that fine traces near the mantissa's tick spacing (e.g.
+        # I0-normalised ~1.0 data) don't collapse to identical "1.0" labels.
+        mant_space = abs(spacing) / div if spacing else 0.0
+        dec = max(1, int(np.ceil(-np.log10(mant_space)))) if mant_space > 0 else 1
+        dec = min(dec, 6)
+        return [f"{float(v) / div:.{dec}f}" for v in values]
+
+
 class ImageArea(QWidget):
     """The main image viewer: a pyqtgraph ViewBox+ImageItem with absolutely
     positioned overlay labels (scale bar, metadata) repositioned on resize."""
@@ -148,11 +191,17 @@ class MainWindowDashboard(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("STXM Control — Acquisition")
         self.setStyleSheet(build_stylesheet())
+        self.statusBar().setStyleSheet(
+            f"QStatusBar{{background:{C['panel_footer']};color:{C['text_dim']};"
+            f"border-top:1px solid {C['border']};}}")
         self._scanning = False
+        self._move_mode = True          # True = absolute Move, False = relative Jog
+        self._motor_group_index = 0     # 0 = Microscope, 1 = Beamline
         self._expert = True
         self._staff_widgets = []          # widgets shown only in Staff mode
         self._motor_widgets = {}          # name -> {value,bar,lo,hi} for live updates
         self._image_seeded = False
+        self._ccd_seeded = False
 
         # Phase 1: optionally connect to the live server via MainController.
         # The client blocks in its constructor waiting for get_config, so we
@@ -226,6 +275,11 @@ class MainWindowDashboard(QMainWindow):
         "bcsMotor": "BCS", "derivedEnergy": "DERIVED", "epicsMotor": "EPICS",
     }
 
+    # Scan drivers whose configuration the dashboard's Spatial(SampleX/SampleY) +
+    # Energy tabs can compile.  Other scan types (focus, line, single/double motor,
+    # OSA, spiral) report "not yet supported" until their panels are wired.
+    _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image"}
+
     def _load_motor_info(self):
         """Load motor config from the runtime file the server also reads
         (sys.prefix/pystxmcontrol_cfg/motor.json), falling back to the repo copy.
@@ -292,6 +346,8 @@ class MainWindowDashboard(QMainWindow):
         c.scan_progress_updated.connect(self._on_progress_text)
         c.estimated_time_updated.connect(self._on_est_time)
         c.elapsed_time_updated.connect(self._on_elapsed_time)
+        c.error_occurred.connect(self._on_error)
+        c.status_updated.connect(self._on_status)
 
     def _seed_from_controller(self):
         """Paint the initial motor positions the server already reported."""
@@ -573,9 +629,19 @@ class MainWindowDashboard(QMainWindow):
         row.setVerticalSpacing(5)
         row.addWidget(self._label("SCAN TYPE", role="fieldLabel"), 0, 0)
         self.scan_type = QComboBox()
-        self.scan_type.addItems(["Image", "Ptychography Image", "Image Stack (XANES)",
-                                 "Line Spectrum", "Tomography", "Focus", "OSA Image"])
-        self.scan_type.setCurrentText("Image Stack (XANES)")
+        # When connected, the scan types must be the real scan.json keys (so
+        # client.scanConfig[scan_type] resolves at compile time); otherwise use
+        # the design's placeholder list for offline layout review.
+        live_types = (self.controller.get_available_scan_types()
+                      if self.controller is not None else [])
+        if live_types:
+            self.scan_type.addItems(live_types)
+            self.scan_type.setCurrentText("Image" if "Image" in live_types
+                                          else live_types[0])
+        else:
+            self.scan_type.addItems(["Image", "Ptychography Image", "Image Stack (XANES)",
+                                     "Line Spectrum", "Tomography", "Focus", "OSA Image"])
+            self.scan_type.setCurrentText("Image Stack (XANES)")
         self.scan_type.setCursor(Qt.PointingHandCursor)
         self.scan_type.currentTextChanged.connect(self._on_scan_type)
         row.addWidget(self.scan_type, 1, 0)
@@ -624,6 +690,7 @@ class MainWindowDashboard(QMainWindow):
         fv.setContentsMargins(14, 12, 14, 12)
         fv.setSpacing(11)
         stats = QHBoxLayout()
+        self._stat_labels = {}
         for lbl, val in (("Est. time", "18:24"), ("Velocity", "0.500 mm/s"),
                          ("Points", "14 400")):
             box = QVBoxLayout()
@@ -631,6 +698,7 @@ class MainWindowDashboard(QMainWindow):
             box.addWidget(self._label(lbl.upper(), role="fieldLabel"))
             v_ = self._label(val, role="valueBig")
             box.addWidget(v_)
+            self._stat_labels[lbl] = v_
             stats.addLayout(box)
         fv.addLayout(stats)
         btns = QHBoxLayout()
@@ -661,12 +729,22 @@ class MainWindowDashboard(QMainWindow):
             g.addWidget(lbl, 0, col)
         rows = [("SampleX", "-315.000", "12.000", "120", "0.100"),
                 ("SampleY", "166.000", "12.000", "120", "0.100")]
+        # Field refs keyed by motor, used by _compile_scan to build the region.
+        self._spatial_fields = {}
         for r, (name, c, rng, n, step) in enumerate(rows, start=1):
             g.addWidget(self._label(name, role="mono"), r, 0)
-            g.addWidget(self._field(c), r, 1)
-            g.addWidget(self._field(rng), r, 2)
-            g.addWidget(self._field(n), r, 3)
-            g.addWidget(self._field(step, derived=True), r, 4)
+            e_c = self._field(c); e_rng = self._field(rng)
+            e_n = self._field(n); e_step = self._field(step, derived=True)
+            g.addWidget(e_c, r, 1)
+            g.addWidget(e_rng, r, 2)
+            g.addWidget(e_n, r, 3)
+            g.addWidget(e_step, r, 4)
+            # Keep the derived Step in sync with Range / N pts.
+            for e in (e_rng, e_n):
+                e.editingFinished.connect(
+                    lambda rr=e_rng, nn=e_n, ss=e_step: self._recompute_step(rr, nn, ss))
+            self._spatial_fields[name] = {
+                "center": e_c, "range": e_rng, "npts": e_n, "step": e_step}
         g.setColumnStretch(0, 0)
         for col in range(1, 5):
             g.setColumnStretch(col, 1)
@@ -677,12 +755,14 @@ class MainWindowDashboard(QMainWindow):
         add = QPushButton("+ Region")
         add.setProperty("role", "small")
         checks.addWidget(add)
+        self._scan_checks = {}
         for name, on in (("autofocus", True), ("show ROI", True),
                          ("tiled", False), ("defocus", False)):
             cb = QCheckBox(name)
             cb.setChecked(on)
             cb.setCursor(Qt.PointingHandCursor)
             checks.addWidget(cb)
+            self._scan_checks[name] = cb
         checks.addStretch(1)
         v.addLayout(checks)
         v.addStretch(1)
@@ -698,10 +778,17 @@ class MainWindowDashboard(QMainWindow):
         specs = [("Start", "700.0", False), ("Stop", "730.0", False),
                  ("Step", "0.25", False), ("N", "121", True),
                  ("Dwell ms", "2.0", False)]
+        self._energy_fields = {}
+        keys = ["start", "stop", "step", "n", "dwell"]
         for col, (lbl, val, derived) in enumerate(specs):
             g.addWidget(self._label(lbl, role="microLabel"), 0, col)
-            g.addWidget(self._field(val, derived=derived), 1, col)
+            e = self._field(val, derived=derived)
+            g.addWidget(e, 1, col)
             g.setColumnStretch(col, 1)
+            self._energy_fields[keys[col]] = e
+        # N is derived from Start / Stop / Step.
+        for k in ("start", "stop", "step"):
+            self._energy_fields[k].editingFinished.connect(self._recompute_energy_n)
         v.addLayout(g)
 
         well = QFrame()
@@ -751,13 +838,18 @@ class MainWindowDashboard(QMainWindow):
                   ("Double exposure", "enabled · 1:8", "ok", False),
                   ("Trigger", "position · line", "mono", False),
                   ("ZMQ stream", "tcp://*:5556", "ok", False)]
+        self._exposure_field = None
+        self._double_exposure_ro = None
         for i, (lbl, val, role, editable) in enumerate(fields):
             r, c = divmod(i, 2)
             box = QVBoxLayout()
             box.setSpacing(4)
             box.addWidget(self._label(lbl, role="microLabel"))
             if editable:
-                box.addWidget(self._field(val))
+                e = self._field(val)
+                if lbl.startswith("Exposure"):
+                    self._exposure_field = e
+                box.addWidget(e)
             else:
                 ro = QLineEdit(val)
                 ro.setReadOnly(True)
@@ -765,6 +857,8 @@ class MainWindowDashboard(QMainWindow):
                 if role == "ok":
                     ro.setStyleSheet(f"color:{C['ok']};")
                 ro.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                if lbl.startswith("Double exposure"):
+                    self._double_exposure_ro = ro
                 box.addWidget(ro)
             g.addLayout(box, r, c)
         g.setColumnStretch(0, 1)
@@ -859,6 +953,8 @@ class MainWindowDashboard(QMainWindow):
         gv.addWidget(self._label("Sample", role="microLabel"))
         sample = QLineEdit("particle collection, Fe screening")
         sample.setFont(sans_font(10))
+        self._sample_field = sample
+        self._prefix_field = prefix
         gv.addWidget(sample)
         iv.addWidget(w)
 
@@ -885,7 +981,8 @@ class MainWindowDashboard(QMainWindow):
         pbox = QVBoxLayout()
         pbox.setSpacing(3)
         pbox.addWidget(self._label("Proposal", font=sans_font(10), color=C["text_dim"]))
-        pbox.addWidget(self._label("ALS-14872 · Shapiro", role="mono"))
+        self._proposal_lbl = self._label("ALS-14872 · Shapiro", role="mono")
+        pbox.addWidget(self._proposal_lbl)
         fv.addLayout(pbox)
         fv.addStretch(1)
         for name in ("Load scan", "Script"):
@@ -1112,15 +1209,20 @@ class MainWindowDashboard(QMainWindow):
         vb = glw.addViewBox()
         vb.setAspectLocked(True)
         vb.invertY(True)
-        item = pg.ImageItem(_diffraction())
-        item.setLookupTable(make_lut("inferno"))
-        vb.addItem(item)
+        # Seeded with a placeholder frame; replaced by live area-detector frames
+        # (see _refresh_ccd) once a scan with an image-type DAQ is running.
+        self.ccd_img = pg.ImageItem(_diffraction())
+        self.ccd_img.setLookupTable(make_lut("inferno"))
+        vb.addItem(self.ccd_img)
+        self.ccd_vb = vb
         vb.autoRange(padding=0)
         left.addWidget(glw, 1)
         cap = QHBoxLayout()
-        cap.addWidget(self._label("256² · log", role="monoFaint"))
+        self.ccd_dims_lbl = self._label("256² · log", role="monoFaint")
+        self.ccd_sum_lbl = self._label("Σ 1.9e6", role="monoFaint")
+        cap.addWidget(self.ccd_dims_lbl)
         cap.addStretch(1)
-        cap.addWidget(self._label("Σ 1.9e6", role="monoFaint"))
+        cap.addWidget(self.ccd_sum_lbl)
         left.addLayout(cap)
         h.addLayout(left, 1)
 
@@ -1148,12 +1250,32 @@ class MainWindowDashboard(QMainWindow):
         top.addWidget(self.counts_lbl)
         v.addLayout(top)
 
-        self.trace_plot = pg.PlotWidget()
+        # Exponent shown once above the plot (SciAxis reports it) so the y tick
+        # labels stay a compact one-decimal mantissa instead of full magnitudes.
+        exp_row = QHBoxLayout()
+        exp_row.setContentsMargins(0, 0, 0, 0)
+        self.trace_exp_lbl = self._label("", role="monoFaint")
+        exp_row.addWidget(self.trace_exp_lbl)
+        exp_row.addStretch(1)
+        v.addLayout(exp_row)
+
+        left_axis = SciAxis(orientation="left")
+        left_axis.on_exp_changed = lambda e: self.trace_exp_lbl.setText(_exp_str(e))
+        self.trace_plot = pg.PlotWidget(axisItems={"left": left_axis})
         self.trace_plot.setBackground(C["plot_ground"])
         self.trace_plot.showGrid(x=False, y=True, alpha=0.2)
-        self.trace_plot.setYRange(0.994, 1.006)
-        self.trace_plot.getAxis("left").setTextPen(C["text_faint"])
-        self.trace_plot.getAxis("bottom").setTextPen(C["text_faint"])
+        self.trace_plot.enableAutoRange("y", True)
+        pi = self.trace_plot.getPlotItem()
+        # Full bounding box: draw all four axes; only left/bottom carry tick values.
+        pi.showAxis("top"); pi.showAxis("right")
+        pi.getAxis("top").setStyle(showValues=False)
+        pi.getAxis("right").setStyle(showValues=False)
+        for ax in ("left", "bottom", "top", "right"):
+            pi.getAxis(ax).setPen(C["border"])
+            pi.getAxis(ax).setTextPen(C["text_faint"])
+        # Let the left axis auto-size to its labels — a fixed narrow width cropped
+        # multi-decimal near-1.0 labels (e.g. "0.9987"); the exponent factoring
+        # already keeps large-magnitude labels short.
         self._trace = 1 + (np.random.default_rng(4).random(220) - .5) * .004
         self.trace_curve = self.trace_plot.plot(
             self._trace, pen=pg.mkPen(C["ok"], width=1.4))
@@ -1188,7 +1310,8 @@ class MainWindowDashboard(QMainWindow):
         body.addWidget(scroll, 1)
 
         def show_group(i):
-            self._populate_motors(self._micro if i == 0 else self._beam)
+            self._motor_group_index = i
+            self._repopulate_motors()
         grp_well._group.idClicked.connect(show_group)
 
         footer = QFrame()
@@ -1198,8 +1321,18 @@ class MainWindowDashboard(QMainWindow):
         fv.setSpacing(8)
         btns = QHBoxLayout()
         btns.setSpacing(7)
-        jm = QPushButton("Jog / Move"); mp = QPushButton("Motor panel")
+        self.jogmove_btn = QPushButton()
+        self.jogmove_btn.setCursor(Qt.PointingHandCursor)
+        self.jogmove_btn.clicked.connect(self._toggle_move_mode)
+        self._update_jogmove_btn()
+        jm = self.jogmove_btn; mp = QPushButton("Motor panel")
         stop = QPushButton("Stop all"); stop.setObjectName("stopAll")
+        # Inactive until a server-side motor-stop command exists (none in the
+        # current protocol).  Kept visible for layout; wired later.
+        stop.setEnabled(False)
+        stop.setToolTip("Motor stop not yet implemented (pending a server-side "
+                        "stop command).")
+        self.stop_all_btn = stop
         btns.addWidget(jm, 1); btns.addWidget(mp, 1); btns.addWidget(stop)
         fv.addLayout(btns)
         self.cmd_log = QFrame()
@@ -1257,27 +1390,287 @@ class MainWindowDashboard(QMainWindow):
             vw = QWidget(); vw.setLayout(vb)
             g.addWidget(vw, 0, 1)
             info = self._motor_info.get(name, {})
-            self._motor_widgets[name] = {
-                "value": val, "bar": bar, "unit": unit,
-                "lo": info.get("minValue"), "hi": info.get("maxValue"),
-            }
-            # target + jog
-            tgt = self._field(pos, align_right=True)
+            # Per-row action cell, driven by _move_mode (toggled by "Jog / Move"):
+            #  - Move mode: field holds an ABSOLUTE destination (pre-filled with the
+            #    current position); a "Move" button (or Enter) commits move_motor().
+            #  - Jog mode: field holds a RELATIVE step (pre-filled with a small default);
+            #    − / + jog by that amount via jog_motor().
+            fill = pos if self._move_mode else f"{self._jog_step(name):g}"
+            tgt = self._field(fill, align_right=True)
             tgt.setFixedWidth(84)
             tgt.setStyleSheet("font-size:11px;padding:5px 7px;")
             g.addWidget(tgt, 0, 2)
-            minus = QPushButton("−"); minus.setProperty("role", "jog"); minus.setFixedWidth(26)
-            plus = QPushButton("+"); plus.setProperty("role", "jog"); plus.setFixedWidth(26)
-            g.addWidget(minus, 0, 3)
-            g.addWidget(plus, 0, 4)
+            action_widgets = [tgt]
+            if self._move_mode:
+                tgt.returnPressed.connect(lambda n=name: self._move_motor_to_target(n))
+                move = QPushButton("Move"); move.setProperty("role", "jog")
+                move.setCursor(Qt.PointingHandCursor)
+                move.clicked.connect(lambda _=False, n=name: self._move_motor_to_target(n))
+                g.addWidget(move, 0, 3, 1, 2)     # span both jog-button columns
+                action_widgets.append(move)
+            else:
+                tgt.returnPressed.connect(lambda n=name: self._jog_motor(n, +1))
+                minus = QPushButton("−"); minus.setProperty("role", "jog"); minus.setFixedWidth(26)
+                plus = QPushButton("+"); plus.setProperty("role", "jog"); plus.setFixedWidth(26)
+                for b in (minus, plus):
+                    b.setCursor(Qt.PointingHandCursor)
+                minus.clicked.connect(lambda _=False, n=name: self._jog_motor(n, -1))
+                plus.clicked.connect(lambda _=False, n=name: self._jog_motor(n, +1))
+                g.addWidget(minus, 0, 3)
+                g.addWidget(plus, 0, 4)
+                action_widgets += [minus, plus]
             g.setColumnStretch(1, 1)
+            self._motor_widgets[name] = {
+                "value": val, "bar": bar, "unit": unit, "target": tgt,
+                "lo": info.get("minValue"), "hi": info.get("maxValue"),
+            }
+            # In placeholder mode (no server) the move/jog controls are inert.
+            if self.controller is None:
+                for w in action_widgets:
+                    w.setEnabled(False)
             self.motor_layout.insertWidget(self.motor_layout.count() - 1, row)
 
-    # ── interactions ─────────────────────────────────────────────────────
+    def _repopulate_motors(self):
+        """Rebuild the currently-shown motor group from live positions (used on
+        group switch and Move/Jog mode toggle)."""
+        panel = "microscope" if self._motor_group_index == 0 else "beamline"
+        self._populate_motors(self._motor_rows(panel))
+
+    # ── motor actions ────────────────────────────────────────────────────
+    def _jog_step(self, name):
+        """Per-motor jog step: the motor's configured scan step if positive,
+        else 1% of its travel range, else 1.0.  (motor.json has no dedicated
+        jog-step field, so we derive a sensible per-axis nudge.)"""
+        info = self._motor_info.get(name, {})
+        try:
+            step = float(info.get("last step:"))
+        except (TypeError, ValueError):
+            step = 0.0
+        if step > 0:
+            return step
+        try:
+            span = float(info.get("maxValue")) - float(info.get("minValue"))
+            if span > 0:
+                return span * 0.01
+        except (TypeError, ValueError):
+            pass
+        return 1.0
+
+    def _move_motor_to_target(self, name):
+        """Absolute move: send the target field's value to the motor."""
+        if self.controller is None:
+            return
+        wd = self._motor_widgets.get(name)
+        if not wd:
+            return
+        try:
+            pos = float(wd["target"].text())
+        except (TypeError, ValueError):
+            return
+        self.controller.move_motor(name, pos)
+
+    def _jog_motor(self, name, direction):
+        """Relative jog by the step typed in the row's field; the controller adds
+        it to the model's current position."""
+        if self.controller is None:
+            return
+        wd = self._motor_widgets.get(name)
+        if not wd:
+            return
+        try:
+            step = float(wd["target"].text())
+        except (TypeError, ValueError):
+            self.controller.error_occurred.emit(f"Invalid jog step for {name}")
+            return
+        self.controller.jog_motor(name, step, direction)
+
+    def _toggle_move_mode(self):
+        """Flip between absolute Move and relative Jog for the motor rows."""
+        self._move_mode = not self._move_mode
+        self._update_jogmove_btn()
+        self._repopulate_motors()
+
+    def _update_jogmove_btn(self):
+        self.jogmove_btn.setText("Move mode" if self._move_mode else "Jog mode")
+        self.jogmove_btn.setToolTip(
+            "Absolute moves — each row's field is a destination; Move (or Enter) "
+            "goes there. Click to switch to relative Jog." if self._move_mode else
+            "Relative jog — each row's field is a step; − / + jog by that amount. "
+            "Click to switch to absolute Move.")
+
+    # ── scan actions ─────────────────────────────────────────────────────
     def _toggle_scan(self):
-        # Phase 1 is read-only; Begin/Cancel actions arrive in Phase 2.  Locally
-        # reflect the toggle; when live, scan_state_changed keeps us in sync.
-        self._set_scanning(not self._scanning)
+        """Begin or cancel a scan.  In placeholder mode (no controller) fall back
+        to the local visual toggle so the offline layout demo still animates."""
+        c = self.controller
+        if c is None:
+            self._set_scanning(not self._scanning)
+            return
+        if c.scanning:
+            c.cancel_scan()
+            return
+        if self._compile_scan():
+            c.start_scan()
+        # start_scan / cancel_scan emit scan_state_changed → _set_scanning keeps
+        # the Begin/Cancel button in sync with the controller's real state.
+
+    def _compile_scan(self):
+        """Populate the controller's scan_model from the dashboard widgets,
+        mirroring MainController.compile_scan_from_view but reading THIS view's
+        widgets.  Returns True on success.
+
+        Scoped to Image-family scans (SampleX/SampleY spatial grid + energy
+        regions); other scan types report an error until their panels are wired.
+        """
+        c = self.controller
+        client = c.client
+        scan_type = self.scan_type.currentText()
+        sc = (getattr(client, "scanConfig", None) or {}).get(scan_type)
+        if sc is None:
+            c.error_occurred.emit(f"Unknown scan type '{scan_type}'")
+            return False
+        driver = sc.get("driver", "")
+        if driver not in self._SUPPORTED_SCAN_DRIVERS:
+            c.error_occurred.emit(
+                f"'{scan_type}' ({driver}) is not yet supported in the dashboard "
+                f"— use the classic window for this scan type.")
+            return False
+
+        sm = c.get_scan_model()
+        try:
+            sm.set('scan_regions', {})
+            sm.set('energy_regions', {})
+            sm.set('scan_type', scan_type)
+            sm.set('x_motor', sc.get('x_motor', 'SampleX'))
+            sm.set('y_motor', sc.get('y_motor', 'SampleY'))
+            sm.set('tiled', self._scan_checks['tiled'].isChecked())
+            sm.set('coarse_only', False)   # validate_ranges may set True
+            sm.set('defocus', self._scan_checks['defocus'].isChecked())
+            sm.set('autofocus', self._scan_checks['autofocus'].isChecked())
+            de = self._double_exposure_ro
+            sm.set('doubleExposure', bool(de and 'enabled' in de.text().lower()))
+            proposal, experimenters = self._proposal_parts()
+            sm.set('proposal', proposal)
+            sm.set('experimenters', experimenters)
+            sm.set('sample', self._sample_field.text())
+            sm.set('comment', '')
+            sm.set('driver', driver)
+            sm.set('mode', sc.get('mode', 'continuousLine'))
+            sm.set('loop_scan', False)   # loop sequence not yet wired in dashboard
+            sm.set('daq_list', self._resolve_daq_list(client, sc))
+
+            # Spatial region from the SampleX / SampleY grid.
+            region = self._compile_spatial_region()
+            sm.add_scan_region('Region1', region)
+
+            # Energy region.
+            estart = float(self._energy_fields['start'].text())
+            estop = float(self._energy_fields['stop'].text())
+            estep = float(self._energy_fields['step'].text() or 0)
+            dwell = float(self._energy_fields['dwell'].text())
+            n = self._energy_n(estart, estop, estep)
+            sm.set('single_energy', n <= 1)
+            sm.set('energy_list', None)
+            sm.add_energy_region('EnergyRegion1', {
+                'start': estart, 'stop': estop, 'step': estep,
+                'dwell': dwell, 'n_energies': n})
+
+            est = sm.calculate_estimated_time()
+            self._update_scan_stats(est, region)
+            c.status_updated.emit(f"Scan compiled — est. {self._fmt_mmss(est)}")
+            return True
+        except ValueError as e:
+            c.error_occurred.emit(f"Invalid scan value: {e}")
+            return False
+        except Exception as e:
+            c.error_occurred.emit(f"Failed to compile scan: {e}")
+            return False
+
+    def _compile_spatial_region(self):
+        """Build an Image scan-region dict (same shape/math as
+        MainController._extract_scan_region_data's Image branch)."""
+        fx = self._spatial_fields['SampleX']
+        fy = self._spatial_fields['SampleY']
+        xc = float(fx['center'].text() or 0)
+        yc = float(fy['center'].text() or 0)
+        xr = float(fx['range'].text() or 10)
+        yr = float(fy['range'].text() or 10)
+        xp = int(float(fx['npts'].text() or 100))
+        yp = int(float(fy['npts'].text() or 100))
+        xs = xr / xp if xp > 0 else 0.1
+        ys = yr / yp if yp > 0 else 0.1
+        return {
+            'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
+            'xPoints': xp, 'yPoints': yp, 'xStep': xs, 'yStep': ys,
+            'xStart': xc - xr / 2.0 + xs / 2.0, 'xStop': xc + xr / 2.0 - xs / 2.0,
+            'yStart': yc - yr / 2.0 + ys / 2.0, 'yStop': yc + yr / 2.0 - ys / 2.0,
+            'zCenter': 0, 'zRange': 0, 'zPoints': 1, 'zStep': 0,
+            'zStart': 0, 'zStop': 0,
+        }
+
+    @staticmethod
+    def _resolve_daq_list(client, sc):
+        """DAQ channels from scan config, filtered to those present and
+        record=True in daqConfig (mirrors compile_scan_from_view)."""
+        requested = sc.get('daq_list', '')
+        if isinstance(requested, str):
+            requested = [t for t in requested.split(',') if t]
+        if not requested:
+            requested = list(getattr(client, 'daqConfig', {}).keys())
+        daq_cfg = getattr(client, 'daqConfig', {})
+        daq = [k for k in requested
+               if k in daq_cfg and daq_cfg[k].get('record', True)]
+        return daq or ['default']
+
+    def _proposal_parts(self):
+        """Split the 'ALS-14872 · Shapiro' proposal label into (proposal,
+        experimenters).  Placeholder until a real proposal selector exists."""
+        txt = self._proposal_lbl.text()
+        if '·' in txt:
+            p, e = txt.split('·', 1)
+            return p.strip(), e.strip()
+        return txt.strip(), ''
+
+    @staticmethod
+    def _energy_n(start, stop, step):
+        if step and abs(step) > 0:
+            return int(round(abs(stop - start) / abs(step))) + 1
+        return 1
+
+    def _update_scan_stats(self, est_seconds, region):
+        lbls = getattr(self, "_stat_labels", {})
+        if 'Est. time' in lbls:
+            lbls['Est. time'].setText(self._fmt_mmss(est_seconds))
+        if 'Points' in lbls:
+            pts = int(region['xPoints']) * int(region['yPoints'])
+            lbls['Points'].setText(f"{pts:,}".replace(',', ' '))
+
+    def _recompute_step(self, range_e, npts_e, step_e):
+        """Derived spatial step = Range / N pts (full-field convention)."""
+        try:
+            rng = float(range_e.text()); n = int(float(npts_e.text()))
+            step_e.setText(f"{rng / n:.3f}" if n > 0 else "0.000")
+        except ValueError:
+            pass
+
+    def _recompute_energy_n(self):
+        """Derived N = round(|stop-start| / |step|) + 1."""
+        try:
+            s = float(self._energy_fields['start'].text())
+            e = float(self._energy_fields['stop'].text())
+            st = float(self._energy_fields['step'].text() or 0)
+            self._energy_fields['n'].setText(str(self._energy_n(s, e, st)))
+        except ValueError:
+            pass
+
+    def _on_error(self, msg):
+        print(f"[dashboard] ERROR: {msg}")
+        self.statusBar().showMessage(f"⚠  {msg}", 8000)
+
+    def _on_status(self, msg):
+        self.statusBar().showMessage(msg, 5000)
+
+    # ── interactions ─────────────────────────────────────────────────────
 
     def _set_scanning(self, scanning):
         self._scanning = bool(scanning)
@@ -1349,6 +1742,53 @@ class MainWindowDashboard(QMainWindow):
             self._image_seeded = True
         except Exception:
             pass
+        # Each frame also refreshes the live-detector CCD panel from the per-detector
+        # frames the controller stored on the image model.
+        self._refresh_ccd()
+
+    def _ccd_channel_key(self):
+        """DAQ channel whose data is a 2-D frame (the area detector / CCD), from
+        daqConfig; cached.  None when no image-type DAQ is configured."""
+        if hasattr(self, "_ccd_key"):
+            return self._ccd_key
+        self._ccd_key = None
+        client = getattr(self.controller, "client", None)
+        for k, val in (getattr(client, "daqConfig", {}) or {}).items():
+            if isinstance(val, dict) and val.get("type") == "image":
+                self._ccd_key = k
+                break
+        return self._ccd_key
+
+    def _refresh_ccd(self):
+        """Update the live-detector CCD panel with the latest area-detector frame.
+
+        Idle: the controller stashes each idle-monitor frame under
+        'latest_monitor_frames' (the trace only keeps the scalar sum).
+        Scanning: the per-detector frames live under 'all_detector_images'.
+        """
+        if self.controller is None or not hasattr(self, "ccd_img"):
+            return
+        key = self._ccd_channel_key()
+        if key is None:
+            return
+        try:
+            im = self.controller.get_image_model()
+            frame = (im.get("latest_monitor_frames") or {}).get(key)
+            if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
+                frame = (im.get("all_detector_images") or {}).get(key)
+            if isinstance(frame, np.ndarray) and frame.ndim >= 2:
+                # Log-scale for display (diffraction has huge dynamic range), as the
+                # classic viewer does; autorange levels on the first real frame.
+                disp = np.log1p(np.clip(frame.astype(float), 0, None))
+                self.ccd_img.setImage(disp, autoLevels=not self._ccd_seeded)
+                self._ccd_seeded = True
+                # Caption reflects the real frame: dimensions + total counts.
+                h, w = frame.shape[:2]
+                dims = f"{h}² · log" if h == w else f"{h}×{w} · log"
+                self.ccd_dims_lbl.setText(dims)
+                self.ccd_sum_lbl.setText(f"Σ {float(np.sum(frame)):.1e}")
+        except Exception:
+            pass
 
     def _on_shutter(self, mode):
         text = {"open": "OPEN", "close": "CLOSED", "auto": "AUTO"}.get(mode, str(mode).upper())
@@ -1378,6 +1818,8 @@ class MainWindowDashboard(QMainWindow):
                 self.counts_lbl.setText(f"{arr[-1]:.4f}")
         except Exception:
             pass
+        # Idle CCD frames also arrive on this signal (the trace keeps only the sum).
+        self._refresh_ccd()
 
     def _on_progress_text(self, text):
         if hasattr(self, "progress_caption"):
