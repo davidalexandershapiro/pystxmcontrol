@@ -5,6 +5,7 @@
         "font_scale": 0.85
     },
     "server": {
+        "allowedSubnets": ["127.0.0"],
         "stxm_address": "127.0.0.1",
         "prefect_publish_address": "127.0.0.1",
         "name": "My STXM",
