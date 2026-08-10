@@ -14,7 +14,6 @@ parser.add_option('--tty', dest = 'TTYNAME', default = '/dev/pts/0')
 options = vars(options)
 TTYNAME = options['TTYNAME']
 options['simulation'] = bool(int(options['simulation']))
-allowedSubnets = ['131.243.73','131.243.163','131.243.191','127.0.0']
 
 class stxmServer:
     def __init__(self, simulation = True):
@@ -26,6 +25,7 @@ class stxmServer:
         self.running = True
         self._logger = logger(name = self.__class__.__name__, outfile = os.path.join(sys.prefix,'pystxmcontrol_cfg/stxmLog.txt'))
         self.controller = controller(self.simulation, self._logger)
+        self.allowedSubnets = self.controller.main_config["server"].get("allowedSubnets", ["127.0.0"])
         self.command_sock.bind("tcp://%s:%s" %(self.controller.main_config["server"]["host"],\
                                                        self.controller.main_config["server"]["command_port"]))
         atexit.register(self.cleanup)
