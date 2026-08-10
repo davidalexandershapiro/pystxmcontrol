@@ -13,7 +13,7 @@ installed the families below pick it up first.
 """
 
 from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QFont
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, Signal
 from PySide6.QtWidgets import QWidget
 
 import numpy as np
@@ -214,6 +214,14 @@ def build_stylesheet():
         font-family: {MONO}; padding: 5px 0; font-size: 13px;
     }}
 
+    /* proposal-card reject (destructive, outline) */
+    QPushButton#rejectBtn {{
+        background: transparent; border: 1px solid #3a2830;
+        color: #e08b8b;
+        border-radius: 6px; padding: 8px 16px; font-weight: 500;
+    }}
+    QPushButton#rejectBtn:hover {{ border: 1px solid #7d3b3b; color: #ffb4b4; }}
+
     /* segmented-control pill buttons (checkable) */
     QPushButton[role="pill"] {{
         background: transparent;
@@ -308,6 +316,21 @@ def make_lut(name, n=256):
     return lut.astype(np.uint8)
 
 
+# ROI outline colours are picked to stand OUT from the image colormap (a hue the
+# LUT itself never contains), so boxes stay legible on any background.  Returns
+# (region_color, spectrum_color).
+_ROI_COLORS = {
+    "gray":    ("#ff3b30", "#37d7ff"),   # red + cyan on grayscale (red = default)
+    "viridis": ("#ff5db1", "#ff6b3f"),   # magenta + red-orange (viridis has none)
+    "inferno": ("#37d7ff", "#4dff9e"),   # cyan + spring-green (inferno has none)
+}
+
+
+def roi_colors(cmap):
+    """(region_color, spectrum_color) that contrast the given colormap."""
+    return _ROI_COLORS.get(cmap, _ROI_COLORS["gray"])
+
+
 # ── small custom-painted widgets ───────────────────────────────────────────
 class TravelBar(QWidget):
     """3px travel-range bar under a motor value.  ``frac`` in [0,1];
@@ -362,16 +385,42 @@ class ProgressBar(QWidget):
 
 class EnergyRegionStrip(QWidget):
     """Energy-region strip: each region a translucent cyan band with a tick per
-    energy point.  ``regions`` is a list of dicts: {start, stop, n, active}."""
+    energy point.  ``regions`` is a list of dicts: {start, stop, n, active}.
+
+    Clicking a band emits ``region_clicked`` with the region's list index."""
+
+    region_clicked = Signal(int)
 
     def __init__(self, regions=None, parent=None):
         super().__init__(parent)
         self._regions = regions or []
         self.setMinimumHeight(56)
+        self.setCursor(Qt.PointingHandCursor)
 
     def set_regions(self, regions):
         self._regions = regions
         self.update()
+
+    def _bounds(self):
+        lo = min(r["start"] for r in self._regions)
+        hi = max(r["stop"] for r in self._regions)
+        return lo, hi, max(1e-9, hi - lo)
+
+    def mousePressEvent(self, ev):
+        if not self._regions:
+            return
+        lo, hi, span = self._bounds()
+        w = self.width()
+        e = lo + (ev.position().x() - 1) / max(1, w - 2) * span
+        # nearest region whose [start, stop] contains e, else nearest by centre
+        for i, r in enumerate(self._regions):
+            if min(r["start"], r["stop"]) <= e <= max(r["start"], r["stop"]):
+                self.region_clicked.emit(i)
+                return
+        i = min(range(len(self._regions)),
+                key=lambda j: abs((self._regions[j]["start"]
+                                   + self._regions[j]["stop"]) / 2 - e))
+        self.region_clicked.emit(i)
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -380,9 +429,7 @@ class EnergyRegionStrip(QWidget):
         if not self._regions:
             p.end()
             return
-        lo = min(r["start"] for r in self._regions)
-        hi = max(r["stop"] for r in self._regions)
-        span = max(1e-9, hi - lo)
+        lo, hi, span = self._bounds()
         w, h = self.width(), self.height()
 
         def x_of(e):

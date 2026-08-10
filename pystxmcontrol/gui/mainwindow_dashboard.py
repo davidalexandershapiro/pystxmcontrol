@@ -20,14 +20,15 @@ from PySide6.QtWidgets import (
     QCheckBox, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
 )
-from PySide6.QtGui import QPixmap, QColor, QFont
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPixmap, QImage, QColor, QFont
+from PySide6.QtCore import Qt, QTimer, QRectF, Signal
 
 import pyqtgraph as pg
 
 from pystxmcontrol.gui.dashboard_theme import (
-    C, MONO_FAMILY, SANS_FAMILY, build_stylesheet, make_lut,
+    C, MONO_FAMILY, SANS_FAMILY, build_stylesheet, make_lut, roi_colors,
     mono_font, sans_font, TravelBar, ProgressBar, EnergyRegionStrip,
+    HistColorBar,
 )
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
@@ -72,6 +73,42 @@ def _spectrum():
     od += 0.9 * np.exp(-((e - 709) ** 2) / 1.5)     # L3
     od += 0.4 * np.exp(-((e - 722) ** 2) / 2.0)     # L2
     return e, od
+
+
+def _thumb_field(seed, kind="Spiral Image", n=48):
+    """Procedural absorption thumbnail — ports the mock's makeThumbField().
+    'Focus' renders the vertical through-focus streak; everything else a
+    circular-aperture particle field."""
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:n, 0:n] / n
+    if kind == "Focus":
+        a = 0.5 + 0.45 * np.cos((x - .5) * np.pi * 2.2) * np.exp(-((x - .5) / .16) ** 2)
+        a *= 0.7 + 0.3 * np.sin(y * 7 + seed)
+        a += (rng.random((n, n)) - .5) * .06
+        return np.clip(a, 0, 1)
+    r = np.hypot(x - .5, y - .5)
+    a = np.where(r < .47, .06, 0.0)
+    nb = 4 + int(rng.random() * 10)
+    for _ in range(nb):
+        bx, by = .15 + rng.random() * .7, .15 + rng.random() * .7
+        br, amp = .02 + rng.random() * .06, .3 + rng.random() * .7
+        a += amp * np.exp(-((x - bx) ** 2 + (y - by) ** 2) / (2 * br * br))
+    a += (rng.random((n, n)) - .5) * .05
+    a = np.where(r < .47, a, 0.0)
+    return np.clip(a, 0, 1)
+
+
+def _field_pixmap(field, cmap_name, size):
+    """Render an absorption field to a colour-mapped, pixelated QPixmap.
+    Display value is ``1 - field`` (absorption → brightness), matching the
+    ImageItem convention used elsewhere in this window."""
+    lut = make_lut(cmap_name)                       # (256, 3) uint8
+    idx = (np.clip(1.0 - field, 0, 1) * 255).astype(np.uint8)
+    rgb = np.ascontiguousarray(lut[idx])            # (n, n, 3)
+    h, w = rgb.shape[:2]
+    qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+    return QPixmap.fromImage(qimg).scaled(
+        size, size, Qt.IgnoreAspectRatio, Qt.FastTransformation)
 
 
 _SUP = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
@@ -119,7 +156,20 @@ class SciAxis(pg.AxisItem):
 
 class ImageArea(QWidget):
     """The main image viewer: a pyqtgraph ViewBox+ImageItem with absolutely
-    positioned overlay labels (scale bar, metadata) repositioned on resize."""
+    positioned overlay labels (scale bar, metadata) repositioned on resize.
+
+    Spatial scan regions are drawn as interactive ``RectROI`` boxes in physical
+    (µm / motor) coordinates.  The image pixel grid is mapped onto a physical
+    field-of-view via ``set_fov`` so ROI geometry equals motor microns.  Boxes
+    are keyed by a caller-supplied string; the widget emits:
+      * ``roi_selected(key)``           — a box was clicked or a drag started
+      * ``roi_moving(key, xc,yc,xr,yr)`` — geometry during an interactive drag
+      * ``roi_moved(key, xc,yc,xr,yr)``  — geometry committed (drag finished)
+    """
+
+    roi_selected = Signal(str)
+    roi_moving = Signal(str, float, float, float, float)
+    roi_moved = Signal(str, float, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -131,29 +181,38 @@ class ImageArea(QWidget):
         self.vb.invertY(True)
         self.vb.setMouseEnabled(True, True)
 
+        self._cmap = "gray"
         self.field = _absorption_field()
         self.img = pg.ImageItem()
         self.img.setImage((1 - self.field))          # absorption → display
-        self.img.setLookupTable(make_lut("gray"))
+        self.img.setLookupTable(make_lut(self._cmap))
+        self.img.setZValue(0)
         self.vb.addItem(self.img)
+        # The image data occupies a physical µm extent (the scanned region);
+        # the *view* is a wider field-of-view around it.  Both default to a
+        # placeholder and are set once regions exist.
+        self.img.setRect(QRectF(-6.0, -6.0, 12.0, 12.0))
         self.vb.autoRange(padding=0)
 
-        # ROI overlay (1px accent rect with scale handles)
-        n = self.field.shape[0]
-        self.roi = pg.RectROI([n * .38, n * .31], [n * .26, n * .24],
-                              pen=pg.mkPen(C["accent"], width=1),
-                              handlePen=pg.mkPen(C["accent"]),
-                              hoverPen=pg.mkPen(C["accent"], width=2))
-        self.vb.addItem(self.roi)
-        self.roi_label = pg.TextItem("ROI 1 · 3.1 × 2.9 µm", color=C["accent"],
-                                     anchor=(0, 1))
-        self.roi_label.setFont(mono_font(8))
-        self.roi_label.setPos(n * .38, n * .31)
-        self.vb.addItem(self.roi_label)
+        # Live scan data is a spatial mosaic: one ImageItem per scan region,
+        # each positioned at its own physical extent (mirrors the classic GUI).
+        # The first region reuses self.img (the histogram-bound primary); the
+        # rest are secondary tiles kept in LUT/levels sync with it.
+        self._region_images = {}      # region key -> ImageItem
+        self._seeded_regions = set()  # regions that have auto-levelled once
+        self._primary_seeded = False
 
-        # scan line (tracks current row)
-        self.scan_line = pg.InfiniteLine(pos=n * 0.68, angle=0, movable=False,
+        # Region ROI boxes, keyed by caller string.  _suppress guards against
+        # our own programmatic geometry writes re-emitting change signals;
+        # _dragging holds the key of a box under active interactive drag.
+        self._roi_items = {}          # key -> {'roi': RectROI, 'label': TextItem}
+        self._suppress = False
+        self._dragging = None
+
+        # scan line (tracks current row) — repositioned by set_view
+        self.scan_line = pg.InfiniteLine(pos=0.0, angle=0, movable=False,
                                          pen=pg.mkPen(C["accent"], width=2))
+        self.scan_line.setZValue(5)
         self.vb.addItem(self.scan_line)
 
         # overlay labels (children of self, positioned in resizeEvent)
@@ -172,7 +231,180 @@ class ImageArea(QWidget):
         self.meta.setStyleSheet("color:rgba(255,255,255,.72);background:transparent;")
 
     def set_cmap(self, name):
+        self._cmap = name
         self.img.setLookupTable(make_lut(name))
+        self._recolor()          # keep ROI outlines contrasting the new LUT
+
+    def set_roi_cmap(self, name):
+        """Note the active colormap for ROI-contrast purposes only — the image
+        LUT itself is owned by the bound HistogramLUTWidget."""
+        self._cmap = name
+        self._recolor()
+
+    def _roi_color(self, kind):
+        region_c, spectrum_c = roi_colors(self._cmap)
+        return spectrum_c if kind == "spectrum" else region_c
+
+    # ── physical coordinate frame ────────────────────────────────────────
+    def set_image_extent(self, xc, yc, width, height):
+        """Place the image data at its physical µm extent — the region it was
+        scanned over — so pixels land under the ROI box that defines them."""
+        self.img.setRect(QRectF(xc - width / 2.0, yc - height / 2.0,
+                                width, height))
+
+    def set_view(self, xc, yc, width, height):
+        """Set the visible field-of-view (µm) centred at (xc, yc)."""
+        pad = 0.08
+        self.vb.setRange(
+            QRectF(xc - width / 2.0 * (1 + pad), yc - height / 2.0 * (1 + pad),
+                   width * (1 + pad), height * (1 + pad)),
+            padding=0)
+        self.scan_line.setValue(yc)
+
+    # ── live scan data (per-region mosaic) ───────────────────────────────
+    def set_primary_frame(self, data):
+        """Fallback for frames with no region geometry — draw on the primary
+        item at its current rect (auto-levels only the first time)."""
+        self.img.setImage(data, autoLevels=not self._primary_seeded)
+        self._primary_seeded = True
+
+    def set_region_frame(self, key, data, xc, yc, xr, yr):
+        """Draw a scan frame for region ``key`` at its physical µm extent so
+        different regions land in their own ROI boxes, not stacked in Region1."""
+        item = self._region_images.get(key)
+        if item is None:
+            # First region reuses the histogram-bound primary; later regions
+            # get their own tile beneath the ROI overlay.
+            item = self.img if not self._region_images else pg.ImageItem()
+            if item is not self.img:
+                item.setZValue(0)
+                self.vb.addItem(item)
+            self._region_images[key] = item
+        autolevel = key not in self._seeded_regions
+        item.setImage(data, autoLevels=autolevel)
+        self._seeded_regions.add(key)
+        item.setRect(QRectF(xc - xr / 2.0, yc - yr / 2.0, xr, yr))
+        if item is not self.img:
+            self._match_primary(item)
+
+    def _match_primary(self, item):
+        """Keep a secondary tile's LUT/levels matching the primary image."""
+        if getattr(self.img, "lut", None) is not None:
+            item.setLookupTable(self.img.lut)
+        lv = self.img.getLevels()
+        if lv is not None:
+            item.setLevels(lv)
+
+    def sync_lut_levels(self):
+        """Propagate the primary's LUT/levels to every secondary tile — wired to
+        the HistogramLUTWidget so dragging levels updates the whole mosaic."""
+        for item in self._region_images.values():
+            if item is not self.img:
+                self._match_primary(item)
+
+    def clear_region_frames(self):
+        """Drop secondary tiles (e.g. at the start of a new scan)."""
+        for item in self._region_images.values():
+            if item is not self.img:
+                self.vb.removeItem(item)
+        self._region_images.clear()
+        self._seeded_regions.clear()
+
+    # ── region ROI boxes ─────────────────────────────────────────────────
+    def sync_regions(self, regions):
+        """Reconcile the drawn ROI boxes with ``regions`` — a list of dicts:
+        {key, xCenter, yCenter, xRange, yRange, label, color, active}.
+        Existing boxes are updated in place (so an active drag is never
+        interrupted); missing keys are removed and new keys created."""
+        self._suppress = True
+        try:
+            wanted = {r["key"] for r in regions}
+            for key in [k for k in self._roi_items if k not in wanted]:
+                it = self._roi_items.pop(key)
+                self.vb.removeItem(it["roi"])
+                self.vb.removeItem(it["label"])
+            for r in regions:
+                self._sync_one(r)
+        finally:
+            self._suppress = False
+
+    def _sync_one(self, r):
+        key = r["key"]
+        kind = r.get("kind", "region")
+        color = self._roi_color(kind)
+        it = self._roi_items.get(key)
+        if it is None:
+            roi = pg.RectROI([r["xCenter"] - r["xRange"] / 2.0,
+                              r["yCenter"] - r["yRange"] / 2.0],
+                             [r["xRange"], r["yRange"]],
+                             pen=pg.mkPen(color, width=2),
+                             handlePen=pg.mkPen(color),
+                             hoverPen=pg.mkPen(color, width=3))
+            roi.setAcceptedMouseButtons(Qt.LeftButton)
+            roi.setZValue(10)             # ROI boxes sit above the image tiles
+            roi.sigRegionChangeStarted.connect(lambda _, k=key: self._on_start(k))
+            roi.sigRegionChanged.connect(lambda _, k=key: self._on_changed(k))
+            roi.sigRegionChangeFinished.connect(lambda _, k=key: self._on_finished(k))
+            roi.sigClicked.connect(lambda _, __, k=key: self.roi_selected.emit(k))
+            self.vb.addItem(roi)
+            label = pg.TextItem("", color=color, anchor=(0, 1))
+            label.setFont(mono_font(8))
+            label.setZValue(11)
+            self.vb.addItem(label)
+            it = self._roi_items[key] = {"roi": roi, "label": label}
+        it["kind"] = kind
+        it["active"] = r.get("active", False)
+        it["origin"] = (r["xCenter"] - r["xRange"] / 2.0,
+                        r["yCenter"] - r["yRange"] / 2.0)
+        roi, label = it["roi"], it["label"]
+        # Geometry — never write to the box the user is actively dragging.
+        if key != self._dragging:
+            roi.setPos(list(it["origin"]), update=False, finish=False)
+            roi.setSize([r["xRange"], r["yRange"]], update=True, finish=False)
+        label.setText(r.get("label", ""))
+        label.setPos(*it["origin"])
+        self._style_one(key)
+
+    def _style_one(self, key):
+        """Apply active/inactive pen (full colour always — active is a thicker
+        line + visible resize handle) using the current colormap's ROI colour."""
+        it = self._roi_items.get(key)
+        if it is None:
+            return
+        color = QColor(self._roi_color(it["kind"]))
+        active = it["active"]
+        it["roi"].setPen(pg.mkPen(color, width=3 if active else 1))
+        it["roi"].hoverPen = pg.mkPen(color, width=3)
+        for h in it["roi"].handles:
+            h["item"].setVisible(active)
+        it["label"].setColor(color)
+
+    def _recolor(self):
+        for key in self._roi_items:
+            self._style_one(key)
+
+    @staticmethod
+    def _geom(roi):
+        pos, size = roi.pos(), roi.size()
+        xr, yr = abs(size[0]), abs(size[1])
+        return (pos[0] + size[0] / 2.0, pos[1] + size[1] / 2.0, xr, yr)
+
+    def _on_start(self, key):
+        if self._suppress:
+            return
+        self._dragging = key
+        self.roi_selected.emit(key)
+
+    def _on_changed(self, key):
+        if self._suppress:
+            return
+        self.roi_moving.emit(key, *self._geom(self._roi_items[key]["roi"]))
+
+    def _on_finished(self, key):
+        if self._suppress:
+            return
+        self._dragging = None
+        self.roi_moved.emit(key, *self._geom(self._roi_items[key]["roi"]))
 
     def resizeEvent(self, e):
         self.glw.setGeometry(0, 0, self.width(), self.height())
@@ -183,6 +415,79 @@ class ImageArea(QWidget):
         self.meta.move(self.width() - self.meta.width() - m, m)
         for w in (self.scalebar, self.scalebar_lbl, self.meta):
             w.raise_()
+        super().resizeEvent(e)
+
+
+class OverlayImageView(QWidget):
+    """A pyqtgraph image viewer with absolutely-positioned overlay labels
+    (scale bar + metadata) and optional circular ROI overlays — the shared
+    viewer body for the Browser and Analysis views.  Simpler than ``ImageArea``
+    (no interactive scan-line/rect-ROI); the field is swapped as state changes."""
+
+    def __init__(self, field, cmap="gray", meta_text="", scale_text="2 µm",
+                 parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background:{C['plot_ground']};")
+        self.glw = pg.GraphicsLayoutWidget(parent=self)
+        self.glw.setBackground(C["plot_ground"])
+        self.vb = self.glw.addViewBox()
+        self.vb.setAspectLocked(True)
+        self.vb.invertY(True)
+        self.img = pg.ImageItem()
+        self.img.setImage(1 - field)
+        self.img.setLookupTable(make_lut(cmap))
+        self.vb.addItem(self.img)
+        self.vb.autoRange(padding=0)
+        self._rois = []
+
+        self.scalebar = QFrame(self)
+        self.scalebar.setStyleSheet("background:#ffffff;border:none;")
+        self.scalebar.setFixedSize(120, 3)
+        self.scalebar_lbl = QLabel(scale_text, self)
+        self.scalebar_lbl.setFont(mono_font(9))
+        self.scalebar_lbl.setStyleSheet("color:#fff;background:transparent;")
+        self.meta = QLabel(meta_text, self)
+        self.meta.setFont(mono_font(8))
+        self.meta.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        self.meta.setStyleSheet("color:rgba(255,255,255,.72);background:transparent;")
+
+    def add_circle_roi(self, cx, cy, r, color, label):
+        """Non-interactive circular ROI overlay + label chip (Analysis view).
+        A plain ellipse item — no drag handles — with a cosmetic (pixel-width) pen."""
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+        ell = QGraphicsEllipseItem(cx - r, cy - r, 2 * r, 2 * r)
+        pen = pg.mkPen(color, width=2)
+        pen.setCosmetic(True)
+        ell.setPen(pen)
+        self.vb.addItem(ell)
+        t = pg.TextItem(label, color=color, anchor=(0, 1))
+        t.setFont(mono_font(8))
+        t.setPos(cx - r, cy - r)
+        self.vb.addItem(t)
+        self._rois.append((ell, t))
+
+    def set_field(self, field, autolevels=False):
+        self.img.setImage(1 - field, autoLevels=autolevels)
+
+    def set_cmap(self, name):
+        self.img.setLookupTable(make_lut(name))
+
+    def set_meta(self, text):
+        self.meta.setText(text)
+        self._reposition()
+
+    def _reposition(self):
+        m = 16
+        self.scalebar.move(m, self.height() - m - 20)
+        self.scalebar_lbl.move(m, self.height() - m - 16)
+        self.meta.adjustSize()
+        self.meta.move(self.width() - self.meta.width() - m, m)
+        for w in (self.scalebar, self.scalebar_lbl, self.meta):
+            w.raise_()
+
+    def resizeEvent(self, e):
+        self.glw.setGeometry(0, 0, self.width(), self.height())
+        self._reposition()
         super().resizeEvent(e)
 
 
@@ -226,23 +531,23 @@ class MainWindowDashboard(QMainWindow):
 
         outer.addWidget(self._build_header())
 
-        body = QWidget()
-        body.setStyleSheet(f"background:{C['canvas']};")
-        bl = QHBoxLayout(body)
-        bl.setContentsMargins(10, 10, 10, 10)
-        bl.setSpacing(10)
-        col1 = self._build_col1(); col1.setFixedWidth(430)
-        col2 = self._build_col2()
-        col3 = self._build_col3(); col3.setFixedWidth(500)
-        bl.addWidget(col1)
-        bl.addWidget(col2, 1)
-        bl.addWidget(col3)
-        outer.addWidget(body, 1)
+        # Four top-level views behind the header tab bar.  All stay mounted; only
+        # the active one is shown (README §"Interactions": QStackedWidget, inactive
+        # timers stopped).  Acquisition is built first so its live-data widgets and
+        # signal wiring exist before the placeholder views reuse shared helpers.
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self._build_acquisition_view())
+        self.view_stack.addWidget(self._build_browser_view())
+        self.view_stack.addWidget(self._build_analysis_view())
+        self.view_stack.addWidget(self._build_agent_view())
+        outer.addWidget(self.view_stack, 1)
+        self.nav_grp.idClicked.connect(self._switch_view)
 
         # Subscribe to controller signals (read-only live data).
         if self.controller is not None:
             self._connect_controller_signals()
             self._seed_from_controller()
+            self._prefill_from_last_scan()
 
         # light "live" animation.  When connected, the counter trace is driven by
         # real monitor data, so only the live-detector dot keeps pulsing.
@@ -538,8 +843,8 @@ class MainWindowDashboard(QMainWindow):
         nl = QHBoxLayout(nav)
         nl.setContentsMargins(16, 0, 16, 0)
         nl.setSpacing(2)
-        grp = QButtonGroup(nav)
-        grp.setExclusive(True)
+        self.nav_grp = QButtonGroup(nav)
+        self.nav_grp.setExclusive(True)
         for i, name in enumerate(("Acquisition", "Browser", "Analysis", "Agent")):
             b = QPushButton(name)
             b.setProperty("role", "navtab")
@@ -547,7 +852,7 @@ class MainWindowDashboard(QMainWindow):
             b.setCursor(Qt.PointingHandCursor)
             if i == 0:
                 b.setChecked(True)
-            grp.addButton(b)
+            self.nav_grp.addButton(b, i)
             nl.addWidget(b)
         hl.addWidget(nav)
 
@@ -603,6 +908,28 @@ class MainWindowDashboard(QMainWindow):
         mv.addWidget(self.mode_btn)
         hl.addWidget(modew)
         return header
+
+    # ── acquisition view (3-column body) ─────────────────────────────────
+    def _build_acquisition_view(self):
+        body = QWidget()
+        body.setStyleSheet(f"background:{C['canvas']};")
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(10, 10, 10, 10)
+        bl.setSpacing(10)
+        col1 = self._build_col1(); col1.setFixedWidth(430)
+        col2 = self._build_col2()
+        col3 = self._build_col3(); col3.setFixedWidth(500)
+        bl.addWidget(col1)
+        bl.addWidget(col2, 1)
+        bl.addWidget(col3)
+        return body
+
+    def _switch_view(self, index):
+        """Header tab → body view.  Pause the analysis filmstrip when it isn't
+        on screen so its timer doesn't run in the background."""
+        self.view_stack.setCurrentIndex(index)
+        if index != 2 and getattr(self, "_a_playing", False):
+            self._toggle_analysis_play()
 
     # ── column 1: scan config + acquisition controls ────────────────────
     def _build_col1(self):
@@ -739,10 +1066,9 @@ class MainWindowDashboard(QMainWindow):
             g.addWidget(e_rng, r, 2)
             g.addWidget(e_n, r, 3)
             g.addWidget(e_step, r, 4)
-            # Keep the derived Step in sync with Range / N pts.
-            for e in (e_rng, e_n):
-                e.editingFinished.connect(
-                    lambda rr=e_rng, nn=e_n, ss=e_step: self._recompute_step(rr, nn, ss))
+            # Any edit re-derives Step and pushes the row into the active region.
+            for e in (e_c, e_rng, e_n):
+                e.editingFinished.connect(self._on_spatial_edit)
             self._spatial_fields[name] = {
                 "center": e_c, "range": e_rng, "npts": e_n, "step": e_step}
         g.setColumnStretch(0, 0)
@@ -750,21 +1076,45 @@ class MainWindowDashboard(QMainWindow):
             g.setColumnStretch(col, 1)
         v.addLayout(g)
 
+        # Region model: image regions are drawn as ROI boxes on the live image
+        # and edited through the single grid above; the *active* box indicates
+        # which region the grid drives.  Seed one region from the field values.
+        self._active_region = 0          # int index, or 'spectrum'
+        self._spectrum_region = None
+        self._syncing_spatial = False
+        self._scan_regions = [self._read_spatial_fields()]
+
+        # Checkboxes on their own row …
         checks = QHBoxLayout()
         checks.setSpacing(7)
-        add = QPushButton("+ Region")
-        add.setProperty("role", "small")
-        checks.addWidget(add)
         self._scan_checks = {}
-        for name, on in (("autofocus", True), ("show ROI", True),
-                         ("tiled", False), ("defocus", False)):
+        for name, on in (("spectrum", False), ("autofocus", True),
+                         ("show ROI", True), ("tiled", False), ("defocus", False)):
             cb = QCheckBox(name)
             cb.setChecked(on)
             cb.setCursor(Qt.PointingHandCursor)
             checks.addWidget(cb)
             self._scan_checks[name] = cb
+        self._scan_checks["spectrum"].toggled.connect(self._toggle_spectrum)
+        self._scan_checks["show ROI"].toggled.connect(
+            lambda _on: self._refresh_spatial_image())
         checks.addStretch(1)
         v.addLayout(checks)
+
+        # … and the region add/remove buttons on a row below (so neither is
+        # squeezed by the other).
+        btns = QHBoxLayout()
+        btns.setSpacing(7)
+        add = QPushButton("+ Region")
+        add.setProperty("role", "small")
+        add.clicked.connect(self._add_spatial_region)
+        btns.addWidget(add)
+        self._del_region_btn = QPushButton("− Region")
+        self._del_region_btn.setProperty("role", "small")
+        self._del_region_btn.clicked.connect(self._remove_spatial_region)
+        btns.addWidget(self._del_region_btn)
+        btns.addStretch(1)
+        v.addLayout(btns)
         v.addStretch(1)
         return page
 
@@ -776,7 +1126,7 @@ class MainWindowDashboard(QMainWindow):
         g = QGridLayout()
         g.setHorizontalSpacing(6)
         specs = [("Start", "700.0", False), ("Stop", "730.0", False),
-                 ("Step", "0.25", False), ("N", "121", True),
+                 ("Step", "0.25", False), ("N", "121", False),
                  ("Dwell ms", "2.0", False)]
         self._energy_fields = {}
         keys = ["start", "stop", "step", "n", "dwell"]
@@ -786,10 +1136,21 @@ class MainWindowDashboard(QMainWindow):
             g.addWidget(e, 1, col)
             g.setColumnStretch(col, 1)
             self._energy_fields[keys[col]] = e
-        # N is derived from Start / Stop / Step.
+        # Step and N are co-dependent over the range: editing Start/Stop/Step
+        # updates N, editing N updates Step.  Any edit is written back into the
+        # active region so the strip below reflects it.
         for k in ("start", "stop", "step"):
             self._energy_fields[k].editingFinished.connect(self._recompute_energy_n)
+        self._energy_fields['n'].editingFinished.connect(self._recompute_energy_step)
+        self._energy_fields['dwell'].editingFinished.connect(
+            self._sync_active_energy_region)
         v.addLayout(g)
+
+        # Energy regions: a list of {start, stop, step, dwell, n}; the field row
+        # above edits whichever region is active.  Seed with one region from the
+        # default field values.
+        self._energy_regions = [self._read_energy_fields()]
+        self._active_energy_region = 0
 
         well = QFrame()
         well.setStyleSheet(f"background:{C['well']};border:1px solid {C['border']};"
@@ -798,32 +1159,42 @@ class MainWindowDashboard(QMainWindow):
         wv.setContentsMargins(12, 10, 12, 6)
         wv.setSpacing(6)
         top = QHBoxLayout()
-        top.addWidget(self._label("ENERGY REGIONS · Fe L3", role="fieldLabel"))
+        top.addWidget(self._label("ENERGY REGIONS", role="fieldLabel"))
         top.addStretch(1)
-        top.addWidget(self._label("3 regions · 121 pts", role="accent"))
+        self._energy_summary_lbl = self._label("", role="accent")
+        top.addWidget(self._energy_summary_lbl)
         wv.addLayout(top)
-        strip = EnergyRegionStrip([
-            {"start": 700, "stop": 706, "n": 13, "active": False},
-            {"start": 706, "stop": 714, "n": 81, "active": True},
-            {"start": 714, "stop": 730, "n": 27, "active": False},
-        ])
-        wv.addWidget(strip)
-        axis = QHBoxLayout()
-        for i, t in enumerate(("700", "710", "720", "730 eV")):
-            axis.addWidget(self._label(t, role="monoFaint"))
+        self._energy_strip = EnergyRegionStrip([])
+        self._energy_strip.region_clicked.connect(self._select_energy_region)
+        wv.addWidget(self._energy_strip)
+        self._energy_axis = QHBoxLayout()
+        self._energy_axis_lbls = []
+        for i in range(4):
+            lbl = self._label("", role="monoFaint")
+            self._energy_axis_lbls.append(lbl)
+            self._energy_axis.addWidget(lbl)
             if i < 3:
-                axis.addStretch(1)
-        wv.addLayout(axis)
+                self._energy_axis.addStretch(1)
+        wv.addLayout(self._energy_axis)
         v.addWidget(well)
 
         btns = QHBoxLayout()
         btns.setSpacing(7)
-        for name in ("+ Energy region", "Load edge preset"):
-            b = QPushButton(name)
-            b.setProperty("role", "small")
-            btns.addWidget(b)
+        add_btn = QPushButton("+ Energy region")
+        add_btn.setProperty("role", "small")
+        add_btn.clicked.connect(self._add_energy_region)
+        btns.addWidget(add_btn)
+        self._del_energy_btn = QPushButton("− Remove region")
+        self._del_energy_btn.setProperty("role", "small")
+        self._del_energy_btn.clicked.connect(self._remove_energy_region)
+        btns.addWidget(self._del_energy_btn)
+        preset_btn = QPushButton("Load edge preset")
+        preset_btn.setProperty("role", "small")
+        btns.addWidget(preset_btn)
         btns.addStretch(1)
         v.addLayout(btns)
+
+        self._refresh_energy_strip()
         return page
 
     def _detector_page(self):
@@ -1036,7 +1407,13 @@ class MainWindowDashboard(QMainWindow):
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(0)
         self.image_area = ImageArea()
+        self.image_area.roi_selected.connect(self._on_roi_selected)
+        self.image_area.roi_moving.connect(self._on_roi_moving)
+        self.image_area.roi_moved.connect(self._on_roi_moved)
         bl.addWidget(self.image_area, 1)
+        # Region model was built in _spatial_page (col1, earlier); paint it now
+        # that the image exists.
+        self._refresh_spatial_image(fit=True)
 
         # Right rail: the real pyqtgraph HistogramLUTWidget (draggable levels +
         # gradient/LUT editor), bound to the image's ImageItem.  This is the same
@@ -1053,6 +1430,11 @@ class MainWindowDashboard(QMainWindow):
         self.hist_lut.setBackground(C["panel_footer"])
         self.hist_lut.setImageItem(self.image_area.img)
         self.hist_lut.gradient.loadPreset("grey")
+        # Keep the mosaic's secondary tiles in LUT/levels sync with the primary.
+        self.hist_lut.sigLookupTableChanged.connect(
+            lambda _h: self.image_area.sync_lut_levels())
+        self.hist_lut.sigLevelsChanged.connect(
+            lambda _h: self.image_area.sync_lut_levels())
         for ax in ("axis",):
             try:
                 self.hist_lut.axis.setPen(C["border"])
@@ -1436,6 +1818,1342 @@ class MainWindowDashboard(QMainWindow):
         panel = "microscope" if self._motor_group_index == 0 else "beamline"
         self._populate_motors(self._motor_rows(panel))
 
+    # ════════════════════════════════════════════════════════════════════
+    #  Shared helpers for the Browser / Analysis / Agent views
+    # ════════════════════════════════════════════════════════════════════
+    def _filter_pills(self, items, checked=0):
+        """A wrapping row of exclusive filter pills (README: same styling as the
+        colormap segmented control).  Returns (button group, [buttons])."""
+        grp = QButtonGroup(self)
+        grp.setExclusive(True)
+        btns = []
+        for i, name in enumerate(items):
+            b = QPushButton(name)
+            b.setProperty("role", "pill")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            if i == checked:
+                b.setChecked(True)
+            grp.addButton(b, i)
+            btns.append(b)
+        return grp, btns
+
+    def _cmap_pills(self, on_change, checked=0):
+        """Colormap segmented control (gray/viridis/inferno) wired to on_change."""
+        well, btns = self._segmented(["gray", "viridis", "inferno"], checked)
+        names = ("gray", "viridis", "inferno")
+        for i, b in enumerate(btns):
+            b.clicked.connect(lambda _=False, n=names[i]: on_change(n))
+        return well
+
+    def _viewer_rail(self, cmap, top="6 214", bottom="0"):
+        """Right rail: top/bottom value labels + histogram/colorbar (HistColorBar)."""
+        rail = QFrame()
+        rail.setObjectName("viewerRail")
+        rail.setFixedWidth(96)
+        rail.setStyleSheet(f"QFrame#viewerRail {{background:{C['panel_footer']};"
+                           f"border:none;border-left:1px solid {C['border']};}}")
+        rv = QVBoxLayout(rail)
+        rv.setContentsMargins(10, 12, 10, 12)
+        rv.setSpacing(6)
+        t = self._label(top, role="monoFaint"); t.setAlignment(Qt.AlignRight)
+        rv.addWidget(t)
+        hb = HistColorBar(cmap)
+        rv.addWidget(hb, 1)
+        b = self._label(bottom, role="monoFaint"); b.setAlignment(Qt.AlignRight)
+        rv.addWidget(b)
+        return rail, hb
+
+    def _go_view(self, index):
+        """Programmatically switch the top-level view and sync its nav tab."""
+        b = self.nav_grp.button(index)
+        if b is not None:
+            b.setChecked(True)
+        self._switch_view(index)
+
+    def _viewer_toolbar(self, filename, subline, cmap_cb, buttons):
+        """Shared viewer toolbar: filename + subline, colormap pills, buttons.
+        Returns (toolbar frame, filename label, subline label)."""
+        tb = QFrame()
+        tb.setObjectName("cardHeader")
+        tl = QHBoxLayout(tb)
+        tl.setContentsMargins(14, 10, 14, 10)
+        tl.setSpacing(16)
+        fn = self._label(filename, role="value")
+        fn.setFont(mono_font(16, QFont.DemiBold))
+        tl.addWidget(fn)
+        sub = self._label(subline, font=sans_font(10), color=C["text_dim"])
+        tl.addWidget(sub)
+        tl.addStretch(1)
+        tl.addWidget(self._cmap_pills(cmap_cb))
+        for name in buttons:
+            b = QPushButton(name); b.setProperty("role", "small")
+            tl.addWidget(b)
+        return tb, fn, sub
+
+    # ════════════════════════════════════════════════════════════════════
+    #  Browser view
+    # ════════════════════════════════════════════════════════════════════
+    # Sample session files (shape reference for the real HDF5 listing).
+    _BROWSER_FILES = [
+        ("NS_260809051.stxm", "Focus"), ("NS_260809052.stxm", "Focus"),
+        ("NS_260809053.stxm", "Spiral Image"), ("NS_260809054.stxm", "Spiral Image"),
+        ("NS_260809055.stxm", "Spiral Image"), ("NS_260809056.stxm", "Spiral Image"),
+        ("NS_260809057.stxm", "Spiral Stack"), ("NS_260809058.stxm", "Spiral Stack"),
+        ("NS_260809059.stxm", "Spiral Image"), ("NS_260809060.stxm", "Ptychography"),
+        ("NS_260809061.stxm", "Focus"), ("NS_260809062.stxm", "Spiral Image"),
+        ("NS_260809063.stxm", "Line Spectrum"), ("NS_260809064.stxm", "Spiral Image"),
+        ("NS_260809065.stxm", "Spiral Stack"), ("NS_260809066.stxm", "Ptychography"),
+        ("NS_260809067.stxm", "Spiral Image"), ("NS_260809068.stxm", "Tomography"),
+        ("NS_260809069.stxm", "Spiral Image"), ("NS_260809070.stxm", "Spiral Image"),
+    ]
+    _BROWSER_FILTERS = ["All", "Focus", "Spiral Image", "Spiral Stack",
+                        "Line Spectrum", "Ptychography"]
+
+    @staticmethod
+    def _file_seed(name):
+        try:
+            return int(name.split(".")[0][-3:])
+        except ValueError:
+            return 1
+
+    def _build_browser_view(self):
+        self._browser_cmap = "gray"
+        self._browser_filter = "All"
+        self._browser_sel = 5
+        self._browser_tiles = []
+
+        body = QWidget()
+        body.setStyleSheet(f"background:{C['canvas']};")
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(10, 10, 10, 10)
+        bl.setSpacing(10)
+        col1 = self._browser_files_col(); col1.setFixedWidth(660)
+        col2 = self._browser_viewer_col()
+        col3 = self._browser_details_col(); col3.setFixedWidth(460)
+        bl.addWidget(col1)
+        bl.addWidget(col2, 1)
+        bl.addWidget(col3)
+
+        self._browser_render_grid()
+        self._browser_select(self._browser_sel)
+        return body
+
+    def _browser_files_col(self):
+        card, cbody = self._card("Session files")
+        path = self._label("/data/2026/08/09", role="monoFaint")
+        card._header_layout.insertWidget(1, path)
+        card._header_layout.insertSpacing(2, 10)
+        refresh = QPushButton("Refresh"); refresh.setProperty("role", "small")
+        card._header_layout.addWidget(refresh)
+
+        # filter row
+        frow = QFrame()
+        frow.setObjectName("filterRow")
+        frow.setStyleSheet(f"QFrame#filterRow {{background:{C['panel_footer']};"
+                           f"border:none;border-bottom:1px solid {C['border']};}}")
+        fl = QHBoxLayout(frow)
+        fl.setContentsMargins(12, 10, 12, 10)
+        fl.setSpacing(6)
+        self._browser_filter_grp, fbtns = self._filter_pills(self._BROWSER_FILTERS)
+        for i, b in enumerate(fbtns):
+            fl.addWidget(b)
+            b.clicked.connect(
+                lambda _=False, k=self._BROWSER_FILTERS[i]: self._browser_set_filter(k))
+        fl.addStretch(1)
+        self._browser_count = self._label("20 of 20 shown", role="monoFaint")
+        fl.addWidget(self._browser_count)
+        cbody.addWidget(frow)
+
+        # thumbnail grid
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        self._browser_grid = QGridLayout(inner)
+        self._browser_grid.setContentsMargins(12, 12, 12, 12)
+        self._browser_grid.setHorizontalSpacing(10)
+        self._browser_grid.setVerticalSpacing(10)
+        for c in range(4):
+            self._browser_grid.setColumnStretch(c, 1)
+        scroll.setWidget(inner)
+        cbody.addWidget(scroll, 1)
+        return card
+
+    def _browser_tile(self, idx):
+        name, kind = self._BROWSER_FILES[idx]
+        field = _thumb_field(self._file_seed(name), kind, 64)
+        tile = QFrame()
+        tile.setObjectName("browserTile")
+        tile.setCursor(Qt.PointingHandCursor)
+        tv = QVBoxLayout(tile)
+        tv.setContentsMargins(6, 6, 6, 6)
+        tv.setSpacing(5)
+        canvas = QLabel()
+        canvas.setFixedHeight(140)
+        canvas.setScaledContents(True)
+        canvas.setStyleSheet("background:#000;border:none;")
+        canvas.setPixmap(_field_pixmap(field, self._browser_cmap, 140))
+        tv.addWidget(canvas)
+        cap = QVBoxLayout(); cap.setSpacing(1)
+        fn = self._label(name, role="mono"); fn.setFont(mono_font(11))
+        cap.addWidget(fn)
+        cap.addWidget(self._label(kind.upper(), role="microLabel"))
+        tv.addLayout(cap)
+        tile.mousePressEvent = lambda e, i=idx: self._browser_select(i)
+        self._browser_tiles.append(
+            {"frame": tile, "canvas": canvas, "field": field, "idx": idx, "name": fn})
+        return tile
+
+    def _browser_render_grid(self):
+        # clear
+        while self._browser_grid.count():
+            item = self._browser_grid.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._browser_tiles = []
+        shown = [i for i, (_, kind) in enumerate(self._BROWSER_FILES)
+                 if self._browser_filter == "All" or kind == self._browser_filter]
+        for pos, idx in enumerate(shown):
+            r, c = divmod(pos, 4)
+            self._browser_grid.addWidget(self._browser_tile(idx), r, c)
+        self._browser_count.setText(
+            f"{len(shown)} of {len(self._BROWSER_FILES)} shown")
+        # keep selection if still visible, else pick the first shown
+        if self._browser_sel not in shown and shown:
+            self._browser_sel = shown[0]
+        self._browser_apply_selection_style()
+
+    def _browser_set_filter(self, kind):
+        self._browser_filter = kind
+        self._browser_render_grid()
+        self._browser_select(self._browser_sel)
+
+    def _browser_apply_selection_style(self):
+        for t in self._browser_tiles:
+            sel = t["idx"] == self._browser_sel
+            t["frame"].setStyleSheet(
+                f"QFrame#browserTile {{background:"
+                f"{'#131a20' if sel else C['panel_footer']};"
+                f"border:1px solid {C['accent'] if sel else C['border']};"
+                "border-radius:6px;}")
+            t["name"].setStyleSheet(
+                f"color:{C['text'] if sel else C['text_2']};background:transparent;")
+
+    def _browser_select(self, idx):
+        self._browser_sel = idx
+        self._browser_apply_selection_style()
+        name, kind = self._BROWSER_FILES[idx]
+        field = _thumb_field(self._file_seed(name), kind, 150)
+        self._browser_big.set_field(field, autolevels=True)
+        self._browser_fn.setText(name)
+        self._browser_sub.setText(f"{kind} · 2026-08-09 10:02")
+        # rebuild parameters
+        while self._browser_params.count():
+            item = self._browser_params.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for k, val in self._browser_detail(name, kind):
+            self._browser_params.addWidget(self._param_row(k, val))
+
+    @staticmethod
+    def _browser_detail(name, kind):
+        is_stack = kind == "Spiral Stack"
+        return [
+            ("File", name), ("Scan type", kind),
+            ("Start", "2026-08-09T10:02:03"), ("End", "2026-08-09T10:02:11"),
+            ("Experimenters", "Jeongho Cho, Gibeom Kim, Eunsoo Nam"),
+            ("Proposal", "ALS-12941-009"),
+            ("Sample", "particle collection, Fe screening"),
+            ("X range", "-138.821 – -119.021 µm  (100 pts, 0.2000 µm/pt)"),
+            ("Y range", "36.365 – 56.165 µm  (100 pts, 0.2000 µm/pt)"),
+            ("Energies", "12  (695.50 – 705.50 eV)" if is_stack
+             else "1 energy  700.75 eV"),
+            ("Dwell", "0.500 ms"), ("X motor", "SampleX"), ("Y motor", "SampleY"),
+            ("Size", "48.2 MB" if is_stack else "4.1 MB"),
+        ]
+
+    def _param_row(self, key, value):
+        row = QFrame()
+        row.setObjectName("rowSep")
+        g = QHBoxLayout(row)
+        g.setContentsMargins(0, 7, 0, 7)
+        g.setSpacing(10)
+        k = self._label(key, font=sans_font(10.5), color=C["text_dim"])
+        k.setFixedWidth(96)
+        g.addWidget(k)
+        v = self._label(value, role="mono")
+        v.setWordWrap(True)
+        g.addWidget(v, 1)
+        return row
+
+    def _browser_viewer_col(self):
+        card = QFrame()
+        card.setObjectName("card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        tb, self._browser_fn, self._browser_sub = self._viewer_toolbar(
+            "NS_260809056.stxm", "Spiral Image · 2026-08-09 10:02",
+            self._browser_set_cmap, ("Levels", "Unzoom", "Save PNG"))
+        cl.addWidget(tb)
+
+        bodyw = QWidget()
+        bh = QHBoxLayout(bodyw)
+        bh.setContentsMargins(0, 0, 0, 0)
+        bh.setSpacing(0)
+        self._browser_big = OverlayImageView(
+            _thumb_field(56, "Spiral Image", 150), cmap="gray",
+            meta_text="Spiral Image · channel default\n"
+                      "pixel 0.200 µm · dwell 0.5 ms\n"
+                      "700.75 eV · circ. polarization")
+        bh.addWidget(self._browser_big, 1)
+        rail, self._browser_rail = self._viewer_rail("gray")
+        bh.addWidget(rail)
+        cl.addWidget(bodyw, 1)
+
+        footer = QFrame()
+        footer.setObjectName("cardFooter")
+        fv = QHBoxLayout(footer)
+        fv.setContentsMargins(14, 10, 14, 10)
+        fv.setSpacing(10)
+        for name in ("◀", "▶"):
+            b = QPushButton(name); b.setProperty("role", "jog"); b.setFixedWidth(30)
+            fv.addWidget(b)
+        fv.addWidget(self._label("energy 1 of 1", role="monoFaint"))
+        fv.addStretch(1)
+        for lbl, val in (("X", "-128.4"), ("Y", "46.1"), ("I", "8421")):
+            fv.addWidget(self._label(lbl, font=mono_font(11), color=C["text_dim"]))
+            fv.addWidget(self._label(val, font=mono_font(11), color=C["text"]))
+        cl.addWidget(footer)
+        return card
+
+    def _browser_set_cmap(self, name):
+        self._browser_cmap = name
+        self._browser_big.set_cmap(name)
+        self._browser_rail.set_lut(name)
+        for t in self._browser_tiles:
+            t["canvas"].setPixmap(_field_pixmap(t["field"], name, 140))
+
+    def _browser_details_col(self):
+        col = QWidget()
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
+
+        # parameters
+        pcard, pbody = self._card("Parameters")
+        pscroll = QScrollArea()
+        pscroll.setWidgetResizable(True)
+        pscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        pinner = QWidget()
+        self._browser_params = QVBoxLayout(pinner)
+        self._browser_params.setContentsMargins(14, 4, 14, 4)
+        self._browser_params.setSpacing(0)
+        self._browser_params.addStretch(1)
+        pscroll.setWidget(pinner)
+        pbody.addWidget(pscroll, 1)
+        v.addWidget(pcard, 1)
+
+        # actions
+        acard, abody = self._card("Actions")
+        acontent = QWidget()
+        av = QVBoxLayout(acontent)
+        av.setContentsMargins(14, 14, 14, 14)
+        av.setSpacing(10)
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        send_acq = QPushButton("Send to Acquisition")
+        send_acq.setObjectName("beginScan")
+        send_acq.setCursor(Qt.PointingHandCursor)
+        send_acq.clicked.connect(lambda: self._go_view(0))
+        send_ana = QPushButton("Send to Analysis")
+        send_ana.setCursor(Qt.PointingHandCursor)
+        send_ana.clicked.connect(lambda: self._go_view(2))
+        btns.addWidget(send_acq, 1)
+        btns.addWidget(send_ana, 1)
+        av.addLayout(btns)
+        note = self._label(
+            "Send to Acquisition loads the scan's region, energy and dwell into "
+            "the scan definition; Send to Analysis opens the stack.",
+            font=sans_font(10.5), color=C["text_faint"])
+        note.setWordWrap(True)
+        av.addWidget(note)
+        crow = QHBoxLayout()
+        crow.setSpacing(8)
+        comment = QLineEdit()
+        comment.setPlaceholderText("Comment for logbook…")
+        comment.setFont(sans_font(11))
+        crow.addWidget(comment, 1)
+        addb = QPushButton("Add"); addb.setProperty("role", "small")
+        crow.addWidget(addb)
+        av.addLayout(crow)
+        abody.addWidget(acontent)
+        v.addWidget(acard)
+        return col
+
+    # ════════════════════════════════════════════════════════════════════
+    #  Analysis view
+    # ════════════════════════════════════════════════════════════════════
+    ENERGIES = [695.5, 696.5, 697.5, 698.75, 699.5, 700.5,
+                701.0, 701.5, 702.5, 703.5, 704.5, 705.5]
+    _ANALYSIS_TOOLS = ["Main", "Filtering", "Registration", "PCA", "NNMF",
+                       "Line Spectrum"]
+
+    def _build_analysis_view(self):
+        self._analysis_cmap = "gray"
+        self._a_energy = 3
+        self._a_playing = False
+
+        body = QWidget()
+        body.setStyleSheet(f"background:{C['canvas']};")
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(10, 10, 10, 10)
+        bl.setSpacing(10)
+        col1 = self._analysis_tools_col(); col1.setFixedWidth(700)
+        col2 = self._analysis_viewer_col()
+        col3 = self._analysis_side_col(); col3.setFixedWidth(460)
+        bl.addWidget(col1)
+        bl.addWidget(col2, 1)
+        bl.addWidget(col3)
+
+        self._set_a_energy(self._a_energy)
+        return body
+
+    def _od_curve(self, kind):
+        e = np.array(self.ENERGIES)
+        if kind == 0:
+            return (0.5 + 0.07 * (e - 695.5) / 10
+                    + 0.62 * np.exp(-((e - 700.9) / 1.05) ** 2)
+                    + 0.30 * np.exp(-((e - 698.9) / 0.7) ** 2))
+        return (0.22 + 0.04 * (e - 695.5) / 10
+                + 0.30 * np.exp(-((e - 701.6) / 1.3) ** 2)
+                + 0.10 * np.exp(-((e - 699.2) / 0.8) ** 2))
+
+    def _analysis_field(self, n=150):
+        """Weighted two-phase absorption map for the current energy plane."""
+        if not hasattr(self, "_phase_blobs"):
+            r = np.random.default_rng(65)
+            self._phase_blobs = (
+                [(.15 + r.random() * .7, .15 + r.random() * .7, .03 + r.random() * .05)
+                 for _ in range(9)],
+                [(.15 + r.random() * .7, .15 + r.random() * .7, .025 + r.random() * .04)
+                 for _ in range(7)])
+        i = self._a_energy - 1
+        w1 = self._od_curve(0)[i] / 1.2
+        w2 = self._od_curve(1)[i] / 1.2
+        y, x = np.mgrid[0:n, 0:n] / n
+        rad = np.hypot(x - .5, y - .5)
+        a = np.full((n, n), 0.05)
+        for bx, by, br in self._phase_blobs[0]:
+            a += w1 * np.exp(-((x - bx) ** 2 + (y - by) ** 2) / (2 * br * br))
+        for bx, by, br in self._phase_blobs[1]:
+            a += w2 * np.exp(-((x - bx) ** 2 + (y - by) ** 2) / (2 * br * br))
+        # deterministic per-size noise (seed varies with n so caching can't
+        # cross-contaminate the 150 px viewer and the 48 px filmstrip frames)
+        a += (np.random.default_rng(66 + n).random((n, n)) - .5) * .03
+        a = np.where(rad > .47, 0.0, a)
+        return np.clip(a, 0, 1)
+
+    def _analysis_tools_col(self):
+        col = QWidget()
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
+
+        # OD vs energy spectrum
+        scard, sbody = self._card("OD vs energy")
+        legend = QHBoxLayout(); legend.setSpacing(12)
+        for color, lbl in ((C["ok"], "ROI 1"), (C["motion"], "ROI 2")):
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color:{color};background:transparent;font-size:9px;")
+            legend.addWidget(dot)
+            legend.addWidget(self._label(lbl, role="monoFaint"))
+        legw = QWidget(); legw.setLayout(legend)
+        scard._header_layout.addWidget(legw)
+
+        pw = pg.PlotWidget()
+        pw.setFixedHeight(300)
+        pw.setBackground(C["plot_ground"])
+        pw.showGrid(x=True, y=True, alpha=0.15)
+        for ax in ("bottom", "left"):
+            pw.getAxis(ax).setPen(C["border"])
+            pw.getAxis(ax).setTextPen(C["text_faint"])
+        pw.setLabel("bottom", "Energy (eV)")
+        e = np.array(self.ENERGIES)
+        for kind, color in ((0, C["ok"]), (1, C["motion"])):
+            od = self._od_curve(kind)
+            pw.plot(e, od, pen=pg.mkPen(color, width=2),
+                    symbol="o", symbolSize=5, symbolBrush=color, symbolPen=None)
+        self._a_cursor = pg.InfiniteLine(
+            pos=self.ENERGIES[self._a_energy - 1], angle=90, movable=True,
+            pen=pg.mkPen(QColor(95, 212, 214, 140), width=2),
+            hoverPen=pg.mkPen(C["accent"], width=2))
+        self._a_cursor.sigPositionChanged.connect(self._a_cursor_moved)
+        pw.addItem(self._a_cursor)
+        sbody.addWidget(pw)
+        v.addWidget(scard)
+
+        # tool tabs
+        tcard, tbody = self._card("Tools")
+        tabbar = QHBoxLayout()
+        tabbar.setContentsMargins(0, 0, 0, 0)
+        tabbar.setSpacing(2)
+        grp = QButtonGroup(self)
+        grp.setExclusive(True)
+        for i, name in enumerate(self._ANALYSIS_TOOLS):
+            b = QPushButton(name)
+            b.setProperty("role", "subtab")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            if i == 0:
+                b.setChecked(True)
+            grp.addButton(b, i)
+            tabbar.addWidget(b)
+        tabbar.addStretch(1)
+        tabwrap = QFrame()
+        tabwrap.setStyleSheet(f"border-bottom:1px solid {C['border']};")
+        tabwrap.setLayout(tabbar)
+        tbody.addWidget(tabwrap)
+
+        self._analysis_stack = QStackedWidget()
+        for page in (self._atool_main(), self._atool_filtering(),
+                     self._atool_registration(), self._atool_decomp("PCA"),
+                     self._atool_decomp("NNMF"), self._atool_line()):
+            self._analysis_stack.addWidget(page)
+        grp.idClicked.connect(self._analysis_stack.setCurrentIndex)
+        tbody.addWidget(self._analysis_stack, 1)
+
+        footer = QFrame()
+        footer.setObjectName("cardFooter")
+        fv = QHBoxLayout(footer)
+        fv.setContentsMargins(14, 10, 14, 10)
+        fv.setSpacing(8)
+        for name in ("Save data", "Save PNG", "Record"):
+            b = QPushButton(name); b.setProperty("role", "small")
+            fv.addWidget(b)
+        fv.addStretch(1)
+        addlog = QPushButton("Add to logbook"); addlog.setProperty("role", "small")
+        fv.addWidget(addlog)
+        tbody.addWidget(footer)
+        v.addWidget(tcard, 1)
+        return col
+
+    def _tool_page(self):
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
+        return page, v
+
+    def _select_row(self, label, items):
+        row = QVBoxLayout(); row.setSpacing(4)
+        row.addWidget(self._label(label, role="microLabel"))
+        cb = QComboBox(); cb.addItems(items); cb.setCursor(Qt.PointingHandCursor)
+        row.addWidget(cb)
+        w = QWidget(); w.setLayout(row)
+        return w
+
+    def _atool_main(self):
+        page, v = self._tool_page()
+        v.addWidget(self._select_row("I₀ source", ["ROI", "Region", "File"]))
+        grid, _ = self._grid4([("Pre-edge start", "695.5", False),
+                               ("Pre-edge stop", "698.0", False),
+                               ("Post-edge start", "704.0", False),
+                               ("Post-edge stop", "705.5", False)])
+        v.addLayout(grid)
+        v.addWidget(self._select_row("OD conversion", ["-log(I/I₀)", "linear"]))
+        b = QPushButton("Compute OD"); b.setObjectName("beginScan")
+        b.setCursor(Qt.PointingHandCursor)
+        v.addWidget(b)
+        v.addStretch(1)
+        return page
+
+    def _atool_filtering(self):
+        page, v = self._tool_page()
+        grid, _ = self._grid4([("Median k", "3", False), ("Gaussian σ", "1.0", False),
+                               ("Despike σ", "4.0", False), ("Passes", "1", False)])
+        v.addLayout(grid)
+        row = QHBoxLayout(); row.setSpacing(8)
+        ap = QPushButton("Apply to stack"); ap.setObjectName("beginScan")
+        ap.setCursor(Qt.PointingHandCursor)
+        pv = QPushButton("Preview")
+        row.addWidget(ap, 1); row.addWidget(pv)
+        v.addLayout(row)
+        v.addStretch(1)
+        return page
+
+    def _atool_registration(self):
+        page, v = self._tool_page()
+        v.addWidget(self._select_row("Reference frame",
+                                     ["first", "previous", "mean"]))
+        v.addWidget(self._select_row(
+            "Method", ["cross-correlation", "Fourier", "manual"]))
+        grid, _ = self._grid4([("Subpixel", "10", False), ("Max shift", "20", False),
+                               ("", "", True), ("", "", True)])
+        v.addLayout(grid)
+        row = QHBoxLayout(); row.setSpacing(8)
+        al = QPushButton("Align stack"); al.setObjectName("beginScan")
+        al.setCursor(Qt.PointingHandCursor)
+        sh = QPushButton("Show shifts")
+        row.addWidget(al, 1); row.addWidget(sh)
+        v.addLayout(row)
+        # shift plot
+        pw = pg.PlotWidget()
+        pw.setFixedHeight(90)
+        pw.setBackground(C["plot_ground"])
+        pw.getAxis("bottom").setPen(C["border"])
+        pw.getAxis("left").setPen(C["border"])
+        pw.getAxis("bottom").setTextPen(C["text_faint"])
+        pw.getAxis("left").setTextPen(C["text_faint"])
+        r = np.random.default_rng(11)
+        for color in (C["accent"], C["motion"]):
+            pw.plot((r.random(12) - .5) * 4, pen=pg.mkPen(color, width=2))
+        v.addWidget(pw)
+        v.addStretch(1)
+        return page
+
+    def _atool_decomp(self, label):
+        page, v = self._tool_page()
+        specs = [("Components", "4", False), ("Iterations", "200", False)]
+        if label == "NNMF":
+            specs.append(("Tolerance", "1e-4", False))
+        specs.append(("", "", True))
+        grid, _ = self._grid4(specs[:4])
+        v.addLayout(grid)
+        b = QPushButton(f"Run {label}"); b.setObjectName("beginScan")
+        b.setCursor(Qt.PointingHandCursor)
+        v.addWidget(b)
+        # component thumbnails strip
+        strip = QHBoxLayout(); strip.setSpacing(8)
+        for i in range(4):
+            box = QVBoxLayout(); box.setSpacing(3)
+            canvas = QLabel(); canvas.setFixedSize(72, 72); canvas.setScaledContents(True)
+            canvas.setStyleSheet("background:#000;")
+            f = _thumb_field(31 + i * 7, "Spiral Image", 48)
+            canvas.setPixmap(_field_pixmap(f, "viridis", 72))
+            box.addWidget(canvas)
+            box.addWidget(self._label(f"C{i}", role="microLabel"))
+            w = QWidget(); w.setLayout(box)
+            strip.addWidget(w)
+        strip.addStretch(1)
+        v.addLayout(strip)
+        v.addStretch(1)
+        return page
+
+    def _atool_line(self):
+        page, v = self._tool_page()
+        grid, _ = self._grid4([("Samples", "100", False),
+                               ("", "", True), ("", "", True), ("", "", True)])
+        v.addLayout(grid)
+        v.addWidget(self._select_row("Interpolation", ["bilinear", "nearest"]))
+        row = QHBoxLayout(); row.setSpacing(8)
+        ex = QPushButton("Extract line spectrum"); ex.setObjectName("beginScan")
+        ex.setCursor(Qt.PointingHandCursor)
+        dr = QPushButton("Draw line")
+        row.addWidget(ex, 1); row.addWidget(dr)
+        v.addLayout(row)
+        note = self._label("Drag a line on the stack image to define the cut; "
+                           "the spectrum is sampled along it.",
+                           font=sans_font(10.5), color=C["text_dim"])
+        note.setWordWrap(True)
+        v.addWidget(note)
+        v.addStretch(1)
+        return page
+
+    def _analysis_viewer_col(self):
+        card = QFrame()
+        card.setObjectName("card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        tb, self._analysis_fn, self._analysis_sub = self._viewer_toolbar(
+            "NS_260809057.stxm", "Energy 3 of 12 · 697.50 eV",
+            self._analysis_set_cmap, ("ROI", "Levels", "Unzoom"))
+        cl.addWidget(tb)
+
+        bodyw = QWidget()
+        bh = QHBoxLayout(bodyw)
+        bh.setContentsMargins(0, 0, 0, 0)
+        bh.setSpacing(0)
+        self._analysis_img = OverlayImageView(
+            self._analysis_field(150), cmap="gray",
+            meta_text="Spiral Stack · OD\npixel 0.200 µm · 12 energies\n"
+                      "Fe L₃ · circ. polarization")
+        # circular ROI overlays (field is 150 px; place two ROIs)
+        self._analysis_img.add_circle_roi(58, 62, 14, C["ok"], "ROI 1")
+        self._analysis_img.add_circle_roi(96, 92, 10, C["motion"], "ROI 2")
+        bh.addWidget(self._analysis_img, 1)
+        rail, self._analysis_rail = self._viewer_rail("gray")
+        bh.addWidget(rail)
+        cl.addWidget(bodyw, 1)
+
+        # energy filmstrip
+        strip = QFrame()
+        strip.setObjectName("cardFooter")
+        strip.setFixedHeight(96)
+        slv = QVBoxLayout(strip)
+        slv.setContentsMargins(10, 8, 10, 8)
+        slv.setSpacing(6)
+        top = QHBoxLayout()
+        self._a_play_btn = QPushButton("▶ Play")
+        self._a_play_btn.setProperty("role", "small")
+        self._a_play_btn.setCursor(Qt.PointingHandCursor)
+        self._a_play_btn.clicked.connect(self._toggle_analysis_play)
+        top.addWidget(self._a_play_btn)
+        top.addStretch(1)
+        slv.addLayout(top)
+        fscroll = QScrollArea()
+        fscroll.setWidgetResizable(True)
+        fscroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        fscroll.setFixedHeight(56)
+        finner = QWidget()
+        frow = QHBoxLayout(finner)
+        frow.setContentsMargins(0, 0, 0, 0)
+        frow.setSpacing(6)
+        self._a_film = []
+        for i in range(len(self.ENERGIES)):
+            canvas = QLabel()
+            canvas.setFixedSize(48, 48)
+            canvas.setScaledContents(True)
+            canvas.setCursor(Qt.PointingHandCursor)
+            self._a_energy = i + 1
+            f = self._analysis_field(48)
+            canvas.setPixmap(_field_pixmap(f, self._analysis_cmap, 48))
+            canvas.mousePressEvent = lambda e, k=i + 1: self._set_a_energy(k)
+            frow.addWidget(canvas)
+            self._a_film.append(canvas)
+        self._a_energy = 3
+        frow.addStretch(1)
+        fscroll.setWidget(finner)
+        slv.addWidget(fscroll)
+        cl.addWidget(strip)
+        return card
+
+    def _analysis_set_cmap(self, name):
+        self._analysis_cmap = name
+        self._analysis_img.set_cmap(name)
+        self._analysis_rail.set_lut(name)
+        self._refresh_filmstrip()
+
+    def _refresh_filmstrip(self):
+        keep = self._a_energy
+        for i, canvas in enumerate(self._a_film):
+            self._a_energy = i + 1
+            f = self._analysis_field(48)
+            canvas.setPixmap(_field_pixmap(f, self._analysis_cmap, 48))
+            sel = (i + 1) == keep
+            canvas.setStyleSheet(
+                f"background:#000;border:2px solid "
+                f"{C['accent'] if sel else 'transparent'};")
+        self._a_energy = keep
+
+    def _a_cursor_moved(self):
+        """Snap the draggable spectrum cursor to the nearest energy point."""
+        x = self._a_cursor.value()
+        i = int(np.argmin(np.abs(np.array(self.ENERGIES) - x)))
+        if i + 1 != self._a_energy:
+            self._set_a_energy(i + 1)
+
+    def _set_a_energy(self, k):
+        self._a_energy = int(max(1, min(len(self.ENERGIES), k)))
+        ev = self.ENERGIES[self._a_energy - 1]
+        # image plane
+        self._analysis_img.set_field(self._analysis_field(150), autolevels=True)
+        # spectrum cursor (block to avoid recursion)
+        if hasattr(self, "_a_cursor"):
+            self._a_cursor.blockSignals(True)
+            self._a_cursor.setValue(ev)
+            self._a_cursor.blockSignals(False)
+        # filmstrip highlight
+        for i, canvas in enumerate(getattr(self, "_a_film", [])):
+            sel = (i + 1) == self._a_energy
+            canvas.setStyleSheet(
+                f"background:#000;border:2px solid "
+                f"{C['accent'] if sel else 'transparent'};")
+        # toolbar label
+        if hasattr(self, "_analysis_sub"):
+            self._analysis_sub.setText(
+                f"Energy {self._a_energy} of {len(self.ENERGIES)} · {ev:.2f} eV")
+
+    def _toggle_analysis_play(self):
+        self._a_playing = not self._a_playing
+        self._a_play_btn.setText("⏸ Pause" if self._a_playing else "▶ Play")
+        if not hasattr(self, "_a_play_timer"):
+            self._a_play_timer = QTimer(self)
+            self._a_play_timer.timeout.connect(self._a_advance)
+        if self._a_playing:
+            self._a_play_timer.start(500)
+        else:
+            self._a_play_timer.stop()
+
+    def _a_advance(self):
+        nxt = 1 if self._a_energy >= len(self.ENERGIES) else self._a_energy + 1
+        self._set_a_energy(nxt)
+
+    def _analysis_side_col(self):
+        col = QWidget()
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
+
+        # ROIs
+        rcard, rbody = self._card("ROIs")
+        rc = QWidget()
+        rv = QVBoxLayout(rc)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.setSpacing(0)
+        roi_rows = [(C["ok"], "ROI 1", "ellipse · 41 px · Fe-rich", "1.14 max"),
+                    (C["motion"], "ROI 2", "ellipse · 22 px · matrix", "0.52 max"),
+                    (C["inactive_bar"], "I₀", "clear area · 180 px", "—")]
+        for color, name, detail, od in roi_rows:
+            rv.addWidget(self._roi_row(color, name, detail, od))
+        rbody.addWidget(rc)
+        v.addWidget(rcard)
+
+        # processing
+        pcard, pbody = self._card("Processing")
+        pc = QWidget()
+        pv = QVBoxLayout(pc)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(0)
+        pipeline = [("✓", C["ok"], "Dark subtract", "auto"),
+                    ("✓", C["ok"], "Despike", "4.0 σ"),
+                    ("✓", C["ok"], "Align stack", "rms 1.4 px"),
+                    ("✓", C["ok"], "Optical density", "I₀ ROI"),
+                    ("·", C["text_faint"], "Pre-edge subtract", "not run")]
+        for mark, color, step, note in pipeline:
+            pv.addWidget(self._pipeline_row(mark, color, step, note))
+        pbody.addWidget(pc)
+        v.addWidget(pcard)
+
+        # export
+        ecard, ebody = self._card("Export")
+        ec = QWidget()
+        ev = QVBoxLayout(ec)
+        ev.setContentsMargins(14, 14, 14, 14)
+        ev.setSpacing(10)
+        grid = QGridLayout(); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(8)
+        for i, name in enumerate(("Spectra CSV", "Stack HDF5", "Figure PNG", "Maps TIFF")):
+            b = QPushButton(name); b.setProperty("role", "small")
+            grid.addWidget(b, *divmod(i, 2))
+        ev.addLayout(grid)
+        path = QLineEdit("/data/2026/08/09/analysis")
+        ev.addWidget(path)
+        exp = QPushButton("Export && log"); exp.setObjectName("beginScan")
+        exp.setCursor(Qt.PointingHandCursor)
+        ev.addWidget(exp)
+        ebody.addWidget(ec)
+        v.addWidget(ecard)
+        v.addStretch(1)
+        return col
+
+    def _roi_row(self, color, name, detail, od):
+        row = QFrame()
+        row.setObjectName("rowSep")
+        g = QHBoxLayout(row)
+        g.setContentsMargins(14, 9, 14, 9)
+        g.setSpacing(9)
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color:{color};background:transparent;font-size:9px;")
+        g.addWidget(dot)
+        nb = QVBoxLayout(); nb.setSpacing(1)
+        nb.addWidget(self._label(name, role="mono"))
+        nb.addWidget(self._label(detail, font=sans_font(10.5), color=C["text_dim"]))
+        nw = QWidget(); nw.setLayout(nb)
+        g.addWidget(nw, 1)
+        odl = self._label(od, role="value"); odl.setFont(mono_font(11))
+        g.addWidget(odl)
+        return row
+
+    def _pipeline_row(self, mark, color, step, note):
+        row = QFrame()
+        row.setObjectName("rowSep")
+        g = QHBoxLayout(row)
+        g.setContentsMargins(14, 9, 14, 9)
+        g.setSpacing(10)
+        m = QLabel(mark)
+        m.setFont(mono_font(12))
+        m.setStyleSheet(f"color:{color};background:transparent;")
+        m.setFixedWidth(14)
+        g.addWidget(m)
+        g.addWidget(self._label(step, font=sans_font(12), color=C["text_2"]), 1)
+        g.addWidget(self._label(note, role="monoFaint"))
+        return row
+
+    # ════════════════════════════════════════════════════════════════════
+    #  Agent view
+    # ════════════════════════════════════════════════════════════════════
+    _LOG_FILTERS = ["All", "Scans", "Comments", "Errors", "Attachments"]
+    _LOG_ENTRIES = [
+        ("14:04", "Scans", "SCAN", "#5fd4d6", "NS_260809056.stxm",
+         "Spiral Image · 20 × 20 µm · 100 nm · 705.5 eV · dwell 1.0 ms. "
+         "Completed in 03:12.",
+         "ZonePlateZ 1204.85 µm · ring 499.6 mA · queued by task agent", 56, "Spiral Image"),
+        ("13:58", "Errors", "ANOMALY", "#ffc45e", "fCCD column dropout",
+         "Intelligence agent flagged lines 46–49 of frame 3184. Values "
+         "interpolated in preview, raw frames preserved.",
+         "detector.fccd · severity warn · auto-logged", None, None),
+        ("13:51", "Comments", "OPERATOR", "#8ee06a", "Sample NiFe_ox_04",
+         "Particle field looks cleaner after the nitrogen purge. Using the "
+         "lower-left quadrant for the rest of the shift.", "j.chen", None, None),
+        ("13:44", "Attachments", "FIGURE", "#b79bf0",
+         "Fe L₃ OD spectrum, ROI 1 vs ROI 2",
+         "Attached from Analysis. Pre-edge subtracted, aligned stack, 12 energies.",
+         "analysis/od_roi_compare.png · 121 pts · 700.0–705.5 eV", 12, "Spiral Stack"),
+        ("13:30", "Scans", "SCAN", "#5fd4d6", "NS_260809053.stxm",
+         "Focus · ZonePlateZ 1198–1212 µm · 41 points. Best focus 1204.85 µm.",
+         "applied to microscope · Δ +1.35 µm", None, None),
+        ("13:22", "Errors", "INTERLOCK", "#e08b8b", "Shutter interlock trip",
+         "Endstation shutter closed on vacuum transient. Scan NS_260809052 "
+         "aborted at line 88 of 120.", "cleared 13:24 · partial file kept", None, None),
+        ("13:15", "Comments", "OPERATOR", "#8ee06a", "Shift start",
+         "Beamline handed over from morning group. Grating 1200 l/mm, "
+         "exit slit 30 µm.", "j.chen", None, None),
+        ("13:12", "Scans", "SCAN", "#5fd4d6", "NS_260809051.stxm",
+         "Focus · coarse pass to find the zone plate. 61 points, 2.0 ms dwell.",
+         "ZonePlateZ 1190–1220 µm", 51, "Focus"),
+    ]
+
+    def _build_agent_view(self):
+        self._plan_state = "pending"
+        self._log_filter = "All"
+
+        body = QWidget()
+        body.setStyleSheet(f"background:{C['canvas']};")
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(10, 10, 10, 10)
+        bl.setSpacing(10)
+        left = self._agent_left_col()
+        right = self._agent_logbook_col(); right.setFixedWidth(880)
+        bl.addWidget(left, 1)
+        bl.addWidget(right)
+
+        self._render_logbook()
+        return body
+
+    def _agent_left_col(self):
+        col = QWidget()
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
+        v.addWidget(self._agent_status_strip())
+        v.addWidget(self._agent_conversation(), 1)
+        return col
+
+    def _agent_status_strip(self):
+        card = QFrame()
+        card.setObjectName("card")
+        h = QHBoxLayout(card)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+
+        def half(dot_color, pulse, name, name_color, subline, status, status_role):
+            w = QWidget()
+            g = QHBoxLayout(w)
+            g.setContentsMargins(16, 13, 16, 13)
+            g.setSpacing(10)
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color:{dot_color};background:transparent;font-size:11px;")
+            g.addWidget(dot, 0, Qt.AlignTop)
+            box = QVBoxLayout(); box.setSpacing(2)
+            nm = self._label(name, font=sans_font(12, QFont.DemiBold),
+                             color=name_color)
+            box.addWidget(nm)
+            box.addWidget(self._label(subline, role="monoFaint"))
+            bw = QWidget(); bw.setLayout(box)
+            g.addWidget(bw, 1)
+            chip = self._label(status, role=status_role)
+            chip.setFont(mono_font(10))
+            if status_role == "approvalChip":
+                chip.setStyleSheet(
+                    f"color:{C['accent']};background:#0f2a2b;"
+                    f"border:1px solid #1f4b4c;border-radius:4px;padding:3px 8px;")
+            else:
+                chip.setStyleSheet(f"color:{C['motion']};background:transparent;")
+            g.addWidget(chip, 0, Qt.AlignTop)
+            return w, dot
+
+        left, self._ta_dot = half(
+            C["ok"], True, "Task agent", C["text"],
+            "operator-facing · proposes, you approve",
+            "APPROVAL REQUIRED", "approvalChip")
+        h.addWidget(left, 1)
+        h.addWidget(self._vline())
+        right, _ = half(
+            C["motion"], False, "Intelligence agent", C["text_2"],
+            "hardware-side · advises the task agent",
+            "1 anomaly · 14 ms latency", "warnChip")
+        h.addWidget(right, 1)
+        card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        return card
+
+    def _agent_conversation(self):
+        card, cbody = self._card("Conversation")
+        sess = self._label("session 042 · NiFe_ox_04", role="monoFaint")
+        card._header_layout.insertWidget(1, sess)
+        card._header_layout.insertSpacing(2, 10)
+        for name in ("Transcript", "Clear"):
+            b = QPushButton(name); b.setProperty("role", "small")
+            card._header_layout.addWidget(b)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        self._conv_layout = QVBoxLayout(inner)
+        self._conv_layout.setContentsMargins(20, 18, 20, 18)
+        self._conv_layout.setSpacing(16)
+
+        # session-start divider
+        div = QHBoxLayout()
+        div.addStretch(1)
+        chip = self._label("14:02 · session started", role="monoFaint")
+        chip.setStyleSheet(
+            f"color:{C['text_faint']};background:{C['panel_footer']};"
+            f"border:1px solid {C['border']};border-radius:20px;padding:3px 12px;")
+        div.addWidget(chip)
+        div.addStretch(1)
+        self._conv_layout.addLayout(div)
+
+        self._conv_layout.addWidget(self._msg_bubble(
+            "OP",
+            "Find the iron-rich particles in the current field of view and take "
+            "a Fe L₃ stack on the two strongest ones.",
+            "14:03:11"))
+        self._conv_layout.addWidget(self._msg_bubble(
+            "TA",
+            "I ran a two-point absorption contrast pass over "
+            "<b>NS_260809056.stxm</b> at 705.5 eV and 700.0 eV. Six candidate "
+            "particles above threshold; two are well separated and outside the "
+            "drift region flagged by the intelligence agent.<br><br>"
+            "<span style='color:#7c8894'>ROI 1 · (−1.42, 3.08) µm · ΔOD 0.61"
+            "&nbsp;&nbsp;&nbsp; ROI 2 · (2.10, −0.94) µm · ΔOD 0.48</span>",
+            "14:03:26 · 4.1 s · 2 tool calls"))
+        self._conv_layout.addWidget(self._msg_bubble(
+            "IA",
+            "fCCD frame 3184 shows a column dropout on lines 46–49 of the last "
+            "spiral. Interpolated in the preview, flagged in the file. Recommend "
+            "re-taking the region if quantitative OD is needed below 0.05.",
+            "14:03:29 · not addressable from GUI"))
+        self._conv_layout.addWidget(self._msg_bubble(
+            "TA",
+            "Proposed plan below. Nothing has moved yet — the scan queue is "
+            "untouched until you approve.",
+            "14:03:34", extra=self._proposal_card()))
+
+        self._conv_layout.addStretch(1)
+        scroll.setWidget(inner)
+        cbody.addWidget(scroll, 1)
+        cbody.addWidget(self._agent_composer())
+        return card
+
+    def _msg_bubble(self, speaker, html, meta, extra=None):
+        avatar_style = {
+            "OP": ("#1d2833", "#8b97a3"),
+            "TA": ("#0f2a2b", "#5fd4d6"),
+            "IA": ("#2a2113", "#ffc45e"),
+        }[speaker]
+        bubble_style = {
+            "OP": ("#161b21", "#2c3a48", "#e6ebef"),
+            "TA": ("#101820", "#22303c", "#cbd5dd"),
+            "IA": ("#171410", "#3a2f1a", "#d8cbb3"),
+        }[speaker]
+        max_w = {"OP": 620, "TA": 700, "IA": 700}[speaker]
+
+        w = QWidget()
+        g = QHBoxLayout(w)
+        g.setContentsMargins(0, 0, 0, 0)
+        g.setSpacing(12)
+        av = QLabel(speaker)
+        av.setFixedSize(26, 26)
+        av.setAlignment(Qt.AlignCenter)
+        av.setFont(mono_font(10, QFont.DemiBold))
+        av.setStyleSheet(
+            f"background:{avatar_style[0]};color:{avatar_style[1]};"
+            "border-radius:5px;")
+        g.addWidget(av, 0, Qt.AlignTop)
+
+        col = QVBoxLayout(); col.setSpacing(5); col.setContentsMargins(0, 0, 0, 0)
+        bubble = QFrame()
+        bubble.setObjectName("convBubble")
+        bubble.setMaximumWidth(max_w)
+        # objectName-scoped so the border can't leak onto child labels
+        # (QLabel subclasses QFrame, so bare-property borders would apply to it).
+        bubble.setStyleSheet(
+            f"QFrame#convBubble {{background:{bubble_style[0]};"
+            f"border:1px solid {bubble_style[1]};border-radius:8px;}}")
+        bv = QVBoxLayout(bubble)
+        bv.setContentsMargins(14, 12, 14, 12)
+        bv.setSpacing(8)
+        if speaker == "IA":
+            adv = self._label("ADVISORY → TASK AGENT", role="monoFaint")
+            adv.setStyleSheet(f"color:{C['motion']};background:transparent;"
+                              "font-size:10px;letter-spacing:1px;")
+            bv.addWidget(adv)
+        text = QLabel(html)
+        text.setTextFormat(Qt.RichText)
+        text.setWordWrap(True)
+        text.setMaximumWidth(max_w - 28)      # force wrap within the bubble
+        text.setStyleSheet(f"color:{bubble_style[2]};background:transparent;"
+                           "font-size:13px;")
+        bv.addWidget(text)
+        if extra is not None:
+            bv.addWidget(extra)
+        # Bubble in an HBox with a trailing stretch: the bubble hugs its content
+        # width (capped at max_w) and word-wraps within it.  A trailing AlignTop
+        # on the content column would suppress QLabel heightForWidth (→ no wrap).
+        brow = QHBoxLayout(); brow.setContentsMargins(0, 0, 0, 0)
+        brow.addWidget(bubble)
+        brow.addStretch(1)
+        col.addLayout(brow)
+        col.addWidget(self._label(meta, role="monoFaint"))
+        cw = QWidget(); cw.setLayout(col)
+        g.addWidget(cw, 1)
+        return w
+
+    def _proposal_card(self):
+        card = QFrame()
+        card.setObjectName("proposalCard")
+        card.setStyleSheet(f"QFrame#proposalCard {{background:#0b1116;"
+                           f"border:1px solid {C['border_strong']};"
+                           "border-radius:7px;}")
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+
+        head = QFrame()
+        head.setObjectName("proposalHead")
+        head.setStyleSheet(f"QFrame#proposalHead {{background:{C['panel_footer']};"
+                           f"border:none;border-bottom:1px solid {C['border']};}}")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(13, 9, 13, 9)
+        h = self._label("PROPOSED ACTION")
+        h.setObjectName("panelHeading")
+        hl.addWidget(h)
+        hl.addStretch(1)
+        self._proposal_state = self._label("AWAITING APPROVAL", role="monoFaint")
+        self._proposal_state.setStyleSheet(
+            f"color:{C['motion']};background:transparent;font-size:11px;")
+        hl.addWidget(self._proposal_state)
+        cv.addWidget(head)
+
+        bodyw = QWidget()
+        bv = QVBoxLayout(bodyw)
+        bv.setContentsMargins(13, 12, 13, 12)
+        bv.setSpacing(9)
+        steps = [
+            ("1", "Coarse image at ROI 1 to confirm registration",
+             "10 × 10 µm · 100 nm · 1.0 ms"),
+            ("2", "Fe L₃ image stack, ROI 1", "4 × 4 µm · 40 nm · 121 pts"),
+            ("3", "Fe L₃ image stack, ROI 2", "4 × 4 µm · 40 nm · 121 pts"),
+            ("4", "Re-take lines 46–49 flagged by intelligence agent",
+             "optional · +02:10"),
+        ]
+        for n, what, detail in steps:
+            row = QHBoxLayout(); row.setSpacing(10)
+            idx = self._label(n, role="monoFaint"); idx.setFixedWidth(18)
+            row.addWidget(idx, 0, Qt.AlignTop)
+            row.addWidget(self._label(what, font=sans_font(11.5), color=C["text_2"]), 1)
+            d = self._label(detail, role="monoFaint")
+            row.addWidget(d, 0, Qt.AlignTop)
+            bv.addLayout(row)
+        rule = QFrame(); rule.setFixedHeight(1)
+        rule.setStyleSheet(f"background:{C['separator']};border:none;")
+        bv.addWidget(rule)
+        cost = self._label("total 00:19:40      242 energy points      "
+                           "2 files      dose 1.4× nominal", role="monoFaint")
+        bv.addWidget(cost)
+        cv.addWidget(bodyw)
+
+        actions = QFrame()
+        actions.setObjectName("proposalActions")
+        actions.setStyleSheet(f"QFrame#proposalActions {{background:{C['panel_footer']};"
+                              f"border:none;border-top:1px solid {C['border']};}}")
+        al = QHBoxLayout(actions)
+        al.setContentsMargins(13, 11, 13, 11)
+        al.setSpacing(8)
+        approve = QPushButton("Approve && queue")
+        approve.setObjectName("beginScan")
+        approve.setCursor(Qt.PointingHandCursor)
+        approve.clicked.connect(self._approve_plan)
+        al.addWidget(approve)
+        for name in ("Edit in Acquisition", "Dry run"):
+            b = QPushButton(name); b.setProperty("role", "small")
+            al.addWidget(b)
+        al.addStretch(1)
+        reject = QPushButton("Reject")
+        reject.setObjectName("rejectBtn")
+        reject.setCursor(Qt.PointingHandCursor)
+        reject.clicked.connect(self._reject_plan)
+        al.addWidget(reject)
+        cv.addWidget(actions)
+        return card
+
+    def _approve_plan(self):
+        if self._plan_state != "pending":
+            return
+        self._plan_state = "approved"
+        self._proposal_state.setText("APPROVED 14:04:02")
+        self._proposal_state.setStyleSheet(
+            f"color:{C['ok']};background:transparent;font-size:11px;")
+        # append a confirmation turn before the trailing stretch
+        conf = self._msg_bubble(
+            "TA",
+            "Queued as items 4–5. Step 1 running now: coarse image at ROI 1, "
+            "10 × 10 µm. I will report the OD contrast when the first stack "
+            "finishes and log both files.",
+            "14:04:02 · queue updated")
+        self._conv_layout.insertWidget(self._conv_layout.count() - 1, conf)
+
+    def _reject_plan(self):
+        if self._plan_state != "pending":
+            return
+        self._plan_state = "rejected"
+        self._proposal_state.setText("REJECTED")
+        self._proposal_state.setStyleSheet(
+            f"color:#e08b8b;background:transparent;font-size:11px;")
+
+    def _agent_composer(self):
+        footer = QFrame()
+        footer.setObjectName("cardFooter")
+        fv = QVBoxLayout(footer)
+        fv.setContentsMargins(16, 12, 16, 12)
+        fv.setSpacing(9)
+        presets = QHBoxLayout(); presets.setSpacing(7)
+        for name in ("Optimise focus", "Find features", "Explain last anomaly",
+                     "Summarise this session"):
+            b = QPushButton(name); b.setProperty("role", "small")
+            presets.addWidget(b)
+        presets.addStretch(1)
+        fv.addLayout(presets)
+        row = QHBoxLayout(); row.setSpacing(9)
+        inp = QLineEdit()
+        inp.setPlaceholderText("Ask the task agent…")
+        inp.setFont(sans_font(11.5))
+        row.addWidget(inp, 1)
+        send = QPushButton("Send")
+        send.setObjectName("beginScan")
+        send.setCursor(Qt.PointingHandCursor)
+        row.addWidget(send)
+        fv.addLayout(row)
+        return footer
+
+    def _agent_logbook_col(self):
+        card, cbody = self._card("Logbook")
+        meta = self._label(f"2026-08-09 · {len(self._LOG_ENTRIES)} entries",
+                           role="monoFaint")
+        card._header_layout.insertWidget(1, meta)
+        card._header_layout.insertSpacing(2, 10)
+        exp = QPushButton("Export MD"); exp.setProperty("role", "small")
+        card._header_layout.addWidget(exp)
+
+        frow = QFrame()
+        frow.setObjectName("filterRow")
+        frow.setStyleSheet(f"QFrame#filterRow {{background:{C['panel_footer']};"
+                           f"border:none;border-bottom:1px solid {C['border']};}}")
+        fl = QHBoxLayout(frow)
+        fl.setContentsMargins(14, 10, 14, 10)
+        fl.setSpacing(6)
+        self._log_filter_grp, fbtns = self._filter_pills(self._LOG_FILTERS)
+        for i, b in enumerate(fbtns):
+            fl.addWidget(b)
+            b.clicked.connect(
+                lambda _=False, k=self._LOG_FILTERS[i]: self._set_log_filter(k))
+        fl.addStretch(1)
+        cbody.addWidget(frow)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        self._log_layout = QVBoxLayout(inner)
+        self._log_layout.setContentsMargins(0, 0, 0, 0)
+        self._log_layout.setSpacing(0)
+        self._log_layout.addStretch(1)
+        scroll.setWidget(inner)
+        cbody.addWidget(scroll, 1)
+
+        # composer
+        footer = QFrame()
+        footer.setObjectName("cardFooter")
+        fl2 = QHBoxLayout(footer)
+        fl2.setContentsMargins(14, 11, 14, 11)
+        fl2.setSpacing(8)
+        note = QLineEdit()
+        note.setPlaceholderText("Add a note to the logbook…")
+        note.setFont(sans_font(11))
+        fl2.addWidget(note, 1)
+        attach = QPushButton("Attach view"); attach.setProperty("role", "small")
+        addb = QPushButton("Add"); addb.setProperty("role", "small")
+        fl2.addWidget(attach)
+        fl2.addWidget(addb)
+        cbody.addWidget(footer)
+        return card
+
+    def _set_log_filter(self, kind):
+        self._log_filter = kind
+        self._render_logbook()
+
+    def _render_logbook(self):
+        while self._log_layout.count() > 1:      # keep trailing stretch
+            item = self._log_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for entry in self._LOG_ENTRIES:
+            if self._log_filter != "All" and entry[1] != self._log_filter:
+                continue
+            self._log_layout.insertWidget(
+                self._log_layout.count() - 1, self._log_row(entry))
+
+    def _log_row(self, entry):
+        time, kind, tag, color, title, body_txt, meta, seed, fkind = entry
+        row = QFrame()
+        row.setObjectName("rowSep")
+        g = QHBoxLayout(row)
+        g.setContentsMargins(14, 13, 14, 13)
+        g.setSpacing(12)
+        t = self._label(time, role="monoFaint")
+        t.setFixedWidth(46)
+        g.addWidget(t, 0, Qt.AlignTop)
+        spine = QFrame(); spine.setFixedWidth(3)
+        spine.setStyleSheet(f"background:{color};border-radius:2px;")
+        g.addWidget(spine)
+        box = QVBoxLayout(); box.setSpacing(4)
+        titlerow = QHBoxLayout(); titlerow.setSpacing(9)
+        titlerow.addWidget(self._label(title, font=sans_font(12.5, QFont.DemiBold),
+                                       color=C["text"]))
+        chip = self._label(tag)
+        chip.setFont(mono_font(9))
+        chip.setStyleSheet(
+            f"color:{color};background:transparent;border:1px solid {color}44;"
+            "border-radius:3px;padding:1px 6px;letter-spacing:1px;")
+        titlerow.addWidget(chip)
+        titlerow.addStretch(1)
+        box.addLayout(titlerow)
+        b = self._label(body_txt, font=sans_font(12), color=C["text_muted"])
+        b.setWordWrap(True)
+        box.addWidget(b)
+        if seed is not None:
+            mrow = QHBoxLayout(); mrow.setSpacing(8)
+            thumb = QLabel()
+            thumb.setFixedSize(74, 74)
+            thumb.setScaledContents(True)
+            thumb.setStyleSheet(f"background:#000;border:1px solid {C['border']};"
+                                "border-radius:4px;")
+            thumb.setPixmap(_field_pixmap(_thumb_field(seed, fkind, 74), "gray", 74))
+            mrow.addWidget(thumb, 0, Qt.AlignTop)
+            mrow.addWidget(self._label(meta, role="monoFaint"), 1, Qt.AlignTop)
+            box.addLayout(mrow)
+        else:
+            box.addWidget(self._label(meta, role="monoFaint"))
+        bw = QWidget(); bw.setLayout(box)
+        g.addWidget(bw, 1)
+        return row
+
     # ── motor actions ────────────────────────────────────────────────────
     def _jog_step(self, name):
         """Per-motor jog step: the motor's configured scan step if positive,
@@ -1510,6 +3228,7 @@ class MainWindowDashboard(QMainWindow):
             c.cancel_scan()
             return
         if self._compile_scan():
+            self.image_area.clear_region_frames()   # fresh mosaic for the new scan
             c.start_scan()
         # start_scan / cancel_scan emit scan_state_changed → _set_scanning keeps
         # the Begin/Cancel button in sync with the controller's real state.
@@ -1559,21 +3278,31 @@ class MainWindowDashboard(QMainWindow):
             sm.set('loop_scan', False)   # loop sequence not yet wired in dashboard
             sm.set('daq_list', self._resolve_daq_list(client, sc))
 
-            # Spatial region from the SampleX / SampleY grid.
-            region = self._compile_spatial_region()
-            sm.add_scan_region('Region1', region)
+            # Spatial regions — flush the grid into the active region, then emit
+            # every image region (plus the spectrum region, if enabled).
+            if isinstance(self._active_region, int):
+                self._scan_regions[self._active_region].update(
+                    self._read_spatial_fields())
+            elif self._spectrum_region is not None:
+                self._spectrum_region.update(self._read_spatial_fields())
+            region = self._region_scan_dict(self._scan_regions[0])
+            for i, r in enumerate(self._scan_regions):
+                sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
+            if self._spectrum_region is not None:
+                spec = self._region_scan_dict(self._spectrum_region)
+                spec['spectrum'] = True
+                sm.add_scan_region('SpectrumRegion', spec)
 
-            # Energy region.
-            estart = float(self._energy_fields['start'].text())
-            estop = float(self._energy_fields['stop'].text())
-            estep = float(self._energy_fields['step'].text() or 0)
-            dwell = float(self._energy_fields['dwell'].text())
-            n = self._energy_n(estart, estop, estep)
-            sm.set('single_energy', n <= 1)
+            # Energy regions — flush the field row into the active region first.
+            self._sync_active_energy_region()
+            total_n = 0
+            for i, r in enumerate(self._energy_regions):
+                total_n += r['n']
+                sm.add_energy_region(f'EnergyRegion{i + 1}', {
+                    'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+                    'dwell': r['dwell'], 'n_energies': r['n']})
+            sm.set('single_energy', total_n <= 1)
             sm.set('energy_list', None)
-            sm.add_energy_region('EnergyRegion1', {
-                'start': estart, 'stop': estop, 'step': estep,
-                'dwell': dwell, 'n_energies': n})
 
             est = sm.calculate_estimated_time()
             self._update_scan_stats(est, region)
@@ -1586,17 +3315,59 @@ class MainWindowDashboard(QMainWindow):
             c.error_occurred.emit(f"Failed to compile scan: {e}")
             return False
 
-    def _compile_spatial_region(self):
-        """Build an Image scan-region dict (same shape/math as
+    def _prefill_from_last_scan(self):
+        """Pre-fill the spatial + energy regions from the last executed Image
+        scan, which the server ships in ``client.main_config['lastScan']['Image']``
+        on connect.  No-op if unavailable (fresh install / non-Image history)."""
+        client = getattr(self.controller, 'client', None)
+        main_cfg = getattr(client, 'main_config', None) or {}
+        last = (main_cfg.get('lastScan') or {}).get('Image')
+        if not last:
+            return
+        try:
+            regs = []
+            for r in (last.get('scan_regions') or {}).values():
+                regs.append({
+                    'xCenter': float(r.get('xCenter', 0.0)),
+                    'yCenter': float(r.get('yCenter', 0.0)),
+                    'xRange': float(r.get('xRange', 10.0)),
+                    'yRange': float(r.get('yRange', 10.0)),
+                    'xPoints': max(1, int(r.get('xPoints', 100))),
+                    'yPoints': max(1, int(r.get('yPoints', 100)))})
+            if regs:
+                self._scan_regions = regs
+                self._active_region = 0
+                self._spectrum_region = None
+                self._write_spatial_fields(regs[0])
+                self._refresh_spatial_image(fit=True)
+
+            eregs = []
+            for e in (last.get('energy_regions') or {}).values():
+                start = float(e.get('start', 0.0)); stop = float(e.get('stop', 0.0))
+                step = float(e.get('step', 0.0))
+                eregs.append({'start': start, 'stop': stop, 'step': step,
+                              'dwell': float(e.get('dwell', 1.0)),
+                              'n': int(e.get('n_energies', 1)) or 1})
+            if eregs:
+                self._energy_regions = eregs
+                self._active_energy_region = 0
+                self._load_energy_region(0)
+
+            sample = last.get('sample')
+            if sample and getattr(self, '_sample_field', None):
+                self._sample_field.setText(str(sample))
+        except (ValueError, TypeError, KeyError) as ex:
+            self._on_error(f"Could not pre-fill last scan: {ex}")
+
+    @staticmethod
+    def _region_scan_dict(r):
+        """Expand a region-model dict {xCenter,yCenter,xRange,yRange,xPoints,
+        yPoints} into a full Image scan-region dict (same shape/math as
         MainController._extract_scan_region_data's Image branch)."""
-        fx = self._spatial_fields['SampleX']
-        fy = self._spatial_fields['SampleY']
-        xc = float(fx['center'].text() or 0)
-        yc = float(fy['center'].text() or 0)
-        xr = float(fx['range'].text() or 10)
-        yr = float(fy['range'].text() or 10)
-        xp = int(float(fx['npts'].text() or 100))
-        yp = int(float(fy['npts'].text() or 100))
+        xc, yc = r['xCenter'], r['yCenter']
+        xr, yr = r['xRange'], r['yRange']
+        xp = max(1, int(r['xPoints']))
+        yp = max(1, int(r['yPoints']))
         xs = xr / xp if xp > 0 else 0.1
         ys = yr / yp if yp > 0 else 0.1
         return {
@@ -1653,8 +3424,180 @@ class MainWindowDashboard(QMainWindow):
         except ValueError:
             pass
 
+    # ── spatial-region model ─────────────────────────────────────────────
+    def _read_spatial_fields(self):
+        """Snapshot the SampleX / SampleY grid into a region dict."""
+        def rd(name):
+            f = self._spatial_fields[name]
+            try:
+                c = float(f['center'].text() or 0)
+                rng = float(f['range'].text() or 0)
+                n = int(float(f['npts'].text() or 1))
+            except ValueError:
+                c, rng, n = 0.0, 0.0, 1
+            return c, rng, max(1, n)
+        xc, xr, xn = rd('SampleX')
+        yc, yr, yn = rd('SampleY')
+        return {'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
+                'xPoints': xn, 'yPoints': yn}
+
+    def _write_spatial_fields(self, r):
+        """Load a region dict back into the grid (does not fire edit signals)."""
+        for name, c, rng, n in (('SampleX', r['xCenter'], r['xRange'], r['xPoints']),
+                                ('SampleY', r['yCenter'], r['yRange'], r['yPoints'])):
+            f = self._spatial_fields[name]
+            f['center'].setText(f"{c:.3f}")
+            f['range'].setText(f"{rng:.3f}")
+            f['npts'].setText(str(int(n)))
+            f['step'].setText(f"{rng / n:.3f}" if n > 0 else "0.000")
+
+    def _active_region_dict(self):
+        """The region dict the grid currently edits (image region or spectrum)."""
+        if self._active_region == 'spectrum':
+            return self._spectrum_region
+        if 0 <= self._active_region < len(self._scan_regions):
+            return self._scan_regions[self._active_region]
+        return None
+
+    def _on_spatial_edit(self):
+        """A grid field was typed: re-derive steps, push into the active region,
+        then refit the field-of-view so the box stays in view."""
+        for name in ('SampleX', 'SampleY'):
+            f = self._spatial_fields[name]
+            self._recompute_step(f['range'], f['npts'], f['step'])
+        reg = self._active_region_dict()
+        if reg is not None:
+            reg.update(self._read_spatial_fields())
+        self._refresh_spatial_image(fit=True)
+
+    def _load_spatial_region(self, target):
+        """Make ``target`` (an int index or 'spectrum') active and load it."""
+        reg = (self._spectrum_region if target == 'spectrum'
+               else self._scan_regions[target] if 0 <= target < len(self._scan_regions)
+               else None)
+        if reg is None:
+            return
+        self._active_region = target
+        self._write_spatial_fields(reg)
+        self._refresh_spatial_image()
+
+    def _add_spatial_region(self):
+        """Append a region offset from the active one and select it."""
+        base = self._active_region_dict() or self._read_spatial_fields()
+        new = dict(base)
+        new['xCenter'] = base['xCenter'] + base['xRange']
+        self._scan_regions.append(new)
+        self._load_spatial_region(len(self._scan_regions) - 1)
+        self._refresh_spatial_image(fit=True)
+
+    def _remove_spatial_region(self):
+        """Remove the active region (spectrum box, or an image region if >1)."""
+        if self._active_region == 'spectrum':
+            self._spectrum_region = None
+            self._scan_checks['spectrum region'].setChecked(False)
+            self._load_spatial_region(0)
+        elif len(self._scan_regions) > 1:
+            del self._scan_regions[self._active_region]
+            self._load_spatial_region(min(self._active_region,
+                                          len(self._scan_regions) - 1))
+        self._refresh_spatial_image(fit=True)
+
+    def _toggle_spectrum(self, on):
+        """Show/hide the special spectrum ROI (a distinct-coloured box)."""
+        if on:
+            base = self._active_region_dict() or self._read_spatial_fields()
+            self._spectrum_region = {
+                'xCenter': base['xCenter'], 'yCenter': base['yCenter'],
+                'xRange': max(base['xRange'] * 0.4, 1.0),
+                'yRange': max(base['yRange'] * 0.4, 1.0),
+                'xPoints': 1, 'yPoints': 1}
+            self._load_spatial_region('spectrum')
+        else:
+            self._spectrum_region = None
+            if self._active_region == 'spectrum':
+                self._load_spatial_region(0)
+        self._refresh_spatial_image(fit=True)
+
+    def _spatial_region_list(self):
+        """Combined list of {key, geometry, label, kind, active} for the image."""
+        out = []
+        for i, r in enumerate(self._scan_regions):
+            out.append({'key': str(i), 'label': f"R{i + 1}", 'kind': 'region',
+                        'active': self._active_region == i,
+                        **{k: r[k] for k in
+                           ('xCenter', 'yCenter', 'xRange', 'yRange')}})
+        if self._spectrum_region is not None:
+            r = self._spectrum_region
+            out.append({'key': 'spectrum', 'label': "Spec", 'kind': 'spectrum',
+                        'active': self._active_region == 'spectrum',
+                        **{k: r[k] for k in
+                           ('xCenter', 'yCenter', 'xRange', 'yRange')}})
+        return out
+
+    def _fit_fov(self):
+        """Place the image data at the primary scan region (Region1) so pixels
+        land under its ROI, and auto-fit the *view* to hold all regions."""
+        regs = list(self._scan_regions)
+        if self._spectrum_region is not None:
+            regs.append(self._spectrum_region)
+        if not regs:
+            return
+        # Image data extent = the region being scanned/displayed (Region1).
+        primary = self._scan_regions[0]
+        self.image_area.set_image_extent(
+            primary['xCenter'], primary['yCenter'],
+            primary['xRange'], primary['yRange'])
+        # View = bounding box of all regions, padded (min 20 µm).
+        x0 = min(r['xCenter'] - r['xRange'] / 2 for r in regs)
+        x1 = max(r['xCenter'] + r['xRange'] / 2 for r in regs)
+        y0 = min(r['yCenter'] - r['yRange'] / 2 for r in regs)
+        y1 = max(r['yCenter'] + r['yRange'] / 2 for r in regs)
+        xc, yc = (x0 + x1) / 2, (y0 + y1) / 2
+        span = max(x1 - x0, y1 - y0)
+        w = max(span * 1.5, 20.0)
+        self.image_area.set_view(xc, yc, w, w)
+
+    def _refresh_spatial_image(self, fit=False):
+        """Redraw the ROI boxes (and optionally refit the FOV) from the model."""
+        if self._syncing_spatial or not hasattr(self, 'image_area'):
+            return
+        if getattr(self, '_del_region_btn', None):
+            self._del_region_btn.setEnabled(
+                self._active_region == 'spectrum' or len(self._scan_regions) > 1)
+        show = self._scan_checks['show ROI'].isChecked()
+        if fit:
+            self._fit_fov()
+        self.image_area.sync_regions(self._spatial_region_list() if show else [])
+
+    # ── image ROI → model (graphical editing) ────────────────────────────
+    def _key_to_target(self, key):
+        return 'spectrum' if key == 'spectrum' else int(key)
+
+    def _on_roi_selected(self, key):
+        target = self._key_to_target(key)
+        if target != self._active_region:
+            self._load_spatial_region(target)
+
+    def _on_roi_moving(self, key, xc, yc, xr, yr):
+        """Live geometry during a drag: update grid + model, no FOV refit."""
+        target = self._key_to_target(key)
+        reg = (self._spectrum_region if target == 'spectrum'
+               else self._scan_regions[target])
+        reg.update({'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr})
+        if target == self._active_region:
+            self._syncing_spatial = True
+            try:
+                self._write_spatial_fields(reg)
+            finally:
+                self._syncing_spatial = False
+
+    def _on_roi_moved(self, key, xc, yc, xr, yr):
+        """Drag finished: commit geometry and refit the FOV."""
+        self._on_roi_moving(key, xc, yc, xr, yr)
+        self._refresh_spatial_image(fit=True)
+
     def _recompute_energy_n(self):
-        """Derived N = round(|stop-start| / |step|) + 1."""
+        """N = round(|stop-start| / |step|) + 1, from the current Start/Stop/Step."""
         try:
             s = float(self._energy_fields['start'].text())
             e = float(self._energy_fields['stop'].text())
@@ -1662,6 +3605,99 @@ class MainWindowDashboard(QMainWindow):
             self._energy_fields['n'].setText(str(self._energy_n(s, e, st)))
         except ValueError:
             pass
+        self._sync_active_energy_region()
+
+    def _recompute_energy_step(self):
+        """Step = |stop-start| / (N-1), from the user-edited N over the range."""
+        try:
+            s = float(self._energy_fields['start'].text())
+            e = float(self._energy_fields['stop'].text())
+            n = int(float(self._energy_fields['n'].text()))
+        except ValueError:
+            return
+        n = max(1, n)
+        self._energy_fields['n'].setText(str(n))
+        span = abs(e - s)
+        step = span / (n - 1) if n > 1 else 0.0
+        self._energy_fields['step'].setText(f"{step:.4g}")
+        self._sync_active_energy_region()
+
+    # ── energy-region model ──────────────────────────────────────────────
+    def _read_energy_fields(self):
+        """Snapshot the field row into a region dict (missing/bad → safe defaults)."""
+        def f(key, default):
+            try:
+                return float(self._energy_fields[key].text())
+            except (ValueError, KeyError):
+                return default
+        start = f('start', 0.0)
+        stop = f('stop', 0.0)
+        step = f('step', 0.0)
+        return {'start': start, 'stop': stop, 'step': step,
+                'dwell': f('dwell', 1.0),
+                'n': self._energy_n(start, stop, step)}
+
+    def _load_energy_region(self, idx):
+        """Load region ``idx`` into the field row and make it active."""
+        if not (0 <= idx < len(self._energy_regions)):
+            return
+        self._active_energy_region = idx
+        r = self._energy_regions[idx]
+        self._energy_fields['start'].setText(f"{r['start']:g}")
+        self._energy_fields['stop'].setText(f"{r['stop']:g}")
+        self._energy_fields['step'].setText(f"{r['step']:g}")
+        self._energy_fields['dwell'].setText(f"{r['dwell']:g}")
+        self._energy_fields['n'].setText(str(r['n']))
+        self._refresh_energy_strip()
+
+    def _select_energy_region(self, idx):
+        self._load_energy_region(idx)
+
+    def _sync_active_energy_region(self):
+        """Write the current field row back into the active region, then redraw."""
+        if not getattr(self, '_energy_regions', None):
+            return
+        self._energy_regions[self._active_energy_region] = self._read_energy_fields()
+        self._refresh_energy_strip()
+
+    def _add_energy_region(self):
+        """Append a region continuing past the last one and make it active."""
+        self._sync_active_energy_region()
+        last = self._energy_regions[-1]
+        step = last['step'] or 0.25
+        start = last['stop']
+        stop = start + max(step, 1.0) * 10
+        self._energy_regions.append({
+            'start': start, 'stop': stop, 'step': step,
+            'dwell': last['dwell'], 'n': self._energy_n(start, stop, step)})
+        self._load_energy_region(len(self._energy_regions) - 1)
+
+    def _remove_energy_region(self):
+        """Remove the active region (keeping at least one)."""
+        if len(self._energy_regions) <= 1:
+            return
+        del self._energy_regions[self._active_energy_region]
+        self._load_energy_region(min(self._active_energy_region,
+                                     len(self._energy_regions) - 1))
+
+    def _refresh_energy_strip(self):
+        """Redraw the strip, axis, and summary from the region list."""
+        if not getattr(self, '_energy_strip', None):
+            return
+        regs = self._energy_regions
+        self._energy_strip.set_regions([
+            {'start': r['start'], 'stop': r['stop'], 'n': r['n'],
+             'active': i == self._active_energy_region}
+            for i, r in enumerate(regs)])
+        lo = min(r['start'] for r in regs)
+        hi = max(r['stop'] for r in regs)
+        for i, lbl in enumerate(self._energy_axis_lbls):
+            e = lo + (hi - lo) * i / 3
+            lbl.setText(f"{e:g} eV" if i == 3 else f"{e:g}")
+        total = sum(r['n'] for r in regs)
+        self._energy_summary_lbl.setText(
+            f"{len(regs)} region{'s' if len(regs) != 1 else ''} · {total} pts")
+        self._del_energy_btn.setEnabled(len(regs) > 1)
 
     def _on_error(self, msg):
         print(f"[dashboard] ERROR: {msg}")
@@ -1700,6 +3736,7 @@ class MainWindowDashboard(QMainWindow):
         which owns the LUT once bound to the ImageItem."""
         preset = {"gray": "grey", "viridis": "viridis", "inferno": "inferno"}[name]
         self.hist_lut.gradient.loadPreset(preset)
+        self.image_area.set_roi_cmap(name)
 
     def _tick(self):
         self._t += 0.02
@@ -1738,7 +3775,21 @@ class MainWindowDashboard(QMainWindow):
 
     def _on_image(self, image):
         try:
-            self.image_area.img.setImage(image, autoLevels=not self._image_seeded)
+            # The server tags each frame's region + physical geometry on the
+            # image model (the image_updated payload is only the bare array);
+            # route each region's frame to its own physical extent so multi-
+            # region scans mosaic instead of stacking in Region1.
+            placed = False
+            if self.controller is not None:
+                im = self.controller.get_image_model()
+                xc, yc = im.get('x_center'), im.get('y_center')
+                xr, yr = im.get('x_range'), im.get('y_range')
+                if xr and yr and xc is not None and yc is not None:
+                    key = str(im.get('scan_region_index', 'Region1'))
+                    self.image_area.set_region_frame(key, image, xc, yc, xr, yr)
+                    placed = True
+            if not placed:
+                self.image_area.set_primary_frame(image)
             self._image_seeded = True
         except Exception:
             pass
