@@ -119,6 +119,82 @@ def _exp_str(exp):
     return "" if exp == 0 else f"×10{str(exp).translate(_SUP)}"
 
 
+# ── last recorded scan (startup image) ───────────────────────────────────────
+def _runtime_main_config():
+    """The server's runtime main.json (sys.prefix copy first, repo copy as a
+    fallback) — the same file the server and _maybe_connect_controller read."""
+    for path in (os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json"),
+                 os.path.join(os.path.dirname(__file__), "..", "..", "config",
+                              "main.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return {}
+
+
+def _find_last_scan_file():
+    """Newest ``.stxm`` data file under the server's ``data_dir`` (walking the
+    YYYY/MM/YYMMDD hierarchy, then a flat fallback), or None when none exists."""
+    import glob
+    data_dir = (_runtime_main_config().get("server") or {}).get("data_dir")
+    if not data_dir or not os.path.isdir(data_dir):
+        return None
+    files = [f for f in glob.glob(os.path.join(data_dir, "*", "*", "*", "*.stxm"))
+             if "ccdframes" not in os.path.basename(f)]
+    if not files:
+        files = [f for f in glob.glob(os.path.join(data_dir, "*.stxm"))
+                 if "ccdframes" not in os.path.basename(f)]
+    if not files:
+        return None
+    try:
+        return max(files, key=os.path.getmtime)
+    except OSError:
+        return None
+
+
+def _load_last_scan(path):
+    """Read the primary 2-D image frame and its physical extent from a ``.stxm``
+    file's default NXdata group.  Returns ``(arr2d, extent)`` where ``extent`` is
+    ``(xCenter, yCenter, xRange, yRange)`` in µm (full-field, N*step) or None if
+    the geometry is unavailable; returns None entirely if no image can be read."""
+    try:
+        import h5py
+        with h5py.File(path, "r") as f:
+            base = None
+            for b in ("entry0/default", "entry0/counter0"):
+                if b + "/data" in f:
+                    base = b
+                    break
+            if base is None:
+                return None
+            arr = np.asarray(f[base + "/data"][()], dtype=float)
+            if arr.ndim == 3:                    # (n_energies, ny, nx) → frame 0
+                arr = arr[0]
+            if arr.ndim != 2 or not arr.size:
+                return None
+            extent = None
+            try:
+                sx = np.asarray(f[base + "/sample_x"][()], dtype=float).ravel()
+                sy = np.asarray(f[base + "/sample_y"][()], dtype=float).ravel()
+
+                def _span_center(v):
+                    lo, hi = float(v.min()), float(v.max())
+                    step = (hi - lo) / (len(v) - 1) if len(v) > 1 else 0.0
+                    return (hi - lo) + step, (lo + hi) / 2.0   # full-field, centre
+
+                xr, xc = _span_center(sx)
+                yr, yc = _span_center(sy)
+                if xr > 0 and yr > 0:
+                    extent = (xc, yc, xr, yr)
+            except Exception:
+                pass
+            return arr, extent
+    except Exception:
+        return None
+
+
 class SciAxis(pg.AxisItem):
     """Left axis that renders each tick as a mantissa (one decimal) against a
     common power-of-ten shared by the whole axis, and reports that exponent via
@@ -170,6 +246,7 @@ class ImageArea(QWidget):
     roi_selected = Signal(str)
     roi_moving = Signal(str, float, float, float, float)
     roi_moved = Signal(str, float, float, float, float)
+    cursor_changed = Signal(object)     # dict of cursor state, or None off-image
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -182,17 +259,23 @@ class ImageArea(QWidget):
         self.vb.setMouseEnabled(True, True)
 
         self._cmap = "gray"
-        self.field = _absorption_field()
+        self.field = None
         self.img = pg.ImageItem()
-        self.img.setImage((1 - self.field))          # absorption → display
+        # Start black: real pixels arrive from the last recorded scan (on startup)
+        # or from live frames during a scan — no procedural placeholder field.
+        self.img.setImage(np.zeros((2, 2), dtype=float), autoLevels=False)
+        self.img.setLevels([0.0, 1.0])
         self.img.setLookupTable(make_lut(self._cmap))
         self.img.setZValue(0)
         self.vb.addItem(self.img)
         # The image data occupies a physical µm extent (the scanned region);
-        # the *view* is a wider field-of-view around it.  Both default to a
-        # placeholder and are set once regions exist.
-        self.img.setRect(QRectF(-6.0, -6.0, 12.0, 12.0))
+        # the *view* is a wider field-of-view around it.  ``_primary_rect`` tracks
+        # that extent (in µm) so mouse-driven line-outs can map pixels ↔ microns.
+        self._primary_rect = QRectF(-6.0, -6.0, 12.0, 12.0)
+        self.img.setRect(self._primary_rect)
         self.vb.autoRange(padding=0)
+        # Report the cursor's image row/column line-outs as the mouse moves.
+        self.glw.scene().sigMouseMoved.connect(self._on_mouse_moved)
 
         # Live scan data is a spatial mosaic: one ImageItem per scan region,
         # each positioned at its own physical extent (mirrors the classic GUI).
@@ -209,26 +292,65 @@ class ImageArea(QWidget):
         self._suppress = False
         self._dragging = None
 
-        # scan line (tracks current row) — repositioned by set_view
-        self.scan_line = pg.InfiniteLine(pos=0.0, angle=0, movable=False,
-                                         pen=pg.mkPen(C["accent"], width=2))
-        self.scan_line.setZValue(5)
-        self.vb.addItem(self.scan_line)
+        # (A contextual scan-progress line will be reintroduced later; for now the
+        # image area carries no horizontal overlay line.)
 
-        # overlay labels (children of self, positioned in resizeEvent)
-        self.scalebar = QFrame(self)
-        self.scalebar.setStyleSheet("background:#ffffff;border:none;")
-        self.scalebar.setFixedSize(120, 3)
-        self.scalebar_lbl = QLabel("2 µm", self)
+        # Bottom metadata overlay — a translucent strip pinned to the bottom of
+        # the image (mirrors mainwindow_mvc): facility logo + two metadata rows on
+        # the left, a live scale bar on the right.  Transparent to mouse events so
+        # cursor line-outs still update when hovering over the bar.
+        self.meta_bar = QFrame(self)
+        self.meta_bar.setObjectName("imgMetaBar")
+        self.meta_bar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.meta_bar.setStyleSheet(
+            "QFrame#imgMetaBar{background:rgba(0,0,0,0.62);border:none;}")
+        mb = QHBoxLayout(self.meta_bar)
+        mb.setContentsMargins(12, 6, 14, 6)
+        mb.setSpacing(10)
+        self.meta_logo = QLabel()
+        _logo = QPixmap(os.path.join(_ICONS_DIR, "als-logo.png"))
+        if not _logo.isNull():
+            self.meta_logo.setPixmap(
+                _logo.scaledToHeight(28, Qt.SmoothTransformation))
+        mb.addWidget(self.meta_logo)
+        meta_txt = QVBoxLayout()
+        meta_txt.setContentsMargins(0, 0, 0, 0)
+        meta_txt.setSpacing(1)
+        self.meta_row1 = QLabel("")
+        self.meta_row1.setFont(mono_font(9))
+        self.meta_row1.setStyleSheet("color:#e6ebef;background:transparent;")
+        self.meta_row2 = QLabel("")
+        self.meta_row2.setFont(mono_font(8))
+        self.meta_row2.setStyleSheet(
+            "color:rgba(230,235,239,.72);background:transparent;")
+        meta_txt.addWidget(self.meta_row1)
+        meta_txt.addWidget(self.meta_row2)
+        mb.addLayout(meta_txt)
+        mb.addStretch(1)
+        # Scale bar (right): a value label above a white bar whose pixel width
+        # tracks the current zoom (see _update_scalebar).
+        sb = QVBoxLayout()
+        sb.setContentsMargins(0, 0, 0, 0)
+        sb.setSpacing(3)
+        self.scalebar_lbl = QLabel("2 µm")
         self.scalebar_lbl.setFont(mono_font(9))
+        self.scalebar_lbl.setAlignment(Qt.AlignRight | Qt.AlignBottom)
         self.scalebar_lbl.setStyleSheet("color:#fff;background:transparent;")
-        self.meta = QLabel(
-            "Spiral Image · channel default\n"
-            "pixel 0.100 µm · dwell 2.0 ms\n"
-            "705.0 eV · circ. polarization", self)
-        self.meta.setFont(mono_font(8))
-        self.meta.setAlignment(Qt.AlignRight | Qt.AlignTop)
-        self.meta.setStyleSheet("color:rgba(255,255,255,.72);background:transparent;")
+        self.scalebar = QFrame()
+        self.scalebar.setStyleSheet("background:#ffffff;border:none;")
+        self.scalebar.setFixedHeight(3)
+        self.scalebar.setFixedWidth(80)
+        sb.addWidget(self.scalebar_lbl)
+        sb.addWidget(self.scalebar, 0, Qt.AlignRight)
+        mb.addLayout(sb)
+        # Children must also ignore the mouse, or they'd swallow hover-move events
+        # (blocking cursor line-outs) where they overlap the bottom of the image.
+        for _w in (self.meta_logo, self.meta_row1, self.meta_row2,
+                   self.scalebar_lbl, self.scalebar):
+            _w.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self._scale_bar_um = 2.0
+        self.vb.sigRangeChanged.connect(lambda *a: self._update_scalebar())
 
     def set_cmap(self, name):
         self._cmap = name
@@ -248,24 +370,38 @@ class ImageArea(QWidget):
     # ── physical coordinate frame ────────────────────────────────────────
     def set_image_extent(self, xc, yc, width, height):
         """Place the image data at its physical µm extent — the region it was
-        scanned over — so pixels land under the ROI box that defines them."""
-        self.img.setRect(QRectF(xc - width / 2.0, yc - height / 2.0,
-                                width, height))
+        scanned over.  This is the *displayed data's* fixed extent; it is set when
+        data arrives (file/live), NOT driven by the editable scan-region ROIs."""
+        self._primary_rect = QRectF(xc - width / 2.0, yc - height / 2.0,
+                                    width, height)
+        self.img.setRect(self._primary_rect)
+
+    def image_extent(self):
+        """The displayed data's physical extent as ``(x0, y0, x1, y1)`` µm, or
+        None if nothing meaningful is placed yet."""
+        r = self._primary_rect
+        if r is None or r.width() <= 0 or r.height() <= 0:
+            return None
+        return (r.left(), r.top(), r.right(), r.bottom())
 
     def set_view(self, xc, yc, width, height):
-        """Set the visible field-of-view (µm) centred at (xc, yc)."""
-        pad = 0.08
+        """Set the visible field-of-view (µm) centred at (xc, yc).  ``width``/
+        ``height`` are the exact requested extent — the caller (_fit_fov) already
+        bakes the ROI margin into them, so no extra padding is added here."""
         self.vb.setRange(
-            QRectF(xc - width / 2.0 * (1 + pad), yc - height / 2.0 * (1 + pad),
-                   width * (1 + pad), height * (1 + pad)),
+            QRectF(xc - width / 2.0, yc - height / 2.0, width, height),
             padding=0)
-        self.scan_line.setValue(yc)
 
     # ── live scan data (per-region mosaic) ───────────────────────────────
     def set_primary_frame(self, data):
         """Fallback for frames with no region geometry — draw on the primary
         item at its current rect (auto-levels only the first time)."""
         self.img.setImage(data, autoLevels=not self._primary_seeded)
+        # setRect's scale transform is derived from the image's pixel dimensions,
+        # so it must be re-applied whenever the frame shape changes (e.g. the 2×2
+        # black seed → a real N×N scan) or the data would render at the seed scale.
+        if self._primary_rect is not None:
+            self.img.setRect(self._primary_rect)
         self._primary_seeded = True
 
     def set_region_frame(self, key, data, xc, yc, xr, yr):
@@ -283,8 +419,11 @@ class ImageArea(QWidget):
         autolevel = key not in self._seeded_regions
         item.setImage(data, autoLevels=autolevel)
         self._seeded_regions.add(key)
-        item.setRect(QRectF(xc - xr / 2.0, yc - yr / 2.0, xr, yr))
-        if item is not self.img:
+        rect = QRectF(xc - xr / 2.0, yc - yr / 2.0, xr, yr)
+        item.setRect(rect)
+        if item is self.img:
+            self._primary_rect = rect
+        else:
             self._match_primary(item)
 
     def _match_primary(self, item):
@@ -406,15 +545,79 @@ class ImageArea(QWidget):
         self._dragging = None
         self.roi_moved.emit(key, *self._geom(self._roi_items[key]["roi"]))
 
+    # ── cursor line-outs ─────────────────────────────────────────────────
+    def _on_mouse_moved(self, scene_pos):
+        """Map the mouse over the primary image to its row/column line-outs and
+        emit them (in physical µm) via ``cursor_changed``; emit None when the
+        cursor leaves the image so listeners can clear."""
+        arr = self.img.image
+        rect = self._primary_rect
+        if (arr is None or getattr(arr, "ndim", 0) != 2 or rect is None
+                or rect.width() <= 0 or rect.height() <= 0
+                or not self.vb.sceneBoundingRect().contains(scene_pos)):
+            self.cursor_changed.emit(None)
+            return
+        pt = self.vb.mapSceneToView(scene_pos)
+        fx = (pt.x() - rect.left()) / rect.width()
+        fy = (pt.y() - rect.top()) / rect.height()
+        if not (0.0 <= fx < 1.0 and 0.0 <= fy < 1.0):
+            self.cursor_changed.emit(None)
+            return
+        h, w = arr.shape
+        c = min(w - 1, int(fx * w))
+        r = min(h - 1, int(fy * h))
+        xs = rect.left() + (np.arange(w) + 0.5) / w * rect.width()
+        ys = rect.top() + (np.arange(h) + 0.5) / h * rect.height()
+        self.cursor_changed.emit({
+            "x": float(pt.x()), "y": float(pt.y()), "row": r, "col": c,
+            "value": float(arr[r, c]),
+            "hx": xs, "hy": np.asarray(arr[r, :], dtype=float),   # along x (red)
+            "vx": ys, "vy": np.asarray(arr[:, c], dtype=float)})  # along y (cyan)
+
+    # ── metadata overlay ─────────────────────────────────────────────────
+    _META_BAR_H = 46
+
+    def set_metadata(self, scan_type="", sample="", proposal="", channel="",
+                     pixel_um=None, dwell_ms=None, energy_ev=None):
+        """Fill the bottom overlay: row 1 = proposal · scan · sample · channel,
+        row 2 = pixel size · dwell · energy (blank fields are dropped)."""
+        row1 = "   ".join(p for p in (
+            proposal, scan_type, sample,
+            f"Channel: {channel}" if channel else "") if p)
+        parts = []
+        if pixel_um is not None:
+            parts.append(f"Pixel: {pixel_um:.3f} µm")
+        if dwell_ms is not None:
+            parts.append(f"Dwell: {dwell_ms:g} ms")
+        if energy_ev is not None:
+            parts.append(f"Energy: {energy_ev:.1f} eV")
+        self.meta_row1.setText(row1)
+        self.meta_row2.setText("   ".join(parts))
+
+    def _update_scalebar(self):
+        """Size the scale bar to a 'nice' physical length (~1/5 of the view
+        width) and label it, so it stays truthful as the view zooms."""
+        try:
+            (x0, x1), _ = self.vb.viewRange()
+        except Exception:
+            return
+        span = abs(x1 - x0)
+        gw = self.glw.width()
+        if span <= 0 or gw <= 0:
+            return
+        nice = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+        bar_um = min(nice, key=lambda v: abs(v - span / 5.0))
+        self._scale_bar_um = bar_um
+        self.scalebar.setFixedWidth(max(6, int(bar_um * gw / span)))
+        self.scalebar_lbl.setText(
+            f"{bar_um * 1000:g} nm" if bar_um < 1.0 else f"{bar_um:g} µm")
+
     def resizeEvent(self, e):
         self.glw.setGeometry(0, 0, self.width(), self.height())
-        m = 16
-        self.scalebar.move(m, self.height() - m - 20)
-        self.scalebar_lbl.move(m, self.height() - m - 16)
-        self.meta.adjustSize()
-        self.meta.move(self.width() - self.meta.width() - m, m)
-        for w in (self.scalebar, self.scalebar_lbl, self.meta):
-            w.raise_()
+        h = self._META_BAR_H
+        self.meta_bar.setGeometry(0, self.height() - h, self.width(), h)
+        self.meta_bar.raise_()
+        self._update_scalebar()
         super().resizeEvent(e)
 
 
@@ -548,6 +751,11 @@ class MainWindowDashboard(QMainWindow):
             self._connect_controller_signals()
             self._seed_from_controller()
             self._prefill_from_last_scan()
+
+        # Startup image: paint the most recently recorded scan (read from disk),
+        # falling back to the black canvas + ROI boxes when none is available.
+        self._show_last_scan_image()
+        self._refresh_image_meta()
 
         # light "live" animation.  When connected, the counter trace is driven by
         # real monitor data, so only the live-detector dot keeps pulsing.
@@ -916,7 +1124,7 @@ class MainWindowDashboard(QMainWindow):
         bl = QHBoxLayout(body)
         bl.setContentsMargins(10, 10, 10, 10)
         bl.setSpacing(10)
-        col1 = self._build_col1(); col1.setFixedWidth(430)
+        col1 = self._build_col1(); col1.setFixedWidth(474)
         col2 = self._build_col2()
         col3 = self._build_col3(); col3.setFixedWidth(500)
         bl.addWidget(col1)
@@ -1387,6 +1595,7 @@ class MainWindowDashboard(QMainWindow):
         tl.setSpacing(16)
         fn = self._label("NS_260806042.stxm", role="value")
         fn.setFont(mono_font(16, QFont.DemiBold))
+        self._image_title_lbl = fn
         tl.addWidget(fn)
         tl.addWidget(self._label("Region 1 of 1 · Energy 82 of 121",
                                  font=sans_font(10), color=C["text_dim"]))
@@ -1410,6 +1619,7 @@ class MainWindowDashboard(QMainWindow):
         self.image_area.roi_selected.connect(self._on_roi_selected)
         self.image_area.roi_moving.connect(self._on_roi_moving)
         self.image_area.roi_moved.connect(self._on_roi_moved)
+        self.image_area.cursor_changed.connect(self._on_cursor)
         bl.addWidget(self.image_area, 1)
         # Region model was built in _spatial_page (col1, earlier); paint it now
         # that the image exists.
@@ -1451,13 +1661,15 @@ class MainWindowDashboard(QMainWindow):
         fv = QHBoxLayout(footer)
         fv.setContentsMargins(14, 10, 14, 10)
         fv.setSpacing(22)
-        for lbl, val in (("X", "-312.4"), ("Y", "168.1"), ("I", "4218"), ("OD", "0.34")):
+        self._cursor_readout = {}
+        for lbl, val in (("X", "—"), ("Y", "—"), ("I", "—"), ("OD", "—")):
             cur = QHBoxLayout()
             cur.setSpacing(6)
             k = self._label(lbl, font=mono_font(11), color=C["text_dim"])
             val_l = self._label(val, font=mono_font(11), color=C["text"])
             cur.addWidget(k); cur.addWidget(val_l)
             fv.addLayout(cur)
+            self._cursor_readout[lbl] = val_l
         fv.addStretch(1)
         for name in ("Set cursor to 0", "Move to cursor", "Focus to cursor"):
             b = QPushButton(name); b.setProperty("role", "small")
@@ -1472,23 +1684,27 @@ class MainWindowDashboard(QMainWindow):
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(10)
 
-        # spectrum
-        spec_card, spec_body = self._card("Spectrum · ROI 1", "Fe L3 · OD vs eV")
-        self._note_lbl.setProperty("role", "accent")
-        pw = pg.PlotWidget()
-        pw.setBackground(C["plot_ground"])
-        pw.showGrid(x=True, y=True, alpha=0.15)
-        pw.getAxis("bottom").setPen(C["border"])
-        pw.getAxis("left").setPen(C["border"])
-        pw.getAxis("bottom").setTextPen(C["text_faint"])
-        pw.getAxis("left").setTextPen(C["text_faint"])
-        e, od = _spectrum()
-        pw.plot(e[:82], od[:82], pen=pg.mkPen(C["accent"], width=2))
-        cursor = pg.InfiniteLine(pos=e[81], angle=90,
-                                 pen=pg.mkPen(QColor(95, 212, 214, 90), width=1))
-        pw.addItem(cursor)
-        spec_body.addWidget(pw, 1)
-        sl.addWidget(spec_card, 135)
+        # Profile: ROI spectrum OR live cursor line-outs, switched by a pill group
+        # in the card header (spectrum isn't always the relevant readout).
+        prof_card, prof_body = self._card("Profile")
+        prof_well, _ = self._segmented(["Spectrum", "Line-outs"], 0)
+        prof_card._header_layout.insertWidget(1, prof_well)
+        prof_card._header_layout.insertSpacing(2, 10)
+        # Right side of the header: the spectrum note OR the X/Y line-cut pill,
+        # whichever the active tab needs (they share the slot; only one shows).
+        self._profile_note = self._label("Fe L3 · OD vs eV", role="accent")
+        prof_card._header_layout.addWidget(self._profile_note)
+        self._lineout_axis_well, _ = self._segmented(["X", "Y"], 0)
+        self._lineout_axis_well.setVisible(False)
+        prof_card._header_layout.addWidget(self._lineout_axis_well)
+
+        self._profile_stack = QStackedWidget()
+        self._profile_stack.addWidget(self._spectrum_panel())
+        self._profile_stack.addWidget(self._lineout_panel())
+        prof_body.addWidget(self._profile_stack, 1)
+        prof_well._group.idClicked.connect(self._switch_profile)
+        self._lineout_axis_well._group.idClicked.connect(self._set_lineout_axis)
+        sl.addWidget(prof_card, 135)
 
         # scan progress
         prog_card, prog_body = self._card("Scan progress", "12:47 / 18:24")
@@ -1525,6 +1741,79 @@ class MainWindowDashboard(QMainWindow):
         prog_body.addWidget(content, 1)
         sl.addWidget(prog_card, 100)
         return strip
+
+    @staticmethod
+    def _style_plot(pw):
+        pw.setBackground(C["plot_ground"])
+        pw.showGrid(x=True, y=True, alpha=0.15)
+        for ax in ("bottom", "left"):
+            pw.getAxis(ax).setPen(C["border"])
+            pw.getAxis(ax).setTextPen(C["text_faint"])
+        return pw
+
+    def _spectrum_panel(self):
+        """ROI absorption spectrum (OD vs eV) — placeholder trace for now."""
+        pw = self._style_plot(pg.PlotWidget())
+        e, od = _spectrum()
+        pw.plot(e[:82], od[:82], pen=pg.mkPen(C["accent"], width=2))
+        cursor = pg.InfiniteLine(pos=e[81], angle=90,
+                                 pen=pg.mkPen(QColor(95, 212, 214, 90), width=1))
+        pw.addItem(cursor)
+        return pw
+
+    def _lineout_panel(self):
+        """A single cursor line-cut through the image, in physical µm — the
+        horizontal (X, red) or vertical (Y, cyan) cut, toggled by the X/Y pill in
+        the card header.  The two cuts live on very different position axes, so
+        only one shows at a time.  Fed live by ImageArea.cursor_changed."""
+        pw = self._style_plot(pg.PlotWidget())
+        pw.setLabel("bottom", "x", units="µm")
+        self._lineout_plot = pw
+        self._lineout_h = pw.plot([], [], pen=pg.mkPen("#ff3b30", width=1.6))
+        self._lineout_v = pw.plot([], [], pen=pg.mkPen("#37d7ff", width=1.6))
+        self._lineout_axis = 0          # 0 = X (horizontal cut), 1 = Y (vertical)
+        self._last_cursor = None
+        return pw
+
+    def _switch_profile(self, index):
+        """Swap the header's right-hand control with the tab: the spectrum note
+        for Spectrum, the X/Y line-cut pill for Line-outs."""
+        self._profile_stack.setCurrentIndex(index)
+        lineout = index == 1
+        self._profile_note.setVisible(not lineout)
+        self._lineout_axis_well.setVisible(lineout)
+
+    def _set_lineout_axis(self, index):
+        self._lineout_axis = index
+        self._lineout_plot.setLabel("bottom", "x" if index == 0 else "y",
+                                    units="µm")
+        self._render_lineout()
+
+    def _render_lineout(self):
+        """Draw only the active axis's cut from the last cursor sample."""
+        if not hasattr(self, "_lineout_h"):
+            return
+        p = self._last_cursor
+        if p is None:
+            self._lineout_h.setData([], [])
+            self._lineout_v.setData([], [])
+        elif self._lineout_axis == 0:
+            self._lineout_h.setData(p["hx"], p["hy"])
+            self._lineout_v.setData([], [])
+        else:
+            self._lineout_h.setData([], [])
+            self._lineout_v.setData(p["vx"], p["vy"])
+
+    def _on_cursor(self, payload):
+        """ImageArea cursor moved: update the active line-cut and the footer
+        X/Y/I readout (payload is None when the cursor leaves the image)."""
+        self._last_cursor = payload
+        self._render_lineout()
+        rd = getattr(self, "_cursor_readout", {})
+        if rd and payload is not None:
+            rd["X"].setText(f"{payload['x']:.2f}")
+            rd["Y"].setText(f"{payload['y']:.2f}")
+            rd["I"].setText(f"{payload['value']:.4g}")
 
     # ── column 3: live detector + motors ────────────────────────────────
     def _build_col3(self):
@@ -3315,6 +3604,75 @@ class MainWindowDashboard(QMainWindow):
             c.error_occurred.emit(f"Failed to compile scan: {e}")
             return False
 
+    def _show_last_scan_image(self):
+        """Paint the most recently recorded ``.stxm`` scan at its *own* fixed
+        physical extent (the region it was scanned over), independent of the
+        editable scan-region ROIs.  Region1 is aligned to that extent so a new
+        scan starts as "the whole displayed image", ready to be shrunk to a
+        sub-region.  No-op — black canvas + ROI boxes — when no file is readable."""
+        if not hasattr(self, "image_area"):
+            return
+        try:
+            path = _find_last_scan_file()
+            if not path:
+                return
+            loaded = _load_last_scan(path)
+            if loaded is None:
+                return
+            arr, extent = loaded
+            if extent is not None:
+                xc, yc, xr, yr = extent
+                # Fix the displayed data at its scanned extent …
+                self.image_area.set_image_extent(xc, yc, xr, yr)
+                # … and start Region1 covering it (user then drags it smaller).
+                self._scan_regions[0] = {
+                    'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
+                    'xPoints': int(arr.shape[1]), 'yPoints': int(arr.shape[0])}
+                if self._active_region == 0:
+                    self._write_spatial_fields(self._scan_regions[0])
+            self.image_area.set_primary_frame(arr)
+            self._image_seeded = True
+            self._refresh_spatial_image(fit=True)
+            if hasattr(self, "_image_title_lbl"):
+                self._image_title_lbl.setText(os.path.basename(path))
+        except Exception as e:
+            print(f"[dashboard] could not display last scan: {e}")
+
+    def _refresh_image_meta(self):
+        """Refresh the image's bottom metadata overlay from the current scan
+        definition (proposal, scan type, sample, pixel size, dwell, energy)."""
+        if not hasattr(self, "image_area"):
+            return
+        try:
+            proposal = self._proposal_parts()[0]
+        except Exception:
+            proposal = ""
+        scan_type = self.scan_type.currentText() if hasattr(self, "scan_type") else ""
+        sample = (self._sample_field.text()
+                  if getattr(self, "_sample_field", None) else "")
+        pixel_um = None
+        try:
+            reg = self._scan_regions[0]
+            if reg.get("xPoints"):
+                pixel_um = reg["xRange"] / reg["xPoints"]
+        except Exception:
+            pass
+        dwell_ms = energy_ev = None
+        try:
+            dwell_ms = self._energy_regions[self._active_energy_region]["dwell"]
+        except Exception:
+            pass
+        energy_ev = self._motor_info.get("Energy", {}).get("last value")
+        if energy_ev is None:
+            try:
+                energy_ev = float(self._energy_fields["start"].text())
+            except (ValueError, KeyError, AttributeError):
+                pass
+        self.image_area.set_metadata(
+            scan_type=scan_type, sample=sample, proposal=proposal,
+            channel="default", pixel_um=pixel_um, dwell_ms=dwell_ms,
+            energy_ev=energy_ev)
+
     def _prefill_from_last_scan(self):
         """Pre-fill the spatial + energy regions from the last executed Image
         scan, which the server ships in ``client.main_config['lastScan']['Image']``
@@ -3469,6 +3827,7 @@ class MainWindowDashboard(QMainWindow):
         if reg is not None:
             reg.update(self._read_spatial_fields())
         self._refresh_spatial_image(fit=True)
+        self._refresh_image_meta()
 
     def _load_spatial_region(self, target):
         """Make ``target`` (an int index or 'spectrum') active and load it."""
@@ -3535,26 +3894,42 @@ class MainWindowDashboard(QMainWindow):
         return out
 
     def _fit_fov(self):
-        """Place the image data at the primary scan region (Region1) so pixels
-        land under its ROI, and auto-fit the *view* to hold all regions."""
+        """Fit the *view* to hold the displayed data plus all scan-region ROIs.
+
+        The displayed data has its OWN fixed extent (set when data arrives); the
+        ROIs float over it and are edited to define a new scan.  We therefore
+        never move or resize the image from here — except as a fallback when no
+        real data has been shown yet, where the black placeholder is aligned under
+        Region1 so an empty canvas still tracks the region being defined."""
         regs = list(self._scan_regions)
         if self._spectrum_region is not None:
             regs.append(self._spectrum_region)
-        if not regs:
+
+        if not self._image_seeded and self._scan_regions:
+            # No real data yet: keep the placeholder aligned under Region1.
+            primary = self._scan_regions[0]
+            self.image_area.set_image_extent(
+                primary['xCenter'], primary['yCenter'],
+                primary['xRange'], primary['yRange'])
+
+        # View = bounding box of the fixed image extent + every ROI box.
+        boxes = []
+        img = self.image_area.image_extent()
+        if img is not None:
+            boxes.append(img)                        # (x0, y0, x1, y1)
+        for r in regs:
+            boxes.append((r['xCenter'] - r['xRange'] / 2,
+                          r['yCenter'] - r['yRange'] / 2,
+                          r['xCenter'] + r['xRange'] / 2,
+                          r['yCenter'] + r['yRange'] / 2))
+        if not boxes:
             return
-        # Image data extent = the region being scanned/displayed (Region1).
-        primary = self._scan_regions[0]
-        self.image_area.set_image_extent(
-            primary['xCenter'], primary['yCenter'],
-            primary['xRange'], primary['yRange'])
-        # View = bounding box of all regions, padded (min 20 µm).
-        x0 = min(r['xCenter'] - r['xRange'] / 2 for r in regs)
-        x1 = max(r['xCenter'] + r['xRange'] / 2 for r in regs)
-        y0 = min(r['yCenter'] - r['yRange'] / 2 for r in regs)
-        y1 = max(r['yCenter'] + r['yRange'] / 2 for r in regs)
+        x0 = min(b[0] for b in boxes); x1 = max(b[2] for b in boxes)
+        y0 = min(b[1] for b in boxes); y1 = max(b[3] for b in boxes)
         xc, yc = (x0 + x1) / 2, (y0 + y1) / 2
+        # View so the content fills ~80% of it (10% margin each side).
         span = max(x1 - x0, y1 - y0)
-        w = max(span * 1.5, 20.0)
+        w = max(span, 0.5) / 0.8
         self.image_area.set_view(xc, yc, w, w)
 
     def _refresh_spatial_image(self, fit=False):
@@ -3659,6 +4034,7 @@ class MainWindowDashboard(QMainWindow):
             return
         self._energy_regions[self._active_energy_region] = self._read_energy_fields()
         self._refresh_energy_strip()
+        self._refresh_image_meta()
 
     def _add_energy_region(self):
         """Append a region continuing past the last one and make it active."""
@@ -3730,6 +4106,7 @@ class MainWindowDashboard(QMainWindow):
     def _on_scan_type(self, text):
         ptycho = "Ptycho" in text
         self.mode_field.setText("ptychography" if ptycho else "continuousLine")
+        self._refresh_image_meta()
 
     def _set_cmap(self, name):
         """Colormap pills load a gradient preset into the HistogramLUTWidget,
@@ -3763,6 +4140,7 @@ class MainWindowDashboard(QMainWindow):
             wd["bar"].set_state(self._frac(pos, wd["lo"], wd["hi"]), wd["bar"]._moving)
         if name == "Energy":
             self.energy_val.setText(f"{pos:.1f} eV")
+            self._refresh_image_meta()
 
     def _on_motor_status(self, name, moving):
         wd = self._motor_widgets.get(name)
