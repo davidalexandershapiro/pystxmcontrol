@@ -210,9 +210,14 @@ class usb1808x:
         Arm a buffered line acquisition.
 
         For EXT triggering the scan is started here so the hardware is already
-        waiting when the motor begins to emit trigger pulses.  For BUS triggering we
-        only mark the driver armed and defer the (software-paced) start to
-        bus_trigger(), matching the Keysight INIT:IMM / *TRG split.
+        waiting when the motor reaches the trigger point.  The external signal is
+        interpreted one of two ways depending on the config shape (see
+        ``_ext_is_start_trigger``): a per-line START trigger that arms an
+        internally-paced line (count==1, samples>1 -- the nPoint line-sync case), or
+        a per-pixel sample CLOCK that latches one sample per edge (count>1,
+        samples==1 -- a stage-master pixel clock).  For BUS triggering we only mark
+        the driver armed and defer the (software-paced) start to bus_trigger(),
+        matching the Keysight INIT:IMM / *TRG split.
         """
         self._stop_scan()
         self._armed = True
@@ -284,6 +289,31 @@ class usb1808x:
         descriptors.append(ul.DaqInChanDescriptor(self.ctr_channel, ul.DaqInChanType.CTR32))
         return descriptors
 
+    def _ext_is_start_trigger(self):
+        """True when the external signal should START an internally-paced line
+        rather than clock each sample.
+
+        A conventional linear_image in ``trigger_mode="line"`` configures the DAQ
+        with count==1, samples==N: one external trigger per line, and the DAQ paces
+        the N dwell windows itself off its internal clock (the nPoint line-sync
+        model, mirroring the Keysight ``TRIG:SOUR EXT`` + internal timebase).
+        ``trigger_mode="point"`` instead configures count==N, samples==1: one
+        external edge per pixel, i.e. a stage-master pixel clock (EXTCLOCK).
+        """
+        return self.count == 1 and self.samples > 1
+
+    def _arm_ext_start_trigger(self):
+        """Configure the dedicated external TTL pin as a rising-edge START trigger
+        for a single-subsystem (counter/adc) line scan.
+
+        POS_EDGE is the hardware TRIG pin, so the channel/level/variance args are
+        ignored, but uldaq's set_trigger still requires them.  Mirrors the dual
+        path's set_trigger call; retrigger count 0 = a single trigger per scan.
+        """
+        ul = self._ul
+        device = self.ai_device if self.mode == "adc" else self.ctr_device
+        device.set_trigger(ul.TriggerType.POS_EDGE, 0, 0.0, 0.0, 0)
+
     def _start_scan(self, external):
         """Kick off a buffered a_in_scan / c_in_scan / daq_in_scan into self._buffer."""
         ul = self._ul
@@ -312,7 +342,16 @@ class usb1808x:
             return
 
         if external:
-            scan_options = ul.ScanOption.EXTCLOCK
+            if self._ext_is_start_trigger():
+                # per-line external START trigger, internally paced: one trigger
+                # arms the line and the internal pacer clocks the samples -- what
+                # the nPoint sends in a conventional linear_image (line sync).
+                self._arm_ext_start_trigger()
+                scan_options = ul.ScanOption.EXTTRIGGER
+            else:
+                # per-pixel external sample CLOCK: one external edge latches each
+                # sample (stage-master pixel clock).
+                scan_options = ul.ScanOption.EXTCLOCK
         else:
             scan_options = ul.ScanOption.DEFAULTIO
 
