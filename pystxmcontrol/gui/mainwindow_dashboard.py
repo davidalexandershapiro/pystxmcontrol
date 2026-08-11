@@ -1714,20 +1714,21 @@ class MainWindowDashboard(QMainWindow):
         pv.setContentsMargins(14, 14, 14, 14)
         pv.setSpacing(12)
         top = QHBoxLayout()
-        self.progress_caption = self._label("Energy point 82 / 121",
+        self.progress_caption = self._label("—",
                                              font=sans_font(10), color=C["text_dim"])
         top.addWidget(self.progress_caption)
         top.addStretch(1)
-        self.pct_lbl = self._label("68%", role="value")
+        self.pct_lbl = self._label("0%", role="value")
         top.addWidget(self.pct_lbl)
         pv.addLayout(top)
-        self.progress = ProgressBar(0.68)
+        self.progress = ProgressBar(0.0)
         pv.addWidget(self.progress)
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
-        stats = [("Lines done", "82 / 120", "value"), ("Frames written", "9 840", "value"),
-                 ("Missed triggers", "0", "ok"), ("Data rate", "412 MB/s", "value")]
+        self._progress_stats = {}
+        stats = [("Lines done", "—", "value"), ("Estimated time", "—", "value"),
+                 ("Missed triggers", "0", "ok"), ("Elapsed time", "—", "value")]
         for i, (lbl, val, role) in enumerate(stats):
             r, c = divmod(i, 2)
             box = QVBoxLayout()
@@ -1737,6 +1738,7 @@ class MainWindowDashboard(QMainWindow):
             v_.setFont(mono_font(14))
             box.addWidget(v_)
             grid.addLayout(box, r, c)
+            self._progress_stats[lbl] = v_
         pv.addLayout(grid)
         prog_body.addWidget(content, 1)
         sl.addWidget(prog_card, 100)
@@ -4085,7 +4087,17 @@ class MainWindowDashboard(QMainWindow):
     # ── interactions ─────────────────────────────────────────────────────
 
     def _set_scanning(self, scanning):
+        was_scanning = self._scanning
         self._scanning = bool(scanning)
+        if self._scanning and not was_scanning:
+            # Fresh scan: clear stale progress until the first time/frame arrives.
+            self._elapsed_seconds = 0.0
+            self._remaining_seconds = 0.0
+            for k in ("Lines done", "Estimated time", "Elapsed time"):
+                if k in getattr(self, "_progress_stats", {}):
+                    self._progress_stats[k].setText("—")
+            self.pct_lbl.setText("0%")
+            self.progress.set_frac(0.0)
         if self._scanning:
             self.begin_btn.setText("Cancel scan")
             self.begin_btn.setObjectName("cancelScan")
@@ -4174,6 +4186,9 @@ class MainWindowDashboard(QMainWindow):
         # Each frame also refreshes the live-detector CCD panel from the per-detector
         # frames the controller stored on the image model.
         self._refresh_ccd()
+        # …and advances the per-image line counter (line_index just updated).
+        if self._scanning:
+            self._refresh_scan_progress()
 
     def _ccd_channel_key(self):
         """DAQ channel whose data is a 2-D frame (the area detector / CCD), from
@@ -4255,24 +4270,53 @@ class MainWindowDashboard(QMainWindow):
             self.progress_caption.setText(text)
 
     def _on_est_time(self, seconds):
-        self._est_seconds = float(seconds)
-        self._refresh_progress_time()
+        # The controller emits *remaining* time; total = elapsed + remaining.
+        self._remaining_seconds = float(seconds)
+        self._refresh_scan_progress()
 
     def _on_elapsed_time(self, seconds):
         self._elapsed_seconds = float(seconds)
-        self._refresh_progress_time()
+        self._refresh_scan_progress()
 
     @staticmethod
     def _fmt_mmss(seconds):
         seconds = max(0, int(seconds))
         return f"{seconds // 60:d}:{seconds % 60:02d}"
 
-    def _refresh_progress_time(self):
-        if not hasattr(self, "progress_time_lbl"):
-            return
-        est = getattr(self, "_est_seconds", 0.0)
+    def _refresh_scan_progress(self):
+        """Update the whole-scan progress from elapsed/remaining time (the server
+        derives remaining from completed/total lines, so elapsed/total equals the
+        overall line fraction across every energy and region) plus per-image line
+        progress from the image model."""
         elapsed = getattr(self, "_elapsed_seconds", 0.0)
-        self.progress_time_lbl.setText(
-            f"{self._fmt_mmss(elapsed)} / {self._fmt_mmss(est)}")
-        if est > 0:
-            self.progress.set_frac(elapsed / est)
+        remaining = getattr(self, "_remaining_seconds", 0.0)
+        total = elapsed + remaining
+        frac = elapsed / total if total > 0 else 0.0
+        if hasattr(self, "progress"):
+            self.progress.set_frac(frac)
+        if hasattr(self, "pct_lbl"):
+            self.pct_lbl.setText(f"{round(frac * 100)}%")
+        if hasattr(self, "progress_time_lbl"):
+            self.progress_time_lbl.setText(
+                f"{self._fmt_mmss(elapsed)} / {self._fmt_mmss(total)}")
+        stats = getattr(self, "_progress_stats", {})
+        if "Estimated time" in stats:
+            stats["Estimated time"].setText(
+                self._fmt_mmss(total) if total > 0 else "—")
+        if "Elapsed time" in stats:
+            stats["Elapsed time"].setText(
+                self._fmt_mmss(elapsed) if elapsed > 0 else "—")
+        # Per-image line progress (resets each image/energy on the server).
+        if "Lines done" in stats and self.controller is not None:
+            try:
+                im = self.controller.get_image_model()
+                li = im.get("line_index")
+                ny = im.get("y_points")
+                if not ny:
+                    arr = getattr(self.image_area.img, "image", None)
+                    ny = (arr.shape[0] if isinstance(arr, np.ndarray)
+                          and arr.ndim >= 2 else None)
+                if li is not None and ny:
+                    stats["Lines done"].setText(f"{int(li) + 1} / {int(ny)}")
+            except Exception:
+                pass

@@ -573,6 +573,7 @@ class MainController(QObject):
                     'dwell': message.get('dwell'),
                     'scan_region': message.get('scanRegion'),
                     'energy_index': message.get('energyIndex'),
+                    'line_index': message.get('lineIndex'),
                     'scan_id': message.get('scanID', ''),
                     'type': message.get('type'),
                     'mode': message.get('mode'),
@@ -1277,6 +1278,8 @@ class MainController(QObject):
             silent['scan_region_index'] = metadata['scan_region']
         if 'energy_index' in metadata:
             silent['energy_index'] = metadata['energy_index']
+        if metadata.get('line_index') is not None:
+            silent['line_index'] = metadata['line_index']
         if 'type' in metadata:
             silent['scan_type'] = metadata['type']
         if 'scan_id' in metadata and metadata['scan_id']:
@@ -1362,6 +1365,7 @@ class MainController(QObject):
                     'y_center':    y_center,
                     'x_range':     x_range,
                     'y_range':     y_range,
+                    'y_points':    y_pts,
                     'image_scale': (pixel_size_x, pixel_size_y),
                     'pixel_size':  pixel_size_x,
                 })
