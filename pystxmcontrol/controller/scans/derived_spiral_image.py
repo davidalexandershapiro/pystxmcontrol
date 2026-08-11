@@ -66,8 +66,8 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             controller.moveMotor(scan["energy_motor"], energy)
         else:
             if scanInfo['scan']['autofocus']:
-                controller.moveMotor("ZonePlateZ",
-                                          controller.motors["ZonePlateZ"]["motor"].calibratedPosition)
+                calibrated_pos = controller.motors["Energy"]["motor"].calibratedPosition
+                controller.moveMotor("ZonePlateZ", calibrated_pos)
                 if energyIndex == 0:
                     await asyncio.sleep(2)
                 else:

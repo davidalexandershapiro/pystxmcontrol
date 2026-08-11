@@ -58,6 +58,7 @@ class derivedEnergy_SGM(motor):
         # self.logger.log("moving zone plate to %.4f" %self.calibratedPosition, level="info")
         if not(debug):
             self.axes["axis2"].moveTo(self.calibratedPosition)
+            self.axes["axis2"].calibratedPosition = self.calibratedPosition
         else:
             print("[moveTo] Calibrated zone plate position: %.4f" %self.getZonePlateCalibration(energy = pos))
         self.moving = False
@@ -84,6 +85,6 @@ class derivedEnergy_SGM(motor):
         self.grooveDensity = self.config["grooveDensity"]
         self.axis = axis
         self.position = self.getPos()
-        # self.calibratedPosition = self.getZonePlateCalibration()
-        # self.axes["axis2"].calibratedPosition = self.calibratedPosition
+        self.calibratedPosition = self.getZonePlateCalibration()
+        self.axes["axis2"].calibratedPosition = self.calibratedPosition
 
