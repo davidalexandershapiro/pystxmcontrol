@@ -523,8 +523,8 @@ class controller:
                 d = dwell
                 s = samples
             else:
-                d = dwell / self.daqConfig[daq].get("oversamling_factor",1)
-                s = samples * self.daqConfig[daq].get("oversamling_factor",1)
+                d = dwell / self.daqConfig[daq].get("oversampling_factor",1)
+                s = samples * self.daqConfig[daq].get("oversampling_factor",1)
             self.daq[daq].config(d, count = count, samples = s, trigger = trigger)
 
     async def read_daq(self, daq, dwell, shutter = True):

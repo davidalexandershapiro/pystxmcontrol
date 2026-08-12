@@ -121,10 +121,10 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             aspectRatio = xRange / yRange
 
             # The dwell time plus the number of pixels sets the overall scan time.
-            # This is multiplied by the DAQ oversampling factor in the controller.
+            # The DAQ oversampling factor is applied by the controller (config_daqs) from
+            # the per-DAQ config; the scan no longer hardcodes it here.
             # Because this time is treated as a minimum, physical constraints can cause this time to increase.
             # Setting dwell to 0 will run the scan as fast as possible.
-            DAQOversample = 2.  # Average number of DAQ measurements per pixel. Doesn't affect scan time.
             reqDwell = dataHandler.data.dwells[energyIndex]
             numTotalPixels = xPoints * yPoints * np.pi / 4  # float
             reqScanTime = reqDwell * numTotalPixels / 1000  # seconds
@@ -196,20 +196,26 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             samplingFrequency = 1 / actMotorDwell * 1000.  # Hz
             nPosSamples = numTrajMotorPoints * totalSplit
 
-            # The DAQ dwell time is set by the number of pixels requested and the actual scan time
-            # Resolution for the DAQ is 1 us. Now set above for multiple daqs
-            #DAQTimeResolution = 0.001  # ms (based on keysight manual and reading out CONF? command)
-            trajPixels = int(numTotalPixels / totalSplit * DAQOversample)
-            if minDAQDwell < minMotorDwell:
-                reqDAQDwell = totalTrajTime / trajPixels * 1000.
-            else:
-                reqDAQDwell = minPointDwell
-            actDAQDwell = int(reqDAQDwell / DAQTimeResolution) * DAQTimeResolution
-            numTrajDAQPoints = int(totalTrajTime / actDAQDwell * 1000.)
+            # DAQ timing: one measurement window per motor point, then the controller
+            # (config_daqs) applies the per-DAQ oversampling_factor from the config --
+            # OF sub-samples per window at motorDwell/OF -- so the DAQ returns OF readings
+            # per motor point.  The controller is the single owner of applying OF to the
+            # hardware; the scan reads the same OF (from the default DAQ's config, into
+            # scanInfo['oversampling_factor'] at the top) only to SIZE its storage and set
+            # the interpolation normalization, so the two stay consistent.
+            # NOTE: OF>1 requires a DAQ that can sample faster than the motor
+            # (minDAQDwell < minMotorDwell) and motorDwell/OF above the DAQ minimum_dwell.
+            oversampling_factor = int(scanInfo["oversampling_factor"])
+            actDAQDwell = actMotorDwell / oversampling_factor
+            numTrajDAQPoints = numTrajMotorPoints * oversampling_factor
+            if oversampling_factor > 1 and actDAQDwell < minDAQDwell:
+                print("[spiral scan] WARNING: oversampling_factor=%d makes the DAQ window "
+                      "%.4f ms < the DAQ minimum %.4f ms; the DAQ cannot keep up and the "
+                      "readback will desync." % (oversampling_factor, actDAQDwell, minDAQDwell))
 
             scanInfo['motorDwell'] = actMotorDwell
             scanInfo['DAQDwell'] = actDAQDwell
-            scanInfo['DAQOversample'] = DAQOversample
+            scanInfo['DAQOversample'] = oversampling_factor
             scanInfo['totalSplit'] = totalSplit
 
             dataHandler.updateDwells(scanInfo)
@@ -244,45 +250,32 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             xList = xSpiral.reshape(totalSplit, int(nPosSamples / totalSplit))
             yList = ySpiral.reshape(totalSplit, int(nPosSamples / totalSplit))
 
-            # Set up DAQ acquisition for short dwell times
+            # Set up DAQ acquisition.  One trigger per motor point (count=motor points),
+            # samples=1; config_daqs applies the per-DAQ oversampling_factor (samples->
+            # samples*OF, dwell->dwell/OF), so the controller is the single place the DAQ
+            # oversampling is applied.  Pass the MOTOR dwell -- config_daqs divides it by OF.
+            DAQcount = numTrajMotorPoints
+            DAQsamples = 1
             if scan.get("daq_master", False):
-                # DAQ-master clocking (e.g. SmarAct MCS2): the DAQ gate advances the
-                # stream one frame per pulse, so there is exactly one DAQ measurement
-                # per motor frame (samples=1) — DAQ points == motor points and each
-                # carries its own captured position.  Counter-internal oversampling
-                # (samples>1) is not possible here; DAQ points are forced to match the
-                # streamed frame count so the data arrays size consistently.
-                DAQcount = numTrajMotorPoints
-                DAQsamples = 1
-                numTrajDAQPoints = numTrajMotorPoints
-                actDAQDwell = actMotorDwell
+                # DAQ-master clocking (e.g. SmarAct MCS2): the DAQ gate advances the stream
+                # one frame per pulse, so DAQ points == motor points and each carries its
+                # own captured position.  Counter-internal oversampling is not possible, so
+                # this DAQ's config MUST set oversampling_factor=1 (else config_daqs would
+                # request samples>1 and the frame counts would not size consistently).
                 daq_trigger = "GATE_OUT"
-            elif minDAQDwell < minMotorDwell:
-                DAQcount = numTrajMotorPoints
-                DAQsamples = int(np.ceil(numTrajDAQPoints / DAQcount))
-                numTrajDAQPoints = DAQsamples * DAQcount
-                # we pad the dwell time so that the daq is done collecting by the time the motor has moved on to the next position.
-                # May have to make this dependent on the motor dwell time? 4 us is a total guess.
-                dwellPad = 0.005 * DAQsamples
-                actDAQDwell = int(
-                    np.floor((actMotorDwell - dwellPad) / DAQsamples / DAQTimeResolution)) * DAQTimeResolution
-                daq_trigger = "EXT"
             else:
-                DAQcount = numTrajMotorPoints
-                DAQsamples = 1
                 daq_trigger = "EXT"
 
             scanInfo["trigger_count"] = DAQcount
             scanInfo["trigger_samples"] = DAQsamples
 
-            print('dwell: {}'.format(actDAQDwell))
-            print('count: {}'.format(DAQcount))
-            print('samples: {}'.format(DAQsamples))
-            print('motor dwell: {}'.format(actMotorDwell))
+            print('motor dwell: {} ms   oversampling_factor (DAQ windows/point): {}'.format(
+                actMotorDwell, oversampling_factor))
+            print('count: {}   samples (pre-oversample): {}'.format(DAQcount, DAQsamples))
 
-
-            #print('Configuring DAQ: {} ms dwell, {} count, {} samples, trigger'.format(actDAQDwell,DAQcount,DAQsamples))
-            controller.config_daqs(dwell = actDAQDwell, count = DAQcount, samples = DAQsamples, trigger = daq_trigger, daq_list = scanInfo["daq_list"])
+            controller.config_daqs(dwell = actMotorDwell, count = DAQcount,
+                                   samples = DAQsamples, trigger = daq_trigger,
+                                   daq_list = scanInfo["daq_list"])
 
             # Move to first position
             # print(f'[spiral scan] moving x motor to {scanInfo['xFineCenter']}')
