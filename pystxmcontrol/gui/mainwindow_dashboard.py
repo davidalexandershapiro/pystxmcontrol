@@ -1085,8 +1085,7 @@ class MainWindowDashboard(QMainWindow):
         hl.addWidget(self._vline()); hl.addWidget(rc)
         pe, self.energy_val = readout("Photon energy", "705.0 eV", role="accent")
         hl.addWidget(self._vline()); hl.addWidget(pe)
-        sh, self.shutter_val = readout("Shutter", "OPEN · auto", role="ok")
-        hl.addWidget(self._vline()); hl.addWidget(sh)
+        hl.addWidget(self._vline()); hl.addWidget(self._build_shutter_control())
 
         # server status
         hl.addWidget(self._vline())
@@ -1116,6 +1115,36 @@ class MainWindowDashboard(QMainWindow):
         mv.addWidget(self.mode_btn)
         hl.addWidget(modew)
         return header
+
+    # Shutter (gate) mode: combobox index ↔ setGate command ↔ reported gate mode.
+    _SHUTTER_INDEX_TO_CMD = {0: "auto", 1: "open", 2: "closed"}
+    _SHUTTER_MODE_TO_INDEX = {"auto": 0, "open": 1, "close": 2, "closed": 2}
+
+    def _build_shutter_control(self):
+        """Selectable shutter control (Auto / Open / Closed).  Selecting a mode
+        sends ``setGate`` to the server; ``_on_shutter`` syncs it back to the
+        gate mode the server reports."""
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(22, 0, 22, 0)
+        v.setSpacing(2)
+        v.addStretch(1)
+        v.addWidget(self._label("SHUTTER", role="fieldLabel"))
+        self.shutter_combo = QComboBox()
+        self.shutter_combo.addItems(["Auto", "Open", "Closed"])
+        self.shutter_combo.setCursor(Qt.PointingHandCursor)
+        # Connect after populating so the initial index-0 signal isn't sent as a
+        # command at startup (we wait for the server's reported state instead).
+        self.shutter_combo.currentIndexChanged.connect(self._on_shutter_selected)
+        v.addWidget(self.shutter_combo)
+        v.addStretch(1)
+        return w
+
+    def _on_shutter_selected(self, index):
+        """User picked a shutter mode → send the setGate command to the server."""
+        if self.controller is not None:
+            self.controller.set_gate(
+                self._SHUTTER_INDEX_TO_CMD.get(index, "auto"))
 
     # ── acquisition view (3-column body) ─────────────────────────────────
     def _build_acquisition_view(self):
@@ -4181,6 +4210,13 @@ class MainWindowDashboard(QMainWindow):
             if not placed:
                 self.image_area.set_primary_frame(image)
             self._image_seeded = True
+            # During a scan the beamline energy is stepped by the server and no
+            # motorPositions message is sent, so drive the header energy readout
+            # from the current frame's energy instead.
+            if self.controller is not None:
+                e = self.controller.get_image_model().get('current_energy')
+                if isinstance(e, (int, float)):
+                    self.energy_val.setText(f"{float(e):.1f} eV")
         except Exception:
             pass
         # Each frame also refreshes the live-detector CCD panel from the per-detector
@@ -4235,10 +4271,15 @@ class MainWindowDashboard(QMainWindow):
             pass
 
     def _on_shutter(self, mode):
-        text = {"open": "OPEN", "close": "CLOSED", "auto": "AUTO"}.get(mode, str(mode).upper())
-        color = C["alert_text"] if mode == "close" else C["ok"]
-        self.shutter_val.setText(text)
-        self.shutter_val.setStyleSheet(f"color:{color};background:transparent;")
+        """Server reported a gate mode → sync the shutter selector to it without
+        re-issuing a command (blockSignals)."""
+        idx = self._SHUTTER_MODE_TO_INDEX.get(str(mode).lower())
+        if idx is None or not hasattr(self, "shutter_combo"):
+            return
+        if self.shutter_combo.currentIndex() != idx:
+            self.shutter_combo.blockSignals(True)
+            self.shutter_combo.setCurrentIndex(idx)
+            self.shutter_combo.blockSignals(False)
 
     def _on_daq_value(self, value):
         if hasattr(self, "counts_lbl"):
