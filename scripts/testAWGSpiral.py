@@ -581,6 +581,47 @@ def diagnose_alignment(x_cmd, y_cmd, x_meas, y_meas, cal):
     return dcx, dcy
 
 
+def report_counts(counts, x_meas, y_meas, center_x, center_y, n_head=8):
+    """Flag a start-of-scan counter spike.  The spiral begins at the centre, so an
+    anomalous first sample (e.g. a cumulative counter dumping arm->trigger dead-time
+    counts into sample 0 via np.diff(prepend=0)) lands in the CENTRE pixel."""
+    counts = np.asarray(counts, dtype=float)
+    r = np.hypot(np.asarray(x_meas) - center_x, np.asarray(y_meas) - center_y)
+    med = float(np.median(counts)); amax = int(np.argmax(counts))
+    print(f"[counts] median={med:.4g}  max={counts.max():.4g} at index {amax} "
+          f"(r={r[amax]:.3f} um)  first {n_head}: "
+          + ", ".join(f"{c:.4g}" for c in counts[:n_head]))
+    if med > 0 and counts[0] > 3 * med:
+        print(f"[counts] WARNING: sample 0 = {counts[0]:.4g} >> median {med:.4g} "
+              f"(x{counts[0]/med:.1f}) -> start-of-scan spike at the centre pixel.")
+
+
+def plot_counts(counts, t_meas, x_meas, y_meas, center_x, center_y, out_path):
+    """Plot RAW counter data to expose start-of-scan artifacts.
+
+    Left: counts vs time (ms) -- a spike at t~0 is the start-of-scan artifact.
+    Right: counts vs radius from centre -- high counts clustered at r~0 are what
+    make the centre pixel bright."""
+    counts = np.asarray(counts, dtype=float)
+    r = np.hypot(np.asarray(x_meas) - center_x, np.asarray(y_meas) - center_y)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    ax = axes[0]
+    ax.plot(t_meas, counts, "-", lw=0.6, color="C2")
+    ax.plot(t_meas[0], counts[0], "o", ms=6, color="C3", label="sample 0")
+    ax.set_xlabel("time (ms)"); ax.set_ylabel("counts / window")
+    ax.set_title("raw counter vs time"); ax.legend(loc="upper right")
+
+    ax = axes[1]
+    ax.plot(r, counts, ".", ms=2, color="C2", alpha=0.5)
+    ax.set_xlabel("radius from centre (um)"); ax.set_ylabel("counts / window")
+    ax.set_title("raw counter vs radius")
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    print(f"[plot] saved {out_path}")
+
+
 async def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--range", type=float, default=10.0,
@@ -596,6 +637,12 @@ async def main():
     p.add_argument("--out", default="awg_spiral_test.png", help="output trajectory plot path")
     p.add_argument("--image-out", default="awg_spiral_image.png",
                    help="output reconstructed-image plot path")
+    p.add_argument("--counts-out", default="awg_spiral_counts.png",
+                   help="output raw-counter plot path")
+    p.add_argument("--drop-first", type=int, default=0,
+                   help="drop the first N (position, count) samples before imaging "
+                        "-- tests whether a start-of-scan counter spike is the bright "
+                        "centre pixel")
     p.add_argument("--oversample", type=int, default=1,
                    help="counter+position measurements per motor point (N): the DAQ "
                         "samples N x faster than the AWG plays arb points, densifying "
@@ -728,6 +775,20 @@ async def main():
         print(f"[image] using real DAQ counts "
               f"(min/max/sum = {signal.min():.3g}/{signal.max():.3g}/{signal.sum():.3g})")
 
+    # Raw counter diagnostics: the spiral starts at the centre, so a start-of-scan
+    # spike shows up as a bright centre pixel.  Always plot the REAL counts here.
+    report_counts(counts, x_meas, y_meas, args.center_x, args.center_y)
+    plot_counts(counts, t_meas, x_meas, y_meas,
+                args.center_x, args.center_y, args.counts_out)
+
+    # Optionally drop the first N samples before imaging (tests the centre-spike
+    # theory).  Applies to the imaging inputs only; the plots above show everything.
+    xi, yi, si = x_meas, y_meas, signal
+    if args.drop_first > 0:
+        n = args.drop_first
+        xi, yi, si = x_meas[n:], y_meas[n:], signal[n:]
+        print(f"[counts] dropped first {n} samples before imaging (--drop-first).")
+
     # Requested image grid: the field the spiral covers, centred on the nPoint centre.
     xReq = np.linspace(args.center_x - args.range / 2,
                        args.center_x + args.range / 2, args.pixels)
@@ -738,7 +799,7 @@ async def main():
     # (N DAQ windows per motor point).  Positions and counts are measured together
     # at the DAQ rate, so the regridder sees them 1:1 regardless of N.
     image, xInterp, yInterp, xBins, yBins = interpolate_spiral(
-        xReq, yReq, x_meas, y_meas, signal,
+        xReq, yReq, xi, yi, si,
         motorDwell=args.dwell, DAQDwell=args.dwell / args.oversample,
         DAQOversample=2.0, multiTrigger=True)
 
@@ -749,7 +810,7 @@ async def main():
     print(f"[image] reconstructed {image.shape} image, "
           f"{int(np.count_nonzero(image))}/{image.size} pixels nonzero")
 
-    plot_image(image, xInterp, yInterp, signal, xBins, yBins, args.image_out)
+    plot_image(image, xInterp, yInterp, si, xBins, yBins, args.image_out)
 
     plt.show()
 
