@@ -8,7 +8,7 @@ from optparse import OptionParser
 import zmq.asyncio
 
 parser = OptionParser()
-parser.add_option('--simulation', dest = 'simulation', default = '1', help = 'use simulation motor moves and data. ON by default.')
+parser.add_option('--simulation', dest = 'simulation', default = '0', help = 'use simulation motor moves and data. OFF by default.')
 parser.add_option('--tty', dest = 'TTYNAME', default = '/dev/pts/0')
 (options, args) = parser.parse_args()
 options = vars(options)
