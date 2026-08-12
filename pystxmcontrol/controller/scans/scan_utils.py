@@ -4,6 +4,38 @@ import traceback
 import asyncio
 
 
+def set_scan_energy(controller, scan, scanInfo, energy, energies):
+    """Move the energy motor for a scan's target energy and record the ACTUAL
+    energy in ``scanInfo["energy"]``.
+
+    Multi-energy scans always move (each energy point is a deliberate step).
+    Single-energy scans move only when the request differs from the current
+    energy by more than the energy motor's ``energy_deadband`` config value
+    (default 0.1 eV) — small energy moves take several seconds, so repeated
+    near-same-energy scans skip the move.  Either way ``scanInfo["energy"]`` is
+    set to the energy the scan actually runs at, so the GUI, metadata overlay,
+    and saved file never disagree with the hardware.
+
+    Does NOT change the caller's ``energy`` variable (so ``energy == energies[0]``
+    bookkeeping still holds) and does NOT touch autofocus/refocus — callers keep
+    that logic.  Returns the actual energy for optional use.
+    """
+    energy_motor = scan["energy_motor"]
+    actual = energy
+    if len(energies) > 1:
+        controller.moveMotor(energy_motor, energy)
+    else:
+        motor = controller.motors[energy_motor]["motor"]
+        current = motor.getPos()
+        deadband = motor.config.get("energy_deadband", 0.1)
+        if abs(energy - current) > deadband:
+            controller.moveMotor(energy_motor, energy)
+        else:
+            actual = current
+    scanInfo["energy"] = actual
+    return actual
+
+
 async def async_check_pause(controller, queue) -> bool:
     """Wait while paused.  Returns True to continue, False to terminate.
 

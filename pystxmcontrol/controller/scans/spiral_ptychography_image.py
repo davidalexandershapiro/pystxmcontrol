@@ -37,6 +37,7 @@ import time as _time
 import numpy as np
 
 from pystxmcontrol.controller.scans.base_scan import BaseScan
+from pystxmcontrol.controller.scans.scan_utils import set_scan_energy
 from pystxmcontrol.controller.scans.derived_ptychography_image import (
     insertSTXMDetector,
     retractSTXMDetector,
@@ -289,8 +290,9 @@ class SpiralPtychographyScan(BaseScan):
                 # ----------------------------------------------------------
                 # Energy / focus handling (matches derived_ptychography_image)
                 # ----------------------------------------------------------
+                # Move energy motor (deadband for single-energy) and record actual energy.
+                set_scan_energy(controller, scan, scanInfo, energy, energies)
                 if len(energies) > 1:
-                    controller.moveMotor(scan["energy_motor"], energy)
                     if not scan.get("autofocus", False):
                         if energy == energies[0]:
                             scanInfo["refocus_offset"] = (

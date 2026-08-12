@@ -245,9 +245,10 @@ async def inclined_ptychography_image(scan, dataHandler, controller, queue):
                 0] = controller.allMotorPositions  # regions in separate files
             scanInfo["motorPositions"] = controller.allMotorPositions
 
-            # move to focus without changing energy
+            # Move energy motor (deadband for single-energy) and record actual energy.
+            set_scan_energy(controller, scan, scanInfo, energy, energies)
+            # Multi-energy refocus tracking (single-energy tracks via the move itself).
             if len(energies) > 1:
-                controller.moveMotor(scan["energy_motor"], energy)
                 if not scanInfo['scan']['autofocus']:
                     if energy == energies[0]:
                         scanInfo['refocus_offset'] = currentZonePlateZ - controller.motors['ZonePlateZ'][

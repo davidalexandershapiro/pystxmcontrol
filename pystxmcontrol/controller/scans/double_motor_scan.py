@@ -9,6 +9,7 @@ Steps the Y motor through rows and either steps the X motor point-by-point
 import asyncio
 import numpy as np
 from pystxmcontrol.controller.scans.base_scan import BaseScan
+from pystxmcontrol.controller.scans.scan_utils import set_scan_energy
 
 
 class DoubleMotorScan(BaseScan):
@@ -80,8 +81,9 @@ class DoubleMotorScan(BaseScan):
                 "yRange": yRange,
             })
 
+            # Move energy motor (deadband for single-energy) and record actual energy.
+            set_scan_energy(self.controller, self.scan, self.scanInfo, energy, energies)
             if len(energies) > 1:
-                self.controller.moveMotor(self.scan["energy_motor"], energy)
                 if not self.scan.get("autofocus", False):
                     if energy_index == 0:
                         refocus_offset = (current_zpz -

@@ -8,6 +8,7 @@ spatial scans using any configured motor.
 
 import asyncio
 from pystxmcontrol.controller.scans.base_scan import BaseScan
+from pystxmcontrol.controller.scans.scan_utils import set_scan_energy
 
 
 class SingleMotorScan(BaseScan):
@@ -56,8 +57,9 @@ class SingleMotorScan(BaseScan):
                 "motorPositions": self.controller.allMotorPositions,
             })
 
+            # Move energy motor (deadband for single-energy) and record actual energy.
+            set_scan_energy(self.controller, self.scan, self.scanInfo, energy, energies)
             if len(energies) > 1:
-                self.controller.moveMotor(self.scan["energy_motor"], energy)
                 if not self.scan.get("autofocus", False):
                     if energy_index == 0:
                         refocus_offset = (current_zpz -

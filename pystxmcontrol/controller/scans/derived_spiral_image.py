@@ -62,16 +62,15 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
         scanInfo["energy"] = energy
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
-        if len(energies) > 1:
-            controller.moveMotor(scan["energy_motor"], energy)
-        else:
-            if scanInfo['scan']['autofocus']:
-                calibrated_pos = controller.motors["Energy"]["motor"].calibratedPosition
-                controller.moveMotor("ZonePlateZ", calibrated_pos)
-                if energyIndex == 0:
-                    await asyncio.sleep(2)
-                else:
-                    await asyncio.sleep(0.5)
+        # Move energy motor (deadband for single-energy) and record actual energy.
+        set_scan_energy(controller, scan, scanInfo, energy, energies)
+        if len(energies) == 1 and scanInfo['scan']['autofocus']:
+            calibrated_pos = controller.motors["Energy"]["motor"].calibratedPosition
+            controller.moveMotor("ZonePlateZ", calibrated_pos)
+            if energyIndex == 0:
+                await asyncio.sleep(2)
+            else:
+                await asyncio.sleep(0.5)
 
         for j in range(nScanRegions):
             if "outerLoop" in scan.keys():

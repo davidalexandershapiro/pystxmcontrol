@@ -1,6 +1,7 @@
 import time
 import asyncio
 import numpy as np
+from pystxmcontrol.controller.scans.scan_utils import set_scan_energy
 
 async def XRF_double_motor_scan(scan, dataHandler, controller, queue):
     """
@@ -43,8 +44,9 @@ async def XRF_double_motor_scan(scan, dataHandler, controller, queue):
         scanInfo["energy"] = energy
         scanInfo["energyIndex"] = energyIndex
         scanInfo["dwell"] = dataHandler.data.dwells[energyIndex]
+        # Move energy motor (deadband for single-energy) and record actual energy.
+        set_scan_energy(controller, scan, scanInfo, energy, energies)
         if len(energies) > 1:
-            controller.moveMotor(scan["energy_motor"], energy)
             if not scanInfo['scan']['autofocus']:
                 if energy == energies[0]:
                     scanInfo['refocus_offset'] = currentZonePlateZ - controller.motors['ZonePlateZ'][

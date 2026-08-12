@@ -7,7 +7,7 @@ scan range and executes a fine scan smaller than the max piezo scan range.
 """
 
 from pystxmcontrol.controller.scans.base_scan import BaseScan
-from pystxmcontrol.controller.scans.scan_utils import doFlyscanLine, terminateFlyscan
+from pystxmcontrol.controller.scans.scan_utils import doFlyscanLine, terminateFlyscan, set_scan_energy
 from numpy import ones
 from time import sleep,time
 
@@ -97,14 +97,13 @@ class LinearImageScan(BaseScan):
         self.scanInfo["energyIndex"] = energy_index
         self.scanInfo["dwell"] = actual_daq_dwell
 
-        # Move energy motor if multi-energy scan
-        if len(energies) > 1:
-            self.controller.moveMotor(self.scan["energy_motor"], energy)
-        else:
-            # Single energy - just handle autofocus
-            if self.scan.get("autofocus", False):
-                calibrated_pos = self.controller.motors["Energy"]["motor"].calibratedPosition
-                self.controller.moveMotor("ZonePlateZ", calibrated_pos)
+        # Move energy motor (deadband for single-energy) and record actual energy.
+        set_scan_energy(self.controller, self.scan, self.scanInfo, energy, energies)
+        # Single-energy autofocus (multi-energy tracks the zone plate via the
+        # energy move itself).
+        if len(energies) == 1 and self.scan.get("autofocus", False):
+            calibrated_pos = self.controller.motors["Energy"]["motor"].calibratedPosition
+            self.controller.moveMotor("ZonePlateZ", calibrated_pos)
 
         # Store motor dwell for trajectory setup
         self.scanInfo["_motor_dwell"] = actual_motor_dwell
