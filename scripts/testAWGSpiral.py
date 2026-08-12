@@ -37,6 +37,7 @@ import time
 from contextlib import contextmanager
 
 import numpy as np
+import scipy.signal
 import matplotlib.pyplot as plt
 
 from pystxmcontrol.controller.spiral import spiralcreator
@@ -307,14 +308,137 @@ async def run_scan(controller, daq, x_spiral, y_spiral, dwell_ms, timings=None):
     # Reduce the DAQ buffer: counts on .data, [xmon, ymon] volts on .aux_data.
     with time_block(tmap, "daq_getLine"):
         counts = await daq.getLine()
-    xmon_v, ymon_v = daq.aux_data
+    counts = np.asarray(counts, dtype=float)
+    xmon_v = np.asarray(daq.aux_data[0], dtype=float)
+    ymon_v = np.asarray(daq.aux_data[1], dtype=float)
     print(f"[daq] acquired {len(xmon_v)} position samples, "
-          f"{len(np.asarray(counts))} counter windows")
-    return np.asarray(xmon_v, dtype=float), np.asarray(ymon_v, dtype=float)
+          f"{counts.size} counter windows  "
+          f"(counts min/max/sum = {counts.min():.3g}/{counts.max():.3g}/{counts.sum():.3g})")
+    # Raw monitor volts BEFORE any volts->um scaling: the driver returns raw volts, so
+    # this is the ground truth for backing out the true um/V (see main()).  A ~0 span
+    # (std~0) here means the ADC isn't reading real position -> dead readback.
+    print(f"[daq] raw monitor volts  X span={xmon_v.max()-xmon_v.min():.4f} V "
+          f"(min={xmon_v.min():.4f} max={xmon_v.max():.4f} std={xmon_v.std():.4f})  "
+          f"Y span={ymon_v.max()-ymon_v.min():.4f} V "
+          f"(min={ymon_v.min():.4f} max={ymon_v.max():.4f} std={ymon_v.std():.4f})")
+    return (np.asarray(xmon_v, dtype=float),
+            np.asarray(ymon_v, dtype=float),
+            counts)
 
 
 def volts_to_um(v, offset_v):
     return (np.asarray(v, dtype=float) - offset_v) * POSITION_CAL_UM_PER_V
+
+
+# ===========================================================================
+#  Regridding (the "interpolation" step) -- imaging test
+# ===========================================================================
+# The two functions below are a FAITHFUL copy of the spiral regridding the live
+# stack runs in dataHandler.interpolate_points (the "continuousSpiral" branch)
+# and dataHandler.fill2d.  They are duplicated here -- rather than imported --
+# so this script reproduces exactly what turns spiral (position, counts) samples
+# into an image, and so we can revise the algorithm here in isolation before
+# touching the live dataHandler.  Kept single-segment (trajnum=0,
+# position_index=0, no cross-segment accumulation): the bench scan is one
+# trajectory, which is the degenerate case of the real accumulating code.
+
+def fill2d(im):
+    """Fill single empty (zero) pixels from a 3x3 median -- copy of
+    dataHandler.fill2d."""
+    newim = np.copy(im)
+    fim = scipy.signal.medfilt2d(im)                    # default 3x3 kernel
+    peakIndices = np.where(np.logical_and(im == 0, fim != 0))
+    newim[peakIndices] = fim[peakIndices]
+    return newim
+
+
+def interpolate_spiral(xReq, yReq, xMeas, yMeas, raw_data,
+                       motorDwell, DAQDwell, DAQOversample=2.0,
+                       multiTrigger=True):
+    """Regrid scattered spiral samples (xMeas, yMeas, raw_data) onto the
+    requested image grid (xReq, yReq).  Verbatim single-segment port of
+    dataHandler.interpolate_points, continuousSpiral branch.
+
+    Returns (image, xInterp, yInterp, xBins, yBins) so the caller can inspect the
+    per-sample interpolated positions and the bin edges alongside the image.
+    """
+    xReq = np.asarray(xReq, dtype=float)
+    yReq = np.asarray(yReq, dtype=float)
+    xMeas = np.asarray(xMeas, dtype=float)
+    yMeas = np.asarray(yMeas, dtype=float)
+    data = np.asarray(raw_data, dtype=float)
+
+    # requested grid bin edges (assumes an evenly spaced grid)
+    dx = (xReq[-1] - xReq[0]) / (len(xReq) - 1)
+    dy = (yReq[-1] - yReq[0]) / (len(yReq) - 1)
+    xBins = np.append(xReq - dx / 2, xReq[-1] + dx / 2)
+    yBins = np.append(yReq - dy / 2, yReq[-1] + dy / 2)
+
+    trajnum = 0                                         # single segment
+
+    # motor / DAQ time coordinates (dataHandler uses these offsets, determined by
+    # testing; kept identical so timing behaviour matches the live stack)
+    motDwellOffset = 0.0
+    DAQDwellOffset = 0.0 if multiTrigger else 0.002275
+    DAQdelay = 0.0
+    Motdelay = 0.0
+    actMotDwell = motorDwell + motDwellOffset
+    actDAQDwell = DAQDwell + DAQDwellOffset
+
+    if multiTrigger:
+        xytraj = np.arange(len(xMeas)) * actMotDwell + Motdelay
+        DAQsamples = int(len(data) / len(xMeas))
+        DAQtraj = np.array([np.arange(DAQsamples) * actDAQDwell + val + actDAQDwell * 0.5
+                            for val in xytraj]).flatten()
+    else:
+        xytraj = np.arange(len(xMeas)) * actMotDwell + Motdelay
+        DAQtraj = np.arange(len(data)) * actDAQDwell + DAQdelay
+
+    endpoint = max(xytraj[-1], DAQtraj[-1])
+    xy_tVals = np.array([xytraj + endpoint * i for i in range(trajnum + 1)]).flatten()
+    DAQ_tVals = np.array([DAQtraj + endpoint * i for i in range(trajnum + 1)]).flatten()
+
+    xInterp = np.interp(DAQ_tVals, xy_tVals, xMeas)
+    yInterp = np.interp(DAQ_tVals, xy_tVals, yMeas)
+    nEvents, _, _ = np.histogram2d(yInterp, xInterp, bins=[yBins, xBins])
+    binCounts, _, _ = np.histogram2d(yInterp, xInterp, bins=[yBins, xBins], weights=data)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        avCounts = binCounts / nEvents * DAQOversample
+    avCounts[np.isinf(avCounts)] = 0
+    avCounts[np.isnan(avCounts)] = 0
+
+    image = fill2d(avCounts)
+    return image, xInterp, yInterp, xBins, yBins
+
+
+def sim_counts(x_um, y_um, kind, center_x, center_y, range_um):
+    """Synthesize a per-sample counter signal at the MEASURED positions so the
+    regridding geometry can be validated with no beam.  If the reconstructed
+    image reproduces this pattern, the position -> image path is correct; if it
+    still collapses to one pixel, the fault is in the positions, not the counts.
+
+    Patterns are defined in the frame centred on (center_x, center_y).
+    """
+    x = np.asarray(x_um, dtype=float) - center_x
+    y = np.asarray(y_um, dtype=float) - center_y
+    r = np.hypot(x, y)
+    theta = np.arctan2(y, x)
+    base = 1000.0
+    if kind == "rings":
+        period = range_um / 6.0
+        sig = 0.5 * (1.0 + np.cos(2 * np.pi * r / period))
+    elif kind == "star":
+        spokes = 12
+        sig = 0.5 * (1.0 + np.cos(spokes * theta))
+    elif kind == "gauss":
+        w = range_um / 5.0
+        sig = np.exp(-(r ** 2) / (2 * w ** 2))
+    else:
+        raise ValueError(f"unknown sim sample '{kind}'")
+    # zero outside the field so the spiral's outer excursions don't smear
+    sig = np.where(r <= range_um / 2.0, sig, 0.0)
+    return base * sig
 
 
 def plot(x_cmd, y_cmd, x_meas, y_meas, out_path):
@@ -348,7 +472,48 @@ def plot(x_cmd, y_cmd, x_meas, y_meas, out_path):
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     print(f"[plot] saved {out_path}")
-    plt.show()
+
+
+def plot_image(image, xInterp, yInterp, counts, xBins, yBins, out_path):
+    """Show the reconstructed image next to the raw scatter it was built from.
+
+    Left: the regridded image (interpolate_spiral output).  Right: every DAQ
+    sample scattered at its interpolated position, coloured by counts -- this is
+    the ground truth the histogram bins.  If the scatter shows a real spiral but
+    the image is one pixel, the bug is in the regridding; if the scatter itself
+    collapses to a point, the bug is in the positions.
+    """
+    extent = [xBins[0], xBins[-1], yBins[0], yBins[-1]]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+
+    ax = axes[0]
+    im = ax.imshow(image, origin="lower", extent=extent, aspect="equal",
+                   cmap="viridis")
+    nz = int(np.count_nonzero(image))
+    ax.set_title(f"reconstructed image ({nz}/{image.size} px nonzero)")
+    ax.set_xlabel("X (um)"); ax.set_ylabel("Y (um)")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    ax = axes[1]
+    sc = ax.scatter(xInterp, yInterp, c=counts, s=6, cmap="viridis")
+    ax.set_xlim(xBins[0], xBins[-1]); ax.set_ylim(yBins[0], yBins[-1])
+    ax.set_aspect("equal", "box")
+    ax.set_title("DAQ samples at interpolated positions")
+    ax.set_xlabel("X (um)"); ax.set_ylabel("Y (um)")
+    fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    print(f"[plot] saved {out_path}")
+
+
+def report_positions(tag, x, y):
+    """Print size/min/max/std of a position array -- a constant (std ~ 0) array
+    is exactly what collapses the whole image into one pixel."""
+    x = np.asarray(x, dtype=float); y = np.asarray(y, dtype=float)
+    print(f"[{tag}] X size={x.size} min={x.min():.4f} max={x.max():.4f} "
+          f"std={x.std():.4f}   Y min={y.min():.4f} max={y.max():.4f} "
+          f"std={y.std():.4f}")
 
 
 async def main():
@@ -363,7 +528,14 @@ async def main():
                    help="nPoint X centre in microns (spiral is a zero-centred offset on it)")
     p.add_argument("--center-y", type=float, default=0.0,
                    help="nPoint Y centre in microns (spiral is a zero-centred offset on it)")
-    p.add_argument("--out", default="awg_spiral_test.png", help="output plot path")
+    p.add_argument("--out", default="awg_spiral_test.png", help="output trajectory plot path")
+    p.add_argument("--image-out", default="awg_spiral_image.png",
+                   help="output reconstructed-image plot path")
+    p.add_argument("--sim-sample", choices=["none", "rings", "star", "gauss"],
+                   default="none",
+                   help="synthesize the counter signal from a test pattern at the "
+                        "MEASURED positions (validate regridding geometry with no beam) "
+                        "instead of using the real DAQ counts")
     p.add_argument("--no-trigger", action="store_true",
                    help="USB-only bench smoke test: software-start the DAQ instead of "
                         "waiting on the AWG hardware trigger (loose sync, no cable needed)")
@@ -412,8 +584,8 @@ async def main():
         daq = make_daq(count=len(x_spiral), dwell_ms=args.dwell, no_trigger=args.no_trigger)
 
     try:
-        xmon_v, ymon_v = await run_scan(controller, daq, x_spiral, y_spiral,
-                                        args.dwell, timings=T)
+        xmon_v, ymon_v, counts = await run_scan(controller, daq, x_spiral, y_spiral,
+                                                args.dwell, timings=T)
     finally:
         daq.stop()
         controller.disconnect()
@@ -441,6 +613,58 @@ async def main():
     y_cmd = args.center_y + y_spiral
 
     plot(x_cmd, y_cmd, x_meas, y_meas, args.out)
+
+    # ---- imaging test: regrid (positions, counts) onto the requested grid ---- #
+    report_positions("cmd ", x_cmd, y_cmd)
+    report_positions("meas", x_meas, y_meas)
+
+    # Back out the TRUE monitor calibration empirically: commanded micron span over the
+    # raw-volt span the ADC read.  Compare this to POSITION_CAL_UM_PER_V (this script)
+    # and to monitor_um_per_volt in the live daq config -- they must agree.
+    vx_span = float(np.ptp(xmon_v)); vy_span = float(np.ptp(ymon_v))
+    cx_span = float(np.ptp(x_cmd));  cy_span = float(np.ptp(y_cmd))
+    if vx_span > 1e-6 and vy_span > 1e-6:
+        print(f"[cal] empirical um/V:  X={cx_span/vx_span:.4f}  Y={cy_span/vy_span:.4f}  "
+              f"(script POSITION_CAL_UM_PER_V={POSITION_CAL_UM_PER_V:.4f})")
+    else:
+        print("[cal] raw monitor volt span ~0 -> ADC not reading position (dead "
+              "readback); cannot back out um/V.")
+
+    # The counter signal: real DAQ counts, or a synthetic pattern sampled at the
+    # measured positions (lets us validate the regridding with no beam).
+    if args.sim_sample != "none":
+        signal = sim_counts(x_meas, y_meas, args.sim_sample,
+                            args.center_x, args.center_y, args.range)
+        print(f"[image] using synthetic '{args.sim_sample}' counts "
+              f"(min/max = {signal.min():.3g}/{signal.max():.3g})")
+    else:
+        signal = counts
+        print(f"[image] using real DAQ counts "
+              f"(min/max/sum = {signal.min():.3g}/{signal.max():.3g}/{signal.sum():.3g})")
+
+    # Requested image grid: the field the spiral covers, centred on the nPoint centre.
+    xReq = np.linspace(args.center_x - args.range / 2,
+                       args.center_x + args.range / 2, args.pixels)
+    yReq = np.linspace(args.center_y - args.range / 2,
+                       args.center_y + args.range / 2, args.pixels)
+
+    # motor dwell == AWG sample period; DAQ dwell matches (count=motor points,
+    # samples=1 -> one DAQ window per motor point, so both are args.dwell).
+    image, xInterp, yInterp, xBins, yBins = interpolate_spiral(
+        xReq, yReq, x_meas, y_meas, signal,
+        motorDwell=args.dwell, DAQDwell=args.dwell,
+        DAQOversample=2.0, multiTrigger=True)
+
+    report_positions("interp", xInterp, yInterp)
+    inx = int(np.count_nonzero((xInterp >= xBins[0]) & (xInterp <= xBins[-1])))
+    iny = int(np.count_nonzero((yInterp >= yBins[0]) & (yInterp <= yBins[-1])))
+    print(f"[image] samples in-grid: X {inx}/{xInterp.size}  Y {iny}/{yInterp.size}")
+    print(f"[image] reconstructed {image.shape} image, "
+          f"{int(np.count_nonzero(image))}/{image.size} pixels nonzero")
+
+    plot_image(image, xInterp, yInterp, signal, xBins, yBins, args.image_out)
+
+    plt.show()
 
 
 if __name__ == "__main__":

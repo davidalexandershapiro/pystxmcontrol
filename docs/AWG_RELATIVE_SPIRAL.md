@@ -122,12 +122,26 @@ paired with photon counts on one pacer clock (mirrors `scripts/testAWGSpiral.py:
              "channel":0,"ai_channels":[0,1],"ctr_channel":0,"primary":"counter",
              "input_mode":"differential","voltage_range":10.0,"adc_max_rate":200000.0,
              "serial":null,"gate":false,"position_readback":true,
+             "monitor_um_per_volt":5.0,"monitor_offset_x":0.0,"monitor_offset_y":0.0,
              "minimum_dwell":0.001,"dwell_pad":0.0,"time_resolution":0.001,
              "record":true,"simulation":0}
 ```
 
 `ai_channels:[xmon, ymon]` and `position_readback:true` are what route the achieved positions
 into `scanInfo["line_positions"]`.
+
+`monitor_um_per_volt` / `monitor_offset_x` / `monitor_offset_y` calibrate the nPoint monitor
+volts (on `aux_data`) to microns in `dataHandler._apply_position_readback`. **These are
+mandatory** — the driver returns raw volts (uldaq scales ADC codes to the ±`voltage_range`
+volts, nothing more), so the volts→micron conversion is a property of the *nPoint being read*,
+not the USB-1808X. If `monitor_um_per_volt` is omitted it **defaults to 1.0** (volts treated as
+microns): the readback positions come out ~2 orders of magnitude too large, fall outside the
+requested image grid, and the reconstructed image collapses toward a single pixel.
+
+The value is a property of the nPoint stage, not the DAQ: for the 100 µm stage the monitor
+spans the full ±10 V (20 V) over 100 µm and reads 2× the true position, so the calibration is
+`100/20 = 5.0` µm/V (matches `POSITION_CAL_UM_PER_V` in `scripts/testAWGSpiral.py`). Confirm it
+per stage with the bench script's raw-volts readback before trusting a reconstructed image.
 
 ## Verification
 

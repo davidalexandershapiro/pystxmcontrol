@@ -776,6 +776,23 @@ class dataHandler:
             aux = getattr(self.daq[daq], "aux_data", None)
             if aux is None or len(aux) < 2:
                 continue
+            # The driver returns RAW VOLTS; the volts->micron cal is a property of the
+            # monitored stage (e.g. the nPoint), not the DAQ, and MUST be configured as
+            # monitor_um_per_volt on this DAQ's config.  Missing it silently defaults to
+            # 1.0 (volts treated as microns) -> readback positions land outside the
+            # requested grid -> the reconstructed image collapses toward a single pixel.
+            # Warn once per DAQ so the trap is visible instead of a mystery blank image.
+            if "monitor_um_per_volt" not in meta:
+                warned = getattr(self, "_readback_cal_warned", None)
+                if warned is None:
+                    warned = self._readback_cal_warned = set()
+                if daq not in warned:
+                    warned.add(daq)
+                    print("[dataHandler] WARNING: DAQ '%s' has position_readback=true but "
+                          "no 'monitor_um_per_volt' in its config; defaulting to 1.0 "
+                          "(volts treated as microns). Achieved positions will be "
+                          "mis-scaled and the reconstructed image may collapse to ~one "
+                          "pixel. Set monitor_um_per_volt (and monitor_offset_x/y)." % daq)
             cal = meta.get("monitor_um_per_volt", 1.0)
             cal_x, cal_y = cal if isinstance(cal, (list, tuple)) else (cal, cal)
             x = np.asarray(aux[0], dtype=float) * cal_x + meta.get("monitor_offset_x", 0.0)
