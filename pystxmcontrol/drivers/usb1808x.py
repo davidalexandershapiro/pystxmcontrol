@@ -419,6 +419,26 @@ class usb1808x:
         self.aux_data = ai_list
         return ctr
 
+    def _deprime_counts(self, ctr):
+        """Drop the start-of-scan spike in the first counter window.
+
+        The counter is cleared (``c_clear`` in ``_start_scan``) and then free-runs
+        while the scan waits for its start trigger, so the FIRST per-window
+        difference (``np.diff(..., prepend=0.0)``) absorbs every count that accrued
+        during the arm->trigger dead time -- a large spike in window 0.  On a
+        spiral (which starts at the centre) that spike lands in the centre pixel.
+
+        The dead-time count is unrecoverable, so replace window 0 with window 1
+        (the first clean per-window difference).  This is length-preserving on
+        purpose: downstream sizes its buffers at exactly ``count*samples``, and a
+        split spiral indexes each trajectory by that fixed count, so shortening the
+        array here would drift the per-segment offsets.  A single-window line
+        (size < 2) is left untouched."""
+        ctr = np.asarray(ctr, dtype="float")
+        if ctr.size >= 2:
+            ctr[0] = ctr[1]
+        return ctr
+
     def _reduce_line(self):
         """Turn the raw scan buffer into a length-(count*samples) float array."""
         windows = self._windows()
@@ -435,14 +455,14 @@ class usb1808x:
             # CTR (last column): cumulative counts latched every raw sample; take the
             # last latch in each window and difference to recover per-window counts.
             ctr_cum = raw[:, -1].reshape(windows, self._oversamples)[:, -1]
-            ctr = np.diff(ctr_cum, prepend=0.0)
+            ctr = self._deprime_counts(np.diff(ctr_cum, prepend=0.0))
             return self._split_primary(ai_list, ctr)
         if self.mode == "adc":
             # average each block of oversamples raw ADC samples into one window value
             raw = raw[:windows * self._oversamples]
             return raw.reshape(windows, self._oversamples).mean(axis=1)
         # counter: buffer holds cumulative counts latched per window -> per-window diff
-        return np.diff(raw, prepend=0.0)
+        return self._deprime_counts(np.diff(raw, prepend=0.0))
 
     async def getLine(self):
         self._wait_scan()
