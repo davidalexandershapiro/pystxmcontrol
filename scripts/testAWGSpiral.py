@@ -456,7 +456,12 @@ def sim_counts(x_um, y_um, kind, center_x, center_y, range_um):
     return base * sig
 
 
-def plot(x_cmd, y_cmd, x_meas, y_meas, out_path):
+def plot(x_cmd, y_cmd, x_meas, y_meas, t_cmd, t_meas, out_path):
+    """Commanded vs measured, with the two time-series panels on a common TIME
+    axis (ms).  Commanded (motor points at motorDwell) and measured (DAQ windows
+    at motorDwell/oversample) have different sample counts but span the same
+    trajectory duration, so plotting X/Y against time overlays them directly --
+    a residual horizontal shift between the curves is the AWG->ADC timing lag."""
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
     ax = axes[0]
@@ -467,21 +472,18 @@ def plot(x_cmd, y_cmd, x_meas, y_meas, out_path):
     ax.set_title("spiral trajectory")
     ax.legend(loc="upper right")
 
-    n = np.arange(len(x_cmd))
     ax = axes[1]
-    ax.plot(n, x_cmd, "-", lw=0.8, color="C0", label="X commanded")
-    ax.plot(np.arange(len(x_meas)), x_meas, ".", ms=2, color="C3",
-            alpha=0.6, label="X acquired")
-    ax.set_xlabel("sample index"); ax.set_ylabel("X (um)")
-    ax.set_title("X vs sample")
+    ax.plot(t_cmd, x_cmd, "-", lw=0.8, color="C0", label="X commanded")
+    ax.plot(t_meas, x_meas, ".", ms=2, color="C3", alpha=0.6, label="X acquired")
+    ax.set_xlabel("time (ms)"); ax.set_ylabel("X (um)")
+    ax.set_title("X vs time")
     ax.legend(loc="upper right")
 
     ax = axes[2]
-    ax.plot(n, y_cmd, "-", lw=0.8, color="C0", label="Y commanded")
-    ax.plot(np.arange(len(y_meas)), y_meas, ".", ms=2, color="C3",
-            alpha=0.6, label="Y acquired")
-    ax.set_xlabel("sample index"); ax.set_ylabel("Y (um)")
-    ax.set_title("Y vs sample")
+    ax.plot(t_cmd, y_cmd, "-", lw=0.8, color="C0", label="Y commanded")
+    ax.plot(t_meas, y_meas, ".", ms=2, color="C3", alpha=0.6, label="Y acquired")
+    ax.set_xlabel("time (ms)"); ax.set_ylabel("Y (um)")
+    ax.set_title("Y vs time")
     ax.legend(loc="upper right")
 
     fig.tight_layout()
@@ -695,7 +697,12 @@ async def main():
         y_meas = y_meas - dcy
         print("[align] subtracted DC offset from measured positions (--zero-offset).")
 
-    plot(x_cmd, y_cmd, x_meas, y_meas, args.out)
+    # Common time axis (ms): commanded points are spaced args.dwell apart; measured
+    # DAQ windows are args.dwell/oversample apart.  Both span the same total time, so
+    # the X/Y-vs-time panels overlay (any residual shift is the AWG->ADC lag).
+    t_cmd = np.arange(len(x_cmd)) * args.dwell
+    t_meas = np.arange(len(x_meas)) * (args.dwell / args.oversample)
+    plot(x_cmd, y_cmd, x_meas, y_meas, t_cmd, t_meas, args.out)
 
     # Back out the TRUE monitor calibration empirically: commanded micron span over the
     # raw-volt span the ADC read.  Compare this to POSITION_CAL_UM_PER_V (this script)
