@@ -27,8 +27,15 @@ Requires the hardware (AWG on VISA, USB-1808X + uldaq).  Run:
 
     python scripts/testAWGSpiral.py --range 10 --pixels 60 --dwell 0.5
 
-The DAQ scan is count = (number of commanded motor points), one window per point, so
-the acquired arrays line up 1:1 with the commanded spiral.
+The DAQ scan is count = (number of commanded motor points) with `--oversample` N
+windows per point (default N=1); positions and counts are acquired together at the DAQ
+rate, so they line up 1:1 with each other and (for N=1) with the commanded spiral.
+
+Full imaging test (regrid measured positions + counts into an image, mirroring
+dataHandler.interpolate_points):
+
+    python scripts/testAWGSpiral.py --range 10 --pixels 60 --dwell 0.5 --oversample 4
+    python scripts/testAWGSpiral.py --range 10 --pixels 60 --sim-sample rings  # no beam
 """
 
 import argparse
@@ -53,7 +60,7 @@ AWG_Y_CHANNEL = 2                            # AWG output -> nPoint Y
 
 # nPoint digital interface: holds the absolute scan CENTRE while the AWG plays a
 # zero-centred dither summed onto it (see derivedPiezoWithAWG).  axis 'x' -> 1, 'y' -> 2.
-NPT_ADDRESS = "7340010"                      # nPoint controller FTDI device ID
+NPT_ADDRESS = "7340015A"                      # nPoint controller FTDI device ID
 NPT_MIN_UM = -50.0                           # fine-stage software travel limits
 NPT_MAX_UM = 50.0
 
@@ -75,7 +82,7 @@ XMON_OFFSET_V = 0.0                          # monitor volts at X = 0 um
 YMON_OFFSET_V = 0.0                          # monitor volts at Y = 0 um
 
 # ---- spiral generation constants (mirror derived_spiral_image) ------------ #
-F_MAX_HZ = 100.0                             # max XY scanner frequency
+F_MAX_HZ = 20.0                             # max XY scanner frequency
 IN_RATIO = 0.05                              # fraction of points in the return spiral
 LOOP_OVERSAMPLE = 1.2                        # loops per (pixels/2)
 MAX_TRAJ_POINTS = 5000                       # AWG single-trajectory point ceiling
@@ -159,14 +166,22 @@ def make_npt_motors(center_x, center_y, address=NPT_ADDRESS):
     return controller, motors["x"], motors["y"]
 
 
-def make_daq(count, dwell_ms, no_trigger=False):
+def make_daq(count, dwell_ms, oversample=1, no_trigger=False):
     """Configure a USB-1808X for a synchronous adc+counter line scan.
 
     Default is EXT triggering: the scan waits on the AWG start pulse wired into
     the 1808X TRIG pin.  With no_trigger=True the DAQ is BUS-triggered and started
     in software (see run_scan) for a USB-only bench smoke test with no cable — the
     DAQ and AWG starts are then not hardware-synced, so samples carry a small,
-    variable time offset from the commanded trajectory."""
+    variable time offset from the commanded trajectory.
+
+    ``oversample`` (N) requests N counter+position measurements per motor point:
+    the DAQ collects ``count * N`` windows at ``dwell/N`` each, so the total scan
+    time still equals the trajectory playback (``count * dwell``) and the samples
+    stay phase-locked to the AWG.  N>1 densifies the spiral track so fewer image
+    pixels are left empty (the AWG plays the SAME arb points; only the DAQ samples
+    faster).  This mirrors the DAQsamples/oversampling the real spiral scan applies
+    for the MCL + Keysight-counter path."""
     daq = mccUSB1808X(simulation=False)
     daq.simulation = False
     daq.meta = {
@@ -185,7 +200,7 @@ def make_daq(count, dwell_ms, no_trigger=False):
         "simulation": False,
     }
     daq.start()                                    # connect the device
-    daq.config(dwell_ms, count=count, samples=1,
+    daq.config(dwell_ms / oversample, count=count, samples=oversample,
                trigger="BUS" if no_trigger else "EXT", output="OFF")
     return daq
 
@@ -516,6 +531,54 @@ def report_positions(tag, x, y):
           f"std={y.std():.4f}")
 
 
+def diagnose_alignment(x_cmd, y_cmd, x_meas, y_meas, cal):
+    """Separate a constant DC OFFSET (fixable with monitor_offset) from a TIMING
+    LAG (not fixable with any offset) between commanded and measured positions.
+
+    Returns (dcx, dcy) -- the measured-minus-commanded centroid offset in microns
+    -- so the caller can optionally subtract it.  Prints:
+      * the DC offset in microns AND volts, with the exact config values to null
+        it in both the live path (monitor_offset_x/y, um, added AFTER scaling) and
+        this script (XMON/YMON_OFFSET_V, volts, subtracted BEFORE scaling);
+      * a coarse sample-lag scan: if the shape matches far better at a nonzero lag,
+        the residual is a delay between AWG output and ADC sampling, and NO
+        constant offset will fix it.
+    """
+    x_cmd = np.asarray(x_cmd, float); y_cmd = np.asarray(y_cmd, float)
+    x_meas = np.asarray(x_meas, float); y_meas = np.asarray(y_meas, float)
+
+    dcx = float(np.mean(x_meas) - np.mean(x_cmd))
+    dcy = float(np.mean(y_meas) - np.mean(y_cmd))
+    print(f"[align] DC offset (measured-commanded centroid): "
+          f"X={dcx:+.4f} um  Y={dcy:+.4f} um")
+    print(f"[align]   null it live:   monitor_offset_x={-dcx:+.4f}, "
+          f"monitor_offset_y={-dcy:+.4f}  (um, added after scaling)")
+    print(f"[align]   null it here:   XMON_OFFSET_V={dcx/cal:+.5f}, "
+          f"YMON_OFFSET_V={dcy/cal:+.5f}  (V, subtracted before scaling)")
+
+    # Resample commanded onto the measured sample grid, then scan integer lags.
+    n = len(x_meas)
+    idx = np.linspace(0, len(x_cmd) - 1, n)
+    xc = np.interp(idx, np.arange(len(x_cmd)), x_cmd) - np.mean(x_cmd)
+    yc = np.interp(idx, np.arange(len(y_cmd)), y_cmd) - np.mean(y_cmd)
+    xm = x_meas - np.mean(x_meas); ym = y_meas - np.mean(y_meas)
+    rms0 = float(np.sqrt(np.mean((xm - xc) ** 2 + (ym - yc) ** 2)))
+    max_lag = max(1, n // 20)
+    best_lag, best_rms = 0, rms0
+    for lag in range(-max_lag, max_lag + 1):
+        r = float(np.sqrt(np.mean((xm - np.roll(xc, lag)) ** 2
+                                  + (ym - np.roll(yc, lag)) ** 2)))
+        if r < best_rms:
+            best_lag, best_rms = lag, r
+    print(f"[align] DC-removed shape RMS vs commanded: {rms0:.4f} um at lag 0; "
+          f"best {best_rms:.4f} um at lag {best_lag} samples "
+          f"({best_lag / n * 100:+.1f}% of trajectory)")
+    if best_lag != 0 and best_rms < 0.9 * rms0:
+        print("[align]   -> TIMING LAG dominates (AWG output vs ADC sampling delay); "
+              "a constant monitor_offset will NOT fix this.")
+    return dcx, dcy
+
+
 async def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--range", type=float, default=10.0,
@@ -531,6 +594,14 @@ async def main():
     p.add_argument("--out", default="awg_spiral_test.png", help="output trajectory plot path")
     p.add_argument("--image-out", default="awg_spiral_image.png",
                    help="output reconstructed-image plot path")
+    p.add_argument("--oversample", type=int, default=1,
+                   help="counter+position measurements per motor point (N): the DAQ "
+                        "samples N x faster than the AWG plays arb points, densifying "
+                        "the spiral track so fewer image pixels are empty")
+    p.add_argument("--zero-offset", action="store_true",
+                   help="subtract the measured-vs-commanded DC centroid offset from the "
+                        "measured positions before imaging (isolates a timing lag from a "
+                        "constant offset)")
     p.add_argument("--sim-sample", choices=["none", "rings", "star", "gauss"],
                    default="none",
                    help="synthesize the counter signal from a test pattern at the "
@@ -581,7 +652,8 @@ async def main():
             controller.setup_xy(x_spiral, y_spiral, args.dwell)
 
     with time_block(T, "make_daq"):
-        daq = make_daq(count=len(x_spiral), dwell_ms=args.dwell, no_trigger=args.no_trigger)
+        daq = make_daq(count=len(x_spiral), dwell_ms=args.dwell,
+                       oversample=args.oversample, no_trigger=args.no_trigger)
 
     try:
         xmon_v, ymon_v, counts = await run_scan(controller, daq, x_spiral, y_spiral,
@@ -612,11 +684,18 @@ async def main():
     x_cmd = args.center_x + x_spiral
     y_cmd = args.center_y + y_spiral
 
-    plot(x_cmd, y_cmd, x_meas, y_meas, args.out)
-
     # ---- imaging test: regrid (positions, counts) onto the requested grid ---- #
     report_positions("cmd ", x_cmd, y_cmd)
     report_positions("meas", x_meas, y_meas)
+
+    # Is the commanded-vs-measured offset a constant (fixable) or a timing lag?
+    dcx, dcy = diagnose_alignment(x_cmd, y_cmd, x_meas, y_meas, POSITION_CAL_UM_PER_V)
+    if args.zero_offset:
+        x_meas = x_meas - dcx
+        y_meas = y_meas - dcy
+        print("[align] subtracted DC offset from measured positions (--zero-offset).")
+
+    plot(x_cmd, y_cmd, x_meas, y_meas, args.out)
 
     # Back out the TRUE monitor calibration empirically: commanded micron span over the
     # raw-volt span the ADC read.  Compare this to POSITION_CAL_UM_PER_V (this script)
@@ -648,11 +727,12 @@ async def main():
     yReq = np.linspace(args.center_y - args.range / 2,
                        args.center_y + args.range / 2, args.pixels)
 
-    # motor dwell == AWG sample period; DAQ dwell matches (count=motor points,
-    # samples=1 -> one DAQ window per motor point, so both are args.dwell).
+    # motor dwell == AWG sample period; DAQ dwell = motor dwell / oversample
+    # (N DAQ windows per motor point).  Positions and counts are measured together
+    # at the DAQ rate, so the regridder sees them 1:1 regardless of N.
     image, xInterp, yInterp, xBins, yBins = interpolate_spiral(
         xReq, yReq, x_meas, y_meas, signal,
-        motorDwell=args.dwell, DAQDwell=args.dwell,
+        motorDwell=args.dwell, DAQDwell=args.dwell / args.oversample,
         DAQOversample=2.0, multiTrigger=True)
 
     report_positions("interp", xInterp, yInterp)
