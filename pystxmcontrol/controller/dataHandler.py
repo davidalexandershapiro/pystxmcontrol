@@ -795,6 +795,26 @@ class dataHandler:
             cal_x, cal_y = cal if isinstance(cal, (list, tuple)) else (cal, cal)
             x = np.asarray(aux[0], dtype=float) * cal_x + meta.get("monitor_offset_x", 0.0)
             y = np.asarray(aux[1], dtype=float) * cal_y + meta.get("monitor_offset_y", 0.0)
+
+            # The ADC returns one position per DAQ window (count*samples), but with DAQ
+            # oversampling that is more than the motor-point count, while the position
+            # storage (xMeasured) and index (position_index) are sized at the MOTOR rate.
+            # So decimate the readback to the length of the commanded line_positions it is
+            # replacing (the motor-point count): averaging each motor point's DAQ
+            # sub-samples gives its achieved position, and interpolate_points then
+            # reconstructs the DAQ-rate positions exactly as it does for a motor-rate
+            # (e.g. MCL) array.  Sizing the store at the DAQ rate -- to keep the finer
+            # per-count positions instead of averaging them away -- is the alternative.
+            target = len(scanInfo["line_positions"][0])
+            if target > 0 and x.size != target:
+                if x.size % target == 0:
+                    x = x.reshape(target, x.size // target).mean(axis=1)
+                    y = y.reshape(target, y.size // target).mean(axis=1)
+                else:
+                    grid = np.linspace(0, x.size - 1, target)
+                    x = np.interp(grid, np.arange(x.size), x)
+                    y = np.interp(grid, np.arange(y.size), y)
+
             if scanInfo.get("direction") == "backward":
                 x, y = x[::-1], y[::-1]
             scanInfo["line_positions"] = [x, y]
