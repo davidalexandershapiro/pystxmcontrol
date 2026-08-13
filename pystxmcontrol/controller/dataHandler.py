@@ -102,8 +102,6 @@ class dataHandler:
 
 
     def interpolate_points(self, scanInfo, daq):
-        ###TODO: need to get the oversampling factor into a config file and have it used by both the MCL and the DAQ.  Currently
-        ###it is only used by the MCL and is hard coded.
 
         #For linear trajectories we only interpolate one line at a time and pass that to the STXM file and GUI
         #positions and data are measured along a well defined time coordinate since each point is sampled with the same dwell time.

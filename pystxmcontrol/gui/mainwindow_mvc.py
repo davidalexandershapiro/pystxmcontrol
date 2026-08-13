@@ -472,19 +472,32 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         self._meta_text.setVisible(False)
         self.ui.mainImage.getView().sigRangeChanged.connect(self._reposition_meta_text)
         
-        # Set up default values
-        self.ui.focusRangeEdit.setText('100')
-        self.ui.focusStepsEdit.setText('50')
-        self.ui.lineLengthEdit.setText('10')
-        self.ui.lineAngleEdit.setText('0')
-        self.ui.linePointsEdit.setText('50')
-        
-        # Set default pen color and style (do this early in case it's needed)
+        # Set default pen color and style. This must be created BEFORE the
+        # setText() calls below: those fire textChanged, which reaches
+        # update_line_roi()/_calculate_line_roi() where default_pen is used.
         self.default_pen = pg.mkPen(
             self.pen_colors[0],
             width=3,
             style=self.pen_styles[0]
         )
+
+        # Set up default values. Block signals on the line edits while doing
+        # so: their textChanged handlers (update_line_parameters ->
+        # update_line_roi -> _calculate_line_roi) would otherwise build a
+        # LineSegmentROI now, before the image scene is fully constructed,
+        # which crashes pyqtgraph. Same rationale as _set_line_fields(). The
+        # step sizes / regions / ROIs are set up explicitly just below.
+        self.ui.focusRangeEdit.setText('100')
+        self.ui.focusStepsEdit.setText('50')
+        for _edit in (self.ui.lineLengthEdit, self.ui.lineAngleEdit,
+                      self.ui.linePointsEdit):
+            _edit.blockSignals(True)
+        self.ui.lineLengthEdit.setText('10')
+        self.ui.lineAngleEdit.setText('0')
+        self.ui.linePointsEdit.setText('50')
+        for _edit in (self.ui.lineLengthEdit, self.ui.lineAngleEdit,
+                      self.ui.linePointsEdit):
+            _edit.blockSignals(False)
 
         # Calculate initial step sizes
         self.update_focus_step_size()

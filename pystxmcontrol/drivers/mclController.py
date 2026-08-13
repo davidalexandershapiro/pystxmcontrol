@@ -17,7 +17,6 @@ class mclController():
         if not(self.simulation):
             global MADLIB
             MADLIB = cdll.LoadLibrary(address)
-            self.oversampling_factor = 3
 
             #set up functions needed for waveform generation
             #Single position read
