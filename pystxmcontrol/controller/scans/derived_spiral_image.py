@@ -189,6 +189,27 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                 actMotorDwell = minPointDwell
                 numTrajMotorPoints = int(totalTrajTime / actMotorDwell * 1000.)
 
+            # --- Pair the DAQ gate with the motor step (mirror linear_image) ----------
+            # The MCL emits the per-point pixel clock and the Keysight is gated "EXT" once
+            # per trigger.  The counter's gate must close at least one DAQ time-resolution
+            # BEFORE the next trigger, or it is still measuring when the edge arrives and
+            # drops it -> missed triggers -> DAQ timeout.  Quantize the DAQ gate DOWN to the
+            # (possibly coarse) DAQ time resolution, floor it at the DAQ minimum, then lift
+            # the MOTOR step one DAQ time-resolution ABOVE the gate -- exactly like
+            # base_scan.calculate_actual_dwell (motor = daq + time_resolution).  Deriving
+            # the gate this way (instead of subtracting from the motor step) keeps it a
+            # valid, non-zero Keysight value even when the motor dwell is only ~1 resolution
+            # long.  Doing it BEFORE scanTime/samplingFrequency keeps the generated spiral
+            # consistent with the actual DAC playback rate.
+            daqPointDwell = np.floor(actMotorDwell / DAQTimeResolution) * DAQTimeResolution
+            daqPointDwell = max(daqPointDwell, minDAQDwell)
+            if not scan.get("daq_master", False):
+                actMotorDwell = daqPointDwell + DAQTimeResolution
+            else:
+                # MCS2 DAQ-master: the DAQ paces the stream, so the gate spans the full
+                # motor step with no re-arm gap.
+                daqPointDwell = actMotorDwell
+
             # scanTime might be slightly different than the prior estimate
             scanTime = numTrajMotorPoints * actMotorDwell * totalSplit / 1000.  # s
 
@@ -196,32 +217,20 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             samplingFrequency = 1 / actMotorDwell * 1000.  # Hz
             nPosSamples = numTrajMotorPoints * totalSplit
 
-            # DAQ timing: one measurement window per motor point, then the controller
-            # (config_daqs) applies the per-DAQ oversampling_factor from the config --
-            # OF sub-samples per window at daqConfigDwell/OF -- so the DAQ returns OF
-            # readings per motor point.  The controller is the single owner of applying OF
-            # to the hardware; the scan reads the same OF (from the default DAQ's config,
-            # into scanInfo['oversampling_factor'] at the top) only to SIZE its storage and
-            # set the interpolation normalization, so the two stay consistent.
+            # DAQ timing: one measurement window per motor point (daqPointDwell, paired
+            # with the motor step above).  config_daqs then applies the per-DAQ
+            # oversampling_factor from the config -- OF sub-samples per window at
+            # daqPointDwell/OF, samples->OF -- so the DAQ returns OF readings per motor
+            # point.  The controller is the single owner of applying OF to the hardware;
+            # the scan reads the same OF (from the default DAQ's config, into
+            # scanInfo['oversampling_factor'] at the top) only to SIZE its storage and set
+            # the interpolation normalization, so the two stay consistent.
             # NOTE: OF>1 requires a DAQ that can sample faster than the motor
-            # (minDAQDwell < minMotorDwell) and motorDwell/OF above the DAQ minimum_dwell.
-            #
-            # In stage-master (EXT) mode the counter is clocked by the motor's per-point
-            # trigger.  Its total measurement window per point must close a re-arm
-            # dead-time BEFORE the next trigger arrives, or the hardware counter drops
-            # triggers and the DAQ never reaches its count -> timeout.  We therefore hold
-            # the DAQ dwell budget one DAQ pad (at least one time resolution) below the
-            # motor step and quantize down to the DAQ time resolution, mirroring
-            # linear_image's calculate_actual_dwell (motor step = DAQ dwell + resolution).
-            # In DAQ-master (GATE_OUT) mode the DAQ paces the stream itself, so it uses the
-            # full motor step with no re-arm gap.
+            # (minDAQDwell < minMotorDwell) and daqPointDwell/OF above the DAQ minimum_dwell;
+            # it must also be an exact multiple of the DAQ time resolution.
             oversampling_factor = int(scanInfo["oversampling_factor"])
             numTrajDAQPoints = numTrajMotorPoints * oversampling_factor
-            if scan.get("daq_master", False):
-                daqConfigDwell = actMotorDwell
-            else:
-                daqConfigDwell = actMotorDwell - max(DAQDwellPad, DAQTimeResolution)
-                daqConfigDwell = np.floor(daqConfigDwell / DAQTimeResolution) * DAQTimeResolution
+            daqConfigDwell = daqPointDwell
             actDAQDwell = daqConfigDwell / oversampling_factor
             if actDAQDwell < minDAQDwell:
                 print("[spiral scan] WARNING: DAQ window %.4f ms < the DAQ minimum %.4f ms "
