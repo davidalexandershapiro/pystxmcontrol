@@ -189,27 +189,6 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
                 actMotorDwell = minPointDwell
                 numTrajMotorPoints = int(totalTrajTime / actMotorDwell * 1000.)
 
-            # --- Pair the DAQ gate with the motor step (mirror linear_image) ----------
-            # The MCL emits the per-point pixel clock and the Keysight is gated "EXT" once
-            # per trigger.  The counter's gate must close at least one DAQ time-resolution
-            # BEFORE the next trigger, or it is still measuring when the edge arrives and
-            # drops it -> missed triggers -> DAQ timeout.  Quantize the DAQ gate DOWN to the
-            # (possibly coarse) DAQ time resolution, floor it at the DAQ minimum, then lift
-            # the MOTOR step one DAQ time-resolution ABOVE the gate -- exactly like
-            # base_scan.calculate_actual_dwell (motor = daq + time_resolution).  Deriving
-            # the gate this way (instead of subtracting from the motor step) keeps it a
-            # valid, non-zero Keysight value even when the motor dwell is only ~1 resolution
-            # long.  Doing it BEFORE scanTime/samplingFrequency keeps the generated spiral
-            # consistent with the actual DAC playback rate.
-            daqPointDwell = np.floor(actMotorDwell / DAQTimeResolution) * DAQTimeResolution
-            daqPointDwell = max(daqPointDwell, minDAQDwell)
-            if not scan.get("daq_master", False):
-                actMotorDwell = daqPointDwell + DAQTimeResolution
-            else:
-                # MCS2 DAQ-master: the DAQ paces the stream, so the gate spans the full
-                # motor step with no re-arm gap.
-                daqPointDwell = actMotorDwell
-
             # scanTime might be slightly different than the prior estimate
             scanTime = numTrajMotorPoints * actMotorDwell * totalSplit / 1000.  # s
 
@@ -217,25 +196,44 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             samplingFrequency = 1 / actMotorDwell * 1000.  # Hz
             nPosSamples = numTrajMotorPoints * totalSplit
 
-            # DAQ timing: one measurement window per motor point (daqPointDwell, paired
-            # with the motor step above).  config_daqs then applies the per-DAQ
-            # oversampling_factor from the config -- OF sub-samples per window at
-            # daqPointDwell/OF, samples->OF -- so the DAQ returns OF readings per motor
-            # point.  The controller is the single owner of applying OF to the hardware;
-            # the scan reads the same OF (from the default DAQ's config, into
-            # scanInfo['oversampling_factor'] at the top) only to SIZE its storage and set
-            # the interpolation normalization, so the two stay consistent.
-            # NOTE: OF>1 requires a DAQ that can sample faster than the motor
-            # (minDAQDwell < minMotorDwell) and daqPointDwell/OF above the DAQ minimum_dwell;
-            # it must also be an exact multiple of the DAQ time resolution.
+            # DAQ timing / per-pixel re-arm dead-time.
+            # The MCL emits one pixel-clock trigger per motor point and the counter is
+            # gated "EXT" once per trigger, so the counter's measurement window must CLOSE
+            # a re-arm dead-time BEFORE the next pixel trigger arrives -- otherwise it is
+            # still measuring when the edge comes, drops it, never reaches its count, and
+            # the DAQ times out.  That dead-time is the per-DAQ ``dwell_pad`` from daq.json:
+            # keep the MCL clock at actMotorDwell (so the per-pixel trigger interval, and
+            # thus MCL<->counter sync, is unchanged) and shorten the counter GATE to
+            # actMotorDwell - dwell_pad.  (Historically this pad was ~0.01 ms; it was lost
+            # when the DAQ config was routed through oversampling, which is what caused the
+            # short-dwell timeouts on the MCL + Keysight 53230A rig.)
+            #
+            # This is per-DAQ by construction: a single-start-trigger / internal-pacer DAQ
+            # (e.g. USB-1808X in the AWG spiral, which free-runs and measures its own
+            # position) sets dwell_pad=0, so its gate stays the full step and it is
+            # unaffected.  DAQ-master (MCS2, GATE_OUT) paces the stream itself -> full step.
+            #
+            # config_daqs then applies the per-DAQ oversampling_factor (dwell->dwell/OF,
+            # samples->samples*OF); the dead-time is preserved for any OF because the whole
+            # gate (all OF sub-samples) is what closes dwell_pad early.  The scan reads OF
+            # (into scanInfo['oversampling_factor'] at the top) only to SIZE its storage.
             oversampling_factor = int(scanInfo["oversampling_factor"])
             numTrajDAQPoints = numTrajMotorPoints * oversampling_factor
-            daqConfigDwell = daqPointDwell
+            if scan.get("daq_master", False):
+                daqConfigDwell = actMotorDwell
+            else:
+                daqConfigDwell = actMotorDwell - DAQDwellPad
+                daqConfigDwell = np.floor(daqConfigDwell / DAQTimeResolution) * DAQTimeResolution
+                daqConfigDwell = max(daqConfigDwell, minDAQDwell)
             actDAQDwell = daqConfigDwell / oversampling_factor
             if actDAQDwell < minDAQDwell:
                 print("[spiral scan] WARNING: DAQ window %.4f ms < the DAQ minimum %.4f ms "
                       "(oversampling_factor=%d); the DAQ cannot keep up and triggers/"
                       "readback will desync." % (actDAQDwell, minDAQDwell, oversampling_factor))
+            if not scan.get("daq_master", False) and DAQDwellPad <= 0.:
+                print("[spiral scan] WARNING: dwell_pad=0 for a per-pixel-triggered DAQ; "
+                      "the counter has no re-arm dead-time and may drop pixel triggers at "
+                      "short dwell.  Set dwell_pad (~0.01 ms) in daq.json for the Keysight.")
 
             scanInfo['motorDwell'] = actMotorDwell
             scanInfo['DAQDwell'] = actDAQDwell
@@ -294,9 +292,10 @@ async def derived_spiral_image(scan, dataHandler, controller, queue):
             scanInfo["trigger_count"] = DAQcount
             scanInfo["trigger_samples"] = DAQsamples
 
-            print('motor dwell: {} ms   DAQ dwell (per window): {} ms   '
-                  'oversampling_factor (DAQ windows/point): {}'.format(
-                actMotorDwell, actDAQDwell, oversampling_factor))
+            print('motor dwell (trigger interval): {} ms   DAQ gate/point: {} ms   '
+                  're-arm dead-time (dwell_pad): {} ms   DAQ dwell (per window): {} ms   '
+                  'oversampling_factor: {}'.format(
+                actMotorDwell, daqConfigDwell, DAQDwellPad, actDAQDwell, oversampling_factor))
             print('count: {}   samples (pre-oversample): {}'.format(DAQcount, DAQsamples))
 
             controller.config_daqs(dwell = daqConfigDwell, count = DAQcount,
