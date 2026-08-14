@@ -28,6 +28,7 @@ from pystxmcontrol.drivers.E712Controller import E712Controller
 from pystxmcontrol.drivers.E712Motor import E712Motor
 from pystxmcontrol.drivers.xspress3 import xspress3
 from pystxmcontrol.drivers.zmqFrameReaderDAQ import zmq_frame_reader
+from pystxmcontrol.drivers.zmq_display import zmq_display
 
 
 __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
@@ -35,7 +36,7 @@ __all__ = ['bcsServer', 'bcsMotor', 'nptMotor', 'mmcMotor', 'epicsMotor',\
            'epicsController', 'shutter', 'keysightU2356A', 'fccd_control', 'xerMotor', \
            'xerController','derivedEnergy','mclMotor', 'mclController','derivedPiezo','derivedPiezoWithAWG',\
            'areaDetector','xpsMotor','xpsController','derivedEnergy_SGM','E712Controller','E712Motor',\
-            'xspress3','inclinedDerivedPiezo','inclinedSampleDerivedPiezo','zmq_frame_reader']
+            'xspress3','inclinedDerivedPiezo','inclinedSampleDerivedPiezo','zmq_frame_reader','zmq_display']
 
 try:
     from pystxmcontrol.drivers.mcsController import mcsController
