@@ -58,7 +58,11 @@
         "line overhead": 0.1,
         "energy overhead": 1,
         "point overhead": 0.0,
-        "max line length": 100
+        "max line length": 100,
+        "center": [480, 480],
+        "output_pixel_count": 960,
+        "output_pixel_size": 6,
+        "interpolate": false
     },
     "intelligence": {
         "enabled": false,
