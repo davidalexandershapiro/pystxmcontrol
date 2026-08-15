@@ -226,12 +226,12 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
             scanRegion = "Region" + str(j + 1)
             scan["file_name"] = dataHandler.currentScanID.replace('.stxm', '_ccdframes_' + str(energyIndex) + '_' + str(
                 j) + '.stxm')
-            dataHandler.ptychodata = stxm(scan)
-            dataHandler.ptychodata.start_time = str(datetime.datetime.now())
+            # dataHandler.ptychodata = stxm(scan)
+            # dataHandler.ptychodata.start_time = str(datetime.datetime.now())
             controller.getMotorPositions()
             dataHandler.data.motorPositions[j] = controller.allMotorPositions  # all regions in one file
-            dataHandler.ptychodata.motorPositions[
-                0] = controller.allMotorPositions  # regions in separate files
+            # dataHandler.ptychodata.motorPositions[
+            #     0] = controller.allMotorPositions  # regions in separate files
             scanInfo["motorPositions"] = controller.allMotorPositions
 
             # Move energy motor (deadband for single-energy) and record actual energy.
@@ -373,11 +373,11 @@ async def derived_ptychography_image(scan, dataHandler, controller, queue):
                 scanMeta["exp_num_total"] = len(scanMeta["translations"]) * (
                     2 - int(not scanMeta["double_exposure"]))
                 print("Removed %d dropped point(s); %d points saved." % (n_dropped, len(kept)))
-            dataHandler.ptychodata.addDict(scanMeta, "metadata")  # stuff needed by the preprocessor
-            dataHandler.ptychodata.saveRegion(0)
-            dataHandler.ptychodata.close()
+            # dataHandler.ptychodata.addDict(scanMeta, "metadata")  # stuff needed by the preprocessor
+            # dataHandler.ptychodata.saveRegion(0)
+            # dataHandler.ptychodata.close()
             dataHandler.zmq_send_string(
-                {'event': 'ccd_data', 'data': {"identifier": os.path.basename(dataHandler.ptychodata.file_name)}})
+                {'event': 'ccd_data', 'data': {"identifier": os.path.basename(scan["file_name"])}})
             dataHandler.data.end_time = str(datetime.datetime.now())
             dataHandler.zmq_stop_event()
             print("Done!")

@@ -214,11 +214,20 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         # Track the scan type of the image currently displayed (used to detect mismatches)
         self._displayed_scan_type: str | None = None
         
-        # Load main.json from disk (independent of server connection)
+        # Load main.json from local disk as a fallback (independent of server
+        # connection, e.g. when the server is unreachable).
         self._local_main_config = self._read_main_config_from_disk()
 
         # Initialize the controller
         if self.controller.initialize_client():
+            # The server is authoritative for lastScan: it writes lastScan to its OWN
+            # main.json on every scan (controller.scan) and ships that main_config to the
+            # client via get_config. For a remote GUI, this machine's local main.json is
+            # stale/unrelated, so prefer the server copy when connected.
+            server_cfg = getattr(self.controller.client, 'main_config', None)
+            if isinstance(server_cfg, dict) and server_cfg:
+                import copy
+                self._local_main_config = copy.deepcopy(server_cfg)
             self._populate_combo_boxes()
             self._update_server_address_display()
         else:

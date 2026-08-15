@@ -618,6 +618,14 @@ class MainController(QObject):
                             if (daq in self._live_stxm.interp_counts and
                                     region_num < len(self._live_stxm.interp_counts[daq]) and
                                     isinstance(img, np.ndarray) and img.ndim >= 2):
+                                # Only the pixel-grid images belong in the stack viewer.
+                                # Image-type DAQs (e.g. the CCD) publish full detector
+                                # frames (960x960) that don't match the interp_counts
+                                # pixel grid (y_points x x_points); skip them instead of
+                                # letting the assignment raise a broadcast error.
+                                slot = self._live_stxm.interp_counts[daq][region_num][energy_index]
+                                if img.shape != slot.shape:
+                                    continue
                                 self._live_stxm.interp_counts[daq][region_num][energy_index] = img
                         self._live_stxm.NXfile = message.get('scanID', '')
                         self.live_data_ready.emit(self._live_stxm, message)
