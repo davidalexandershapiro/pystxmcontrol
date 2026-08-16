@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
     QCheckBox, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
+    QMessageBox,
 )
 from PySide6.QtGui import QPixmap, QImage, QColor, QFont
 from PySide6.QtCore import Qt, QTimer, QRectF, Signal, QThread
@@ -316,6 +317,9 @@ class ImageArea(QWidget):
     roi_moving = Signal(str, float, float, float, float)
     roi_moved = Signal(str, float, float, float, float)
     cursor_changed = Signal(object)     # dict of cursor state, or None off-image
+    # Focus / line-spectrum scan line: (xCenter, yCenter, length, angle°) in µm.
+    line_moving = Signal(float, float, float, float)
+    line_moved = Signal(float, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -375,6 +379,16 @@ class ImageArea(QWidget):
         self._roi_items = {}          # key -> {'roi': RectROI, 'label': TextItem}
         self._suppress = False
         self._dragging = None
+
+        # A single draggable/rotatable scan LINE (Focus / Line-Spectrum), drawn
+        # over the sample image to define the line endpoints.  Distinct from the
+        # RectROI boxes above; only one ever exists.
+        self._line_roi = None
+        self._line_dragging = False
+        # Focus-display mode: the frame is position-along-line (x) vs ZonePlateZ
+        # (y), whose values dwarf the sample-µm x extent, so the square-pixel
+        # aspect lock is released and the vertical axis is treated as Z.
+        self._focus_display = False
 
         # (A contextual scan-progress line will be reintroduced later; for now the
         # image area carries no horizontal overlay line.)
@@ -630,6 +644,123 @@ class ImageArea(QWidget):
             return
         self._dragging = None
         self.roi_moved.emit(key, *self._geom(self._roi_items[key]["roi"]))
+
+    # ── scan line (Focus / Line-Spectrum) ────────────────────────────────
+    @staticmethod
+    def _line_endpoints(xc, yc, length, angle_deg):
+        """Endpoints ``((x1,y1),(x2,y2))`` of a line of ``length`` centred at
+        (xc, yc) at ``angle_deg`` (0° = +x, CCW)."""
+        ar = np.radians(angle_deg)
+        hx, hy = (length / 2.0) * np.cos(ar), (length / 2.0) * np.sin(ar)
+        return (xc - hx, yc - hy), (xc + hx, yc + hy)
+
+    def sync_line(self, xc, yc, length, angle_deg, color="#ff3b30"):
+        """Create or replace the scan line at the given centre/length/angle (µm).
+        A no-op while the user is actively dragging the line (so we never fight
+        the drag); otherwise the ROI is rebuilt at the new endpoints — the same
+        clear-and-recreate approach the classic GUI uses for line ROIs."""
+        if self._line_dragging:
+            return
+        (x1, y1), (x2, y2) = self._line_endpoints(xc, yc, length, angle_deg)
+        self.clear_line()
+        roi = pg.LineSegmentROI(positions=((x1, y1), (x2, y2)),
+                                pen=pg.mkPen(color, width=3),
+                                hoverPen=pg.mkPen(color, width=4))
+        roi.setZValue(11)
+        roi.sigRegionChangeStarted.connect(self._on_line_start)
+        roi.sigRegionChanged.connect(self._on_line_changed)
+        roi.sigRegionChangeFinished.connect(self._on_line_finished)
+        self.vb.addItem(roi)
+        self._line_roi = roi
+
+    def clear_line(self):
+        if self._line_roi is not None:
+            self.vb.removeItem(self._line_roi)
+            self._line_roi = None
+            self._line_dragging = False
+
+    def _line_geom(self):
+        """Current line as ``(xCenter, yCenter, length, angle°)`` in µm."""
+        h = self._line_roi.getHandles()
+        p1 = self._line_roi.mapToParent(h[0].pos())
+        p2 = self._line_roi.mapToParent(h[1].pos())
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        return ((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0,
+                float(np.hypot(dx, dy)), float(np.degrees(np.arctan2(dy, dx))))
+
+    def _on_line_start(self):
+        if not self._suppress:
+            self._line_dragging = True
+
+    def _on_line_changed(self):
+        if not self._suppress and self._line_roi is not None:
+            self.line_moving.emit(*self._line_geom())
+
+    def _on_line_finished(self):
+        if self._suppress or self._line_roi is None:
+            return
+        self._line_dragging = False
+        self.line_moved.emit(*self._line_geom())
+
+    # ── snapshot / restore the displayed frames ──────────────────────────
+    def snapshot(self):
+        """Capture the currently displayed image data (primary + any secondary
+        region tiles, their µm rects, and the primary levels) so it can be
+        restored after a focus scan paints over the primary ImageItem."""
+        def _grab(item):
+            img = getattr(item, "image", None)
+            return None if img is None else img.copy()
+        snap = {"primary": (_grab(self.img),
+                            QRectF(self._primary_rect) if self._primary_rect else None,
+                            self.img.getLevels()),
+                "regions": {}}
+        for key, item in self._region_images.items():
+            if item is self.img:
+                continue
+            rect = self._region_rects.get(key)
+            snap["regions"][key] = (_grab(item),
+                                    QRectF(rect) if rect else None)
+        return snap
+
+    def restore(self, snap):
+        """Restore a snapshot taken by :meth:`snapshot`, dropping any focus tiles
+        first.  The primary image is repainted at its saved extent + levels and
+        each secondary tile is rebuilt at its own µm rect."""
+        if not snap:
+            return
+        self.clear_region_frames()          # drop focus tiles + reset region maps
+        arr, rect, levels = snap["primary"]
+        if arr is not None:
+            self.img.setImage(arr, autoLevels=False)
+            if levels is not None:
+                self.img.setLevels(levels)
+        if rect is not None:
+            self._primary_rect = QRectF(rect)
+            self.img.setRect(self._primary_rect)
+        for key, (a, r) in snap["regions"].items():
+            if a is None or r is None:
+                continue
+            item = pg.ImageItem()
+            item.setZValue(0)
+            self.vb.addItem(item)
+            item.setImage(a, autoLevels=False)
+            item.setRect(QRectF(r))
+            self._region_images[key] = item
+            self._region_rects[key] = QRectF(r)
+            self._match_primary(item)
+
+    # ── focus-display mode ───────────────────────────────────────────────
+    def set_focus_display(self, on):
+        """Switch the viewer between the sample image (aspect-locked square µm)
+        and a focus streak (position-along-line vs ZonePlateZ, aspect free)."""
+        on = bool(on)
+        if on == self._focus_display:
+            return
+        self._focus_display = on
+        self.vb.setAspectLocked(not on)
+        # The scale bar assumes an isotropic µm axis; meaningless on a Z streak.
+        self.meta_bar.setVisible(not on)
+        self.clear_crosshair()
 
     # ── cursor crosshair + line-outs (click-driven) ──────────────────────
     def _data_regions(self):
@@ -909,6 +1040,9 @@ class MainWindowDashboard(QMainWindow):
         # Startup image: paint the most recently recorded scan (read from disk),
         # falling back to the black canvas + ROI boxes when none is available.
         self._show_last_scan_image()
+        # Sync per-scan-type panel visibility (Focus Z / Line groups hidden unless
+        # the initial scan type is Focus).  Runs after the image + controls exist.
+        self._on_scan_type(self.scan_type.currentText())
         self._refresh_image_meta()
 
         # light "live" animation.  When connected, the counter trace is driven by
@@ -957,9 +1091,10 @@ class MainWindowDashboard(QMainWindow):
     }
 
     # Scan drivers whose configuration the dashboard's Spatial(SampleX/SampleY) +
-    # Energy tabs can compile.  Other scan types (focus, line, single/double motor,
-    # OSA, spiral) report "not yet supported" until their panels are wired.
-    _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image"}
+    # Supported scan drivers.  Other scan types (line spectrum, single/double
+    # motor, OSA, spiral) report "not yet supported" until their panels are wired.
+    _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image",
+                               "linear_focus"}
 
     def _load_motor_info(self):
         """Load motor config from the runtime file the server also reads
@@ -1631,6 +1766,17 @@ class MainWindowDashboard(QMainWindow):
         self._syncing_spatial = False
         self._scan_regions = [self._read_spatial_fields()]
 
+        # Focus-scan state.  A focus scan uses the R1 centre as the line centre
+        # plus its own line length/angle/points and a ZonePlateZ sweep.  Built on
+        # first switch to Focus (defaults from live ZonePlateZ + R1 width).
+        self._focus_mode = False
+        self._focus_region = None
+        # Saved image state captured on entering focus mode, so leaving focus can
+        # drop the (distant) ZonePlateZ streak and put the sample image back.
+        self._pre_focus_snapshot = None      # ImageArea frame snapshot
+        self._pre_focus_regions = None       # (regions, active, spectrum) tuple
+        self._last_image_scan_type = None    # combo returns here after focus
+
         # Checkboxes on their own row …
         checks = QHBoxLayout()
         checks.setSpacing(7)
@@ -1655,6 +1801,7 @@ class MainWindowDashboard(QMainWindow):
         add = QPushButton("+ Region")
         add.setProperty("role", "small")
         add.clicked.connect(self._add_spatial_region)
+        self._add_region_btn = add
         btns.addWidget(add)
         self._del_region_btn = QPushButton("− Region")
         self._del_region_btn.setProperty("role", "small")
@@ -1797,13 +1944,21 @@ class MainWindowDashboard(QMainWindow):
 
         # Focus Z
         w, gv = self._group_box("Focus Z", "ZonePlateZ · Focus, Image Stack")
-        grid, _ = self._grid4([("Center", "-118.400", False), ("Range", "40.000", False),
-                               ("Points", "41", False), ("Step µm", "1.000", True)])
+        self._focus_group = w
+        grid, fz_edits = self._grid4([("Center", "0.000", False), ("Range", "100.000", False),
+                               ("Points", "50", False), ("Step µm", "2.000", True)])
+        self._focus_fields = {"center": fz_edits[0], "range": fz_edits[1],
+                              "points": fz_edits[2], "step": fz_edits[3]}
+        for e in (fz_edits[1], fz_edits[2]):     # range / points re-derive step
+            e.editingFinished.connect(self._on_focus_edit)
+        fz_edits[0].editingFinished.connect(self._on_focus_edit)
         gv.addLayout(grid)
         r = QHBoxLayout()
         b = QPushButton("Set center to current"); b.setProperty("role", "small")
+        b.clicked.connect(self._focus_center_to_current)
         r.addWidget(b)
         cb = QCheckBox("move to best focus"); cb.setChecked(True)
+        self._focus_move_to_best = cb
         r.addWidget(cb); r.addStretch(1)
         gv.addLayout(r)
         # Zone-plate focus calibration (from the Energy motor's A0/A1). A0 sets the
@@ -1813,7 +1968,8 @@ class MainWindowDashboard(QMainWindow):
         zp.setHorizontalSpacing(6)
         zp.setVerticalSpacing(4)
         zp.addWidget(self._label("Zone Plate A0", role="microLabel"), 0, 0)
-        zp.addWidget(self._field(f"{float(energy.get('A0', 0.0)):.4f}"), 1, 0)
+        self._a0_field = self._field(f"{float(energy.get('A0', 0.0)):.4f}")
+        zp.addWidget(self._a0_field, 1, 0)
         a1_lbl = self._label("Zone Plate A1 · staff", role="microLabel")
         a1_edit = self._field(f"{float(energy.get('A1', 0.0)):.4f}")
         zp.addWidget(a1_lbl, 0, 1)
@@ -1826,13 +1982,20 @@ class MainWindowDashboard(QMainWindow):
 
         # Line
         w, gv = self._group_box("Line", "Focus, Line Spectrum")
-        grid, _ = self._grid4([("Length µm", "10.000", False), ("Angle °", "0.0", False),
-                               ("Points", "100", False), ("Step µm", "0.100", True)])
+        self._line_group = w
+        grid, ln_edits = self._grid4([("Length µm", "10.000", False), ("Angle °", "0.0", False),
+                               ("Points", "50", False), ("Step µm", "0.200", True)])
+        self._line_fields = {"length": ln_edits[0], "angle": ln_edits[1],
+                             "points": ln_edits[2], "step": ln_edits[3]}
+        for e in ln_edits[:3]:                   # length / angle / points
+            e.editingFinished.connect(self._on_line_edit)
         gv.addLayout(grid)
         r = QHBoxLayout()
         b = QPushButton("Draw line on image"); b.setProperty("role", "small")
+        b.clicked.connect(self._refresh_focus_line)
         r.addWidget(b)
-        r.addWidget(self._label("from (-320.0, 166.0) → (-310.0, 166.0)", role="monoFaint"))
+        self._line_endpoints_lbl = self._label("", role="monoFaint")
+        r.addWidget(self._line_endpoints_lbl)
         r.addStretch(1)
         gv.addLayout(r)
         iv.addWidget(w)
@@ -1958,6 +2121,8 @@ class MainWindowDashboard(QMainWindow):
         self.image_area.roi_selected.connect(self._on_roi_selected)
         self.image_area.roi_moving.connect(self._on_roi_moving)
         self.image_area.roi_moved.connect(self._on_roi_moved)
+        self.image_area.line_moving.connect(self._on_line_moving)
+        self.image_area.line_moved.connect(self._on_line_moved)
         self.image_area.cursor_changed.connect(self._on_cursor)
         bl.addWidget(self.image_area, 1)
         # Region model was built in _spatial_page (col1, earlier); paint it now
@@ -2001,6 +2166,7 @@ class MainWindowDashboard(QMainWindow):
         fv.setContentsMargins(14, 10, 14, 10)
         fv.setSpacing(22)
         self._cursor_readout = {}
+        self._cursor_readout_keys = {}
         for lbl, val in (("X", "—"), ("Y", "—"), ("I", "—"), ("OD", "—")):
             cur = QHBoxLayout()
             cur.setSpacing(6)
@@ -2009,10 +2175,18 @@ class MainWindowDashboard(QMainWindow):
             cur.addWidget(k); cur.addWidget(val_l)
             fv.addLayout(cur)
             self._cursor_readout[lbl] = val_l
+            self._cursor_readout_keys[lbl] = k
         fv.addStretch(1)
+        self._cursor_action_btns = {}
         for name in ("Set cursor to 0", "Move to cursor", "Focus to cursor"):
             b = QPushButton(name); b.setProperty("role", "small")
             fv.addWidget(b)
+            self._cursor_action_btns[name] = b
+        # Focus-to-cursor calibration is only meaningful on a focus streak after a
+        # click; enabled by _on_cursor in focus-display mode, disabled otherwise.
+        fbtn = self._cursor_action_btns["Focus to cursor"]
+        fbtn.clicked.connect(self._on_focus_to_cursor)
+        fbtn.setEnabled(False)
         cl.addWidget(footer)
         return card
 
@@ -2167,11 +2341,118 @@ class MainWindowDashboard(QMainWindow):
             # Intensity only exists when the point lands inside a region's data.
             rd["I"].setText(f"{payload['value']:.4g}"
                             if "value" in payload else "—")
+        # Focus-to-cursor calibration needs a Z click on a completed focus streak
+        # (not mid-scan) — enabled only after the scan finishes/aborts.
+        fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
+        if fbtn is not None:
+            in_focus_streak = (getattr(self, "image_area", None) is not None
+                               and self.image_area._focus_display)
+            fbtn.setEnabled(bool(in_focus_streak and payload is not None
+                                 and self.controller is not None
+                                 and not self._scanning))
 
     def cursor_position(self):
         """The currently selected cursor point as an ``(x, y)`` tuple in physical
         µm (sample coordinates), or ``None`` if no point has been clicked yet."""
         return getattr(self, "_cursor_um", None)
+
+    def _on_focus_to_cursor(self):
+        """Calibrate focus from the ZonePlateZ position the user clicked on a
+        focus streak.  Mirrors mainwindow_mvc.on_focus_to_cursor / the legacy
+        setFocusZ():
+
+        - OSA Focus, or A0 not yet calibrated → shift the **ZonePlateZ offset** so
+          the clicked Z maps to the zone-plate calibration position.
+        - Regular Focus with a calibrated A0 → shift **A0** (and the SampleZ
+          offset) instead.
+
+        Either way, ZonePlateZ is then moved to the calibration position.  A
+        guard-rail dialog appears when the correction exceeds 100 µm."""
+        c = self.controller
+        fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
+        if fbtn is not None:
+            fbtn.setEnabled(False)
+        if c is None:
+            return
+        # On a focus streak the clicked y IS ZonePlateZ (see set_focus_display).
+        cursor = self.cursor_position()
+        if cursor is None or not (getattr(self, "image_area", None)
+                                  and self.image_area._focus_display):
+            c.error_occurred.emit("Click a point on the focus image first.")
+            return
+        cursor_focus_z = float(cursor[1])
+
+        try:
+            im = c.get_image_model()
+            zp_cal = float(im.get('zonePlateCalibration', 0.0) or 0.0)
+            zp_off = float(im.get('zonePlateOffset', 0.0) or 0.0)
+            mm = c.get_motor_model()
+            motor_info = mm.get('motor_info', {}) or {}
+            a0 = float(motor_info.get('Energy', {}).get('A0', 0.0) or 0.0)
+            positions = mm.get('current_positions', {}) or {}
+            scan_type = im.get('scan_type', '') or self.scan_type.currentText()
+            a0_calibrated = False
+            try:
+                a0_calibrated = bool(c.client.main_config.get('geometry', {})
+                                     .get('A0_calibrated', False))
+            except Exception:
+                a0_calibrated = False
+
+            if "OSA" in scan_type or not a0_calibrated:
+                # Adjust the ZonePlateZ offset to bring the click to calibration.
+                offset_delta = zp_cal - cursor_focus_z
+                new_offset = zp_off + offset_delta
+                if abs(offset_delta) > 100 and not self._confirm_large_focus(
+                        f"This would change the ZonePlateZ offset by "
+                        f"{offset_delta:.1f} µm (from {zp_off:.1f} to "
+                        f"{new_offset:.1f} µm), larger than 100 µm.\n\n"
+                        f"Apply anyway?"):
+                    return
+                c.handle_motor_config_change("ZonePlateZ", "offset", new_offset)
+                c.status_updated.emit(
+                    f"ZonePlateZ offset → {new_offset:.2f} µm (focus at "
+                    f"{cursor_focus_z:.2f})")
+            else:
+                # Calibrated A0 path: adjust A0 and the SampleZ offset.
+                focus_delta = zp_cal - cursor_focus_z
+                if abs(focus_delta) > 100 and not self._confirm_large_focus(
+                        f"The requested focus correction is {focus_delta:.1f} µm, "
+                        f"larger than 100 µm.\n\nApply anyway?"):
+                    return
+                new_a0 = a0 - focus_delta
+                sample_z = float(positions.get('SampleZ', 0.0) or 0.0)
+                sample_z_off = float(motor_info.get('SampleZ', {})
+                                     .get('offset', 0.0) or 0.0)
+                new_sample_z_off = sample_z_off + (new_a0 - sample_z)
+                c.handle_motor_config_change("SampleZ", "offset", new_sample_z_off)
+                c.handle_motor_config_change("Energy", "A0", new_a0)
+                if getattr(self, "_a0_field", None):
+                    self._a0_field.setText(f"{new_a0:.4f}")
+                c.status_updated.emit(
+                    f"A0 → {new_a0:.3f}, SampleZ offset → {new_sample_z_off:.3f}")
+
+            # Move ZonePlateZ to the calibration position.
+            c.move_motor("ZonePlateZ", zp_cal)
+            self.image_area.clear_crosshair()
+            # Calibration done — drop the focus streak and return to the image.
+            target = self._last_image_scan_type
+            if (target and self.scan_type.findText(target) >= 0
+                    and not self._scan_is_focus(target)):
+                self.scan_type.setCurrentText(target)   # → _on_scan_type restores
+            else:
+                self._restore_pre_focus_display()
+                self._refresh_spatial_image(fit=True)
+                self._refresh_image_meta()
+        except Exception as e:
+            c.error_occurred.emit(f"Focus-to-cursor failed: {e}")
+
+    def _confirm_large_focus(self, message):
+        """Guard-rail dialog for a >100 µm focus correction; True = proceed."""
+        reply = QMessageBox.question(
+            self, "Large focus correction", message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        return reply == QMessageBox.StandardButton.Yes
 
     # ── column 3: live detector + motors ────────────────────────────────
     def _build_col3(self):
@@ -3959,6 +4240,12 @@ class MainWindowDashboard(QMainWindow):
             return
         if self._compile_scan():
             self.image_area.clear_region_frames()   # fresh mosaic for the new scan
+            if self._focus_mode:
+                # Switch the viewer to the position-along-line vs ZonePlateZ frame;
+                # the first incoming focus frame fits the view to its Z extent.
+                self.image_area.clear_line()
+                self.image_area.set_focus_display(True)
+                self._focus_view_fitted = False
             c.start_scan()
         # start_scan / cancel_scan emit scan_state_changed → _set_scanning keeps
         # the Begin/Cancel button in sync with the controller's real state.
@@ -3968,8 +4255,9 @@ class MainWindowDashboard(QMainWindow):
         mirroring MainController.compile_scan_from_view but reading THIS view's
         widgets.  Returns True on success.
 
-        Scoped to Image-family scans (SampleX/SampleY spatial grid + energy
-        regions); other scan types report an error until their panels are wired.
+        Handles Image-family scans (SampleX/SampleY spatial grid + energy
+        regions) and single-line Focus scans (angled line × ZonePlateZ sweep,
+        single energy).  Other scan types report an error until wired.
         """
         c = self.controller
         client = c.client
@@ -4008,31 +4296,10 @@ class MainWindowDashboard(QMainWindow):
             sm.set('loop_scan', False)   # loop sequence not yet wired in dashboard
             sm.set('daq_list', self._resolve_daq_list(client, sc))
 
-            # Spatial regions — flush the grid into the active region, then emit
-            # every image region (plus the spectrum region, if enabled).
-            if isinstance(self._active_region, int):
-                self._scan_regions[self._active_region].update(
-                    self._read_spatial_fields())
-            elif self._spectrum_region is not None:
-                self._spectrum_region.update(self._read_spatial_fields())
-            region = self._region_scan_dict(self._scan_regions[0])
-            for i, r in enumerate(self._scan_regions):
-                sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
-            if self._spectrum_region is not None:
-                spec = self._region_scan_dict(self._spectrum_region)
-                spec['spectrum'] = True
-                sm.add_scan_region('SpectrumRegion', spec)
-
-            # Energy regions — flush the field row into the active region first.
-            self._sync_active_energy_region()
-            total_n = 0
-            for i, r in enumerate(self._energy_regions):
-                total_n += r['n']
-                sm.add_energy_region(f'EnergyRegion{i + 1}', {
-                    'start': r['start'], 'stop': r['stop'], 'step': r['step'],
-                    'dwell': r['dwell'], 'n_energies': r['n']})
-            sm.set('single_energy', total_n <= 1)
-            sm.set('energy_list', None)
+            if self._focus_mode:
+                region = self._compile_focus(sm, sc)
+            else:
+                region = self._compile_image_regions(sm)
 
             est = sm.calculate_estimated_time()
             self._update_scan_stats(est, region)
@@ -4044,6 +4311,64 @@ class MainWindowDashboard(QMainWindow):
         except Exception as e:
             c.error_occurred.emit(f"Failed to compile scan: {e}")
             return False
+
+    def _compile_image_regions(self, sm):
+        """Populate ``sm`` with the image-family spatial + energy regions and
+        return the primary region dict (for the stats readout)."""
+        # Spatial regions — flush the grid into the active region, then emit
+        # every image region (plus the spectrum region, if enabled).
+        if isinstance(self._active_region, int):
+            self._scan_regions[self._active_region].update(
+                self._read_spatial_fields())
+        elif self._spectrum_region is not None:
+            self._spectrum_region.update(self._read_spatial_fields())
+        region = self._region_scan_dict(self._scan_regions[0])
+        for i, r in enumerate(self._scan_regions):
+            sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
+        if self._spectrum_region is not None:
+            spec = self._region_scan_dict(self._spectrum_region)
+            spec['spectrum'] = True
+            sm.add_scan_region('SpectrumRegion', spec)
+
+        # Energy regions — flush the field row into the active region first.
+        self._sync_active_energy_region()
+        total_n = 0
+        for i, r in enumerate(self._energy_regions):
+            total_n += r['n']
+            sm.add_energy_region(f'EnergyRegion{i + 1}', {
+                'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+                'dwell': r['dwell'], 'n_energies': r['n']})
+        sm.set('single_energy', total_n <= 1)
+        sm.set('energy_list', None)
+        return region
+
+    def _compile_focus(self, sm, sc):
+        """Populate ``sm`` for a single-line focus scan: one scan region (angled
+        line × ZonePlateZ sweep) at a single energy.  Returns the region dict."""
+        # Flush live edits from the fields into the focus model + R1 centre.
+        self._on_focus_edit()
+        self._on_line_edit()
+        if isinstance(self._active_region, int):
+            self._scan_regions[self._active_region].update(
+                self._read_spatial_fields())
+        sm.set('z_motor', sc.get('z_motor', 'ZonePlateZ'))
+        sm.set('tiled', False)          # focus is a single line, never tiled
+        sm.set('autofocus', bool(getattr(self, '_focus_move_to_best', None)
+                                 and self._focus_move_to_best.isChecked()))
+        region = self._focus_region_scan_dict()
+        sm.add_scan_region('Region1', region)
+
+        # Single energy: take the first energy region's start + dwell.
+        self._sync_active_energy_region()
+        e0 = self._energy_regions[0] if getattr(self, '_energy_regions', None) else \
+            {'start': 700.0, 'dwell': 2.0}
+        sm.add_energy_region('EnergyRegion1', {
+            'start': e0['start'], 'stop': e0['start'], 'step': 0.0,
+            'dwell': e0['dwell'], 'n_energies': 1})
+        sm.set('single_energy', True)
+        sm.set('energy_list', None)
+        sm.set('dwell', e0['dwell'])
+        return region
 
     def _show_last_scan_image(self):
         """Paint the most recently recorded ``.stxm`` scan at its *own* fixed
@@ -4212,7 +4537,8 @@ class MainWindowDashboard(QMainWindow):
         if 'Est. time' in lbls:
             lbls['Est. time'].setText(self._fmt_mmss(est_seconds))
         if 'Points' in lbls:
-            pts = int(region['xPoints']) * int(region['yPoints'])
+            rows = int(region['zPoints']) if self._focus_mode else int(region['yPoints'])
+            pts = int(region['xPoints']) * rows
             lbls['Points'].setText(f"{pts:,}".replace(',', ' '))
 
     def _recompute_step(self, range_e, npts_e, step_e):
@@ -4374,12 +4700,23 @@ class MainWindowDashboard(QMainWindow):
         self.image_area.set_view(xc, yc, w, w)
 
     def _refresh_spatial_image(self, fit=False):
-        """Redraw the ROI boxes (and optionally refit the FOV) from the model."""
+        """Redraw the ROI boxes (and optionally refit the FOV) from the model.
+
+        In focus mode the single scan LINE replaces the RectROI boxes."""
         if self._syncing_spatial or not hasattr(self, 'image_area'):
             return
         if getattr(self, '_del_region_btn', None):
             self._del_region_btn.setEnabled(
-                self._active_region == 'spectrum' or len(self._scan_regions) > 1)
+                not self._focus_mode
+                and (self._active_region == 'spectrum'
+                     or len(self._scan_regions) > 1))
+        if self._focus_mode:
+            self.image_area.sync_regions([])
+            self._refresh_focus_line()
+            if fit:
+                self._fit_fov()
+            return
+        self.image_area.clear_line()
         show = self._scan_checks['show ROI'].isChecked()
         if fit:
             self._fit_fov()
@@ -4411,6 +4748,188 @@ class MainWindowDashboard(QMainWindow):
         """Drag finished: commit geometry and refit the FOV."""
         self._on_roi_moving(key, xc, yc, xr, yr)
         self._refresh_spatial_image(fit=True)
+
+    # ── focus-scan model ─────────────────────────────────────────────────
+    def _current_motor_pos(self, name, default=0.0):
+        """Live position of ``name`` from the controller motor model, falling
+        back to the loaded motor config's 'last value', then ``default``."""
+        try:
+            pos = (self.controller.get_motor_model()
+                   .get('current_positions', {}).get(name))
+            if isinstance(pos, (int, float)):
+                return float(pos)
+        except Exception:
+            pass
+        v = self._motor_info.get(name, {}).get('last value')
+        return float(v) if isinstance(v, (int, float)) else float(default)
+
+    def _ensure_focus_region(self):
+        """Create the focus-scan model with sensible defaults the first time
+        (ZonePlateZ centre = current position, range 100 / 50 pts; line length =
+        Region 1 width, 50 pts, angle 0)."""
+        if self._focus_region is None:
+            r1 = self._scan_regions[0] if self._scan_regions else {}
+            self._focus_region = {
+                'length': float(r1.get('xRange', 10.0)) or 10.0,
+                'angle': 0.0, 'points': 50,
+                'zCenter': self._current_motor_pos('ZonePlateZ'),
+                'zRange': 100.0, 'zPoints': 50}
+        return self._focus_region
+
+    def _line_center(self):
+        """The focus line's centre = Region 1 centre (SampleX/SampleY)."""
+        r1 = self._scan_regions[0] if self._scan_regions else {}
+        return float(r1.get('xCenter', 0.0)), float(r1.get('yCenter', 0.0))
+
+    def _write_focus_fields(self):
+        """Load the focus-Z model into the Focus Z + Line control fields."""
+        fr = self._ensure_focus_region()
+        f = self._focus_fields
+        f['center'].setText(f"{fr['zCenter']:.3f}")
+        f['range'].setText(f"{fr['zRange']:.3f}")
+        f['points'].setText(str(int(fr['zPoints'])))
+        f['step'].setText(f"{fr['zRange'] / fr['zPoints']:.3f}"
+                          if fr['zPoints'] else "0.000")
+        ln = self._line_fields
+        ln['length'].setText(f"{fr['length']:.3f}")
+        ln['angle'].setText(f"{fr['angle']:.1f}")
+        ln['points'].setText(str(int(fr['points'])))
+        ln['step'].setText(f"{fr['length'] / fr['points']:.3f}"
+                           if fr['points'] else "0.000")
+
+    def _on_focus_edit(self):
+        """A Focus Z field was typed: re-derive Z step and store into the model."""
+        fr = self._ensure_focus_region()
+        try:
+            fr['zCenter'] = float(self._focus_fields['center'].text() or 0)
+            fr['zRange'] = abs(float(self._focus_fields['range'].text() or 0))
+            fr['zPoints'] = max(1, int(float(self._focus_fields['points'].text() or 1)))
+        except ValueError:
+            return
+        self._focus_fields['step'].setText(
+            f"{fr['zRange'] / fr['zPoints']:.3f}" if fr['zPoints'] else "0.000")
+
+    def _on_line_edit(self):
+        """A Line field was typed: re-derive step, store, and redraw the line."""
+        fr = self._ensure_focus_region()
+        try:
+            fr['length'] = abs(float(self._line_fields['length'].text() or 0))
+            fr['angle'] = float(self._line_fields['angle'].text() or 0)
+            fr['points'] = max(1, int(float(self._line_fields['points'].text() or 1)))
+        except ValueError:
+            return
+        self._line_fields['step'].setText(
+            f"{fr['length'] / fr['points']:.3f}" if fr['points'] else "0.000")
+        self._apply_line_projection(fr['length'], fr['angle'])
+        self._refresh_focus_line()
+
+    def _focus_center_to_current(self):
+        """'Set center to current' — snap the focus Z centre to live ZonePlateZ."""
+        fr = self._ensure_focus_region()
+        fr['zCenter'] = self._current_motor_pos('ZonePlateZ')
+        self._focus_fields['center'].setText(f"{fr['zCenter']:.3f}")
+
+    def _refresh_focus_line(self):
+        """Draw/update the scan line on the sample image from the focus model
+        and refresh the endpoint label."""
+        if not hasattr(self, 'image_area') or not self._focus_mode:
+            return
+        fr = self._ensure_focus_region()
+        xc, yc = self._line_center()
+        self.image_area.sync_line(xc, yc, fr['length'], fr['angle'])
+        self._syncing_spatial = True
+        try:
+            self._apply_line_projection(fr['length'], fr['angle'])
+        finally:
+            self._syncing_spatial = False
+        (x1, y1), (x2, y2) = ImageArea._line_endpoints(
+            xc, yc, fr['length'], fr['angle'])
+        if hasattr(self, '_line_endpoints_lbl'):
+            self._line_endpoints_lbl.setText(
+                f"from ({x1:.1f}, {y1:.1f}) → ({x2:.1f}, {y2:.1f})")
+
+    def _apply_line_projection(self, length, angle):
+        """Push the line's projected X/Y extents into Region 1 + the SampleX /
+        SampleY range+step grid fields.  The scan LINE has a length and angle,
+        but its bounding box on the sample axes is xRange = L·|cosθ|,
+        yRange = L·|sinθ| — so the spatial grid tracks the line as it rotates."""
+        ar = np.radians(angle)
+        xr = abs(length * np.cos(ar))
+        yr = abs(length * np.sin(ar))
+        if self._scan_regions:
+            self._scan_regions[0]['xRange'] = xr
+            self._scan_regions[0]['yRange'] = yr
+        if self._active_region != 0:
+            return
+        for name, rng in (('SampleX', xr), ('SampleY', yr)):
+            f = self._spatial_fields[name]
+            f['range'].setText(f"{rng:.3f}")
+            try:
+                n = int(float(f['npts'].text() or 1))
+            except ValueError:
+                n = 1
+            f['step'].setText(f"{rng / n:.3f}" if n > 0 else "0.000")
+
+    def _on_line_moving(self, xc, yc, length, angle):
+        """Live line drag: update R1 centre + focus model + fields (no refit)."""
+        if not self._focus_mode:
+            return
+        fr = self._ensure_focus_region()
+        fr['length'], fr['angle'] = float(length), float(angle)
+        if self._scan_regions:
+            self._scan_regions[0]['xCenter'] = float(xc)
+            self._scan_regions[0]['yCenter'] = float(yc)
+        self._syncing_spatial = True
+        try:
+            self._line_fields['length'].setText(f"{fr['length']:.3f}")
+            self._line_fields['angle'].setText(f"{fr['angle']:.1f}")
+            self._line_fields['step'].setText(
+                f"{fr['length'] / fr['points']:.3f}" if fr['points'] else "0.000")
+            if self._active_region == 0:
+                self._spatial_fields['SampleX']['center'].setText(f"{xc:.3f}")
+                self._spatial_fields['SampleY']['center'].setText(f"{yc:.3f}")
+            self._apply_line_projection(fr['length'], fr['angle'])
+        finally:
+            self._syncing_spatial = False
+        (x1, y1), (x2, y2) = ImageArea._line_endpoints(xc, yc, length, angle)
+        if hasattr(self, '_line_endpoints_lbl'):
+            self._line_endpoints_lbl.setText(
+                f"from ({x1:.1f}, {y1:.1f}) → ({x2:.1f}, {y2:.1f})")
+
+    def _on_line_moved(self, xc, yc, length, angle):
+        """Line drag finished: commit and refit the FOV around it."""
+        self._on_line_moving(xc, yc, length, angle)
+        self._fit_fov()
+
+    def _focus_region_scan_dict(self):
+        """Full focus scan-region dict: an angled line (endpoints encode the
+        rotation) crossed with a ZonePlateZ sweep.  ``xRange`` carries the true
+        along-line length so the display's horizontal axis is line distance,
+        while ``xStart/xStop/yStart/yStop`` carry the real angled endpoints the
+        driver actually moves along."""
+        fr = self._ensure_focus_region()
+        xc, yc = self._line_center()
+        L = fr['length']
+        n = max(1, int(fr['points']))
+        ar = np.radians(fr['angle'])
+        ux, uy = np.cos(ar), np.sin(ar)
+        # Half-pixel inset along the line direction (matches the Image convention).
+        s0 = -(L / 2.0) + (L / (2.0 * n))
+        s1 = (L / 2.0) - (L / (2.0 * n))
+        zc, zr = fr['zCenter'], fr['zRange']
+        zp = max(1, int(fr['zPoints']))
+        zs = zr / zp if zp > 0 else 0.0
+        return {
+            'xCenter': xc, 'yCenter': yc,
+            'xRange': L, 'yRange': abs(L * uy),
+            'xPoints': n, 'yPoints': n,
+            'xStep': L / n, 'yStep': abs(L * uy) / n if n else 0.0,
+            'xStart': xc + s0 * ux, 'xStop': xc + s1 * ux,
+            'yStart': yc + s0 * uy, 'yStop': yc + s1 * uy,
+            'zCenter': zc, 'zRange': zr, 'zPoints': zp, 'zStep': zs,
+            'zStart': zc - zr / 2.0 + zs / 2.0,
+            'zStop': zc + zr / 2.0 - zs / 2.0,
+        }
 
     def _recompute_energy_n(self):
         """N = round(|stop-start| / |step|) + 1, from the current Start/Stop/Step."""
@@ -4554,10 +5073,80 @@ class MainWindowDashboard(QMainWindow):
         for wdg in self._staff_widgets:
             wdg.setVisible(self._expert)
 
+    @staticmethod
+    def _scan_is_focus(text):
+        return "Focus" in text and "OSA" not in text
+
     def _on_scan_type(self, text):
         ptycho = "Ptycho" in text
         self.mode_field.setText("ptychography" if ptycho else "continuousLine")
+        focus = self._scan_is_focus(text)
+        was_focus = getattr(self, "_focus_mode", False)
+        self._focus_mode = focus
+        # Show the Focus Z / Line control groups only when they apply.
+        if getattr(self, "_focus_group", None):
+            self._focus_group.setVisible(focus)
+        if getattr(self, "_line_group", None):
+            self._line_group.setVisible(focus)
+        # A focus scan is a single line — the multi-region controls don't apply.
+        if getattr(self, "_add_region_btn", None):
+            self._add_region_btn.setEnabled(not focus)
+        # Focus-mode cursor readout: the vertical axis is ZonePlateZ, not sample Y.
+        if getattr(self, "_cursor_readout_keys", None):
+            self._cursor_readout_keys["Y"].setText("Z" if focus else "Y")
+        # Focus-to-cursor is re-enabled by a click on the streak (see _on_cursor).
+        fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
+        if fbtn is not None:
+            fbtn.setEnabled(False)
+        if focus:
+            # Entering focus: snapshot the sample image + region model so leaving
+            # focus can drop the ZonePlateZ streak and put the image back exactly.
+            if not was_focus and hasattr(self, "image_area"):
+                self._pre_focus_snapshot = self.image_area.snapshot()
+                self._pre_focus_regions = (
+                    [dict(r) for r in self._scan_regions],
+                    self._active_region,
+                    dict(self._spectrum_region) if self._spectrum_region else None)
+            self._ensure_focus_region()
+            # Live-refresh the Z centre to the current ZonePlateZ on entry.
+            self._focus_region['zCenter'] = self._current_motor_pos('ZonePlateZ')
+            self._write_focus_fields()
+            if hasattr(self, "image_area"):
+                self.image_area.set_focus_display(False)  # define on the sample image
+        else:
+            self._last_image_scan_type = text
+            self._restore_pre_focus_display()
+        self._refresh_spatial_image(fit=True)
         self._refresh_image_meta()
+
+    def _restore_pre_focus_display(self):
+        """Leave focus: remove the ZonePlateZ streak and restore the sample image
+        (re-centred) + the pre-focus region model.  Safe to call when there is
+        nothing to restore."""
+        if hasattr(self, "image_area"):
+            had_streak = self.image_area._focus_display
+            self.image_area.set_focus_display(False)
+            self.image_area.clear_line()
+            if had_streak and self._pre_focus_snapshot is not None:
+                self.image_area.restore(self._pre_focus_snapshot)
+                self._image_seeded = True
+        # Undo any line-drag edits to the region model.
+        if self._pre_focus_regions is not None:
+            regs, active, spec = self._pre_focus_regions
+            self._scan_regions = regs
+            self._spectrum_region = spec
+            if active == 'spectrum' and spec is not None:
+                self._active_region = 'spectrum'
+            elif isinstance(active, int) and 0 <= active < len(regs):
+                self._active_region = active
+            else:
+                self._active_region = 0
+            if isinstance(self._active_region, int):
+                self._load_spatial_region(self._active_region)
+            elif self._active_region == 'spectrum':
+                self._load_spatial_region('spectrum')
+            self._pre_focus_regions = None
+        self._pre_focus_snapshot = None
 
     def _set_cmap(self, name):
         """Colormap pills load a gradient preset into the HistogramLUTWidget,
@@ -4618,6 +5207,13 @@ class MainWindowDashboard(QMainWindow):
                     key = str(im.get('scan_region_index', 'Region1'))
                     self.image_area.set_region_frame(key, image, xc, yc, xr, yr)
                     placed = True
+                    # Focus: y_center/y_range are ZonePlateZ (see MainController's
+                    # Focus branch) — fit the view to that Z extent once, since it
+                    # sits far from the sample image the line was drawn on.
+                    if self._focus_mode and not getattr(self, '_focus_view_fitted', False):
+                        self.image_area.set_view(xc, yc, max(abs(xr), 1e-6) / 0.85,
+                                                 max(abs(yr), 1e-6) / 0.85)
+                        self._focus_view_fitted = True
             if not placed:
                 self.image_area.set_primary_frame(image)
             self._image_seeded = True
