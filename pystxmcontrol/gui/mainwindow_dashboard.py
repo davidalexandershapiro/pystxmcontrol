@@ -21,8 +21,9 @@ from PySide6.QtWidgets import (
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
 )
 from PySide6.QtGui import QPixmap, QImage, QColor, QFont
-from PySide6.QtCore import Qt, QTimer, QRectF, Signal
+from PySide6.QtCore import Qt, QTimer, QRectF, Signal, QThread
 
+import zmq
 import pyqtgraph as pg
 
 from pystxmcontrol.gui.dashboard_theme import (
@@ -34,6 +35,74 @@ from pystxmcontrol.gui.dashboard_theme import (
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
 
 pg.setConfigOptions(antialias=True, imageAxisOrder="row-major", background=C["plot_ground"])
+
+
+class ServerHeartbeat(QThread):
+    """Background poller that reports server reachability for the header LED.
+
+    Owns its OWN ``zmq.REQ`` socket to the command port so it never touches the
+    client's command socket (which is blocking, timeout-less, and strictly
+    lock-step — a ping there could hang the UI or race an in-flight command).
+    The server's REP loop serves this extra peer serially, so an idle/scanning
+    server still answers ``getStatus`` cheaply.
+
+    Every ``interval_ms`` it sends ``getStatus`` with a receive timeout.  Because
+    a REQ socket that times out on ``recv`` is left in a broken state, we follow
+    the "Lazy Pirate" pattern: on any failure we discard and recreate the socket
+    before the next attempt.  ``status_changed`` is emitted edge-triggered (only
+    when reachability flips) and is delivered to the GUI thread via a queued
+    connection, so the slot may safely touch widgets.
+    """
+
+    status_changed = Signal(bool)  # True = server answered, False = unreachable
+
+    def __init__(self, address, port, parent=None,
+                 interval_ms=2000, timeout_ms=1000):
+        super().__init__(parent)
+        self._addr = address
+        self._port = int(port)
+        self._interval_ms = interval_ms
+        self._timeout_ms = timeout_ms
+        self._running = True
+        self._last = None  # None until the first probe, so the first result emits
+
+    def stop(self):
+        self._running = False
+
+    def _new_socket(self, ctx):
+        s = ctx.socket(zmq.REQ)
+        s.setsockopt(zmq.LINGER, 0)              # don't block on close
+        s.setsockopt(zmq.RCVTIMEO, self._timeout_ms)
+        s.setsockopt(zmq.SNDTIMEO, self._timeout_ms)
+        s.connect("tcp://%s:%s" % (self._addr, self._port))
+        return s
+
+    def run(self):
+        ctx = zmq.Context()
+        sock = self._new_socket(ctx)
+        try:
+            while self._running:
+                try:
+                    sock.send_pyobj({"command": "getStatus"})
+                    sock.recv_pyobj()
+                    alive = True
+                except Exception:
+                    alive = False
+                if not alive:
+                    # A failed REQ recv leaves the socket unusable — rebuild it.
+                    sock.close()
+                    sock = self._new_socket(ctx)
+                if alive != self._last:
+                    self._last = alive
+                    self.status_changed.emit(alive)
+                # Sleep in short slices so stop() takes effect promptly.
+                waited = 0
+                while self._running and waited < self._interval_ms:
+                    self.msleep(100)
+                    waited += 100
+        finally:
+            sock.close()
+            ctx.term()
 
 
 # ── dummy data (placeholders for real client/dataHandler signals) ───────────
@@ -849,9 +918,23 @@ class MainWindowDashboard(QMainWindow):
         self._timer.timeout.connect(self._tick)
         self._timer.start(66)
 
+        # Server-connection heartbeat: a background thread pings getStatus over a
+        # dedicated ZMQ REQ socket (never the client's command socket) and drives
+        # the header LED green/red as the server becomes reachable/unreachable.
+        # Runs even in placeholder mode so the LED honestly reflects reachability.
+        self.server_heartbeat = None
+        addr, port = self._server_endpoint()
+        if addr and port:
+            self.server_heartbeat = ServerHeartbeat(addr, port, self)
+            self.server_heartbeat.status_changed.connect(self._on_server_status)
+            self.server_heartbeat.start()
+
         self.resize(2000, 1200)
 
     def closeEvent(self, event):
+        if self.server_heartbeat is not None:
+            self.server_heartbeat.stop()
+            self.server_heartbeat.wait(2000)
         if self.controller is not None:
             try:
                 self.controller.quit_application()
@@ -917,6 +1000,20 @@ class MainWindowDashboard(QMainWindow):
         return sorted(self._daq_info.items(),
                       key=lambda kv: kv[1].get("index", 999))
 
+    def _server_endpoint(self):
+        """``(address, port)`` of the STXM command server from main.json, or
+        ``(None, None)`` if it can't be read.  Wildcard bind addresses are mapped
+        to loopback so a client can actually connect."""
+        try:
+            with open(os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json")) as f:
+                srv = json.load(f).get("server", {})
+            addr = srv.get("stxm_address", "127.0.0.1")
+            if addr in ("*", "0.0.0.0", "::"):
+                addr = "127.0.0.1"
+            return addr, int(srv.get("command_port"))
+        except Exception:
+            return None, None
+
     def _maybe_connect_controller(self, live):
         """Return a connected MainController, or None (placeholder mode).
 
@@ -925,14 +1022,8 @@ class MainWindowDashboard(QMainWindow):
         server would hang the GUI.  Only build it when a server answers."""
         if not live:
             return None
-        try:
-            with open(os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json")) as f:
-                srv = json.load(f).get("server", {})
-            addr = srv.get("stxm_address", "127.0.0.1")
-            if addr in ("*", "0.0.0.0", "::"):
-                addr = "127.0.0.1"
-            port = int(srv.get("command_port"))
-        except Exception:
+        addr, port = self._server_endpoint()
+        if addr is None or port is None:
             return None
         import socket
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -954,6 +1045,80 @@ class MainWindowDashboard(QMainWindow):
         except Exception as e:
             print(f"[dashboard] controller connection failed ({e}) — placeholder mode")
         return None
+
+    def _on_server_status(self, alive):
+        """Heartbeat slot (runs on the GUI thread via a queued connection):
+        recolour the LED, and if the server has just appeared while we're still
+        in placeholder mode, upgrade the running GUI to live mode."""
+        self._set_server_led(alive)
+        if alive and self.controller is None:
+            self._go_live()
+
+    def _go_live(self):
+        """Upgrade a placeholder-mode GUI to live mode once the server appears.
+
+        Adopts the server's *authoritative* motor/detector/scan config (the GUI
+        may connect to any of several servers, each with its own hardware) and
+        rebuilds the config-driven acquisition view from it, rather than assuming
+        the on-disk config the placeholder view was built from still matches.
+        The header (server/shutter/energy) and the Browser/Analysis/Agent views
+        don't depend on this config, so they're left in place.
+
+        Safe to call repeatedly: it no-ops once a controller exists.  The
+        heartbeat only reaches here when getStatus just succeeded, so the
+        controller's (blocking) construction won't hang the GUI thread.  This is
+        also the intended entry point for a future live server-switch."""
+        if self.controller is not None:
+            return
+        controller = self._maybe_connect_controller(True)
+        if controller is None:
+            return
+        self.controller = controller
+        self._adopt_server_config(controller)
+        self._rebuild_acquisition_view()
+        self._connect_controller_signals()
+        self._seed_from_controller()
+        self._prefill_from_last_scan()
+        # The rebuild reset the image widgets to a black canvas — repaint the
+        # last recorded scan and its metadata overlay.
+        self._show_last_scan_image()
+        self._refresh_image_meta()
+
+        print("[dashboard] server appeared — switched to live mode")
+        self.statusBar().showMessage("Connected to server — live mode", 5000)
+
+    def _adopt_server_config(self, controller):
+        """Replace the placeholder (on-disk) motor/detector config with the
+        connected server's live config, so the rebuilt views reflect whatever
+        server we actually connected to.  Falls back to the existing config if
+        the server didn't supply a section."""
+        motor_info = dict(
+            controller.get_motor_model().get("motor_info", {}) or {})
+        if motor_info:
+            self._motor_info = motor_info
+        client = getattr(controller, "client", None)
+        daq_info = dict(getattr(client, "daqConfig", {}) or {}) if client else {}
+        if daq_info:
+            self._daq_info = daq_info
+
+    def _rebuild_acquisition_view(self):
+        """Rebuild the acquisition view (stack index 0) in place from the current
+        self.controller / self._motor_info / self._daq_info.  The view's builders
+        read those at build time (motor tabs, detector panels, and the scan-type
+        list all key off them), so a fresh build adopts the live config.  Other
+        stack entries keep their fixed indices (Browser 1 / Analysis 2 / Agent 3),
+        which _switch_view relies on.  Transient view state (selected tab, image
+        seed flags) is intentionally reset — callers repaint afterwards."""
+        old = self.view_stack.widget(0)
+        was_current = self.view_stack.currentIndex() == 0
+        self._image_seeded = False
+        self._ccd_seeded = False
+        new = self._build_acquisition_view()
+        self.view_stack.insertWidget(0, new)   # old shifts to index 1
+        self.view_stack.removeWidget(old)
+        old.deleteLater()
+        if was_current:
+            self.view_stack.setCurrentIndex(0)
 
     def _connect_controller_signals(self):
         c = self.controller
@@ -1213,13 +1378,17 @@ class MainWindowDashboard(QMainWindow):
         sv = QHBoxLayout(srv)
         sv.setContentsMargins(20, 0, 20, 0)
         sv.setSpacing(9)
-        dot = QLabel("●")
-        dot.setStyleSheet(f"color:{C['ok']};background:transparent;font-size:11px;")
-        sv.addWidget(dot)
+        # LED starts grey (status unknown) until the first heartbeat probe
+        # resolves it to green (reachable) or red (unreachable).
+        self.server_led = QLabel("●")
+        self._set_server_led(None)
+        sv.addWidget(self.server_led)
         sbox = QVBoxLayout()
         sbox.setSpacing(1)
+        addr, port = self._server_endpoint()
+        endpoint = f"{addr}:{port}" if addr and port else "not configured"
         sbox.addWidget(self._label("stxmserver", font=sans_font(10, QFont.Medium)))
-        sbox.addWidget(self._label("131.243.191.90:9999", role="monoFaint"))
+        sbox.addWidget(self._label(endpoint, role="monoFaint"))
         sv.addLayout(sbox)
         hl.addWidget(srv)
 
@@ -1264,6 +1433,14 @@ class MainWindowDashboard(QMainWindow):
         h.addWidget(self.shutter_combo)
         self._set_shutter_led(0)
         return w
+
+    def _set_server_led(self, alive):
+        """Colour the server-connection LED: reachable→green, unreachable→red,
+        unknown (None, before the first probe)→grey.  Slot for
+        ``ServerHeartbeat.status_changed`` (delivered on the GUI thread)."""
+        token = "ok" if alive else ("alert" if alive is False else "text_faint")
+        self.server_led.setStyleSheet(
+            f"color:{C[token]};background:transparent;font-size:11px;")
 
     def _set_shutter_led(self, index):
         """Colour the shutter LED from the (index-mapped) state: closed→red,
