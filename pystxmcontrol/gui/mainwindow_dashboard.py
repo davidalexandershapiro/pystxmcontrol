@@ -274,14 +274,29 @@ class ImageArea(QWidget):
         self._primary_rect = QRectF(-6.0, -6.0, 12.0, 12.0)
         self.img.setRect(self._primary_rect)
         self.vb.autoRange(padding=0)
-        # Report the cursor's image row/column line-outs as the mouse moves.
-        self.glw.scene().sigMouseMoved.connect(self._on_mouse_moved)
+        # A persistent crosshair placed by a LEFT-CLICK on the image (not hover):
+        # two InfiniteLines + a centre dot, drawn above the tiles/ROIs.  The click
+        # also drives the line-outs and is registered as the current cursor point.
+        _xh_pen = pg.mkPen("#ffd400", width=1)
+        self.crosshair_v = pg.InfiniteLine(angle=90, movable=False, pen=_xh_pen)
+        self.crosshair_h = pg.InfiniteLine(angle=0, movable=False, pen=_xh_pen)
+        self.crosshair_dot = pg.ScatterPlotItem(
+            size=7, pen=pg.mkPen("#1a1a1a", width=1),
+            brush=pg.mkBrush("#ffd400"))
+        for _it in (self.crosshair_v, self.crosshair_h, self.crosshair_dot):
+            _it.setZValue(12)          # above image tiles (0) and ROI boxes (10/11)
+            _it.setVisible(False)
+            self.vb.addItem(_it)
+        self._cursor_pt = None         # last clicked point (x, y) in µm, or None
+        # Line-outs / crosshair are selected by CLICK, not by mouse move.
+        self.glw.scene().sigMouseClicked.connect(self._on_mouse_clicked)
 
         # Live scan data is a spatial mosaic: one ImageItem per scan region,
         # each positioned at its own physical extent (mirrors the classic GUI).
         # The first region reuses self.img (the histogram-bound primary); the
         # rest are secondary tiles kept in LUT/levels sync with it.
         self._region_images = {}      # region key -> ImageItem
+        self._region_rects = {}       # region key -> QRectF physical µm extent
         self._seeded_regions = set()  # regions that have auto-levelled once
         self._primary_seeded = False
 
@@ -421,6 +436,7 @@ class ImageArea(QWidget):
         self._seeded_regions.add(key)
         rect = QRectF(xc - xr / 2.0, yc - yr / 2.0, xr, yr)
         item.setRect(rect)
+        self._region_rects[key] = rect
         if item is self.img:
             self._primary_rect = rect
         else:
@@ -447,6 +463,7 @@ class ImageArea(QWidget):
             if item is not self.img:
                 self.vb.removeItem(item)
         self._region_images.clear()
+        self._region_rects.clear()
         self._seeded_regions.clear()
 
     # ── region ROI boxes ─────────────────────────────────────────────────
@@ -545,34 +562,87 @@ class ImageArea(QWidget):
         self._dragging = None
         self.roi_moved.emit(key, *self._geom(self._roi_items[key]["roi"]))
 
-    # ── cursor line-outs ─────────────────────────────────────────────────
-    def _on_mouse_moved(self, scene_pos):
-        """Map the mouse over the primary image to its row/column line-outs and
-        emit them (in physical µm) via ``cursor_changed``; emit None when the
-        cursor leaves the image so listeners can clear."""
-        arr = self.img.image
-        rect = self._primary_rect
-        if (arr is None or getattr(arr, "ndim", 0) != 2 or rect is None
-                or rect.width() <= 0 or rect.height() <= 0
-                or not self.vb.sceneBoundingRect().contains(scene_pos)):
-            self.cursor_changed.emit(None)
-            return
+    # ── cursor crosshair + line-outs (click-driven) ──────────────────────
+    def _data_regions(self):
+        """Yield ``(image_item, µm_rect)`` for every region that holds a 2-D
+        frame — the per-region mosaic tiles, plus the primary image when it isn't
+        already one of them (e.g. a pre-scan / file frame)."""
+        seen = set()
+        for key, item in self._region_images.items():
+            rect = self._region_rects.get(key)
+            if rect is not None:
+                seen.add(id(item))
+                yield item, rect
+        if id(self.img) not in seen and self._primary_rect is not None:
+            yield self.img, self._primary_rect
+
+    def _payload_at(self, scene_pos):
+        """Map a scene position to a cursor payload.  The point (physical µm) is
+        ALWAYS returned so the crosshair can be placed anywhere in the view.  When
+        the point falls inside a region's data, the payload also carries the image
+        row/col, value, and the two line-cuts; otherwise those keys are absent."""
+        if not self.vb.sceneBoundingRect().contains(scene_pos):
+            return None
         pt = self.vb.mapSceneToView(scene_pos)
-        fx = (pt.x() - rect.left()) / rect.width()
-        fy = (pt.y() - rect.top()) / rect.height()
-        if not (0.0 <= fx < 1.0 and 0.0 <= fy < 1.0):
-            self.cursor_changed.emit(None)
+        payload = {"x": float(pt.x()), "y": float(pt.y())}
+        for arr, rect in self._data_regions():
+            if (arr is None or getattr(arr, "image", None) is None
+                    or rect is None or rect.width() <= 0 or rect.height() <= 0):
+                continue
+            data = arr.image
+            if getattr(data, "ndim", 0) != 2:
+                continue
+            fx = (pt.x() - rect.left()) / rect.width()
+            fy = (pt.y() - rect.top()) / rect.height()
+            if not (0.0 <= fx < 1.0 and 0.0 <= fy < 1.0):
+                continue
+            h, w = data.shape
+            c = min(w - 1, int(fx * w))
+            r = min(h - 1, int(fy * h))
+            xs = rect.left() + (np.arange(w) + 0.5) / w * rect.width()
+            ys = rect.top() + (np.arange(h) + 0.5) / h * rect.height()
+            payload.update({
+                "row": r, "col": c, "value": float(data[r, c]),
+                "hx": xs, "hy": np.asarray(data[r, :], dtype=float),  # along x (red)
+                "vx": ys, "vy": np.asarray(data[:, c], dtype=float)})  # along y
+            break
+        return payload
+
+    def _on_mouse_clicked(self, ev):
+        """Left-click on the image → place the crosshair, register the point, and
+        emit ``cursor_changed`` so the line-outs and readout update.  Clicks that
+        land off the image data are ignored so panning is undisturbed.  (The
+        ViewBox marks left clicks as accepted during its own handling, so we do
+        NOT gate on ``ev.isAccepted()`` — that would suppress every click; drags
+        pan the view and never arrive here as clicks.)"""
+        try:
+            if ev.button() != Qt.LeftButton:
+                return
+            scene_pos = ev.scenePos()
+        except Exception:
             return
-        h, w = arr.shape
-        c = min(w - 1, int(fx * w))
-        r = min(h - 1, int(fy * h))
-        xs = rect.left() + (np.arange(w) + 0.5) / w * rect.width()
-        ys = rect.top() + (np.arange(h) + 0.5) / h * rect.height()
-        self.cursor_changed.emit({
-            "x": float(pt.x()), "y": float(pt.y()), "row": r, "col": c,
-            "value": float(arr[r, c]),
-            "hx": xs, "hy": np.asarray(arr[r, :], dtype=float),   # along x (red)
-            "vx": ys, "vy": np.asarray(arr[:, c], dtype=float)})  # along y (cyan)
+        payload = self._payload_at(scene_pos)
+        if payload is None:
+            return
+        ev.accept()
+        self.set_crosshair(payload["x"], payload["y"])
+        self.cursor_changed.emit(payload)
+
+    def set_crosshair(self, x, y):
+        """Show the crosshair at physical µm (x, y) and record it as the current
+        cursor point."""
+        self.crosshair_v.setPos(x)
+        self.crosshair_h.setPos(y)
+        self.crosshair_dot.setData([x], [y])
+        for it in (self.crosshair_v, self.crosshair_h, self.crosshair_dot):
+            it.setVisible(True)
+        self._cursor_pt = (float(x), float(y))
+
+    def clear_crosshair(self):
+        """Hide the crosshair and forget the current cursor point."""
+        for it in (self.crosshair_v, self.crosshair_h, self.crosshair_dot):
+            it.setVisible(False)
+        self._cursor_pt = None
 
     # ── metadata overlay ─────────────────────────────────────────────────
     _META_BAR_H = 46
@@ -704,12 +774,17 @@ class MainWindowDashboard(QMainWindow):
             f"border-top:1px solid {C['border']};}}")
         self._scanning = False
         self._move_mode = True          # True = absolute Move, False = relative Jog
-        self._motor_group_index = 0     # 0 = Microscope, 1 = Beamline
+        self._motor_group_index = 0     # index into the data-driven motor groups
         self._expert = True
         self._staff_widgets = []          # widgets shown only in Staff mode
         self._motor_widgets = {}          # name -> {value,bar,lo,hi} for live updates
         self._image_seeded = False
         self._ccd_seeded = False
+        self._motor_panel = None          # lazily-created Motor Panel window
+        # Selected image cursor point (set by clicking the image); read by other
+        # actions via cursor_position().  None until the user clicks.
+        self._cursor_state = None
+        self._cursor_um = None
 
         # Phase 1: optionally connect to the live server via MainController.
         # The client blocks in its constructor waiting for get_config, so we
@@ -725,6 +800,16 @@ class MainWindowDashboard(QMainWindow):
                 self.controller.get_motor_model().get("motor_info", {}) or {})
         if not self._motor_info:
             self._motor_info = self._load_motor_info()
+
+        # DAQ (detector) config: prefer the connected client's live daqConfig,
+        # fall back to the on-disk daq.json for placeholder mode.  Drives the
+        # Live-detector panel — one tab per detector, typed point/spectrum/image.
+        self._daq_info = {}
+        client = getattr(self.controller, "client", None)
+        if client is not None:
+            self._daq_info = dict(getattr(client, "daqConfig", {}) or {})
+        if not self._daq_info:
+            self._daq_info = self._load_daq_info()
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -809,6 +894,29 @@ class MainWindowDashboard(QMainWindow):
                 continue
         return {}
 
+    def _load_daq_info(self):
+        """Load DAQ (detector) config from the runtime file the server also reads
+        (sys.prefix/pystxmcontrol_cfg/daq.json), falling back to the repo copy.
+        When connected the live client.daqConfig is preferred instead."""
+        candidates = [
+            os.path.join(sys.prefix, "pystxmcontrol_cfg", "daq.json"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "config", "daq.json"),
+        ]
+        for path in candidates:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                continue
+        return {}
+
+    def _daqs_sorted(self):
+        """Detectors as ``(key, cfg)`` tuples, ordered by the config ``index``
+        field (missing → last).  Python's stable sort preserves insertion order
+        within equal indices; the ``default`` key naturally sorts first (index 0)."""
+        return sorted(self._daq_info.items(),
+                      key=lambda kv: kv[1].get("index", 999))
+
     def _maybe_connect_controller(self, live):
         """Return a connected MainController, or None (placeholder mode).
 
@@ -877,24 +985,36 @@ class MainWindowDashboard(QMainWindow):
         except (TypeError, ZeroDivisionError):
             return 0.5
 
-    def _panel_of(self, d):
-        """Group a motor.  Prefer the explicit `panel` field; fall back to a
-        driver rule so the panel still works before the server config carries it."""
-        p = d.get("panel")
-        if p in ("microscope", "beamline", "hidden"):
-            return p
-        return "beamline" if d.get("driver") in ("bcsMotor", "derivedEnergy") \
-            else "microscope"
+    def _group_of(self, d):
+        """The motor's tab group, from motor.json's ``group`` field.  Falls back
+        to the legacy ``panel`` field (for configs not yet migrated), then to
+        ``beamline`` as the default when a motor declares no group at all."""
+        for key in ("group", "panel"):
+            v = d.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return "beamline"
 
     def _motors_sorted(self):
         return sorted(self._motor_info.items(), key=lambda kv: kv[1].get("index", 999))
 
-    def _motor_rows(self, panel):
-        """Return row tuples (name, kind, pos, unit, frac, moving) for a panel,
-        sourced from motor.json (`panel`/`unit` fields), sorted by index."""
+    def _motor_groups(self):
+        """Ordered list of distinct motor groups (tab names).  Order = first
+        appearance in index order, i.e. each group ranked by its lowest-index
+        motor; the GUI builds one tab per group on startup."""
+        groups = []
+        for _name, d in self._motors_sorted():
+            g = self._group_of(d)
+            if g not in groups:
+                groups.append(g)
+        return groups
+
+    def _motor_rows(self, group):
+        """Return row tuples (name, kind, pos, unit, frac, moving) for a group,
+        sourced from motor.json (`group`/`unit` fields), sorted by index."""
         rows = []
         for name, d in self._motors_sorted():
-            if self._panel_of(d) != panel:
+            if self._group_of(d) != group:
                 continue
             kind = self._DRIVER_KIND.get(d.get("driver"),
                                          str(d.get("driver", "")).upper())
@@ -1120,28 +1240,41 @@ class MainWindowDashboard(QMainWindow):
     _SHUTTER_INDEX_TO_CMD = {0: "auto", 1: "open", 2: "closed"}
     _SHUTTER_MODE_TO_INDEX = {"auto": 0, "open": 1, "close": 2, "closed": 2}
 
+    # Shutter-state LED colour per combobox index (auto / open / closed).
+    _SHUTTER_LED_COLOR = {0: "ok", 1: "ok", 2: "alert"}
+
     def _build_shutter_control(self):
-        """Selectable shutter control (Auto / Open / Closed).  Selecting a mode
-        sends ``setGate`` to the server; ``_on_shutter`` syncs it back to the
-        gate mode the server reports."""
+        """Selectable shutter control (Auto / Open / Closed) with a status LED to
+        its left (red when Closed).  The label sits left of the dropdown.
+        Selecting a mode sends ``setGate`` to the server; ``_on_shutter`` syncs it
+        back to the gate mode the server reports."""
         w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(22, 0, 22, 0)
-        v.setSpacing(2)
-        v.addStretch(1)
-        v.addWidget(self._label("SHUTTER", role="fieldLabel"))
+        h = QHBoxLayout(w)
+        h.setContentsMargins(22, 0, 22, 0)
+        h.setSpacing(9)
+        self.shutter_led = QLabel("●")
+        h.addWidget(self.shutter_led)
+        h.addWidget(self._label("SHUTTER", role="fieldLabel"))
         self.shutter_combo = QComboBox()
         self.shutter_combo.addItems(["Auto", "Open", "Closed"])
         self.shutter_combo.setCursor(Qt.PointingHandCursor)
         # Connect after populating so the initial index-0 signal isn't sent as a
         # command at startup (we wait for the server's reported state instead).
         self.shutter_combo.currentIndexChanged.connect(self._on_shutter_selected)
-        v.addWidget(self.shutter_combo)
-        v.addStretch(1)
+        h.addWidget(self.shutter_combo)
+        self._set_shutter_led(0)
         return w
+
+    def _set_shutter_led(self, index):
+        """Colour the shutter LED from the (index-mapped) state: closed→red,
+        open/auto→green."""
+        color = C[self._SHUTTER_LED_COLOR.get(index, "motion")]
+        self.shutter_led.setStyleSheet(
+            f"color:{color};background:transparent;font-size:11px;")
 
     def _on_shutter_selected(self, index):
         """User picked a shutter mode → send the setGate command to the server."""
+        self._set_shutter_led(index)
         if self.controller is not None:
             self.controller.set_gate(
                 self._SHUTTER_INDEX_TO_CMD.get(index, "auto"))
@@ -1716,7 +1849,7 @@ class MainWindowDashboard(QMainWindow):
         # Profile: ROI spectrum OR live cursor line-outs, switched by a pill group
         # in the card header (spectrum isn't always the relevant readout).
         prof_card, prof_body = self._card("Profile")
-        prof_well, _ = self._segmented(["Spectrum", "Line-outs"], 0)
+        prof_well, _ = self._segmented(["Spectrum", "Line-outs"], 1)
         prof_card._header_layout.insertWidget(1, prof_well)
         prof_card._header_layout.insertSpacing(2, 10)
         # Right side of the header: the spectrum note OR the X/Y line-cut pill,
@@ -1724,7 +1857,6 @@ class MainWindowDashboard(QMainWindow):
         self._profile_note = self._label("Fe L3 · OD vs eV", role="accent")
         prof_card._header_layout.addWidget(self._profile_note)
         self._lineout_axis_well, _ = self._segmented(["X", "Y"], 0)
-        self._lineout_axis_well.setVisible(False)
         prof_card._header_layout.addWidget(self._lineout_axis_well)
 
         self._profile_stack = QStackedWidget()
@@ -1733,6 +1865,8 @@ class MainWindowDashboard(QMainWindow):
         prof_body.addWidget(self._profile_stack, 1)
         prof_well._group.idClicked.connect(self._switch_profile)
         self._lineout_axis_well._group.idClicked.connect(self._set_lineout_axis)
+        # Default to the Line-outs tab (matches the checked pill above).
+        self._switch_profile(1)
         sl.addWidget(prof_card, 135)
 
         # scan progress
@@ -1825,7 +1959,9 @@ class MainWindowDashboard(QMainWindow):
         if not hasattr(self, "_lineout_h"):
             return
         p = self._last_cursor
-        if p is None:
+        if p is None or "hx" not in p:
+            # No point selected, or the point has no underlying data (clicked
+            # outside every scan region) — nothing to plot.
             self._lineout_h.setData([], [])
             self._lineout_v.setData([], [])
         elif self._lineout_axis == 0:
@@ -1836,15 +1972,29 @@ class MainWindowDashboard(QMainWindow):
             self._lineout_v.setData(p["vx"], p["vy"])
 
     def _on_cursor(self, payload):
-        """ImageArea cursor moved: update the active line-cut and the footer
-        X/Y/I readout (payload is None when the cursor leaves the image)."""
+        """A click selected a cursor point on the image: register it, update the
+        active line-cut, and refresh the footer X/Y/I readout.
+
+        ``self._cursor_state`` (full payload) and ``self._cursor_um`` (the (x, y)
+        µm tuple) are the persistent record of the selected point — read by other
+        actions (e.g. the Move-to-cursor / Focus-to-cursor / Set-cursor-to-0
+        controls and the task agent) via ``cursor_position()``."""
         self._last_cursor = payload
+        self._cursor_state = payload
+        self._cursor_um = (payload["x"], payload["y"]) if payload else None
         self._render_lineout()
         rd = getattr(self, "_cursor_readout", {})
         if rd and payload is not None:
             rd["X"].setText(f"{payload['x']:.2f}")
             rd["Y"].setText(f"{payload['y']:.2f}")
-            rd["I"].setText(f"{payload['value']:.4g}")
+            # Intensity only exists when the point lands inside a region's data.
+            rd["I"].setText(f"{payload['value']:.4g}"
+                            if "value" in payload else "—")
+
+    def cursor_position(self):
+        """The currently selected cursor point as an ``(x, y)`` tuple in physical
+        µm (sample coordinates), or ``None`` if no point has been clicked yet."""
+        return getattr(self, "_cursor_um", None)
 
     # ── column 3: live detector + motors ────────────────────────────────
     def _build_col3(self):
@@ -1859,32 +2009,63 @@ class MainWindowDashboard(QMainWindow):
     def _build_detector(self):
         card, body = self._card("Live detector")
         card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        # add pill group + live status into the header
-        det_well, self.det_btns = self._segmented(["fCCD", "Counter1"], 0)
-        card._header_layout.insertWidget(1, det_well)
-        card._header_layout.insertSpacing(2, 12)
+        # Live status + pulse dot live in the header, right-aligned.
         self.live_dot = QLabel("●")
         self.live_dot.setStyleSheet(f"color:{C['alert']};background:transparent;font-size:10px;")
         card._header_layout.addWidget(self.live_dot)
-        self.det_status = self._label("48 fps · fCCD 1k", role="mono")
+        self.det_status = self._label("", role="mono")
         self.det_status.setFont(mono_font(10))
         card._header_layout.addWidget(self.det_status)
 
+        # One tab + one page per configured detector.  Point/spectrum detectors
+        # get a trace/spectrum plot; image detectors get a 2-D viewer with an
+        # interactive contrast (histogram) control.  Keyed by DAQ config key.
+        self._det_keys = [k for k, _ in self._daqs_sorted()]
+        self._det_pages = {}
+        names = [cfg.get("name", k) for k, cfg in self._daqs_sorted()]
+        default_idx = self._det_keys.index("default") if "default" in self._det_keys else 0
+
         wrap = QWidget()
-        wrap.setFixedHeight(268)
+        wrap.setFixedHeight(400)          # taller than before; motors compress
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(14, 14, 14, 14)
+        wl.setSpacing(10)
+
+        det_well, self.det_btns = self._segmented(names or ["—"], default_idx)
+        wl.addWidget(det_well)
+
         self.det_stack = QStackedWidget()
-        self.det_stack.addWidget(self._ccd_page())
-        self.det_stack.addWidget(self._counter_page())
-        wl.addWidget(self.det_stack)
+        for key, cfg in self._daqs_sorted():
+            if cfg.get("type") == "image":
+                pagew = self._image_detector_page(key, cfg)
+            else:
+                pagew = self._trace_detector_page(key, cfg)
+            self.det_stack.addWidget(pagew)
+        wl.addWidget(self.det_stack, 1)
         body.addWidget(wrap)
 
-        def switch(i):
-            self.det_stack.setCurrentIndex(i)
-            self.det_status.setText("48 fps · fCCD 1k" if i == 0 else "500 Hz · Counter1")
-        det_well._group.idClicked.connect(switch)
+        det_well._group.idClicked.connect(self._switch_detector)
+        if self._det_keys:
+            self.det_stack.setCurrentIndex(default_idx)
+            self._update_det_status(default_idx)
         return card
+
+    def _switch_detector(self, i):
+        self.det_stack.setCurrentIndex(i)
+        self._update_det_status(i)
+
+    def _update_det_status(self, i):
+        """Header status line for the selected detector: name · type."""
+        if not (0 <= i < len(self._det_keys)):
+            return
+        cfg = self._daq_info.get(self._det_keys[i], {})
+        self.det_status.setText(
+            f"{cfg.get('name', self._det_keys[i])} · {cfg.get('type', 'point')}")
+
+    def _active_det_key(self):
+        """DAQ config key of the currently displayed detector tab, or None."""
+        i = self.det_stack.currentIndex() if hasattr(self, "det_stack") else -1
+        return self._det_keys[i] if 0 <= i < len(self._det_keys) else None
 
     def _chip(self, label, value, ok=False):
         chip = QFrame()
@@ -1899,11 +2080,14 @@ class MainWindowDashboard(QMainWindow):
         cv.addWidget(v)
         return chip
 
-    def _ccd_page(self):
+    def _image_detector_page(self, key, cfg):
+        """A 2-D viewer for an image-type detector: pyqtgraph image on the left,
+        an interactive contrast control (HistogramLUTWidget) on the right.  No
+        statistics chips — a compact dims/sum caption sits below the image."""
         page = QWidget()
         h = QHBoxLayout(page)
         h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(14)
+        h.setSpacing(8)
         left = QVBoxLayout()
         left.setSpacing(6)
         glw = pg.GraphicsLayoutWidget()
@@ -1913,61 +2097,80 @@ class MainWindowDashboard(QMainWindow):
         vb.invertY(True)
         # Seeded with a placeholder frame; replaced by live area-detector frames
         # (see _refresh_ccd) once a scan with an image-type DAQ is running.
-        self.ccd_img = pg.ImageItem(_diffraction())
-        self.ccd_img.setLookupTable(make_lut("inferno"))
-        vb.addItem(self.ccd_img)
-        self.ccd_vb = vb
+        img = pg.ImageItem(_diffraction())
+        img.setLookupTable(make_lut("inferno"))
+        vb.addItem(img)
         vb.autoRange(padding=0)
         left.addWidget(glw, 1)
         cap = QHBoxLayout()
-        self.ccd_dims_lbl = self._label("256² · log", role="monoFaint")
-        self.ccd_sum_lbl = self._label("Σ 1.9e6", role="monoFaint")
-        cap.addWidget(self.ccd_dims_lbl)
+        dims_lbl = self._label("256² · log", role="monoFaint")
+        sum_lbl = self._label("Σ 1.9e6", role="monoFaint")
+        cap.addWidget(dims_lbl)
         cap.addStretch(1)
-        cap.addWidget(self.ccd_sum_lbl)
+        cap.addWidget(sum_lbl)
         left.addLayout(cap)
         h.addLayout(left, 1)
 
-        chips = QVBoxLayout()
-        chips.setSpacing(8)
-        chips.addWidget(self._chip("Exposure", "20.0 ms · 1:8"))
-        chips.addWidget(self._chip("Max pixel", "6 214 adu"))
-        chips.addWidget(self._chip("Sat. pixels", "0.02 %"))
-        chips.addWidget(self._chip("Dropped", "0 frames", ok=True))
-        chips.addStretch(1)
-        cw = QWidget(); cw.setFixedWidth(178); cw.setLayout(chips)
-        h.addWidget(cw)
+        # Contrast control: the same draggable levels + gradient editor the main
+        # image uses, bound directly to this detector's ImageItem.
+        hist = pg.HistogramLUTWidget()
+        hist.setBackground(C["panel_footer"])
+        hist.setImageItem(img)
+        hist.gradient.loadPreset("inferno")
+        hist.setFixedWidth(120)
+        try:
+            hist.axis.setPen(C["border"])
+            hist.axis.setTextPen(C["text_faint"])
+        except Exception:
+            pass
+        h.addWidget(hist)
+
+        self._det_pages[key] = {
+            "type": "image", "name": cfg.get("name", key),
+            "img": img, "vb": vb, "hist": hist,
+            "dims_lbl": dims_lbl, "sum_lbl": sum_lbl, "seeded": False}
+        # First image detector keeps the legacy ``ccd_img`` alias so any older
+        # references still resolve.
+        if not hasattr(self, "ccd_img"):
+            self.ccd_img = img
         return page
 
-    def _counter_page(self):
+    def _trace_detector_page(self, key, cfg):
+        """A trace/spectrum plot for a point- or spectrum-type detector.  Point
+        detectors show a scrolling monitor trace; spectrum detectors show the
+        latest full spectrum.  Live data arrives per-key via _on_monitor_data."""
+        dtype = cfg.get("type", "point")
+        name = cfg.get("name", key)
+        driver = cfg.get("driver", "")
         page = QWidget()
         v = QVBoxLayout(page)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(9)
         top = QHBoxLayout()
-        top.addWidget(self._label("Counter1 monitor · 53230A", role="fieldLabel"))
+        title = f"{name} monitor" + (f" · {driver}" if driver else "")
+        top.addWidget(self._label(title, role="fieldLabel"))
         top.addStretch(1)
-        self.counts_lbl = self._label("1.0002", role="ok")
-        self.counts_lbl.setFont(mono_font(11))
-        top.addWidget(self.counts_lbl)
+        value_lbl = self._label("—", role="ok")
+        value_lbl.setFont(mono_font(11))
+        top.addWidget(value_lbl)
         v.addLayout(top)
 
         # Exponent shown once above the plot (SciAxis reports it) so the y tick
         # labels stay a compact one-decimal mantissa instead of full magnitudes.
         exp_row = QHBoxLayout()
         exp_row.setContentsMargins(0, 0, 0, 0)
-        self.trace_exp_lbl = self._label("", role="monoFaint")
-        exp_row.addWidget(self.trace_exp_lbl)
+        exp_lbl = self._label("", role="monoFaint")
+        exp_row.addWidget(exp_lbl)
         exp_row.addStretch(1)
         v.addLayout(exp_row)
 
         left_axis = SciAxis(orientation="left")
-        left_axis.on_exp_changed = lambda e: self.trace_exp_lbl.setText(_exp_str(e))
-        self.trace_plot = pg.PlotWidget(axisItems={"left": left_axis})
-        self.trace_plot.setBackground(C["plot_ground"])
-        self.trace_plot.showGrid(x=False, y=True, alpha=0.2)
-        self.trace_plot.enableAutoRange("y", True)
-        pi = self.trace_plot.getPlotItem()
+        left_axis.on_exp_changed = lambda e, lbl=exp_lbl: lbl.setText(_exp_str(e))
+        plot = pg.PlotWidget(axisItems={"left": left_axis})
+        plot.setBackground(C["plot_ground"])
+        plot.showGrid(x=False, y=True, alpha=0.2)
+        plot.enableAutoRange("y", True)
+        pi = plot.getPlotItem()
         # Full bounding box: draw all four axes; only left/bottom carry tick values.
         pi.showAxis("top"); pi.showAxis("right")
         pi.getAxis("top").setStyle(showValues=False)
@@ -1975,25 +2178,35 @@ class MainWindowDashboard(QMainWindow):
         for ax in ("left", "bottom", "top", "right"):
             pi.getAxis(ax).setPen(C["border"])
             pi.getAxis(ax).setTextPen(C["text_faint"])
-        # Let the left axis auto-size to its labels — a fixed narrow width cropped
-        # multi-decimal near-1.0 labels (e.g. "0.9987"); the exponent factoring
-        # already keeps large-magnitude labels short.
-        self._trace = 1 + (np.random.default_rng(4).random(220) - .5) * .004
-        self.trace_curve = self.trace_plot.plot(
-            self._trace, pen=pg.mkPen(C["ok"], width=1.4))
-        v.addWidget(self.trace_plot, 1)
 
-        chips = QHBoxLayout()
-        chips.setSpacing(8)
-        for lbl, val in (("I₀ norm", "0.9987"), ("σ / mean", "0.11 %"),
-                         ("Window", "10 s"), ("Gate", "2.0 ms")):
-            chips.addWidget(self._chip(lbl, val))
-        v.addLayout(chips)
+        if dtype == "spectrum":
+            e, od = _spectrum()
+            curve = plot.plot(e, od, pen=pg.mkPen(C["ok"], width=1.4))
+            plot.setLabel("bottom", cfg.get("x label", "Energy (eV)"))
+            trace = None
+        else:
+            trace = 1 + (np.random.default_rng(4).random(220) - .5) * .004
+            curve = plot.plot(trace, pen=pg.mkPen(C["ok"], width=1.4))
+        v.addWidget(plot, 1)
+
+        self._det_pages[key] = {
+            "type": dtype, "name": name, "plot": plot, "curve": curve,
+            "value": value_lbl, "exp_lbl": exp_lbl, "trace": trace}
+        # First point detector keeps the legacy trace/counts aliases.
+        if dtype == "point" and not hasattr(self, "trace_curve"):
+            self.trace_curve = curve
+            self.counts_lbl = value_lbl
+            self._trace = trace
         return page
 
     def _build_motors(self):
         card, body = self._card("Motors")
-        grp_well, _ = self._segmented(["Microscope", "Beamline"], 0)
+        # Tabs are data-driven: one per distinct motor `group` in motor.json.
+        self._motor_group_names = self._motor_groups()
+        labels = [g.title() for g in self._motor_group_names] or ["Motors"]
+        if self._motor_group_index >= len(self._motor_group_names):
+            self._motor_group_index = 0
+        grp_well, _ = self._segmented(labels, self._motor_group_index)
         card._header_layout.addWidget(grp_well)
 
         scroll = QScrollArea()
@@ -2004,10 +2217,8 @@ class MainWindowDashboard(QMainWindow):
         self.motor_layout.setContentsMargins(0, 0, 0, 0)
         self.motor_layout.setSpacing(0)
 
-        self._micro = self._motor_rows("microscope")
-        self._beam = self._motor_rows("beamline")
         self.motor_layout.addStretch(1)
-        self._populate_motors(self._micro)
+        self._repopulate_motors()
         scroll.setWidget(self.motor_inner)
         body.addWidget(scroll, 1)
 
@@ -2027,7 +2238,11 @@ class MainWindowDashboard(QMainWindow):
         self.jogmove_btn.setCursor(Qt.PointingHandCursor)
         self.jogmove_btn.clicked.connect(self._toggle_move_mode)
         self._update_jogmove_btn()
-        jm = self.jogmove_btn; mp = QPushButton("Motor panel")
+        jm = self.jogmove_btn
+        mp = QPushButton("Motor panel")
+        mp.setCursor(Qt.PointingHandCursor)
+        mp.setToolTip("Open the motor inspection & history panel.")
+        mp.clicked.connect(self._open_motor_panel)
         stop = QPushButton("Stop all"); stop.setObjectName("stopAll")
         # Inactive until a server-side motor-stop command exists (none in the
         # current protocol).  Kept visible for layout; wired later.
@@ -2135,8 +2350,26 @@ class MainWindowDashboard(QMainWindow):
     def _repopulate_motors(self):
         """Rebuild the currently-shown motor group from live positions (used on
         group switch and Move/Jog mode toggle)."""
-        panel = "microscope" if self._motor_group_index == 0 else "beamline"
-        self._populate_motors(self._motor_rows(panel))
+        names = getattr(self, "_motor_group_names", []) or self._motor_groups()
+        if not names:
+            self._populate_motors([])
+            return
+        i = min(self._motor_group_index, len(names) - 1)
+        self._populate_motors(self._motor_rows(names[i]))
+
+    def _open_motor_panel(self):
+        """Open (or raise) the dashboard-styled Motor Panel window — a floating
+        utility for inspecting/jogging any motor with Live/History plots."""
+        panel = getattr(self, "_motor_panel", None)
+        if panel is None or not panel.isVisible():
+            from pystxmcontrol.gui.motor_panel_dashboard import MotorPanelWindow
+            self._motor_panel = MotorPanelWindow(
+                controller=self.controller, motor_info=self._motor_info,
+                parent=self)
+            self._motor_panel.show()
+        else:
+            self._motor_panel.raise_()
+            self._motor_panel.activateWindow()
 
     # ════════════════════════════════════════════════════════════════════
     #  Shared helpers for the Browser / Analysis / Agent views
@@ -4163,14 +4396,15 @@ class MainWindowDashboard(QMainWindow):
         self.live_dot.setStyleSheet(
             f"color:{C['alert']};background:transparent;font-size:10px;"
             f"opacity:{op:.2f};")
-        # scroll the DUMMY counter trace only in placeholder mode; when connected,
-        # real monitor data drives it via _on_monitor_data.
-        if (self.controller is None and hasattr(self, "trace_curve")
-                and self.det_stack.currentIndex() == 1):
-            self._trace = np.roll(self._trace, -1)
-            self._trace[-1] = 1 + (np.random.random() - .5) * .004
-            self.trace_curve.setData(self._trace)
-            self.counts_lbl.setText(f"{self._trace[-1]:.4f}")
+        # scroll the DUMMY trace of the active point detector only in placeholder
+        # mode; when connected, real monitor data drives it via _on_monitor_data.
+        if self.controller is None:
+            p = self._det_pages.get(self._active_det_key())
+            if p and p.get("type") == "point" and p.get("trace") is not None:
+                p["trace"] = np.roll(p["trace"], -1)
+                p["trace"][-1] = 1 + (np.random.random() - .5) * .004
+                p["curve"].setData(p["trace"])
+                p["value"].setText(f"{p['trace'][-1]:.4f}")
 
     # ── controller slots (read-only live data) ──────────────────────────
     def _on_motor_position(self, name, pos):
@@ -4240,35 +4474,38 @@ class MainWindowDashboard(QMainWindow):
         return self._ccd_key
 
     def _refresh_ccd(self):
-        """Update the live-detector CCD panel with the latest area-detector frame.
+        """Update every image-type detector page with its latest area-detector
+        frame.
 
         Idle: the controller stashes each idle-monitor frame under
         'latest_monitor_frames' (the trace only keeps the scalar sum).
         Scanning: the per-detector frames live under 'all_detector_images'.
         """
-        if self.controller is None or not hasattr(self, "ccd_img"):
-            return
-        key = self._ccd_channel_key()
-        if key is None:
+        if self.controller is None or not getattr(self, "_det_pages", None):
             return
         try:
             im = self.controller.get_image_model()
-            frame = (im.get("latest_monitor_frames") or {}).get(key)
-            if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
-                frame = (im.get("all_detector_images") or {}).get(key)
-            if isinstance(frame, np.ndarray) and frame.ndim >= 2:
-                # Log-scale for display (diffraction has huge dynamic range), as the
-                # classic viewer does; autorange levels on the first real frame.
-                disp = np.log1p(np.clip(frame.astype(float), 0, None))
-                self.ccd_img.setImage(disp, autoLevels=not self._ccd_seeded)
-                self._ccd_seeded = True
-                # Caption reflects the real frame: dimensions + total counts.
-                h, w = frame.shape[:2]
-                dims = f"{h}² · log" if h == w else f"{h}×{w} · log"
-                self.ccd_dims_lbl.setText(dims)
-                self.ccd_sum_lbl.setText(f"Σ {float(np.sum(frame)):.1e}")
+            mon = im.get("latest_monitor_frames") or {}
+            allimg = im.get("all_detector_images") or {}
         except Exception:
-            pass
+            return
+        for key, p in self._det_pages.items():
+            if p.get("type") != "image":
+                continue
+            frame = mon.get(key)
+            if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
+                frame = allimg.get(key)
+            if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
+                continue
+            # Log-scale for display (diffraction has huge dynamic range), as the
+            # classic viewer does; autorange levels on the first real frame.
+            disp = np.log1p(np.clip(frame.astype(float), 0, None))
+            p["img"].setImage(disp, autoLevels=not p["seeded"])
+            p["seeded"] = True
+            # Caption reflects the real frame: dimensions + total counts.
+            h, w = frame.shape[:2]
+            p["dims_lbl"].setText(f"{h}² · log" if h == w else f"{h}×{w} · log")
+            p["sum_lbl"].setText(f"Σ {float(np.sum(frame)):.1e}")
 
     def _on_shutter(self, mode):
         """Server reported a gate mode → sync the shutter selector to it without
@@ -4280,29 +4517,40 @@ class MainWindowDashboard(QMainWindow):
             self.shutter_combo.blockSignals(True)
             self.shutter_combo.setCurrentIndex(idx)
             self.shutter_combo.blockSignals(False)
+        self._set_shutter_led(idx)
 
     def _on_daq_value(self, value):
-        if hasattr(self, "counts_lbl"):
-            self.counts_lbl.setText(f"{value:.4f}")
+        """Selected-channel scalar → the active (point/spectrum) detector's
+        current-value readout."""
+        p = self._det_pages.get(self._active_det_key()) if getattr(
+            self, "_det_pages", None) else None
+        if p and p.get("type") != "image" and p.get("value") is not None:
+            p["value"].setText(f"{value:.4f}")
 
     def _on_monitor_data(self):
-        """Refresh the Counter1 trace from the image model's monitor buffer."""
-        if not hasattr(self, "trace_curve"):
-            return
+        """Refresh every point/spectrum detector trace from the image model's
+        monitor buffer (keyed by DAQ config key, with a name fallback)."""
         try:
             data = self.controller.get_image_model().get("monitor_data") or {}
-            series = None
-            for key in ("Counter1", "default"):
-                if key in data:
-                    series = data[key]; break
-            if series is None and data:
-                series = next(iter(data.values()))
-            arr = np.asarray(series, dtype=float).ravel()
-            if arr.size:
-                self.trace_curve.setData(arr)
-                self.counts_lbl.setText(f"{arr[-1]:.4f}")
         except Exception:
-            pass
+            data = {}
+        for key, p in (getattr(self, "_det_pages", {}) or {}).items():
+            if p.get("type") == "image":
+                continue
+            series = data.get(key)
+            if series is None:
+                series = data.get(p.get("name"))
+            if series is None:
+                continue
+            try:
+                arr = np.asarray(series, dtype=float).ravel()
+            except Exception:
+                continue
+            if not arr.size:
+                continue
+            p["curve"].setData(arr)
+            if p.get("type") != "spectrum" and p.get("value") is not None:
+                p["value"].setText(f"{arr[-1]:.4f}")
         # Idle CCD frames also arrive on this signal (the trace keeps only the sum).
         self._refresh_ccd()
 
