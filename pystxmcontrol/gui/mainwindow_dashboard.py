@@ -3882,8 +3882,7 @@ class MainWindowDashboard(QMainWindow):
                 region = self._compile_image_regions(sm)
 
             est = sm.calculate_estimated_time()
-            rows = int(region['zPoints']) if self._focus_mode else int(region['yPoints'])
-            self._set_scan_stats(est, int(region['xPoints']) * rows,
+            self._set_scan_stats(est, self._total_scan_points(sm),
                                  sm.get_scan_velocity())
             c.status_updated.emit(f"Scan compiled — est. {self._fmt_mmss(est)}")
             return True
@@ -4145,6 +4144,20 @@ class MainWindowDashboard(QMainWindow):
             return
         self._set_scan_stats(est, pts, vel)
 
+    def _total_scan_points(self, sm):
+        """Total acquisition points in a compiled scan model: every spatial point
+        (summed over scan regions) measured at every energy.  Focus counts the
+        ZonePlateZ sweep as its slow axis; Image/Ptychography count yPoints."""
+        scan_regions = sm.get('scan_regions', {}) or {}
+        energy_regions = sm.get('energy_regions', {}) or {}
+        n_energies = sum(int(r.get('n_energies', 1))
+                         for r in energy_regions.values()) or 1
+        spatial = 0
+        for r in scan_regions.values():
+            rows = int(r['zPoints']) if self._focus_mode else int(r['yPoints'])
+            spatial += int(r['xPoints']) * rows
+        return spatial * n_energies
+
     def _scan_stats_from_view(self):
         """(est_seconds, points, velocity_mm_s) computed from the current view.
 
@@ -4157,14 +4170,13 @@ class MainWindowDashboard(QMainWindow):
         is_ptycho = "Ptychography" in scan_type
         is_focus = self._focus_mode
 
-        # Region dicts (primary first) from the already-flushed models.
+        # Region dicts from the already-flushed models.
         if is_focus:
             regions = [self._focus_region_scan_dict()]
         else:
             regions = [self._region_scan_dict(r) for r in self._scan_regions]
             if self._spectrum_region is not None:
                 regions.append(self._region_scan_dict(self._spectrum_region))
-        primary = regions[0]
 
         # Energy regions.  Focus is always a single energy (compile forces it),
         # so use only the first region's dwell there.
@@ -4198,9 +4210,9 @@ class MainWindowDashboard(QMainWindow):
         d_first = (eff[0]["dwell"] if eff else 1.0) or 1.0
         vel = max((rd.get("xStep", 0.0) / d_first for rd in regions), default=0.0)
 
-        # Points label shows the primary region only (matches the compile path).
-        rows = int(primary["zPoints"]) if is_focus else int(primary["yPoints"])
-        pts = int(primary["xPoints"]) * rows
+        # Total acquisition points: every spatial point (summed over regions)
+        # measured at every energy.
+        pts = n_points * n_energies
         return est, pts, vel
 
     def _recompute_step(self, range_e, npts_e, step_e):
