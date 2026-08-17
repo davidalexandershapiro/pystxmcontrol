@@ -85,6 +85,7 @@ class MainController(QObject):
     scan_pause_changed = Signal(bool)               # pause toggled: True=paused, False=resumed
     task_agent_status = Signal(str)                 # streaming trace from TaskAgent
     task_agent_done = Signal(str)                   # final TaskAgent response
+    agent_confirmation_requested = Signal(dict)     # {id, summary, details} — agent awaits Approve/Decline
     scan_region_geometry_updated = Signal(dict, str)  # (scan config dict, scan_type) for external scans
 
     def __init__(self):
@@ -387,6 +388,20 @@ class MainController(QObject):
 
         # If message is not a dict, skip processing
         if not isinstance(message, dict):
+            return
+
+        # Server pushed the authoritative last-scan parameters at scan end (see
+        # dataHandler.sendScanData).  Refresh the client's cached main_config so the
+        # task agent and the "last scan" prefill see the just-run parameters without a
+        # get_config() round-trip.  The agent shares this stxm_client, so its
+        # self._client.main_config["lastScan"] updates in place.
+        if message.get("type") == "scan_config_update":
+            scan_type = message.get("scan_type")
+            scan = message.get("scan")
+            if scan_type and scan is not None and self.client is not None:
+                cfg = getattr(self.client, "main_config", None)
+                if isinstance(cfg, dict):
+                    cfg.setdefault("lastScan", {})[scan_type] = scan
             return
 
         # Intelligence agent suggestion — route directly, skip scan data processing
@@ -1166,18 +1181,70 @@ class MainController(QObject):
         log.info("Initializing TaskAgent: model=%s base_url=%s api_key_env=%s (present in "
                  "GUI process=%s)", cfg.get("model"), provider.get("base_url"),
                  api_key_env, bool(os.environ.get(api_key_env)))
+        # Operator-confirmation gate state: the request_confirmation tool (agent thread)
+        # emits agent_confirmation_requested and blocks on a per-request Event until a GUI
+        # button click calls resolve_agent_confirmation() (GUI thread).
+        import threading
+        self._confirm_lock = threading.Lock()
+        self._confirm_events: dict = {}
+        self._confirm_results: dict = {}
+        self._confirm_counter = 0
         try:
             from ...controller.task_agent import TaskAgent
             self._task_agent = TaskAgent(self.client.main_config, self.client,
                                          image_model=self.image_model,
                                          logbook_model=self.logbook_model,
-                                         on_scan_started=self._on_agent_scan_started)
+                                         on_scan_started=self._on_agent_scan_started,
+                                         confirm_fn=self._agent_confirm)
             log.info("TaskAgent initialized (model=%s)", self._task_agent.model)
             self.status_updated.emit("TaskAgent initialized")
         except Exception as e:
             self._task_agent = None
             log.exception("TaskAgent init failed")
             self.error_occurred.emit(f"TaskAgent init failed: {e}")
+
+    def _agent_confirm(self, request: dict) -> bool:
+        """Called on the TaskAgent thread by the request_confirmation tool.
+
+        Emit the request to the GUI (which shows Approve/Decline buttons) and BLOCK this
+        thread until the operator resolves it, a Stop/cancel is requested, or a safety
+        timeout elapses.  Returns True if approved, else False (Decline / cancel / timeout).
+        """
+        import threading
+        with self._confirm_lock:
+            self._confirm_counter += 1
+            req_id = self._confirm_counter
+            ev = threading.Event()
+            self._confirm_events[req_id] = ev
+        self.agent_confirmation_requested.emit({
+            "id": req_id,
+            "summary": request.get("summary", "Confirm this action?"),
+            "details": request.get("details", ""),
+        })
+        # Poll so a Stop (cancel) breaks the wait; cap the total wait so a closed GUI can
+        # never wedge the agent thread forever.
+        waited = 0.0
+        while not ev.wait(0.1):
+            waited += 0.1
+            if self._task_agent is not None and self._task_agent.is_cancelled():
+                break
+            if waited >= 3600.0:
+                break
+        with self._confirm_lock:
+            self._confirm_events.pop(req_id, None)
+            approved = self._confirm_results.pop(req_id, False)
+        return bool(approved)
+
+    def resolve_agent_confirmation(self, req_id: int, approved: bool):
+        """Called on the GUI thread when the operator clicks Approve/Decline.
+
+        Records the decision and wakes the blocked TaskAgent thread (see _agent_confirm).
+        """
+        with self._confirm_lock:
+            self._confirm_results[req_id] = bool(approved)
+            ev = self._confirm_events.get(req_id)
+        if ev is not None:
+            ev.set()
 
     def run_task(self, goal: str):
         """Submit a goal to the TaskAgent and run it in a background thread."""

@@ -204,6 +204,16 @@ def _resolve_scan_type(raw: str) -> str:
 
 def _convert_scan(scan: dict) -> dict:
     """Convert a pystxmcontrol scan dict (nested scan_regions) to the flat ScanModel format."""
+    _er = scan['energy_regions']['EnergyRegion1']
+    _e_start = _er['start']
+    _e_points = _er['n_energies']
+    # A single-energy scan sits at ONE energy — the region's 'start'.  Its stored 'stop'
+    # can be stale or descending (start > stop), e.g. after the beamline energy is moved,
+    # which trips ScanModel's energy_stop >= energy_start validator and makes the caller
+    # silently fall back to ScanModel() DEFAULTS (5x5 µm, 50x50, 700 eV, 0.2 ms, …) — the
+    # symptom of the agent reporting default parameters instead of the real last scan.
+    # Collapse stop→start when there is only one energy so it round-trips cleanly.
+    _e_stop = _e_start if (_e_points and int(_e_points) <= 1) else _er['stop']
     return {
         'scan_type':          scan['scan_type'],
         'proposal':           scan['proposal'],
@@ -222,10 +232,10 @@ def _convert_scan(scan: dict) -> dict:
         'x_points':           scan['scan_regions']['Region1']['xPoints'],
         'y_points':           scan['scan_regions']['Region1']['yPoints'],
         'z_points':           scan['scan_regions']['Region1']['zPoints'],
-        'energy_start':       scan['energy_regions']['EnergyRegion1']['start'],
-        'energy_stop':        scan['energy_regions']['EnergyRegion1']['stop'],
-        'energy_points':      scan['energy_regions']['EnergyRegion1']['n_energies'],
-        'dwell':              scan['energy_regions']['EnergyRegion1']['dwell'],
+        'energy_start':       _e_start,
+        'energy_stop':        _e_stop,
+        'energy_points':      _e_points,
+        'dwell':              _er['dwell'],
         'spiral':             scan.get('spiral', False),
         'autofocus':          scan.get('autofocus', True),
         'defocus':            scan.get('defocus', False),
@@ -337,10 +347,16 @@ class ToolSet:
     individual functions.
     """
 
-    def __init__(self, client, image_model=None, logbook_model=None, on_scan_started=None):
+    def __init__(self, client, image_model=None, logbook_model=None, on_scan_started=None,
+                 confirm_fn=None):
         self._client = client
         self._image_model = image_model
         self._logbook_model = logbook_model   # shared LogbookModel for add_to_logbook
+        # Callback(request: dict) -> bool used by request_confirmation() to gate an action
+        # on operator approval.  The GUI supplies one that shows Approve/Decline buttons and
+        # BLOCKS this (agent) thread until the operator chooses.  None ⇒ headless: cannot
+        # gate, so request_confirmation() proceeds automatically with a note.
+        self._confirm_fn = confirm_fn
         # Callback(scan_dict) invoked when start_scan launches a scan, letting the GUI
         # controller build the live stxm object so the completed scan gets buffered for
         # post-scan analysis (agent scans otherwise bypass that GUI machinery).
@@ -416,19 +432,25 @@ class ToolSet:
 
     def get_safety_instructions(self) -> str:
         return (
+            "HOW TO CONFIRM:\n"
+            "  Whenever a rule below says to confirm/ask before acting, call "
+            "request_confirmation(summary, details) and act on its result — it shows the "
+            "operator Approve/Decline buttons and blocks until they choose. If it returns "
+            "DECLINED, stop and report; do NOT act. Do not just ask in prose.\n"
+            "\n"
             "CRITICAL SAFETY RULES:\n"
-            "  1. Always ask the user to confirm the scan configuration before executing.\n"
+            "  1. Always confirm the scan configuration (via request_confirmation) before executing.\n"
             "  2. Never move the OSA_Z motor — this can cause hardware failure.\n"
-            "  3. Ask for confirmation before moving CoarseR by more than 5 degrees.\n"
-            "  4. Ask for confirmation before moving Energy by more than 100 eV.\n"
+            "  3. Confirm before moving CoarseR by more than 5 degrees.\n"
+            "  4. Confirm before moving Energy by more than 100 eV.\n"
             "  5. Never attempt to move a motor beyond its software limit.\n"
             "\n"
             "GENERAL OPERATING RULES:\n"
             "  1. If a tool fails, report the failure and ask how to proceed.\n"
-            "  2. Ask for confirmation if scans are larger than 100x100 pixels or dwell > 5 ms.\n"
-            "  3. Ask for confirmation if more than ~10 energies are requested.\n"
-            "  4. Ask for confirmation if scan range > 50x50 µm (Sample) or 500x500 µm (OSA).\n"
-            "  5. Ask for confirmation if scan positions are far from current motor positions.\n"
+            "  2. Confirm if scans are larger than 100x100 pixels or dwell > 5 ms.\n"
+            "  3. Confirm if more than ~10 energies are requested.\n"
+            "  4. Confirm if scan range > 50x50 µm (Sample) or 500x500 µm (OSA).\n"
+            "  5. Confirm if scan positions are far from current motor positions.\n"
             "\n"
             "TYPICAL IMAGE SCAN WORKFLOW:\n"
             "  1. Call get_config() to get current state.\n"
@@ -438,6 +460,27 @@ class ToolSet:
             "  5. Call get_scan_status() to check progress.\n"
             "  6. Report results to the user."
         )
+
+    def request_confirmation(self, summary: str, details: str = "") -> str:
+        """Ask the operator to approve an action BEFORE executing it.
+
+        Shows Approve/Decline buttons in the GUI and BLOCKS until the operator chooses.
+        Returns a string beginning with 'APPROVED' or 'DECLINED'.  Call this — not a prose
+        question — wherever the safety rules require confirmation (scan config, large motor
+        or energy move, applying a calibration, …).  If DECLINED, stop and report; do not act.
+        """
+        if self._confirm_fn is None:
+            # No interactive UI (e.g. a headless / cron run) — cannot gate the action.
+            return ("APPROVED (no interactive confirmation UI is available in this session, "
+                    "so proceeding automatically). Action: " + (summary or ""))
+        try:
+            approved = bool(self._confirm_fn({"summary": summary or "Confirm this action?",
+                                              "details": details or ""}))
+        except Exception as e:
+            return f"DECLINED — confirmation could not be obtained ({e}). Stop and report."
+        if approved:
+            return "APPROVED — the operator approved. Proceed."
+        return "DECLINED — the operator declined. Do NOT proceed; stop and report."
 
     def set_baseline_from_server_scan(self, scan_config: dict) -> bool:
         """Adopt a GUI-launched scan (server nested format) as the working baseline.
@@ -3119,6 +3162,36 @@ TOOL_SCHEMAS: list[dict] = [
                     },
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "request_confirmation",
+            "description": (
+                "Ask the operator to approve an action BEFORE executing it, showing "
+                "Approve/Decline buttons in the GUI. Blocks until they choose and returns "
+                "a string starting with APPROVED or DECLINED. Use this — NOT a prose "
+                "question — wherever the safety rules require confirmation (scan config, "
+                "large motor or energy move, applying a calibration, tiled/coarse choice, "
+                "OSA zeroing, etc.). If DECLINED, stop and report; do not act."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "One-line action to confirm, e.g. 'Run Image scan "
+                                       "5x5 um, 100x100, 710 eV, 0.2 ms on SampleX/SampleY'.",
+                    },
+                    "details": {
+                        "type": "string",
+                        "description": "Optional extra context shown under the summary "
+                                       "(key parameters, risks, current vs target positions).",
+                    },
+                },
+                "required": ["summary"],
             },
         },
     },

@@ -600,6 +600,20 @@ class dataHandler:
             scanInfo = await self.dataQueue.get()
             if scanInfo == "endOfScan":
                 self.regionComplete = True
+                # Push the authoritative last-scan parameters so every subscribed client
+                # refreshes its cached main_config["lastScan"] WITHOUT a get_config()
+                # round-trip (the server never otherwise pushes config changes, so a
+                # client's snapshot goes stale the moment a scan runs after it connected).
+                # controller.scan() wrote this entry — a deepcopy of the submitted scan —
+                # into the shared main_config before the run, keyed by _current_scan_type.
+                scan_type = getattr(self, '_current_scan_type', '') or ''
+                last = (self.main_config.get("lastScan", {}) or {}).get(scan_type)
+                if last is not None:
+                    self.zmq_publisher.publish_stxm_data({
+                        "type": "scan_config_update",
+                        "scan_type": scan_type,
+                        "scan": last,
+                    })
                 self.zmq_publisher.publish_stxm_data("scan_complete")
                 if intel and intel.enabled:
                     intel.on_scan_complete(scan_id=getattr(self, 'currentScanID', None))

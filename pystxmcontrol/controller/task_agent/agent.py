@@ -30,9 +30,13 @@ Do NOT repeat these calls if you can already see safety rules and config in your
 
 Working principles:
 - This is a multi-turn conversation. Remember everything said earlier in the thread.
-- Confirm critical actions with the user before executing them.
-- When the user says "yes" or "ok" or similar, treat it as confirmation of whatever
-  you most recently asked them to confirm — do not re-fetch config or re-explain.
+- Confirm critical actions before executing them by calling request_confirmation(summary,
+  details): it shows the operator Approve/Decline buttons and blocks until they choose.
+  Use it wherever these instructions say to "ask"/"confirm" before acting (scan configs,
+  large motor or energy moves, applying a calibration, tiled/coarse choice, OSA zeroing).
+  If it returns DECLINED, stop and report; do not act. Prefer this over asking in prose.
+- The operator may still type "yes"/"ok" in chat; treat that as confirmation of whatever
+  you most recently asked, and do not re-fetch config or re-explain.
 - If a tool returns an error, report it and ask how to proceed — do not retry blindly.
 - When a scan completes, summarize what was done and any anomalies observed.
 - Be concise — the user is a scientist, not a general audience.
@@ -241,7 +245,7 @@ class TaskAgent:
     """
 
     def __init__(self, main_config: dict, client, image_model=None, logbook_model=None,
-                 on_scan_started=None):
+                 on_scan_started=None, confirm_fn=None):
         cfg = main_config.get("task_agent", {})
         self.model = cfg.get("model", "claude-opus-4-7")
         # Steps allowed WITHOUT a scan completing (stall/loop guard); a completed scan resets it.
@@ -251,8 +255,10 @@ class TaskAgent:
         # on_scan_started: optional callback invoked with the scan config dict when the
         # agent launches a scan, so the GUI controller can build the live stxm object
         # and buffer the completed scan for post-scan analysis (see ToolSet.start_scan).
+        # confirm_fn(request: dict) -> bool gates actions on operator approval; the GUI
+        # supplies one that shows Approve/Decline and blocks the run() thread until chosen.
         self._toolset = ToolSet(client, image_model=image_model, logbook_model=logbook_model,
-                                on_scan_started=on_scan_started)
+                                on_scan_started=on_scan_started, confirm_fn=confirm_fn)
         self._cancel_event = threading.Event()
         self._messages: list[dict] = []  # persists across run() calls
 
@@ -296,6 +302,10 @@ class TaskAgent:
     def cancel(self) -> None:
         """Request cancellation. Takes effect between LLM calls."""
         self._cancel_event.set()
+
+    def is_cancelled(self) -> bool:
+        """True once cancel() has been requested — lets a blocking confirmation wait break out."""
+        return self._cancel_event.is_set()
 
     def reset_history(self) -> None:
         """Clear conversation history so the next run() starts a fresh session."""
