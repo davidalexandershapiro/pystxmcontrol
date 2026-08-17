@@ -1719,6 +1719,10 @@ class MainWindowDashboard(QMainWindow):
         self.begin_btn.clicked.connect(self._toggle_scan)
         preview = QPushButton("Preview")
         preview.setCursor(Qt.PointingHandCursor)
+        preview.setToolTip("Run an abridged scan — first region, single energy — "
+                           "as a quick check without disturbing the full definition.")
+        preview.clicked.connect(self._preview_scan)
+        self.preview_btn = preview
         btns.addWidget(self.begin_btn, 1)
         btns.addWidget(preview)
         fv.addLayout(btns)
@@ -3830,7 +3834,20 @@ class MainWindowDashboard(QMainWindow):
         # start_scan / cancel_scan emit scan_state_changed → _set_scanning keeps
         # the Begin/Cancel button in sync with the controller's real state.
 
-    def _compile_scan(self):
+    def _preview_scan(self):
+        """Run an abridged sanity-check scan: the first spatial region at a single
+        energy.  A real server scan (motors move, a 'preview'-tagged file is
+        written), but it never touches the full scan definition and is not pushed
+        to the TaskAgent as the last scan.  Disabled in Focus mode and while any
+        scan is already running."""
+        c = self.controller
+        if c is None or c.scanning or self._focus_mode:
+            return
+        if self._compile_scan(preview=True):
+            self.image_area.clear_region_frames()
+            c.start_scan(preview=True)
+
+    def _compile_scan(self, preview=False):
         """Populate the controller's scan_model from the dashboard widgets,
         mirroring MainController.compile_scan_from_view but reading THIS view's
         widgets.  Returns True on success.
@@ -3838,6 +3855,11 @@ class MainWindowDashboard(QMainWindow):
         Handles Image-family scans (SampleX/SampleY spatial grid + energy
         regions) and single-line Focus scans (angled line × ZonePlateZ sweep,
         single energy).  Other scan types report an error until wired.
+
+        ``preview=True`` compiles an abridged sanity-check scan — only the first
+        spatial region at a single energy — into the scan model.  It never
+        mutates the view's region/energy lists (the model is rebuilt from them on
+        the next compile) and leaves the full-scan stats readout untouched.
         """
         c = self.controller
         client = c.client
@@ -3870,7 +3892,7 @@ class MainWindowDashboard(QMainWindow):
             sm.set('proposal', proposal)
             sm.set('experimenters', experimenters)
             sm.set('sample', self._sample_field.text())
-            sm.set('comment', '')
+            sm.set('comment', 'preview' if preview else '')
             sm.set('driver', driver)
             sm.set('mode', sc.get('mode', 'continuousLine'))
             sm.set('loop_scan', False)   # loop sequence not yet wired in dashboard
@@ -3879,12 +3901,16 @@ class MainWindowDashboard(QMainWindow):
             if self._focus_mode:
                 region = self._compile_focus(sm, sc)
             else:
-                region = self._compile_image_regions(sm)
+                region = self._compile_image_regions(sm, preview=preview)
 
             est = sm.calculate_estimated_time()
-            self._set_scan_stats(est, self._total_scan_points(sm),
-                                 sm.get_scan_velocity())
-            c.status_updated.emit(f"Scan compiled — est. {self._fmt_mmss(est)}")
+            if preview:
+                # Leave the stats panel showing the full scan; just report the est.
+                c.status_updated.emit(f"Preview compiled — est. {self._fmt_mmss(est)}")
+            else:
+                self._set_scan_stats(est, self._total_scan_points(sm),
+                                     sm.get_scan_velocity())
+                c.status_updated.emit(f"Scan compiled — est. {self._fmt_mmss(est)}")
             return True
         except ValueError as e:
             c.error_occurred.emit(f"Invalid scan value: {e}")
@@ -3893,9 +3919,13 @@ class MainWindowDashboard(QMainWindow):
             c.error_occurred.emit(f"Failed to compile scan: {e}")
             return False
 
-    def _compile_image_regions(self, sm):
+    def _compile_image_regions(self, sm, preview=False):
         """Populate ``sm`` with the image-family spatial + energy regions and
-        return the primary region dict (for the stats readout)."""
+        return the primary region dict (for the stats readout).
+
+        ``preview=True`` emits only the first spatial region at a single energy
+        (the start of the first energy region) — an abridged sanity check.  The
+        view's region/energy lists are only read, never reassigned."""
         # Spatial regions — flush the grid into the active region, then emit
         # every image region (plus the spectrum region, if enabled).
         if isinstance(self._active_region, int):
@@ -3904,22 +3934,34 @@ class MainWindowDashboard(QMainWindow):
         elif self._spectrum_region is not None:
             self._spectrum_region.update(self._read_spatial_fields())
         region = self._region_scan_dict(self._scan_regions[0])
-        for i, r in enumerate(self._scan_regions):
-            sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
-        if self._spectrum_region is not None:
-            spec = self._region_scan_dict(self._spectrum_region)
-            spec['spectrum'] = True
-            sm.add_scan_region('SpectrumRegion', spec)
+        if preview:
+            # First region only; no extra regions, no spectrum region.
+            sm.add_scan_region('Region1', region)
+        else:
+            for i, r in enumerate(self._scan_regions):
+                sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
+            if self._spectrum_region is not None:
+                spec = self._region_scan_dict(self._spectrum_region)
+                spec['spectrum'] = True
+                sm.add_scan_region('SpectrumRegion', spec)
 
         # Energy regions — flush the field row into the active region first.
         self._sync_active_energy_region()
-        total_n = 0
-        for i, r in enumerate(self._energy_regions):
-            total_n += r['n']
-            sm.add_energy_region(f'EnergyRegion{i + 1}', {
-                'start': r['start'], 'stop': r['stop'], 'step': r['step'],
-                'dwell': r['dwell'], 'n_energies': r['n']})
-        sm.set('single_energy', total_n <= 1)
+        if preview:
+            # Collapse to a single energy: the start of the first energy region.
+            e0 = self._energy_regions[0]
+            sm.add_energy_region('EnergyRegion1', {
+                'start': e0['start'], 'stop': e0['start'], 'step': 0.0,
+                'dwell': e0['dwell'], 'n_energies': 1})
+            sm.set('single_energy', True)
+        else:
+            total_n = 0
+            for i, r in enumerate(self._energy_regions):
+                total_n += r['n']
+                sm.add_energy_region(f'EnergyRegion{i + 1}', {
+                    'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+                    'dwell': r['dwell'], 'n_energies': r['n']})
+            sm.set('single_energy', total_n <= 1)
         sm.set('energy_list', None)
         return region
 
@@ -4744,6 +4786,10 @@ class MainWindowDashboard(QMainWindow):
         else:
             self.begin_btn.setText("Begin scan")
             self.begin_btn.setObjectName("beginScan")
+        # No previewing mid-scan; restore it when idle (unless Focus mode).
+        if getattr(self, "preview_btn", None):
+            self.preview_btn.setEnabled(
+                not self._scanning and not getattr(self, "_focus_mode", False))
         # re-polish so the objectName-based style applies
         self.begin_btn.style().unpolish(self.begin_btn)
         self.begin_btn.style().polish(self.begin_btn)
@@ -4773,6 +4819,10 @@ class MainWindowDashboard(QMainWindow):
         # A focus scan is a single line — the multi-region controls don't apply.
         if getattr(self, "_add_region_btn", None):
             self._add_region_btn.setEnabled(not focus)
+        # Preview (first region, single energy) is meaningless for a single-line,
+        # single-energy focus scan — it would just duplicate Begin.
+        if getattr(self, "preview_btn", None):
+            self.preview_btn.setEnabled(not focus and not self._scanning)
         # Focus-mode cursor readout: the vertical axis is ZonePlateZ, not sample Y.
         if getattr(self, "_cursor_readout_keys", None):
             self._cursor_readout_keys["Y"].setText("Z" if focus else "Y")

@@ -1088,8 +1088,14 @@ class MainController(QObject):
             "enable_coarse_only": bool(geometry.get("enable_coarse_only", True)),
         }
 
-    def start_scan(self) -> bool:
-        """Start a scan based on current scan model."""
+    def start_scan(self, preview: bool = False) -> bool:
+        """Start a scan based on current scan model.
+
+        ``preview=True`` marks an abridged sanity-check scan (first region, single
+        energy): it runs on the server like any scan but is NOT pushed to the
+        TaskAgent as the "last GUI scan", so "repeat the last scan" still refers to
+        the full definition.
+        """
         if not self.scan_model.validate():
             self.error_occurred.emit("Invalid scan configuration")
             return False
@@ -1112,8 +1118,9 @@ class MainController(QObject):
             message = {"command": "scan", "scan": scan_config}
             self.message_queue.put(message)
             # Push the just-launched parameters into the TaskAgent so it can repeat or
-            # modify this scan without a get_config()/update_scan() round-trip.
-            if getattr(self, "_task_agent", None) is not None:
+            # modify this scan without a get_config()/update_scan() round-trip.  Skip
+            # this for previews so the agent's "last scan" stays the full definition.
+            if not preview and getattr(self, "_task_agent", None) is not None:
                 try:
                     self._task_agent.set_last_gui_scan(scan_config)
                 except Exception as e:
