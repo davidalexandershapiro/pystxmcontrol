@@ -981,6 +981,7 @@ class MainWindowDashboard(QMainWindow):
         self._image_seeded = False
         self._ccd_seeded = False
         self._motor_panel = None          # lazily-created Motor Panel window
+        self._beamline_panel = None       # lazily-created Beamline Panel window
         # Selected image cursor point (set by clicking the image); read by other
         # actions via cursor_position().  None until the user clicks.
         self._cursor_state = None
@@ -2701,6 +2702,10 @@ class MainWindowDashboard(QMainWindow):
         mp.setCursor(Qt.PointingHandCursor)
         mp.setToolTip("Open the motor inspection & history panel.")
         mp.clicked.connect(self._open_motor_panel)
+        bp = QPushButton("Beamline panel")
+        bp.setCursor(Qt.PointingHandCursor)
+        bp.setToolTip("View / edit the beamline parameter database.")
+        bp.clicked.connect(self._open_beamline_panel)
         stop = QPushButton("Stop all"); stop.setObjectName("stopAll")
         # Inactive until a server-side motor-stop command exists (none in the
         # current protocol).  Kept visible for layout; wired later.
@@ -2708,7 +2713,8 @@ class MainWindowDashboard(QMainWindow):
         stop.setToolTip("Motor stop not yet implemented (pending a server-side "
                         "stop command).")
         self.stop_all_btn = stop
-        btns.addWidget(jm, 1); btns.addWidget(mp, 1); btns.addWidget(stop)
+        btns.addWidget(jm, 1); btns.addWidget(mp, 1); btns.addWidget(bp, 1)
+        btns.addWidget(stop)
         fv.addLayout(btns)
         self.cmd_log = QFrame()
         self.cmd_log.setStyleSheet(f"border-top:1px solid {C['border']};")
@@ -2828,6 +2834,28 @@ class MainWindowDashboard(QMainWindow):
         else:
             self._motor_panel.raise_()
             self._motor_panel.activateWindow()
+
+    def _open_beamline_panel(self):
+        """Open (or raise) the dashboard-styled Beamline Panel window — a floating
+        view/edit utility for the beamline parameter database.  Editing is enabled
+        only in Staff mode (``self._expert``)."""
+        panel = getattr(self, "_beamline_panel", None)
+        if panel is None or not panel.isVisible():
+            client = getattr(self.controller, "client", None)
+            if client is None:
+                self.statusBar().showMessage(
+                    "Beamline database unavailable (no server connection).", 5000)
+                return
+            from pystxmcontrol.gui.beamline_panel_dashboard import BeamlinePanelWindow
+            from pystxmcontrol.controller.beamline_database import BeamlineDatabaseClient
+            self._beamline_panel = BeamlinePanelWindow(
+                db=BeamlineDatabaseClient(client),
+                is_staff=self._expert,
+                parent=self)
+            self._beamline_panel.show()
+        else:
+            self._beamline_panel.raise_()
+            self._beamline_panel.activateWindow()
 
     # ════════════════════════════════════════════════════════════════════
     #  Shared helpers for the Browser / Analysis / Agent views
