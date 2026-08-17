@@ -282,23 +282,29 @@ class LogbookWidget(QtWidgets.QWidget):
         return max(base, min(base * 2, avail)) if avail > base else base
 
     def _snap_resource(self, path: str, eid: str, width: int = 360) -> str | None:
-        """Smooth-scale a snapshot and register it as a document image resource.
+        """Scale a snapshot and register it as a document image resource.
 
-        Given an HTML ``width`` attribute, QTextDocument rescales the image with a
-        fast (nearest-neighbour) transform, which makes fine plot/axis text
-        illegible. Instead we pre-scale to the exact device-pixel size with a
-        smooth transform and tag the device-pixel ratio, then reference the image
-        with no width attribute — the document draws it 1:1, crisp on both standard
-        and HiDPI screens. Registered before setHtml() so the document resolves it.
+        Scan snapshots are stored at their native pixel resolution, so displaying
+        them means UPSCALING to the card width. Use nearest-neighbour, snapped to an
+        integer pixel factor, so the discrete scan pixels stay crisp and uniform —
+        no interpolation / blur. Wider-than-the-card figures are instead DOWNSCALED
+        with a smooth transform, which keeps their fine plot/axis text legible (the
+        document's own width-attribute scaling is nearest-neighbour and would mangle
+        that text, so we pre-scale and reference the image 1:1, dpr-tagged, with no
+        width attribute). Registered before setHtml() so the document resolves it.
         """
         img = QtGui.QImage(path)
         if img.isNull():
             return None
         dpr = self._browser.devicePixelRatioF() or 1.0
         target_px = max(1, round(width * dpr))
-        if img.width() != target_px:
+        src_w = img.width()
+        if target_px > src_w:                       # upscale → crisp, uniform pixels
+            factor = max(1, target_px // src_w)     # floor: never exceed the card width
+            img = img.scaledToWidth(src_w * factor, QtCore.Qt.FastTransformation)
+        elif target_px < src_w:                     # downscale → keep figures legible
             img = img.scaledToWidth(target_px, QtCore.Qt.SmoothTransformation)
-        img.setDevicePixelRatio(dpr)   # lay out at `width` logical px
+        img.setDevicePixelRatio(dpr)   # lay out at native logical px
         url = QtCore.QUrl(f"snap://{eid or os.path.basename(path)}")
         self._browser.document().addResource(
             QtGui.QTextDocument.ImageResource, url, img)

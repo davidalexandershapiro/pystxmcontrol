@@ -347,15 +347,26 @@ class DashboardLogbookPanel(QWidget):
         return max(base, min(base * 2, avail)) if avail > base else base
 
     def _snap_resource(self, path: str, eid: str, width: int = 360):
-        """Pre-scale a snapshot with a smooth transform and register it as a
-        document image resource so QTextDocument draws it crisply (its own width
-        attribute uses a nearest-neighbour transform that mangles fine plot text)."""
+        """Register a snapshot as a document image resource, scaled for display.
+
+        Scan snapshots are stored at their native pixel resolution, so showing them
+        means UPSCALING to the card width.  Use nearest-neighbour, snapped to an
+        integer pixel factor, so the discrete scan pixels stay crisp and uniform —
+        no interpolation / blur.  Wider-than-the-card figures are instead DOWNSCALED
+        with a smooth transform, which keeps their fine axis text and lines legible
+        (and avoids aliasing).  The document is handed a 1:1, dpr-tagged image either
+        way, so its own nearest-neighbour width scaling never re-touches it.
+        """
         img = QImage(path)
         if img.isNull():
             return None
         dpr = self._browser.devicePixelRatioF() or 1.0
         target_px = max(1, round(width * dpr))
-        if img.width() != target_px:
+        src_w = img.width()
+        if target_px > src_w:                       # upscale → crisp, uniform pixels
+            factor = max(1, target_px // src_w)     # floor: never exceed the card width
+            img = img.scaledToWidth(src_w * factor, Qt.FastTransformation)
+        elif target_px < src_w:                     # downscale → keep figures legible
             img = img.scaledToWidth(target_px, Qt.SmoothTransformation)
         img.setDevicePixelRatio(dpr)
         url = QUrl(f"snap://{eid or os.path.basename(path)}")
