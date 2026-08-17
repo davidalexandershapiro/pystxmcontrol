@@ -3882,7 +3882,9 @@ class MainWindowDashboard(QMainWindow):
                 region = self._compile_image_regions(sm)
 
             est = sm.calculate_estimated_time()
-            self._update_scan_stats(est, region)
+            rows = int(region['zPoints']) if self._focus_mode else int(region['yPoints'])
+            self._set_scan_stats(est, int(region['xPoints']) * rows,
+                                 sm.get_scan_velocity())
             c.status_updated.emit(f"Scan compiled — est. {self._fmt_mmss(est)}")
             return True
         except ValueError as e:
@@ -4112,14 +4114,94 @@ class MainWindowDashboard(QMainWindow):
             return int(round(abs(stop - start) / abs(step))) + 1
         return 1
 
-    def _update_scan_stats(self, est_seconds, region):
+    # Continuous-line stages must not be driven faster than this (mm/s); the
+    # Velocity readout turns red past it so it is caught before Begin.
+    _MAX_SCAN_VELOCITY = 1.0
+
+    def _set_scan_stats(self, est_seconds, n_points, velocity_mm_s):
+        """Write the Est. time / Velocity / Points readout.  Any value passed as
+        ``None`` leaves its label untouched.  Velocity turns red past the
+        continuous-scan speed limit (``_MAX_SCAN_VELOCITY``)."""
         lbls = getattr(self, "_stat_labels", {})
-        if 'Est. time' in lbls:
+        if est_seconds is not None and 'Est. time' in lbls:
             lbls['Est. time'].setText(self._fmt_mmss(est_seconds))
-        if 'Points' in lbls:
-            rows = int(region['zPoints']) if self._focus_mode else int(region['yPoints'])
-            pts = int(region['xPoints']) * rows
-            lbls['Points'].setText(f"{pts:,}".replace(',', ' '))
+        if n_points is not None and 'Points' in lbls:
+            lbls['Points'].setText(f"{int(n_points):,}".replace(',', ' '))
+        if velocity_mm_s is not None and 'Velocity' in lbls:
+            v = lbls['Velocity']
+            v.setText(f"{velocity_mm_s:.3f} mm/s")
+            v.setStyleSheet(f"color:{C['alert']};"
+                            if velocity_mm_s > self._MAX_SCAN_VELOCITY else "")
+
+    def _refresh_scan_stats(self):
+        """Recompute the Est. time / Velocity / Points readout from the current
+        view state, so the stats reflect the scan definition live (before Begin).
+        Controller-free; a no-op until the stat labels and scan state exist."""
+        if not getattr(self, "_stat_labels", None):
+            return
+        try:
+            est, pts, vel = self._scan_stats_from_view()
+        except Exception:
+            return
+        self._set_scan_stats(est, pts, vel)
+
+    def _scan_stats_from_view(self):
+        """(est_seconds, points, velocity_mm_s) computed from the current view.
+
+        Mirrors ``ScanModel.calculate_estimated_time`` / ``get_scan_velocity`` for
+        the dashboard-supported families (Image, Ptychography, Focus), reading the
+        already-flushed region/energy models rather than the shared scan model so
+        it stays a pure, side-effect-free read.  ``xStep`` is µm and dwell is ms,
+        so ``xStep / dwell`` is already mm/s."""
+        scan_type = self.scan_type.currentText()
+        is_ptycho = "Ptychography" in scan_type
+        is_focus = self._focus_mode
+
+        # Region dicts (primary first) from the already-flushed models.
+        if is_focus:
+            regions = [self._focus_region_scan_dict()]
+        else:
+            regions = [self._region_scan_dict(r) for r in self._scan_regions]
+            if self._spectrum_region is not None:
+                regions.append(self._region_scan_dict(self._spectrum_region))
+        primary = regions[0]
+
+        # Energy regions.  Focus is always a single energy (compile forces it),
+        # so use only the first region's dwell there.
+        eregs = list(getattr(self, "_energy_regions", None) or [])
+        if is_focus:
+            d0 = eregs[0]["dwell"] if eregs else 2.0
+            eff = [{"dwell": d0, "n": 1}]
+        else:
+            eff = eregs
+
+        # ── points / lines (ScanModel.calculate_estimated_time) ──────────────
+        point_overhead = 0.1 if is_ptycho else 0.0001
+        line_overhead, energy_overhead = 0.02, 5.0
+        n_points = n_lines = 0
+        for rd in regions:
+            rows = int(rd["zPoints"]) if is_focus else int(rd["yPoints"])
+            n_points += int(rd["xPoints"]) * rows
+            n_lines += rows
+        time_per_point = 0.0
+        n_energies = 0
+        for er in eff:
+            energies = int(er.get("n", 1))
+            time_per_point += (er.get("dwell", 1.0) / 1000.0 + point_overhead) * energies
+            n_energies += energies
+        est = (n_points * time_per_point
+               + n_lines * n_energies * line_overhead
+               + max(0, n_energies - 1) * energy_overhead)
+
+        # ── velocity (ScanModel.get_scan_velocity): max xStep/dwell over regions
+        #     using the first energy region's dwell ───────────────────────────
+        d_first = (eff[0]["dwell"] if eff else 1.0) or 1.0
+        vel = max((rd.get("xStep", 0.0) / d_first for rd in regions), default=0.0)
+
+        # Points label shows the primary region only (matches the compile path).
+        rows = int(primary["zPoints"]) if is_focus else int(primary["yPoints"])
+        pts = int(primary["xPoints"]) * rows
+        return est, pts, vel
 
     def _recompute_step(self, range_e, npts_e, step_e):
         """Derived spatial step = Range / N pts (full-field convention)."""
@@ -4175,6 +4257,7 @@ class MainWindowDashboard(QMainWindow):
             reg.update(self._read_spatial_fields())
         self._refresh_spatial_image(fit=True)
         self._refresh_image_meta()
+        self._refresh_scan_stats()
 
     def _load_spatial_region(self, target):
         """Make ``target`` (an int index or 'spectrum') active and load it."""
@@ -4186,6 +4269,7 @@ class MainWindowDashboard(QMainWindow):
         self._active_region = target
         self._write_spatial_fields(reg)
         self._refresh_spatial_image()
+        self._refresh_scan_stats()
 
     def _add_spatial_region(self):
         """Append a region offset from the active one and select it."""
@@ -4328,6 +4412,7 @@ class MainWindowDashboard(QMainWindow):
         """Drag finished: commit geometry and refit the FOV."""
         self._on_roi_moving(key, xc, yc, xr, yr)
         self._refresh_spatial_image(fit=True)
+        self._refresh_scan_stats()
 
     # ── focus-scan model ─────────────────────────────────────────────────
     def _current_motor_pos(self, name, default=0.0):
@@ -4388,6 +4473,7 @@ class MainWindowDashboard(QMainWindow):
             return
         self._focus_fields['step'].setText(
             f"{fr['zRange'] / fr['zPoints']:.3f}" if fr['zPoints'] else "0.000")
+        self._refresh_scan_stats()
 
     def _on_line_edit(self):
         """A Line field was typed: re-derive step, store, and redraw the line."""
@@ -4402,6 +4488,7 @@ class MainWindowDashboard(QMainWindow):
             f"{fr['length'] / fr['points']:.3f}" if fr['points'] else "0.000")
         self._apply_line_projection(fr['length'], fr['angle'])
         self._refresh_focus_line()
+        self._refresh_scan_stats()
 
     def _focus_center_to_current(self):
         """'Set center to current' — snap the focus Z centre to live ZonePlateZ."""
@@ -4480,6 +4567,7 @@ class MainWindowDashboard(QMainWindow):
         """Line drag finished: commit and refit the FOV around it."""
         self._on_line_moving(xc, yc, length, angle)
         self._fit_fov()
+        self._refresh_scan_stats()
 
     def _focus_region_scan_dict(self):
         """Full focus scan-region dict: an angled line (endpoints encode the
@@ -4564,6 +4652,7 @@ class MainWindowDashboard(QMainWindow):
         self._energy_fields['dwell'].setText(f"{r['dwell']:g}")
         self._energy_fields['n'].setText(str(r['n']))
         self._refresh_energy_strip()
+        self._refresh_scan_stats()
 
     def _select_energy_region(self, idx):
         self._load_energy_region(idx)
@@ -4575,6 +4664,7 @@ class MainWindowDashboard(QMainWindow):
         self._energy_regions[self._active_energy_region] = self._read_energy_fields()
         self._refresh_energy_strip()
         self._refresh_image_meta()
+        self._refresh_scan_stats()
 
     def _add_energy_region(self):
         """Append a region continuing past the last one and make it active."""
@@ -4698,6 +4788,7 @@ class MainWindowDashboard(QMainWindow):
             self._restore_pre_focus_display()
         self._refresh_spatial_image(fit=True)
         self._refresh_image_meta()
+        self._refresh_scan_stats()
 
     def _restore_pre_focus_display(self):
         """Leave focus: remove the ZonePlateZ streak and restore the sample image
