@@ -1091,11 +1091,10 @@ class MainWindowDashboard(QMainWindow):
         "bcsMotor": "BCS", "derivedEnergy": "DERIVED", "epicsMotor": "EPICS",
     }
 
-    # Scan drivers whose configuration the dashboard's Spatial(SampleX/SampleY) +
-    # Supported scan drivers.  Other scan types (line spectrum, single/double
-    # motor, OSA, spiral) report "not yet supported" until their panels are wired.
+    # Supported scan drivers.  Other scan types (single/double motor, OSA, spiral,
+    # tomography) report "not yet supported" until their panels are wired.
     _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image",
-                               "linear_focus"}
+                               "linear_focus", "linear_spectrum"}
 
     def _load_motor_info(self):
         """Load motor config from the runtime file the server also reads
@@ -1775,12 +1774,19 @@ class MainWindowDashboard(QMainWindow):
         # plus its own line length/angle/points and a ZonePlateZ sweep.  Built on
         # first switch to Focus (defaults from live ZonePlateZ + R1 width).
         self._focus_mode = False
+        # Line-Spectrum shares the single-line ROI machinery with Focus, but its
+        # slow axis is energy (multi-region, like Image) rather than ZonePlateZ,
+        # and its streak display is energy (x) × position-along-line (y).  The
+        # shared "line model" below (self._focus_region) carries the line's
+        # length/angle/points in both modes.
+        self._ls_mode = False
         self._focus_region = None
-        # Saved image state captured on entering focus mode, so leaving focus can
-        # drop the (distant) ZonePlateZ streak and put the sample image back.
+        # Saved image state captured on entering a single-line mode (Focus or Line
+        # Spectrum), so leaving it can drop the (distant) streak and put the sample
+        # image back.
         self._pre_focus_snapshot = None      # ImageArea frame snapshot
         self._pre_focus_regions = None       # (regions, active, spectrum) tuple
-        self._last_image_scan_type = None    # combo returns here after focus
+        self._last_image_scan_type = None    # combo returns here after a line scan
 
         # Checkboxes on their own row …
         checks = QHBoxLayout()
@@ -2351,7 +2357,8 @@ class MainWindowDashboard(QMainWindow):
         fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
         if fbtn is not None:
             in_focus_streak = (getattr(self, "image_area", None) is not None
-                               and self.image_area._focus_display)
+                               and self.image_area._focus_display
+                               and self._focus_mode)
             fbtn.setEnabled(bool(in_focus_streak and payload is not None
                                  and self.controller is not None
                                  and not self._scanning))
@@ -3824,9 +3831,10 @@ class MainWindowDashboard(QMainWindow):
             return
         if self._compile_scan():
             self.image_area.clear_region_frames()   # fresh mosaic for the new scan
-            if self._focus_mode:
-                # Switch the viewer to the position-along-line vs ZonePlateZ frame;
-                # the first incoming focus frame fits the view to its Z extent.
+            if self._is_line_scan():
+                # Switch the viewer to the streak frame (Focus: line × ZonePlateZ;
+                # Line Spectrum: position-along-line × energy).  The first incoming
+                # frame fits the view to that streak's extent.
                 self.image_area.clear_line()
                 self.image_area.set_focus_display(True)
                 self._focus_view_fitted = False
@@ -3838,10 +3846,10 @@ class MainWindowDashboard(QMainWindow):
         """Run an abridged sanity-check scan: the first spatial region at a single
         energy.  A real server scan (motors move, a 'preview'-tagged file is
         written), but it never touches the full scan definition and is not pushed
-        to the TaskAgent as the last scan.  Disabled in Focus mode and while any
-        scan is already running."""
+        to the TaskAgent as the last scan.  Disabled in single-line modes (Focus /
+        Line Spectrum) and while any scan is already running."""
         c = self.controller
-        if c is None or c.scanning or self._focus_mode:
+        if c is None or c.scanning or self._is_line_scan():
             return
         if self._compile_scan(preview=True):
             self.image_area.clear_region_frames()
@@ -3900,6 +3908,8 @@ class MainWindowDashboard(QMainWindow):
 
             if self._focus_mode:
                 region = self._compile_focus(sm, sc)
+            elif self._ls_mode:
+                region = self._compile_line_spectrum(sm, sc)
             else:
                 region = self._compile_image_regions(sm, preview=preview)
 
@@ -3992,6 +4002,69 @@ class MainWindowDashboard(QMainWindow):
         sm.set('energy_list', None)
         sm.set('dwell', e0['dwell'])
         return region
+
+    def _compile_line_spectrum(self, sm, sc):  # noqa: ARG002
+        """Populate ``sm`` for a line-spectrum scan: one single-line scan region
+        (the line is the fast axis) crossed with the full multi-region energy
+        axis — energy behaves exactly as it does for an Image scan.  Returns the
+        region dict."""
+        # Flush live edits from the fields into the line model + R1 projection.
+        self._on_line_edit()
+        if isinstance(self._active_region, int):
+            self._scan_regions[self._active_region].update(
+                self._read_spatial_fields())
+        sm.set('tiled', False)          # a single line is never tiled
+        region = self._line_spectrum_region_scan_dict()
+        sm.add_scan_region('Region1', region)
+
+        # Energy regions — identical to the Image path (multi-region, multi-energy).
+        self._sync_active_energy_region()
+        total_n = 0
+        for i, r in enumerate(self._energy_regions):
+            total_n += r['n']
+            sm.add_energy_region(f'EnergyRegion{i + 1}', {
+                'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+                'dwell': r['dwell'], 'n_energies': r['n']})
+        sm.set('single_energy', total_n <= 1)
+        sm.set('energy_list', None)
+        return region
+
+    def _line_spectrum_region_scan_dict(self):
+        """Single-line scan-region dict for a line spectrum: an angled line (the
+        fast axis, ``xPoints`` points) with a single slow-axis row (``yPoints`` =
+        1); energy is swept by the outer loop.  ``xRange`` carries the true
+        along-line length so the display's position axis is line distance, while
+        ``xStart/xStop/yStart/yStop`` carry the real angled endpoints."""
+        fr = self._ensure_focus_region()
+        xc, yc = self._line_center()
+        L = fr['length']
+        n = max(1, int(fr['points']))
+        ar = np.radians(fr['angle'])
+        ux, uy = np.cos(ar), np.sin(ar)
+        # Half-pixel inset along the line direction (matches the Image convention).
+        s0 = -(L / 2.0) + (L / (2.0 * n))
+        s1 = (L / 2.0) - (L / (2.0 * n))
+        return {
+            'xCenter': xc, 'yCenter': yc,
+            'xRange': L, 'yRange': abs(L * uy),
+            'xPoints': n, 'yPoints': 1,
+            'xStep': L / n, 'yStep': abs(L * uy),
+            'xStart': xc + s0 * ux, 'xStop': xc + s1 * ux,
+            'yStart': yc + s0 * uy, 'yStop': yc + s1 * uy,
+            'zCenter': 0, 'zRange': 0, 'zPoints': 1, 'zStep': 0,
+            'zStart': 0, 'zStop': 0,
+        }
+
+    def _ls_energy_span(self):
+        """(lo, hi, n) energy extent of the planned line-spectrum scan, from the
+        view's energy-region list — the horizontal axis of the streak display."""
+        regs = getattr(self, '_energy_regions', None) or []
+        if not regs:
+            return 700.0, 730.0, 1
+        lo = min(r['start'] for r in regs)
+        hi = max(r['stop'] for r in regs)
+        n = sum(int(r['n']) for r in regs) or 1
+        return lo, hi, n
 
     def _show_last_scan_image(self):
         """Paint the most recently recorded ``.stxm`` scan at its *own* fixed
@@ -4215,6 +4288,9 @@ class MainWindowDashboard(QMainWindow):
         # Region dicts from the already-flushed models.
         if is_focus:
             regions = [self._focus_region_scan_dict()]
+        elif self._ls_mode:
+            # Single line (yPoints=1) swept over the full multi-region energy axis.
+            regions = [self._line_spectrum_region_scan_dict()]
         else:
             regions = [self._region_scan_dict(r) for r in self._scan_regions]
             if self._spectrum_region is not None:
@@ -4420,15 +4496,16 @@ class MainWindowDashboard(QMainWindow):
     def _refresh_spatial_image(self, fit=False):
         """Redraw the ROI boxes (and optionally refit the FOV) from the model.
 
-        In focus mode the single scan LINE replaces the RectROI boxes."""
+        In a single-line mode (Focus / Line Spectrum) the scan LINE replaces the
+        RectROI boxes."""
         if self._syncing_spatial or not hasattr(self, 'image_area'):
             return
         if getattr(self, '_del_region_btn', None):
             self._del_region_btn.setEnabled(
-                not self._focus_mode
+                not self._is_line_scan()
                 and (self._active_region == 'spectrum'
                      or len(self._scan_regions) > 1))
-        if self._focus_mode:
+        if self._is_line_scan():
             self.image_area.sync_regions([])
             self._refresh_focus_line()
             if fit:
@@ -4553,7 +4630,7 @@ class MainWindowDashboard(QMainWindow):
     def _refresh_focus_line(self):
         """Draw/update the scan line on the sample image from the focus model
         and refresh the endpoint label."""
-        if not hasattr(self, 'image_area') or not self._focus_mode:
+        if not hasattr(self, 'image_area') or not self._is_line_scan():
             return
         fr = self._ensure_focus_region()
         xc, yc = self._line_center()
@@ -4592,8 +4669,8 @@ class MainWindowDashboard(QMainWindow):
             f['step'].setText(f"{rng / n:.3f}" if n > 0 else "0.000")
 
     def _on_line_moving(self, xc, yc, length, angle):
-        """Live line drag: update R1 centre + focus model + fields (no refit)."""
-        if not self._focus_mode:
+        """Live line drag: update R1 centre + line model + fields (no refit)."""
+        if not self._is_line_scan():
             return
         fr = self._ensure_focus_region()
         fr['length'], fr['angle'] = float(length), float(angle)
@@ -4789,7 +4866,7 @@ class MainWindowDashboard(QMainWindow):
         # No previewing mid-scan; restore it when idle (unless Focus mode).
         if getattr(self, "preview_btn", None):
             self.preview_btn.setEnabled(
-                not self._scanning and not getattr(self, "_focus_mode", False))
+                not self._scanning and not self._is_line_scan())
         # re-polish so the objectName-based style applies
         self.begin_btn.style().unpolish(self.begin_btn)
         self.begin_btn.style().polish(self.begin_btn)
@@ -4805,43 +4882,70 @@ class MainWindowDashboard(QMainWindow):
     def _scan_is_focus(text):
         return "Focus" in text and "OSA" not in text
 
+    @staticmethod
+    def _scan_is_line_spectrum(text):
+        return "Line Spectrum" in text
+
+    def _is_line_scan(self):
+        """True for the single-line scan families (Focus or Line Spectrum): both
+        draw one line ROI on the sample image and take the display over with a
+        streak, so they share the line-ROI + snapshot/restore machinery."""
+        return (getattr(self, "_focus_mode", False)
+                or getattr(self, "_ls_mode", False))
+
     def _on_scan_type(self, text):
         ptycho = "Ptycho" in text
         self.mode_field.setText("ptychography" if ptycho else "continuousLine")
         focus = self._scan_is_focus(text)
-        was_focus = getattr(self, "_focus_mode", False)
+        ls = self._scan_is_line_spectrum(text)
+        was_line = self._is_line_scan()
         self._focus_mode = focus
-        # Show the Focus Z / Line control groups only when they apply.
+        self._ls_mode = ls
+        line = self._is_line_scan()
+        # Focus Z group applies only to Focus; the Line group to both line scans.
         if getattr(self, "_focus_group", None):
             self._focus_group.setVisible(focus)
         if getattr(self, "_line_group", None):
-            self._line_group.setVisible(focus)
-        # A focus scan is a single line — the multi-region controls don't apply.
+            self._line_group.setVisible(line)
+        # A single-line scan (Focus / Line Spectrum) has no multi spatial region.
         if getattr(self, "_add_region_btn", None):
-            self._add_region_btn.setEnabled(not focus)
-        # Preview (first region, single energy) is meaningless for a single-line,
-        # single-energy focus scan — it would just duplicate Begin.
+            self._add_region_btn.setEnabled(not line)
+        # Preview (first region, single energy) is meaningless for a single-line
+        # scan — it would just duplicate Begin.
         if getattr(self, "preview_btn", None):
-            self.preview_btn.setEnabled(not focus and not self._scanning)
-        # Focus-mode cursor readout: the vertical axis is ZonePlateZ, not sample Y.
+            self.preview_btn.setEnabled(not line and not self._scanning)
+        # Streak-display cursor axes: Focus draws Z up the y-axis; Line Spectrum
+        # draws energy along the x-axis (position-along-line stays the y-axis).
         if getattr(self, "_cursor_readout_keys", None):
             self._cursor_readout_keys["Y"].setText("Z" if focus else "Y")
+            self._cursor_readout_keys["X"].setText("E" if ls else "X")
         # Focus-to-cursor is re-enabled by a click on the streak (see _on_cursor).
         fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
         if fbtn is not None:
             fbtn.setEnabled(False)
-        if focus:
-            # Entering focus: snapshot the sample image + region model so leaving
-            # focus can drop the ZonePlateZ streak and put the image back exactly.
-            if not was_focus and hasattr(self, "image_area"):
+        if line:
+            # Switching directly between the two line modes after one has run
+            # leaves a streak in the viewer — put the sample image back before
+            # redefining the line on it (the held snapshot is the sample image).
+            if (was_line and hasattr(self, "image_area")
+                    and self.image_area._focus_display):
+                self.image_area.set_focus_display(False)
+                if self._pre_focus_snapshot is not None:
+                    self.image_area.restore(self._pre_focus_snapshot)
+                    self._image_seeded = True
+            # Entering a line mode: snapshot the sample image + region model so
+            # leaving can drop the streak and put the image back exactly.  Skip
+            # when switching between the two line modes (snapshot already held).
+            if not was_line and hasattr(self, "image_area"):
                 self._pre_focus_snapshot = self.image_area.snapshot()
                 self._pre_focus_regions = (
                     [dict(r) for r in self._scan_regions],
                     self._active_region,
                     dict(self._spectrum_region) if self._spectrum_region else None)
             self._ensure_focus_region()
-            # Live-refresh the Z centre to the current ZonePlateZ on entry.
-            self._focus_region['zCenter'] = self._current_motor_pos('ZonePlateZ')
+            if focus:
+                # Live-refresh the Z centre to the current ZonePlateZ on entry.
+                self._focus_region['zCenter'] = self._current_motor_pos('ZonePlateZ')
             self._write_focus_fields()
             if hasattr(self, "image_area"):
                 self.image_area.set_focus_display(False)  # define on the sample image
@@ -4925,6 +5029,30 @@ class MainWindowDashboard(QMainWindow):
         val = self._motor_info.get(name, {}).get("last value")
         wd["bar"].set_state(self._frac(val, wd["lo"], wd["hi"]), moving)
 
+    def _place_line_spectrum_frame(self, image, im):
+        """Draw a live line-spectrum frame as a streak: energy on the horizontal
+        axis, position-along-line (the fast axis) on the vertical.  The server
+        sends the frame as (n_energies, xPoints) with rows filled as each energy
+        completes; we transpose it to (xPoints, n_energies) — row-major pyqtgraph
+        maps rows→y (line position) and cols→x (energy).  Returns True on success.
+        """
+        frame = np.asarray(image, dtype=float)
+        if frame.ndim != 2:
+            return False
+        disp = np.ascontiguousarray(frame.T)     # (position, energy)
+        e_lo, e_hi, _ = self._ls_energy_span()
+        e_center = (e_lo + e_hi) / 2.0
+        e_span = max(abs(e_hi - e_lo), 1e-6)
+        L = max(self._ensure_focus_region()['length'], 1e-6)
+        key = str(im.get('scan_region_index', 'Region1'))
+        # Position axis runs 0 → L (distance from the first endpoint).
+        self.image_area.set_region_frame(key, disp, e_center, L / 2.0, e_span, L)
+        if not getattr(self, '_focus_view_fitted', False):
+            self.image_area.set_view(e_center, L / 2.0,
+                                     e_span / 0.85, L / 0.85)
+            self._focus_view_fitted = True
+        return True
+
     def _on_image(self, image):
         try:
             # The server tags each frame's region + physical geometry on the
@@ -4934,6 +5062,13 @@ class MainWindowDashboard(QMainWindow):
             placed = False
             if self.controller is not None:
                 im = self.controller.get_image_model()
+                if self._ls_mode:
+                    # Line Spectrum: the frame is (n_energies, xPoints).  The image
+                    # model geometry describes the SPATIAL line, not the streak we
+                    # want, so place it ourselves: transpose to (position, energy)
+                    # so the fast line axis is vertical and energy horizontal.
+                    placed = self._place_line_spectrum_frame(image, im)
+            if not placed and self.controller is not None and not self._ls_mode:
                 xc, yc = im.get('x_center'), im.get('y_center')
                 xr, yr = im.get('x_range'), im.get('y_range')
                 if xr and yr and xc is not None and yc is not None:

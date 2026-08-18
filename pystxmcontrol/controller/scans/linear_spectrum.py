@@ -197,11 +197,22 @@ class LinearSpectrumScan(BaseScan):
         coarse_only = self.scanInfo["coarse_only"]
         coarse_offset = 20  # Should be in config
 
+        # A line spectrum stores one line per energy (yPoints=1), so the region's
+        # yPos array collapses to a single point and get_scan_region_geometry
+        # reports yStop == yStart — flattening every line to horizontal.  Take the
+        # true line endpoints from the raw region dict instead so an angled ROI is
+        # scanned along its real diagonal (x already spans correctly: xPoints > 1).
+        region_dict = self.scan["scan_regions"].get(
+            self.scanInfo["scanRegion"], {})
+        x_start = region_dict.get("xStart", geometry["xStart"])
+        x_stop  = region_dict.get("xStop",  geometry["xStop"])
+        y_start = region_dict.get("yStart", geometry["yStart"])
+        y_stop  = region_dict.get("yStop",  geometry["yStop"])
+
         # Move coarse motors to position range in fine motor range
         x_coarse, y_coarse = self.move_coarse_to_range(
             x_motor_name, y_motor_name,
-            geometry["xStart"], geometry["xStop"],
-            geometry["yStart"], geometry["yStop"]
+            x_start, x_stop, y_start, y_stop
         )
 
         # Override coarse for coarse-only scans
@@ -213,11 +224,11 @@ class LinearSpectrumScan(BaseScan):
         # Decompose ranges to get fine coordinates
         _, _, x_start_fine, x_stop_fine = \
             self.controller.motors[x_motor_name]["motor"].decompose_range(
-                geometry["xStart"], geometry["xStop"]
+                x_start, x_stop
             )
-        _, _, y_start_fine, _ = \
+        _, _, y_start_fine, y_stop_fine = \
             self.controller.motors[y_motor_name]["motor"].decompose_range(
-                geometry["yStart"], geometry["yStop"]
+                y_start, y_stop
             )
 
         # Setup trajectory
@@ -227,11 +238,23 @@ class LinearSpectrumScan(BaseScan):
         pixel_dwell = self.scanInfo["_motor_dwell"] / self.scanInfo["oversampling_factor"]
 
         if not coarse_only:
-            # Fine motor trajectory
+            # Fine motor trajectory.  The line may be angled, so BOTH fine motors
+            # move from the true start endpoint to the true stop endpoint (mirrors
+            # linear_focus); using y_start_fine for the stop would flatten every
+            # line to horizontal and ignore the ROI's angle.
             self.setup_motor_trajectory(
                 x_motor_name,
                 start_pos=(x_start_fine, y_start_fine),
-                stop_pos=(x_stop_fine, y_start_fine),
+                stop_pos=(x_stop_fine, y_stop_fine),
+                pixel_count=geometry["xPoints"],
+                pixel_dwell=pixel_dwell,
+                line_mode="continuous",
+                include_return=self.scanInfo["include_return"]
+            )
+            self.setup_motor_trajectory(
+                y_motor_name,
+                start_pos=(x_start_fine, y_start_fine),
+                stop_pos=(x_stop_fine, y_stop_fine),
                 pixel_count=geometry["xPoints"],
                 pixel_dwell=pixel_dwell,
                 line_mode="continuous",
