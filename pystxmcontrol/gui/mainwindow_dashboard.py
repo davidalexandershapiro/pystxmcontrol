@@ -389,6 +389,11 @@ class ImageArea(QWidget):
         # (y), whose values dwarf the sample-µm x extent, so the square-pixel
         # aspect lock is released and the vertical axis is treated as Z.
         self._focus_display = False
+        # 1-D plot mode: a single-motor scan is signal-vs-position, not an image,
+        # so the ViewBox is swapped out for a PlotItem (built lazily).
+        self._plot_mode = False
+        self.plot_item = None
+        self.plot_curve = None
 
         # (A contextual scan-progress line will be reintroduced later; for now the
         # image area carries no horizontal overlay line.)
@@ -762,6 +767,50 @@ class ImageArea(QWidget):
         self.meta_bar.setVisible(not on)
         self.clear_crosshair()
 
+    # ── 1-D plot mode (single-motor scans) ───────────────────────────────
+    def _ensure_plot_item(self):
+        """Build the PlotItem + curve on first use (lazy; theme-styled)."""
+        if self.plot_item is not None:
+            return
+        self.plot_item = pg.PlotItem()
+        self.plot_item.showGrid(x=True, y=True, alpha=0.15)
+        for ax in ("bottom", "left"):
+            self.plot_item.getAxis(ax).setPen(C["border"])
+            self.plot_item.getAxis(ax).setTextPen(C["text_faint"])
+        self.plot_curve = self.plot_item.plot(
+            [], [], pen=pg.mkPen(C["accent"], width=1.6),
+            symbol='o', symbolSize=4,
+            symbolPen=pg.mkPen(C["accent"]), symbolBrush=pg.mkBrush(C["accent"]))
+
+    def set_plot_mode(self, on):
+        """Swap the image ViewBox for a 1-D curve plot (single-motor scans) and
+        back.  The scale bar / crosshair are image-only, so they hide here."""
+        on = bool(on)
+        if on == self._plot_mode:
+            return
+        self._plot_mode = on
+        if on:
+            self._ensure_plot_item()
+            self.clear_crosshair()
+            self.glw.removeItem(self.vb)
+            self.glw.addItem(self.plot_item, 0, 0)
+            self.meta_bar.setVisible(False)
+        else:
+            self.glw.removeItem(self.plot_item)
+            self.glw.addItem(self.vb, 0, 0)
+            self.meta_bar.setVisible(True)
+
+    def set_curve(self, x, y, x_label="", y_label="signal"):
+        """Draw a 1-D trace (single-motor scan).  Enters plot mode if needed."""
+        self.set_plot_mode(True)
+        x = np.asarray(x, dtype=float).ravel()
+        y = np.asarray(y, dtype=float).ravel()
+        n = min(x.size, y.size)
+        self.plot_curve.setData(x[:n], y[:n])
+        self.plot_item.setLabel("bottom", x_label or "position")
+        self.plot_item.setLabel("left", y_label or "signal")
+        self.plot_item.enableAutoRange()
+
     # ── cursor crosshair + line-outs (click-driven) ──────────────────────
     def _data_regions(self):
         """Yield ``(image_item, µm_rect)`` for every region that holds a 2-D
@@ -815,6 +864,8 @@ class ImageArea(QWidget):
         ViewBox marks left clicks as accepted during its own handling, so we do
         NOT gate on ``ev.isAccepted()`` — that would suppress every click; drags
         pan the view and never arrive here as clicks.)"""
+        if self._plot_mode:
+            return          # the 1-D plot has its own pan/zoom; no crosshair
         try:
             if ev.button() != Qt.LeftButton:
                 return
@@ -1091,10 +1142,19 @@ class MainWindowDashboard(QMainWindow):
         "bcsMotor": "BCS", "derivedEnergy": "DERIVED", "epicsMotor": "EPICS",
     }
 
-    # Supported scan drivers.  Other scan types (single/double motor, OSA, spiral,
-    # tomography) report "not yet supported" until their panels are wired.
+    # Motor-scan drivers: a scan that steps one or two arbitrary motors, driven
+    # from the Motor-scan control group rather than the SampleX/SampleY ROI.  The
+    # single variant has one axis; the double variants have two.
+    _MOTOR_DRIVERS = {"single_motor_scan", "double_motor_scan",
+                      "XRF_double_motor_scan"}
+    _SINGLE_MOTOR_DRIVERS = {"single_motor_scan"}
+
+    # Supported scan drivers.  Other scan types (spiral, tomography) report
+    # "not yet supported" until their panels are wired.
     _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image",
-                               "linear_focus", "linear_spectrum"}
+                               "linear_focus", "linear_spectrum",
+                               "single_motor_scan", "double_motor_scan",
+                               "XRF_double_motor_scan"}
 
     def _load_motor_info(self):
         """Load motor config from the runtime file the server also reads
@@ -1649,7 +1709,8 @@ class MainWindowDashboard(QMainWindow):
                                           else live_types[0])
         else:
             self.scan_type.addItems(["Image", "Ptychography Image", "Image Stack (XANES)",
-                                     "Line Spectrum", "Tomography", "Focus", "OSA Image"])
+                                     "Line Spectrum", "Tomography", "Focus", "OSA Image",
+                                     "Single Motor", "Double Motor"])
             self.scan_type.setCurrentText("Image Stack (XANES)")
         self.scan_type.setCursor(Qt.PointingHandCursor)
         self.scan_type.currentTextChanged.connect(self._on_scan_type)
@@ -1780,6 +1841,11 @@ class MainWindowDashboard(QMainWindow):
         # shared "line model" below (self._focus_region) carries the line's
         # length/angle/points in both modes.
         self._ls_mode = False
+        # Motor scans (single_motor_scan / double_motor_scan / XRF variant) replace
+        # the SampleX/SampleY ROI with explicit motor-selection + range controls
+        # (built in _build_acq_controls).  Like the line scans they take over the
+        # image display; unlike them they draw no ROI on the sample image.
+        self._motor_scan_mode = False
         self._focus_region = None
         # Saved image state captured on entering a single-line mode (Focus or Line
         # Spectrum), so leaving it can drop the (distant) streak and put the sample
@@ -2009,6 +2075,40 @@ class MainWindowDashboard(QMainWindow):
         r.addWidget(self._line_endpoints_lbl)
         r.addStretch(1)
         gv.addLayout(r)
+        iv.addWidget(w)
+
+        # Motor scan — one axis (Single Motor) or two (Double Motor / OSA Image /
+        # any double_motor_scan family).  Each axis is a motor dropdown + a
+        # Center / Range / Points / Step grid (mirrors the Loop sequence widget).
+        # The dropdowns pre-select from the scan config's x_motor / y_motor.
+        w, gv = self._group_box("Motor scan", "Single / Double Motor")
+        self._motor_group = w
+        self._motor_axis_widgets = []
+        for axis in range(2):
+            block = QWidget()
+            bl = QVBoxLayout(block)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setSpacing(6)
+            lbl = self._label("X MOTOR" if axis == 0 else "Y MOTOR",
+                              role="microLabel")
+            bl.addWidget(lbl)
+            combo = QComboBox()
+            combo.addItems([name for name, _ in self._motors_sorted()])
+            combo.setCursor(Qt.PointingHandCursor)
+            combo.currentIndexChanged.connect(
+                lambda _i, a=axis: self._on_motor_selected(a))
+            bl.addWidget(combo)
+            grid, edits = self._grid4([("Center", "0.000", False),
+                                       ("Range", "10.000", False),
+                                       ("Points", "50", False),
+                                       ("Step", "0.200", True)])
+            bl.addLayout(grid)
+            for e in edits[:3]:
+                e.editingFinished.connect(self._on_motor_edit)
+            gv.addWidget(block)
+            self._motor_axis_widgets.append({
+                "block": block, "label": lbl, "combo": combo, "center": edits[0],
+                "range": edits[1], "npts": edits[2], "step": edits[3]})
         iv.addWidget(w)
 
         # Loop sequence
@@ -3831,10 +3931,15 @@ class MainWindowDashboard(QMainWindow):
             return
         if self._compile_scan():
             self.image_area.clear_region_frames()   # fresh mosaic for the new scan
-            if self._is_line_scan():
-                # Switch the viewer to the streak frame (Focus: line × ZonePlateZ;
-                # Line Spectrum: position-along-line × energy).  The first incoming
-                # frame fits the view to that streak's extent.
+            if self._is_single_motor():
+                # A single-motor scan is 1-D — swap the image for a curve plot.
+                self.image_area.clear_line()
+                self.image_area.set_plot_mode(True)
+                self._focus_view_fitted = False
+            elif self._takes_over_image():
+                # Switch the viewer to the take-over frame (Focus: line × ZonePlateZ;
+                # Line Spectrum: position-along-line × energy; double-motor scan:
+                # its own motor coordinates).  The first frame fits the view to it.
                 self.image_area.clear_line()
                 self.image_area.set_focus_display(True)
                 self._focus_view_fitted = False
@@ -3849,7 +3954,7 @@ class MainWindowDashboard(QMainWindow):
         to the TaskAgent as the last scan.  Disabled in single-line modes (Focus /
         Line Spectrum) and while any scan is already running."""
         c = self.controller
-        if c is None or c.scanning or self._is_line_scan():
+        if c is None or c.scanning or self._takes_over_image():
             return
         if self._compile_scan(preview=True):
             self.image_area.clear_region_frames()
@@ -3910,6 +4015,8 @@ class MainWindowDashboard(QMainWindow):
                 region = self._compile_focus(sm, sc)
             elif self._ls_mode:
                 region = self._compile_line_spectrum(sm, sc)
+            elif self._motor_scan_mode:
+                region = self._compile_motor_scan(sm, sc)
             else:
                 region = self._compile_image_regions(sm, preview=preview)
 
@@ -4016,8 +4123,13 @@ class MainWindowDashboard(QMainWindow):
         sm.set('tiled', False)          # a single line is never tiled
         region = self._line_spectrum_region_scan_dict()
         sm.add_scan_region('Region1', region)
-
         # Energy regions — identical to the Image path (multi-region, multi-energy).
+        self._emit_energy_regions(sm)
+        return region
+
+    def _emit_energy_regions(self, sm):
+        """Flush the active energy row and add every energy region to ``sm`` (the
+        full multi-region / multi-energy axis, as an Image scan uses)."""
         self._sync_active_energy_region()
         total_n = 0
         for i, r in enumerate(self._energy_regions):
@@ -4027,7 +4139,53 @@ class MainWindowDashboard(QMainWindow):
                 'dwell': r['dwell'], 'n_energies': r['n']})
         sm.set('single_energy', total_n <= 1)
         sm.set('energy_list', None)
+
+    def _compile_motor_scan(self, sm, sc):
+        """Populate ``sm`` for a single- or double-motor scan: one scan region
+        whose geometry comes from the Motor-scan control group (one or two motors,
+        each with center/range/points), crossed with the energy axis (dwell +
+        energies from the Energy tab, as an Image scan).  Returns the region dict."""
+        scan_type = self.scan_type.currentText()
+        axes = self._motor_axis_count(scan_type)
+        self._on_motor_edit()   # flush derived steps
+        # Motor selection overrides the config defaults set by _compile_scan.
+        x_motor = self._motor_axis_widgets[0]['combo'].currentText() \
+            or sc.get('x_motor', '')
+        sm.set('x_motor', x_motor)
+        if axes >= 2:
+            sm.set('y_motor', self._motor_axis_widgets[1]['combo'].currentText()
+                   or sc.get('y_motor', ''))
+        else:
+            # A single-motor scan never moves a y motor, but the scan model still
+            # requires a non-empty y_motor to validate — mirror it to x_motor (the
+            # server ignores it; its yRange is 0 so range checks skip it too).
+            sm.set('y_motor', x_motor)
+        sm.set('tiled', False)
+        region = self._motor_region_scan_dict(axes)
+        sm.add_scan_region('Region1', region)
+        self._emit_energy_regions(sm)
         return region
+
+    def _motor_region_scan_dict(self, axes):
+        """Scan-region dict for a motor scan, built from the Motor-scan group's
+        center/range/points fields (full-field half-pixel convention via
+        _region_scan_dict).  A single-motor scan has one row (yPoints=1)."""
+        def read(ax):
+            try:
+                c = float(ax['center'].text() or 0)
+                r = abs(float(ax['range'].text() or 0))
+                n = max(1, int(float(ax['npts'].text() or 1)))
+            except ValueError:
+                c, r, n = 0.0, 0.0, 1
+            return c, r, n
+        xc, xr, xp = read(self._motor_axis_widgets[0])
+        if axes >= 2:
+            yc, yr, yp = read(self._motor_axis_widgets[1])
+        else:
+            yc, yr, yp = 0.0, 0.0, 1
+        return self._region_scan_dict({
+            'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
+            'xPoints': xp, 'yPoints': yp})
 
     def _line_spectrum_region_scan_dict(self):
         """Single-line scan-region dict for a line spectrum: an angled line (the
@@ -4285,12 +4443,16 @@ class MainWindowDashboard(QMainWindow):
         is_ptycho = "Ptychography" in scan_type
         is_focus = self._focus_mode
 
+        is_motor = getattr(self, "_motor_scan_mode", False)
+
         # Region dicts from the already-flushed models.
         if is_focus:
             regions = [self._focus_region_scan_dict()]
         elif self._ls_mode:
             # Single line (yPoints=1) swept over the full multi-region energy axis.
             regions = [self._line_spectrum_region_scan_dict()]
+        elif is_motor:
+            regions = [self._motor_region_scan_dict(self._motor_axis_count(scan_type))]
         else:
             regions = [self._region_scan_dict(r) for r in self._scan_regions]
             if self._spectrum_region is not None:
@@ -4326,7 +4488,12 @@ class MainWindowDashboard(QMainWindow):
         # ── velocity (ScanModel.get_scan_velocity): max xStep/dwell over regions
         #     using the first energy region's dwell ───────────────────────────
         d_first = (eff[0]["dwell"] if eff else 1.0) or 1.0
-        vel = max((rd.get("xStep", 0.0) / d_first for rd in regions), default=0.0)
+        # Point-mode scans step to each point (no continuous stage sweep), so a
+        # scan velocity is meaningless — report 0 rather than a false red alarm.
+        if is_motor and (self._scan_cfg(scan_type) or {}).get("mode") == "point":
+            vel = 0.0
+        else:
+            vel = max((rd.get("xStep", 0.0) / d_first for rd in regions), default=0.0)
 
         # Total acquisition points: every spatial point (summed over regions)
         # measured at every energy.
@@ -4502,7 +4669,7 @@ class MainWindowDashboard(QMainWindow):
             return
         if getattr(self, '_del_region_btn', None):
             self._del_region_btn.setEnabled(
-                not self._is_line_scan()
+                not self._takes_over_image()
                 and (self._active_region == 'spectrum'
                      or len(self._scan_regions) > 1))
         if self._is_line_scan():
@@ -4510,6 +4677,13 @@ class MainWindowDashboard(QMainWindow):
             self._refresh_focus_line()
             if fit:
                 self._fit_fov()
+            return
+        if getattr(self, '_motor_scan_mode', False):
+            # A motor scan lives in its own coordinate space — draw no ROI or line
+            # on the sample image; the result frame takes the display over at scan
+            # time (see _on_image / _toggle_scan).
+            self.image_area.sync_regions([])
+            self.image_area.clear_line()
             return
         self.image_area.clear_line()
         show = self._scan_checks['show ROI'].isChecked()
@@ -4866,7 +5040,7 @@ class MainWindowDashboard(QMainWindow):
         # No previewing mid-scan; restore it when idle (unless Focus mode).
         if getattr(self, "preview_btn", None):
             self.preview_btn.setEnabled(
-                not self._scanning and not self._is_line_scan())
+                not self._scanning and not self._takes_over_image())
         # re-polish so the objectName-based style applies
         self.begin_btn.style().unpolish(self.begin_btn)
         self.begin_btn.style().polish(self.begin_btn)
@@ -4893,29 +5067,91 @@ class MainWindowDashboard(QMainWindow):
         return (getattr(self, "_focus_mode", False)
                 or getattr(self, "_ls_mode", False))
 
+    def _is_single_motor(self):
+        """A one-motor scan: displayed as a 1-D signal-vs-position curve rather
+        than a 2-D image."""
+        return (getattr(self, "_motor_scan_mode", False)
+                and getattr(self, "_motor_axes", 0) == 1)
+
+    def _takes_over_image(self):
+        """True for every scan family that replaces the SampleX/SampleY image +
+        ROI boxes with its own display (Focus / Line Spectrum streaks, or a
+        motor scan in its own coordinate space) — the set that snapshots the
+        sample display on entry and restores it on the way back to Image."""
+        return self._is_line_scan() or getattr(self, "_motor_scan_mode", False)
+
+    def _scan_cfg(self, text):
+        """The scan.json entry for ``text`` from the connected client, or None
+        (offline, or unknown scan type)."""
+        client = getattr(self.controller, "client", None) if self.controller else None
+        return (getattr(client, "scanConfig", None) or {}).get(text)
+
+    def _scan_is_motor(self, text):
+        """True when ``text`` is driven by a motor-scan driver (config-driven;
+        falls back to the well-known names when offline)."""
+        sc = self._scan_cfg(text)
+        if sc is not None:
+            return sc.get("driver") in self._MOTOR_DRIVERS
+        return text in ("Single Motor", "Double Motor", "OSA Image")
+
+    def _motor_axis_count(self, text):
+        """1 for a single-motor scan, 2 for a double-motor scan."""
+        sc = self._scan_cfg(text)
+        if sc is not None:
+            return 1 if sc.get("driver") in self._SINGLE_MOTOR_DRIVERS else 2
+        return 1 if text == "Single Motor" else 2
+
+    def _on_motor_selected(self, axis):
+        """A motor dropdown changed: centre that axis on the motor's current
+        position (a sensible default, like the Loop sequence widget) and refresh."""
+        if not getattr(self, "_motor_axis_widgets", None):
+            return
+        ax = self._motor_axis_widgets[axis]
+        name = ax["combo"].currentText()
+        if name:
+            ax["center"].setText(f"{self._current_motor_pos(name):.3f}")
+        self._on_motor_edit()
+
+    def _on_motor_edit(self, *_):
+        """A motor Range/Points field changed: re-derive Step and refresh stats."""
+        for ax in getattr(self, "_motor_axis_widgets", []):
+            self._recompute_step(ax["range"], ax["npts"], ax["step"])
+        self._refresh_scan_stats()
+
     def _on_scan_type(self, text):
         ptycho = "Ptycho" in text
-        self.mode_field.setText("ptychography" if ptycho else "continuousLine")
         focus = self._scan_is_focus(text)
         ls = self._scan_is_line_spectrum(text)
-        was_line = self._is_line_scan()
+        motor = self._scan_is_motor(text)
+        # Mode readout: prefer the scan config's mode (point vs continuousLine),
+        # falling back to the ptychography/continuous default when offline.
+        sc = self._scan_cfg(text)
+        self.mode_field.setText((sc or {}).get("mode")
+                                or ("ptychography" if ptycho else "continuousLine"))
+        was_takeover = self._takes_over_image()
         self._focus_mode = focus
         self._ls_mode = ls
+        self._motor_scan_mode = motor
+        self._motor_axes = self._motor_axis_count(text) if motor else 0
         line = self._is_line_scan()
-        # Focus Z group applies only to Focus; the Line group to both line scans.
+        takeover = self._takes_over_image()
+        # Per-family control groups: Focus Z (focus), Line (line scans), Motor
+        # scan (motor scans).
         if getattr(self, "_focus_group", None):
             self._focus_group.setVisible(focus)
         if getattr(self, "_line_group", None):
             self._line_group.setVisible(line)
-        # A single-line scan (Focus / Line Spectrum) has no multi spatial region.
+        if getattr(self, "_motor_group", None):
+            self._motor_group.setVisible(motor)
+        # Single-line / motor scans are one region — no multi-region add/remove.
         if getattr(self, "_add_region_btn", None):
-            self._add_region_btn.setEnabled(not line)
-        # Preview (first region, single energy) is meaningless for a single-line
-        # scan — it would just duplicate Begin.
+            self._add_region_btn.setEnabled(not takeover)
+        # Preview (first region, single energy) is meaningless for these.
         if getattr(self, "preview_btn", None):
-            self.preview_btn.setEnabled(not line and not self._scanning)
+            self.preview_btn.setEnabled(not takeover and not self._scanning)
         # Streak-display cursor axes: Focus draws Z up the y-axis; Line Spectrum
-        # draws energy along the x-axis (position-along-line stays the y-axis).
+        # draws energy along the x-axis (position-along-line stays the y-axis);
+        # motor scans keep plain X/Y (their own motor coordinates).
         if getattr(self, "_cursor_readout_keys", None):
             self._cursor_readout_keys["Y"].setText("Z" if focus else "Y")
             self._cursor_readout_keys["X"].setText("E" if ls else "X")
@@ -4923,32 +5159,36 @@ class MainWindowDashboard(QMainWindow):
         fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
         if fbtn is not None:
             fbtn.setEnabled(False)
-        if line:
-            # Switching directly between the two line modes after one has run
-            # leaves a streak in the viewer — put the sample image back before
-            # redefining the line on it (the held snapshot is the sample image).
-            if (was_line and hasattr(self, "image_area")
-                    and self.image_area._focus_display):
+        if takeover:
+            # Switching directly between two take-over modes after one has run
+            # leaves its frame in the viewer — put the sample image back first
+            # (the held snapshot is the sample image).
+            if (was_takeover and hasattr(self, "image_area")
+                    and (self.image_area._focus_display
+                         or self.image_area._plot_mode)):
+                self.image_area.set_plot_mode(False)
                 self.image_area.set_focus_display(False)
                 if self._pre_focus_snapshot is not None:
                     self.image_area.restore(self._pre_focus_snapshot)
                     self._image_seeded = True
-            # Entering a line mode: snapshot the sample image + region model so
-            # leaving can drop the streak and put the image back exactly.  Skip
-            # when switching between the two line modes (snapshot already held).
-            if not was_line and hasattr(self, "image_area"):
+            # Entering a take-over mode: snapshot the sample image + region model
+            # so leaving can restore it exactly.  Skip when already in one.
+            if not was_takeover and hasattr(self, "image_area"):
                 self._pre_focus_snapshot = self.image_area.snapshot()
                 self._pre_focus_regions = (
                     [dict(r) for r in self._scan_regions],
                     self._active_region,
                     dict(self._spectrum_region) if self._spectrum_region else None)
-            self._ensure_focus_region()
-            if focus:
-                # Live-refresh the Z centre to the current ZonePlateZ on entry.
-                self._focus_region['zCenter'] = self._current_motor_pos('ZonePlateZ')
-            self._write_focus_fields()
+            if line:
+                self._ensure_focus_region()
+                if focus:
+                    # Live-refresh the Z centre to the current ZonePlateZ on entry.
+                    self._focus_region['zCenter'] = self._current_motor_pos('ZonePlateZ')
+                self._write_focus_fields()
+            if motor:
+                self._prefill_motor_axes(text)
             if hasattr(self, "image_area"):
-                self.image_area.set_focus_display(False)  # define on the sample image
+                self.image_area.set_focus_display(False)  # neutral sample view
         else:
             self._last_image_scan_type = text
             self._restore_pre_focus_display()
@@ -4956,15 +5196,40 @@ class MainWindowDashboard(QMainWindow):
         self._refresh_image_meta()
         self._refresh_scan_stats()
 
+    def _prefill_motor_axes(self, text):
+        """Show the right number of motor axes and pre-select each from the scan
+        config's x_motor / y_motor, centring each on its motor's live position."""
+        if not getattr(self, "_motor_axis_widgets", None):
+            return
+        sc = self._scan_cfg(text) or {}
+        axes = self._motor_axis_count(text)
+        defaults = [sc.get("x_motor", ""), sc.get("y_motor", "")]
+        for i, ax in enumerate(self._motor_axis_widgets):
+            ax["block"].setVisible(i < axes)
+            if i >= axes:
+                continue
+            combo = ax["combo"]
+            d = defaults[i]
+            if d and combo.findText(d) >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentText(d)
+                combo.blockSignals(False)
+            name = combo.currentText()
+            if name:
+                ax["center"].setText(f"{self._current_motor_pos(name):.3f}")
+            self._recompute_step(ax["range"], ax["npts"], ax["step"])
+
     def _restore_pre_focus_display(self):
         """Leave focus: remove the ZonePlateZ streak and restore the sample image
         (re-centred) + the pre-focus region model.  Safe to call when there is
         nothing to restore."""
         if hasattr(self, "image_area"):
-            had_streak = self.image_area._focus_display
+            had_takeover = (self.image_area._focus_display
+                            or self.image_area._plot_mode)
+            self.image_area.set_plot_mode(False)   # back to the image ViewBox
             self.image_area.set_focus_display(False)
             self.image_area.clear_line()
-            if had_streak and self._pre_focus_snapshot is not None:
+            if had_takeover and self._pre_focus_snapshot is not None:
                 self.image_area.restore(self._pre_focus_snapshot)
                 self._image_seeded = True
         # Undo any line-drag edits to the region model.
@@ -5053,6 +5318,51 @@ class MainWindowDashboard(QMainWindow):
             self._focus_view_fitted = True
         return True
 
+    def _place_single_motor_curve(self, image, im):
+        """Draw a live single-motor frame as a 1-D signal-vs-position curve.  The
+        server sends the frame as (1, xPoints); the x axis is the motor's position
+        over the scan range.  Returns True on success."""
+        frame = np.asarray(image, dtype=float)
+        y = frame.ravel() if frame.ndim == 1 else \
+            (frame[0] if frame.ndim == 2 and frame.shape[0] else None)
+        if y is None or not y.size:
+            return False
+        xc, xr = im.get('x_center'), im.get('x_range')
+        n = y.size
+        if xc is not None and xr:
+            x = np.linspace(xc - xr / 2.0, xc + xr / 2.0, n)
+        else:
+            x = np.arange(n, dtype=float)
+        motor = (self._motor_axis_widgets[0]['combo'].currentText()
+                 if getattr(self, "_motor_axis_widgets", None) else "")
+        unit = self._motor_info.get(motor, {}).get("unit", "")
+        x_label = f"{motor} ({unit})" if unit else (motor or "position")
+        self.image_area.set_curve(x, y, x_label=x_label, y_label="signal")
+        return True
+
+    def _place_motor_frame(self, image, im):
+        """Draw a live motor-scan frame in the two motors' coordinate space.  A
+        double-motor scan is a normal 2-D image (yPoints × xPoints); a single-
+        motor scan is a 1×N strip with no y extent, so give it a nominal height
+        so the row is visible.  Returns True on success."""
+        frame = np.asarray(image, dtype=float)
+        if frame.ndim != 2:
+            return False
+        xc, yc = im.get('x_center'), im.get('y_center')
+        xr, yr = im.get('x_range'), im.get('y_range')
+        if xc is None or not xr:
+            return False
+        if not yr:                              # single-motor: no y extent
+            yc = yc or 0.0
+            yr = abs(xr) * 0.1 or 1.0
+        key = str(im.get('scan_region_index', 'Region1'))
+        self.image_area.set_region_frame(key, frame, xc, yc, xr, yr)
+        if not getattr(self, '_focus_view_fitted', False):
+            self.image_area.set_view(xc, yc, max(abs(xr), 1e-6) / 0.85,
+                                     max(abs(yr), 1e-6) / 0.85)
+            self._focus_view_fitted = True
+        return True
+
     def _on_image(self, image):
         try:
             # The server tags each frame's region + physical geometry on the
@@ -5068,16 +5378,22 @@ class MainWindowDashboard(QMainWindow):
                     # want, so place it ourselves: transpose to (position, energy)
                     # so the fast line axis is vertical and energy horizontal.
                     placed = self._place_line_spectrum_frame(image, im)
-            if not placed and self.controller is not None and not self._ls_mode:
+                elif self._is_single_motor():
+                    # Single motor: 1-D signal-vs-position curve, not an image.
+                    placed = self._place_single_motor_curve(image, im)
+                elif getattr(self, "_motor_scan_mode", False):
+                    # Double motor: a normal 2-D image in the two motors' space.
+                    placed = self._place_motor_frame(image, im)
+            if not placed and self.controller is not None \
+                    and not self._ls_mode and not getattr(self, "_motor_scan_mode", False):
                 xc, yc = im.get('x_center'), im.get('y_center')
                 xr, yr = im.get('x_range'), im.get('y_range')
                 if xr and yr and xc is not None and yc is not None:
                     key = str(im.get('scan_region_index', 'Region1'))
                     self.image_area.set_region_frame(key, image, xc, yc, xr, yr)
                     placed = True
-                    # Focus: y_center/y_range are ZonePlateZ (see MainController's
-                    # Focus branch) — fit the view to that Z extent once, since it
-                    # sits far from the sample image the line was drawn on.
+                    # Focus places its streak in ZonePlateZ space, far from the
+                    # sample view — fit the view to that extent once.
                     if self._focus_mode and not getattr(self, '_focus_view_fitted', False):
                         self.image_area.set_view(xc, yc, max(abs(xr), 1e-6) / 0.85,
                                                  max(abs(yr), 1e-6) / 0.85)
