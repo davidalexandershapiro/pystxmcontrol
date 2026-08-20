@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
     QMessageBox,
 )
-from PySide6.QtGui import QPixmap, QImage, QColor, QFont
+from PySide6.QtGui import QPixmap, QImage, QColor, QFont, QIntValidator
 from PySide6.QtCore import Qt, QTimer, QRectF, Signal, QThread
 
 import zmq
@@ -1356,12 +1356,46 @@ class MainWindowDashboard(QMainWindow):
         return "beamline"
 
     def _motors_sorted(self):
+        """All motors, index-ordered.  Includes motors flagged ``display: false``
+        — use :meth:`_visible_motors` for anything the user sees."""
         return sorted(self._motor_info.items(), key=lambda kv: kv[1].get("index", 999))
+
+    @staticmethod
+    def _motor_visible(d):
+        """motor.json ``display`` flag → whether the user sees the motor.  Shown
+        only when display is truthy (matches the classic GUI's
+        ``get('display', False)``), so a motor must opt in to appear."""
+        v = d.get("display", False)
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return bool(v)
+
+    def _visible_motors(self):
+        """Index-ordered motors selectable as a scan axis (drops ``display: false``
+        ones) — the basis for every motor dropdown.  The move/jog list uses the
+        full set instead."""
+        return [(n, d) for n, d in self._motors_sorted() if self._motor_visible(d)]
+
+    @staticmethod
+    def _fmt_enum(v):
+        """Format an allowed-value entry: an integer when whole, else compact."""
+        try:
+            f = float(v)
+            return str(int(f)) if f == int(f) else f"{f:g}"
+        except (TypeError, ValueError):
+            return str(v)
+
+    @staticmethod
+    def _target_text(widget):
+        """Read the move/jog target — a dropdown (enumerated motor) or line edit."""
+        return (widget.currentText() if isinstance(widget, QComboBox)
+                else widget.text())
 
     def _motor_groups(self):
         """Ordered list of distinct motor groups (tab names).  Order = first
         appearance in index order, i.e. each group ranked by its lowest-index
-        motor; the GUI builds one tab per group on startup."""
+        motor; the GUI builds one tab per group on startup.  The move/jog panel
+        shows every motor (``display`` only gates the scan dropdowns)."""
         groups = []
         for _name, d in self._motors_sorted():
             g = self._group_of(d)
@@ -1371,7 +1405,9 @@ class MainWindowDashboard(QMainWindow):
 
     def _motor_rows(self, group):
         """Return row tuples (name, kind, pos, unit, frac, moving) for a group,
-        sourced from motor.json (`group`/`unit` fields), sorted by index."""
+        sourced from motor.json (`group`/`unit` fields), sorted by index.  All
+        motors are movable here — ``display: false`` only hides a motor from the
+        scan-axis dropdowns, not from the move/jog dashboard."""
         rows = []
         for name, d in self._motors_sorted():
             if self._group_of(d) != group:
@@ -2093,7 +2129,7 @@ class MainWindowDashboard(QMainWindow):
                               role="microLabel")
             bl.addWidget(lbl)
             combo = QComboBox()
-            combo.addItems([name for name, _ in self._motors_sorted()])
+            combo.addItems([name for name, _ in self._visible_motors()])
             combo.setCursor(Qt.PointingHandCursor)
             combo.currentIndexChanged.connect(
                 lambda _i, a=axis: self._on_motor_selected(a))
@@ -2116,7 +2152,7 @@ class MainWindowDashboard(QMainWindow):
         lbl = self._label("MOTOR", role="microLabel")
         gv.addWidget(lbl)
         combo = QComboBox()
-        combo.addItems([name for name, _ in self._motors_sorted()])
+        combo.addItems([name for name, _ in self._visible_motors()])
         combo.setCursor(Qt.PointingHandCursor)
         gv.addWidget(combo)
         grid, _ = self._grid4([("Center", "-118.400", False), ("Range", "20.000", False),
@@ -2882,35 +2918,68 @@ class MainWindowDashboard(QMainWindow):
             vw = QWidget(); vw.setLayout(vb)
             g.addWidget(vw, 0, 1)
             info = self._motor_info.get(name, {})
+            enum_values = info.get("values")
+            is_enum = isinstance(enum_values, (list, tuple)) and len(enum_values) > 0
+            is_int = str(info.get("varType", "")).strip().lower() == "int"
             # Per-row action cell, driven by _move_mode (toggled by "Jog / Move"):
             #  - Move mode: field holds an ABSOLUTE destination (pre-filled with the
             #    current position); a "Move" button (or Enter) commits move_motor().
             #  - Jog mode: field holds a RELATIVE step (pre-filled with a small default);
             #    − / + jog by that amount via jog_motor().
-            fill = pos if self._move_mode else f"{self._jog_step(name):g}"
-            tgt = self._field(fill, align_right=True)
-            tgt.setFixedWidth(84)
-            tgt.setStyleSheet("font-size:11px;padding:5px 7px;")
-            g.addWidget(tgt, 0, 2)
-            action_widgets = [tgt]
-            if self._move_mode:
-                tgt.returnPressed.connect(lambda n=name: self._move_motor_to_target(n))
+            # An enumerated motor (motor.json "values", e.g. EPU Harmonic ∈ {1,3,5})
+            # is a dropdown of its allowed values + Move, in both modes — jogging a
+            # discrete axis is meaningless.
+            if is_enum:
+                tgt = QComboBox()
+                tgt.setFixedWidth(84)
+                tgt.setCursor(Qt.PointingHandCursor)
+                tgt.addItems([self._fmt_enum(v) for v in enum_values])
+                cur = self._fmt_enum(info.get("last value"))
+                if tgt.findText(cur) >= 0:
+                    tgt.setCurrentText(cur)
+                g.addWidget(tgt, 0, 2)
+                action_widgets = [tgt]
                 move = QPushButton("Move"); move.setProperty("role", "jog")
                 move.setCursor(Qt.PointingHandCursor)
                 move.clicked.connect(lambda _=False, n=name: self._move_motor_to_target(n))
-                g.addWidget(move, 0, 3, 1, 2)     # span both jog-button columns
+                g.addWidget(move, 0, 3, 1, 2)
                 action_widgets.append(move)
             else:
-                tgt.returnPressed.connect(lambda n=name: self._jog_motor(n, +1))
-                minus = QPushButton("−"); minus.setProperty("role", "jog"); minus.setFixedWidth(26)
-                plus = QPushButton("+"); plus.setProperty("role", "jog"); plus.setFixedWidth(26)
-                for b in (minus, plus):
-                    b.setCursor(Qt.PointingHandCursor)
-                minus.clicked.connect(lambda _=False, n=name: self._jog_motor(n, -1))
-                plus.clicked.connect(lambda _=False, n=name: self._jog_motor(n, +1))
-                g.addWidget(minus, 0, 3)
-                g.addWidget(plus, 0, 4)
-                action_widgets += [minus, plus]
+                fill = pos if self._move_mode else f"{self._jog_step(name):g}"
+                if is_int:                    # integer motor: no fractional entry
+                    try:
+                        fill = str(int(round(float(fill))))
+                    except (TypeError, ValueError):
+                        pass
+                tgt = self._field(fill, align_right=True)
+                tgt.setFixedWidth(84)
+                tgt.setStyleSheet("font-size:11px;padding:5px 7px;")
+                if is_int:
+                    validator = QIntValidator()
+                    lo, hi = info.get("minValue"), info.get("maxValue")
+                    if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+                        validator.setRange(int(lo), int(hi))
+                    tgt.setValidator(validator)
+                g.addWidget(tgt, 0, 2)
+                action_widgets = [tgt]
+                if self._move_mode:
+                    tgt.returnPressed.connect(lambda n=name: self._move_motor_to_target(n))
+                    move = QPushButton("Move"); move.setProperty("role", "jog")
+                    move.setCursor(Qt.PointingHandCursor)
+                    move.clicked.connect(lambda _=False, n=name: self._move_motor_to_target(n))
+                    g.addWidget(move, 0, 3, 1, 2)     # span both jog-button columns
+                    action_widgets.append(move)
+                else:
+                    tgt.returnPressed.connect(lambda n=name: self._jog_motor(n, +1))
+                    minus = QPushButton("−"); minus.setProperty("role", "jog"); minus.setFixedWidth(26)
+                    plus = QPushButton("+"); plus.setProperty("role", "jog"); plus.setFixedWidth(26)
+                    for b in (minus, plus):
+                        b.setCursor(Qt.PointingHandCursor)
+                    minus.clicked.connect(lambda _=False, n=name: self._jog_motor(n, -1))
+                    plus.clicked.connect(lambda _=False, n=name: self._jog_motor(n, +1))
+                    g.addWidget(minus, 0, 3)
+                    g.addWidget(plus, 0, 4)
+                    action_widgets += [minus, plus]
             g.setColumnStretch(1, 1)
             self._motor_widgets[name] = {
                 "value": val, "bar": bar, "unit": unit, "target": tgt,
@@ -3884,7 +3953,7 @@ class MainWindowDashboard(QMainWindow):
         if not wd:
             return
         try:
-            pos = float(wd["target"].text())
+            pos = float(self._target_text(wd["target"]))
         except (TypeError, ValueError):
             return
         self.controller.move_motor(name, pos)
@@ -3898,7 +3967,7 @@ class MainWindowDashboard(QMainWindow):
         if not wd:
             return
         try:
-            step = float(wd["target"].text())
+            step = float(self._target_text(wd["target"]))
         except (TypeError, ValueError):
             self.controller.error_occurred.emit(f"Invalid jog step for {name}")
             return
@@ -5198,22 +5267,32 @@ class MainWindowDashboard(QMainWindow):
 
     def _prefill_motor_axes(self, text):
         """Show the right number of motor axes and pre-select each from the scan
-        config's x_motor / y_motor, centring each on its motor's live position."""
+        config's x_motor / y_motor, centring each on its motor's live position.
+
+        Lock rule (per axis): a motor named in the config (e.g. OSA Image's
+        OSA_X/OSA_Y) pins that dropdown — the scan is *defined* on those motors;
+        a null/empty config motor leaves the dropdown user-selectable (Single /
+        Double Motor).  Only the motor selector locks — the center/range/points
+        fields stay editable."""
         if not getattr(self, "_motor_axis_widgets", None):
             return
         sc = self._scan_cfg(text) or {}
         axes = self._motor_axis_count(text)
-        defaults = [sc.get("x_motor", ""), sc.get("y_motor", "")]
+        defaults = [sc.get("x_motor"), sc.get("y_motor")]
         for i, ax in enumerate(self._motor_axis_widgets):
             ax["block"].setVisible(i < axes)
             if i >= axes:
                 continue
             combo = ax["combo"]
             d = defaults[i]
-            if d and combo.findText(d) >= 0:
+            # A listed motor pins the dropdown, but only if it actually exists in
+            # the motor list — otherwise (null/'' or an unknown name) stay editable.
+            locked = bool(d) and combo.findText(d) >= 0
+            if locked:
                 combo.blockSignals(True)
                 combo.setCurrentText(d)
                 combo.blockSignals(False)
+            combo.setEnabled(not locked)
             name = combo.currentText()
             if name:
                 ax["center"].setText(f"{self._current_motor_pos(name):.3f}")

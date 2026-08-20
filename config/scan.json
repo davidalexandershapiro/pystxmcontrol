@@ -41,8 +41,8 @@
   },
   "Single Motor": {
     "index": 3,
-    "x_motor": "",
-    "y_motor": "",
+    "x_motor": null,
+    "y_motor": null,
     "energy_motor": "Energy",
     "type": "point",
     "driver": "single_motor_scan",
@@ -52,8 +52,8 @@
   },
   "Double Motor": {
     "index": 4,
-    "x_motor": "OSA_X",
-    "y_motor": "OSA_Y",
+    "x_motor": null,
+    "y_motor": null,
     "energy_motor": "Energy",
     "type": "image",
     "driver": "double_motor_scan",
