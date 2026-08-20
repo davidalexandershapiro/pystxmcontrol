@@ -1321,6 +1321,7 @@ class MainWindowDashboard(QMainWindow):
         c.motor_status_updated.connect(self._on_motor_status)
         c.image_updated.connect(self._on_image)
         c.scan_state_changed.connect(self._set_scanning)
+        c.external_scan_started.connect(self._on_external_scan_started)
         c.shutter_state_changed.connect(self._on_shutter)
         c.daq_value_updated.connect(self._on_daq_value)
         c.monitor_data_updated.connect(self._on_monitor_data)
@@ -5113,6 +5114,17 @@ class MainWindowDashboard(QMainWindow):
         # re-polish so the objectName-based style applies
         self.begin_btn.style().unpolish(self.begin_btn)
         self.begin_btn.style().polish(self.begin_btn)
+
+    def _on_external_scan_started(self, scan_type):
+        """A scan was started outside the Begin button — by the task agent, a
+        remote script, or already running when the GUI attached.  The controller
+        has already flipped its own ``scanning`` flag and is streaming data into
+        the view; put the button into Cancel mode so the operator can still stop
+        the scan (scan completion emits scan_state_changed(False), which restores
+        the button via _set_scanning).  The scan-type combo is intentionally left
+        untouched: retargeting it mid-scan would run _on_scan_type and tear down
+        the region widgets / display while data is arriving."""
+        self._set_scanning(True)
 
     def _toggle_expert(self):
         self._expert = not self._expert

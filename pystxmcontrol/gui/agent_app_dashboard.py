@@ -856,7 +856,7 @@ class AgentApp(QWidget):
         frame = {"OP": ("#161b21", "#2c3a48", C["text"]),
                  "TA": ("#101820", "#22303c", C["text_2"]),
                  "IA": ("#171410", "#3a2f1a", "#d8cbb3")}[speaker]
-        max_w = 720
+        max_w = 1440
 
         w = QWidget()
         g = QHBoxLayout(w)
@@ -890,6 +890,11 @@ class AgentApp(QWidget):
         text.setTextFormat(Qt.RichText)
         text.setWordWrap(True)
         text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # A word-wrapped QLabel reports a narrow preferred width, and the trailing
+        # stretch below lets the bubble collapse to it — so max_w alone never widens
+        # anything. Pin a minimum wrap column (~2× the old ~50-char hug width) so the
+        # bubble opens up; max_w still caps long messages.
+        text.setMinimumWidth(700)
         text.setMaximumWidth(max_w - 28)
         text.setStyleSheet(f"color:{frame[2]};background:transparent;font-size:13px;")
         bv.addWidget(text)

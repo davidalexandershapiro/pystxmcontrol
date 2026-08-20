@@ -878,7 +878,15 @@ class ToolSet:
 
             _time.sleep(POLL_INTERVAL)
 
-        self._was_scanning = False
+        # Timed out WITHOUT observing idle, so the scan is still running. Leave
+        # _was_scanning=True so the follow-up get_scan_status() this message asks
+        # for still reports "Scan complete" when it catches the idle transition.
+        # (Clearing it here was a completion-signal leak: the deadline is
+        # now+time_remaining*2 refreshed each loop, and time_remaining collapses to
+        # ~0 at the tail of a scan, so wait_for_scan times out at the END of nearly
+        # every scan. If the flag were cleared, the scan would finish moments later
+        # and get_scan_status would report a bare "Instrument is idle" — the agent's
+        # stall budget would never reset even as scans kept completing.)
         return (f"Timed out after {timeout_seconds:.0f} s waiting for scan to finish. "
                 "Call get_scan_status() to check current state.")
 
