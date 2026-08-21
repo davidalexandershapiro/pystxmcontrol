@@ -587,6 +587,16 @@ class ImageArea(QWidget):
         region_c, spectrum_c = roi_colors(self._cmap)
         return spectrum_c if kind == "spectrum" else region_c
 
+    def set_rois_visible(self, visible):
+        """Show/hide every scan-region ROI box (+ its label) and the scan line —
+        used to omit them from an exported PNG so only the image and its metadata
+        overlay are saved."""
+        for it in self._roi_items.values():
+            it["roi"].setVisible(visible)
+            it["label"].setVisible(visible)
+        if self._line_roi is not None:
+            self._line_roi.setVisible(visible)
+
     # ── physical coordinate frame ────────────────────────────────────────
     def set_image_extent(self, xc, yc, width, height):
         """Place the image data at its physical µm extent — the region it was
@@ -1444,6 +1454,7 @@ class MainWindowDashboard(QMainWindow):
         c.daq_value_updated.connect(self._on_daq_value)
         c.monitor_data_updated.connect(self._on_monitor_data)
         c.scan_progress_updated.connect(self._on_progress_text)
+        c.scan_file_updated.connect(self._on_scan_file)
         c.estimated_time_updated.connect(self._on_est_time)
         c.elapsed_time_updated.connect(self._on_elapsed_time)
         c.error_occurred.connect(self._on_error)
@@ -2013,14 +2024,16 @@ class MainWindowDashboard(QMainWindow):
         checks = QHBoxLayout()
         checks.setSpacing(7)
         self._scan_checks = {}
-        for name, on in (("spectrum", False), ("autofocus", True),
+        # The spectrum ROI is no longer a checkbox here — it is driven by the
+        # Profile panel's Spectrum tab (see _switch_profile), which shows the ROI
+        # while Spectrum is selected and hides it on Line-outs.
+        for name, on in (("autofocus", True),
                          ("show ROI", True), ("tiled", False), ("defocus", False)):
             cb = QCheckBox(name)
             cb.setChecked(on)
             cb.setCursor(Qt.PointingHandCursor)
             checks.addWidget(cb)
             self._scan_checks[name] = cb
-        self._scan_checks["spectrum"].toggled.connect(self._toggle_spectrum)
         self._scan_checks["show ROI"].toggled.connect(
             lambda _on: self._refresh_spatial_image())
         checks.addStretch(1)
@@ -2279,15 +2292,18 @@ class MainWindowDashboard(QMainWindow):
         combo.addItems([name for name, _ in self._visible_motors()])
         combo.setCursor(Qt.PointingHandCursor)
         gv.addWidget(combo)
-        grid, _ = self._grid4([("Center", "-118.400", False), ("Range", "20.000", False),
-                               ("Points", "11", False), ("Step", "2.000", True)])
+        self._loop_motor_combo = combo
+        grid, loop_edits = self._grid4(
+            [("Center", "-118.400", False), ("Range", "20.000", False),
+             ("Points", "11", False), ("Step", "2.000", True)])
         gv.addLayout(grid)
+        self._loop_fields = {"center": loop_edits[0], "range": loop_edits[1],
+                             "points": loop_edits[2], "step": loop_edits[3]}
         r = QHBoxLayout()
-        b = QPushButton("+ Nested loop"); b.setProperty("role", "small")
-        r.addWidget(b)
-        cb = QCheckBox("return to center after"); cb.setChecked(True)
+        cb = QCheckBox("Execute Loop Scan")
         r.addWidget(cb); r.addStretch(1)
         gv.addLayout(r)
+        self._loop_scan_check = cb
         iv.addWidget(w)
 
         # Output
@@ -2372,17 +2388,18 @@ class MainWindowDashboard(QMainWindow):
         fn.setFont(mono_font(16, QFont.DemiBold))
         self._image_title_lbl = fn
         tl.addWidget(fn)
-        tl.addWidget(self._label("Region 1 of 1 · Energy 82 of 121",
-                                 font=sans_font(10), color=C["text_dim"]))
+        self._image_subline_lbl = self._label("—",
+                                              font=sans_font(10), color=C["text_dim"])
+        tl.addWidget(self._image_subline_lbl)
         tl.addStretch(1)
         cmap_well, self.cmap_btns = self._segmented(["gray", "viridis", "inferno"], 0)
         for i, b in enumerate(self.cmap_btns):
             b.clicked.connect(lambda _=False, n=("gray", "viridis", "inferno")[i]:
                               self._set_cmap(n))
         tl.addWidget(cmap_well)
-        for name in ("Levels", "FFT", "Unzoom", "Save"):
-            b = QPushButton(name); b.setProperty("role", "small")
-            tl.addWidget(b)
+        save_btn = QPushButton("Save"); save_btn.setProperty("role", "small")
+        save_btn.clicked.connect(self._save_image_png)
+        tl.addWidget(save_btn)
         cl.addWidget(tb)
 
         # body: image + right rail
@@ -2487,6 +2504,7 @@ class MainWindowDashboard(QMainWindow):
         self._profile_stack.addWidget(self._spectrum_panel())
         self._profile_stack.addWidget(self._lineout_panel())
         prof_body.addWidget(self._profile_stack, 1)
+        self._profile_grp = prof_well._group
         prof_well._group.idClicked.connect(self._switch_profile)
         self._lineout_axis_well._group.idClicked.connect(self._set_lineout_axis)
         # Default to the Line-outs tab (matches the checked pill above).
@@ -2566,11 +2584,28 @@ class MainWindowDashboard(QMainWindow):
 
     def _switch_profile(self, index):
         """Swap the header's right-hand control with the tab: the spectrum note
-        for Spectrum, the X/Y line-cut pill for Line-outs."""
+        for Spectrum, the X/Y line-cut pill for Line-outs.
+
+        The Spectrum tab also owns the spectrum ROI (replacing the old spatial-tab
+        checkbox): selecting Spectrum shows the ROI, Line-outs hides it.  Guarded
+        so the init call (before the spatial machinery exists) is a safe no-op."""
         self._profile_stack.setCurrentIndex(index)
         lineout = index == 1
         self._profile_note.setVisible(not lineout)
         self._lineout_axis_well.setVisible(lineout)
+        if hasattr(self, "image_area") and hasattr(self, "_scan_regions"):
+            self._toggle_spectrum(index == 0)
+
+    def _set_profile_tab(self, index):
+        """Programmatically select a profile tab (Spectrum=0, Line-outs=1), keeping
+        the pill group's checked state in sync — idClicked only fires on real
+        clicks, so setting the button checked alone would not run _switch_profile."""
+        grp = getattr(self, "_profile_grp", None)
+        if grp is not None:
+            b = grp.button(index)
+            if b is not None:
+                b.setChecked(True)
+        self._switch_profile(index)
 
     def _set_lineout_axis(self, index):
         self._lineout_axis = index
@@ -4124,21 +4159,29 @@ class MainWindowDashboard(QMainWindow):
         if c.scanning:
             c.cancel_scan()
             return
-        if self._compile_scan():
-            self.image_area.clear_region_frames()   # fresh mosaic for the new scan
-            if self._is_single_motor():
-                # A single-motor scan is 1-D — swap the image for a curve plot.
-                self.image_area.clear_line()
-                self.image_area.set_plot_mode(True)
-                self._focus_view_fitted = False
-            elif self._takes_over_image():
-                # Switch the viewer to the take-over frame (Focus: line × ZonePlateZ;
-                # Line Spectrum: position-along-line × energy; double-motor scan:
-                # its own motor coordinates).  The first frame fits the view to it.
-                self.image_area.clear_line()
-                self.image_area.set_focus_display(True)
-                self._focus_view_fitted = False
-            c.start_scan()
+        # Clear the last error so _show_scan_error only surfaces one raised by
+        # THIS compile/start attempt.
+        self._last_error = None
+        if not self._compile_scan():
+            self._show_scan_error("The scan could not be compiled — check the "
+                                  "scan definition.")
+            return
+        self.image_area.clear_region_frames()   # fresh mosaic for the new scan
+        if self._is_single_motor():
+            # A single-motor scan is 1-D — swap the image for a curve plot.
+            self.image_area.clear_line()
+            self.image_area.set_plot_mode(True)
+            self._focus_view_fitted = False
+        elif self._takes_over_image():
+            # Switch the viewer to the take-over frame (Focus: line × ZonePlateZ;
+            # Line Spectrum: position-along-line × energy; double-motor scan:
+            # its own motor coordinates).  The first frame fits the view to it.
+            self.image_area.clear_line()
+            self.image_area.set_focus_display(True)
+            self._focus_view_fitted = False
+        if not c.start_scan():
+            self._show_scan_error("The scan could not be started — check the "
+                                  "scan definition.")
         # start_scan / cancel_scan emit scan_state_changed → _set_scanning keeps
         # the Begin/Cancel button in sync with the controller's real state.
 
@@ -4151,9 +4194,22 @@ class MainWindowDashboard(QMainWindow):
         c = self.controller
         if c is None or c.scanning or self._takes_over_image():
             return
-        if self._compile_scan(preview=True):
-            self.image_area.clear_region_frames()
-            c.start_scan(preview=True)
+        self._last_error = None
+        if not self._compile_scan(preview=True):
+            self._show_scan_error("The preview could not be compiled — check the "
+                                  "scan definition.")
+            return
+        # A preview is a single-image sanity check: force the outer loop off at
+        # the point of execution so an "Execute Loop Scan" checkbox can never
+        # turn a preview into the full looped sequence, regardless of how the
+        # scan model was compiled.
+        sm = c.get_scan_model()
+        sm.set('loop_scan', False)
+        sm.set('loop_points', 1)
+        self.image_area.clear_region_frames()
+        if not c.start_scan(preview=True):
+            self._show_scan_error("The preview could not be started — check the "
+                                  "scan definition.")
 
     def _compile_scan(self, preview=False):
         """Populate the controller's scan_model from the dashboard widgets,
@@ -4203,7 +4259,7 @@ class MainWindowDashboard(QMainWindow):
             sm.set('comment', 'preview' if preview else '')
             sm.set('driver', driver)
             sm.set('mode', sc.get('mode', 'continuousLine'))
-            sm.set('loop_scan', False)   # loop sequence not yet wired in dashboard
+            self._compile_loop_scan(sm, preview=preview)
             sm.set('daq_list', self._resolve_daq_list(client, sc))
 
             if self._focus_mode:
@@ -4230,6 +4286,36 @@ class MainWindowDashboard(QMainWindow):
         except Exception as e:
             c.error_occurred.emit(f"Failed to compile scan: {e}")
             return False
+
+    def _compile_loop_scan(self, sm, preview=False):
+        """Set the outer-loop-scan keys on the scan model from the Loop sequence
+        group's "Execute Loop Scan" checkbox and fields.  When enabled the server
+        (controller.runScan) repeats the whole scan at each loop-motor position,
+        so ``loop_scan``/``loop_motor``/``loop_center``/``loop_range``/
+        ``loop_points``/``loop_step`` must all be present in the scan dict.
+
+        Previews (single region, single energy) never loop — the ``preview`` flag
+        forces the loop off regardless of the checkbox so a Preview always runs a
+        single image even while "Execute Loop Scan" is checked."""
+        cb = getattr(self, "_loop_scan_check", None)
+        enabled = bool(cb is not None and cb.isChecked() and not preview)
+        if not enabled:
+            # Fully neutralise the loop so no stale loop_points/motor from an
+            # earlier full-scan compile can survive into this scan dict.
+            sm.set('loop_scan', False)
+            sm.set('loop_points', 1)
+            return
+        f = self._loop_fields
+        center = float(f["center"].text())
+        rng = float(f["range"].text())
+        points = max(1, int(float(f["points"].text())))
+        step = rng / (points - 1) if points > 1 else 0.0
+        sm.set('loop_scan', True)
+        sm.set('loop_motor', self._loop_motor_combo.currentText())
+        sm.set('loop_center', center)
+        sm.set('loop_range', rng)
+        sm.set('loop_points', points)
+        sm.set('loop_step', step)
 
     def _compile_image_regions(self, sm, preview=False):
         """Populate ``sm`` with the image-family spatial + energy regions and
@@ -4448,8 +4534,9 @@ class MainWindowDashboard(QMainWindow):
             self.image_area.set_primary_frame(arr)
             self._image_seeded = True
             self._refresh_spatial_image(fit=True)
-            if hasattr(self, "_image_title_lbl"):
-                self._image_title_lbl.setText(os.path.basename(path))
+            self._set_image_header(
+                filename=os.path.basename(path),
+                subline=f"{int(arr.shape[1])} × {int(arr.shape[0])} px")
         except Exception as e:
             print(f"[dashboard] could not display last scan: {e}")
 
@@ -4514,6 +4601,7 @@ class MainWindowDashboard(QMainWindow):
         self._refresh_spatial_image(fit=True)
 
         # Energy region(s) from the file's energy list, as the energy prefill does.
+        n_energies = 1
         energies = info.get("energies")
         if energies is not None and len(energies):
             start = float(energies[0]); stop = float(energies[-1])
@@ -4523,9 +4611,13 @@ class MainWindowDashboard(QMainWindow):
                                      'dwell': float(info.get("dwell", 1.0)), 'n': n}]
             self._active_energy_region = 0
             self._load_energy_region(0)
+            n_energies = n
 
-        if hasattr(self, "_image_title_lbl"):
-            self._image_title_lbl.setText(name)
+        n_regions = len(self._scan_regions)
+        e_word = "energy" if n_energies == 1 else "energies"
+        self._set_image_header(
+            filename=name,
+            subline=f"Region 1 of {n_regions} · {n_energies} {e_word}")
         self._refresh_image_meta()
         self._on_status(f"Loaded {name} ({scan_type})")
 
@@ -4563,6 +4655,45 @@ class MainWindowDashboard(QMainWindow):
             scan_type=scan_type, sample=sample, proposal=proposal,
             channel="default", pixel_um=pixel_um, dwell_ms=dwell_ms,
             energy_ev=energy_ev)
+
+    def _set_image_header(self, filename=None, subline=None):
+        """Update the toolbar labels above the main image: the filename and the
+        region/energy subline.  Either argument may be None to leave that label
+        unchanged."""
+        if filename is not None and hasattr(self, "_image_title_lbl"):
+            self._image_title_lbl.setText(filename)
+        if subline is not None and hasattr(self, "_image_subline_lbl"):
+            self._image_subline_lbl.setText(subline)
+
+    def _save_image_png(self):
+        """Export the current main-image view to a PNG (the same rendered scene the
+        operator sees, including ROIs/overlays), mirroring the Browser's Export PNG.
+        The default filename is taken from the current image title."""
+        if not hasattr(self, "image_area"):
+            return
+        stem = os.path.splitext(self._image_title_lbl.text().strip())[0] \
+            if getattr(self, "_image_title_lbl", None) else "image"
+        if not stem or stem == "—":
+            stem = "image"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save PNG", f"{stem}.png", "PNG Images (*.png)")
+        if not path:
+            return
+        if not os.path.splitext(path)[1]:
+            path += ".png"
+        # Grab the whole ImageArea widget (image + the bottom metadata overlay +
+        # scale bar, which are Qt overlay widgets a pyqtgraph scene export would
+        # miss) with the ROI boxes hidden so the saved PNG shows only the data.
+        try:
+            self.image_area.set_rois_visible(False)
+            pixmap = self.image_area.grab()
+            self.image_area.set_rois_visible(True)
+            if not pixmap.save(path, "PNG"):
+                raise IOError("QPixmap.save returned False")
+            self._on_status(f"Saved PNG: {os.path.basename(path)}")
+        except Exception as e:
+            self.image_area.set_rois_visible(True)
+            QMessageBox.warning(self, "Save PNG", f"Could not save PNG:\n{e}")
 
     def _prefill_from_last_scan(self, scan_type='Image', spatial=True, energy=True):
         """Pre-fill the spatial and/or energy regions from the last executed scan of
@@ -4860,9 +4991,10 @@ class MainWindowDashboard(QMainWindow):
     def _remove_spatial_region(self):
         """Remove the active region (spectrum box, or an image region if >1)."""
         if self._active_region == 'spectrum':
-            self._spectrum_region = None
-            self._scan_checks['spectrum region'].setChecked(False)
-            self._load_spatial_region(0)
+            # The spectrum ROI is owned by the Profile panel's Spectrum tab; drop
+            # it by switching back to Line-outs (which clears it and re-selects R1).
+            self._set_profile_tab(1)
+            return
         elif len(self._scan_regions) > 1:
             del self._scan_regions[self._active_region]
             self._load_spatial_region(min(self._active_region,
@@ -5491,8 +5623,19 @@ class MainWindowDashboard(QMainWindow):
         self._rebuild_favorites_bar()
 
     def _on_error(self, msg):
+        # Remember the most recent error so a failed scan compile/start can pop it
+        # up (see _show_scan_error) — the controller and _compile_scan both report
+        # scan-definition problems through error_occurred.
+        self._last_error = msg
         print(f"[dashboard] ERROR: {msg}")
         self.statusBar().showMessage(f"⚠  {msg}", 8000)
+
+    def _show_scan_error(self, fallback="The scan could not be run."):
+        """Pop up a modal warning for a failed scan compile/start.  Uses the last
+        error message reported through ``error_occurred`` (set by ``_on_error``),
+        falling back to a generic message if none was captured."""
+        msg = getattr(self, "_last_error", None) or fallback
+        QMessageBox.warning(self, "Scan error", msg)
 
     def _on_status(self, msg):
         self.statusBar().showMessage(msg, 5000)
@@ -6074,6 +6217,17 @@ class MainWindowDashboard(QMainWindow):
     def _on_progress_text(self, text):
         if hasattr(self, "progress_caption"):
             self.progress_caption.setText(text)
+        # The same region/energy progress drives the image header subline (the
+        # controller emits it as "Region X of N | Energy Y of M"; use the mock's
+        # middot separator for the header).
+        if text:
+            self._set_image_header(subline=text.replace(" | ", " · "))
+
+    def _on_scan_file(self, name):
+        """The controller reports the current scan's data file name at scan start
+        (and per loop iteration); reflect it in the image header title."""
+        if name:
+            self._set_image_header(filename=os.path.basename(name))
 
     def _on_est_time(self, seconds):
         # The controller emits *remaining* time; total = elapsed + remaining.
