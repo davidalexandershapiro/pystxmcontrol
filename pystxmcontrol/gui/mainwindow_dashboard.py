@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
     QCheckBox, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
-    QMessageBox,
+    QMessageBox, QFileDialog,
 )
 from PySide6.QtGui import QPixmap, QImage, QColor, QFont, QIntValidator
 from PySide6.QtCore import Qt, QTimer, QRectF, Signal, QThread
@@ -261,6 +261,76 @@ def _load_last_scan(path):
             except Exception:
                 pass
             return arr, extent
+    except Exception:
+        return None
+
+
+def _read_scan_file(path):
+    """Read the metadata a loaded ``.stxm`` scan needs to seed the Acquisition view:
+    scan type, primary 2-D frame, physical extent, energy list and dwell.
+
+    Returns a dict with keys ``scan_type`` (str or None), ``frame`` (2-D array),
+    ``extent`` (``(xCenter, yCenter, xRange, yRange)`` µm full-field, or None),
+    ``xPoints`` / ``yPoints`` (ints, present only with ``extent``), ``energies``
+    (1-D array or None) and ``dwell`` (float).  Returns None if no image frame can
+    be read.  Same NXdata group + full-field-extent conventions as _load_last_scan."""
+    try:
+        import h5py
+        with h5py.File(path, "r") as f:
+            base = None
+            for b in ("entry0/default", "entry0/counter0"):
+                if b + "/data" in f:
+                    base = b
+                    break
+            if base is None:
+                return None
+            info = {}
+            scan_type = None
+            if base + "/stxm_scan_type" in f:
+                raw = f[base + "/stxm_scan_type"][()]
+                # Stored as a length-1 list (writeNX), possibly bytes.
+                v = raw[0] if (hasattr(raw, "__len__")
+                               and not isinstance(raw, (bytes, str))) else raw
+                scan_type = v.decode() if isinstance(v, (bytes, np.bytes_)) else str(v)
+            info["scan_type"] = scan_type
+
+            arr = np.asarray(f[base + "/data"][()], dtype=float)
+            if arr.ndim == 3:                    # (n_energies, ny, nx) → frame 0
+                arr = arr[0]
+            if arr.ndim != 2 or not arr.size:
+                return None
+            info["frame"] = arr
+
+            info["extent"] = None
+            try:
+                sx = np.asarray(f[base + "/sample_x"][()], dtype=float).ravel()
+                sy = np.asarray(f[base + "/sample_y"][()], dtype=float).ravel()
+
+                def _span_center(v):
+                    lo, hi = float(v.min()), float(v.max())
+                    step = (hi - lo) / (len(v) - 1) if len(v) > 1 else 0.0
+                    return (hi - lo) + step, (lo + hi) / 2.0   # full-field, centre
+
+                xr, xc = _span_center(sx)
+                yr, yc = _span_center(sy)
+                if xr > 0 and yr > 0:
+                    info["extent"] = (xc, yc, xr, yr)
+                    info["xPoints"] = len(sx)
+                    info["yPoints"] = len(sy)
+            except Exception:
+                pass
+
+            try:
+                info["energies"] = np.asarray(
+                    f[base + "/energy"][()], dtype=float).ravel()
+            except Exception:
+                info["energies"] = None
+            try:
+                ct = np.asarray(f[base + "/count_time"][()], dtype=float).ravel()
+                info["dwell"] = float(ct[0]) if len(ct) else 1.0
+            except Exception:
+                info["dwell"] = 1.0
+            return info
     except Exception:
         return None
 
@@ -1997,9 +2067,14 @@ class MainWindowDashboard(QMainWindow):
         self._del_energy_btn.setProperty("role", "small")
         self._del_energy_btn.clicked.connect(self._remove_energy_region)
         btns.addWidget(self._del_energy_btn)
-        preset_btn = QPushButton("Load edge preset")
+        preset_btn = QPushButton("Load Preset")
         preset_btn.setProperty("role", "small")
+        preset_btn.clicked.connect(self._load_energy_preset)
         btns.addWidget(preset_btn)
+        save_preset_btn = QPushButton("Save Preset")
+        save_preset_btn.setProperty("role", "small")
+        save_preset_btn.clicked.connect(self._save_energy_preset)
+        btns.addWidget(save_preset_btn)
         btns.addStretch(1)
         v.addLayout(btns)
 
@@ -2217,6 +2292,8 @@ class MainWindowDashboard(QMainWindow):
         fv.addStretch(1)
         for name in ("Load scan", "Script"):
             b = QPushButton(name); b.setProperty("role", "small")
+            if name == "Load scan":
+                b.clicked.connect(self._on_load_scan)
             fv.addWidget(b)
         body.addWidget(footer)
         return card
@@ -4329,6 +4406,82 @@ class MainWindowDashboard(QMainWindow):
         except Exception as e:
             print(f"[dashboard] could not display last scan: {e}")
 
+    # Only these drivers produce a plain 2-D raster that maps cleanly onto the
+    # Acquisition view's image + spatial/energy region fields.  Focus/line/spiral/
+    # ptychography files have other geometries and are refused by Load scan.
+    _LOADABLE_DRIVERS = ("linear_image", "double_motor_scan")
+
+    def _on_load_scan(self):
+        """Load scan button: pick a ``.stxm`` file and, if its driver is loadable,
+        display it and seed the spatial + energy regions from the file — the same
+        setup an externally launched scan performs."""
+        cfg = _runtime_main_config()
+        start_dir = (cfg.get("server") or {}).get("data_dir") or os.path.expanduser("~")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load scan", start_dir, "STXM data (*.stxm);;All files (*)")
+        if path:
+            self._load_scan_file(path)
+
+    def _load_scan_file(self, path):
+        """Read *path*, refuse it unless its scan driver is in _LOADABLE_DRIVERS,
+        then paint the frame at its physical extent and populate the spatial +
+        energy region widgets (mirroring _on_external_scan_geometry / the energy
+        prefill so a loaded scan sets up exactly like an external one)."""
+        name = os.path.basename(path)
+        info = _read_scan_file(path)
+        if info is None:
+            QMessageBox.warning(self, "Load scan",
+                                f"Could not read a scan image from:\n{name}")
+            return
+        scan_type = info.get("scan_type")
+        driver = (self._scan_cfg(scan_type) or {}).get("driver") if scan_type else None
+        if driver not in self._LOADABLE_DRIVERS:
+            QMessageBox.information(
+                self, "Load scan",
+                f"'{name}' is a '{scan_type or 'unknown'}' scan "
+                f"(driver: {driver or 'unknown'}).\n\n"
+                f"Load scan only supports {', '.join(self._LOADABLE_DRIVERS)} "
+                f"(e.g. Image, TEY/XRF Image, Double Motor, OSA Image).")
+            return
+        if not hasattr(self, "image_area"):
+            return
+
+        # Spatial region + image extent, exactly as _on_external_scan_geometry does.
+        frame = info["frame"]
+        extent = info.get("extent")
+        if extent is not None:
+            xc, yc, xr, yr = extent
+            self.image_area.set_image_extent(xc, yc, xr, yr)
+            r = {'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
+                 'xPoints': int(info.get("xPoints", frame.shape[1])),
+                 'yPoints': int(info.get("yPoints", frame.shape[0]))}
+            self._scan_regions = [r]
+            self._active_region = 0
+            self._spectrum_region = None
+            self._write_spatial_fields(r)
+        # Force a fresh auto-level: set_primary_frame only levels the first frame,
+        # but a loaded file replaces whatever was shown and needs its own contrast.
+        self.image_area._primary_seeded = False
+        self.image_area.set_primary_frame(frame)
+        self._image_seeded = True
+        self._refresh_spatial_image(fit=True)
+
+        # Energy region(s) from the file's energy list, as the energy prefill does.
+        energies = info.get("energies")
+        if energies is not None and len(energies):
+            start = float(energies[0]); stop = float(energies[-1])
+            n = int(len(energies))
+            step = abs(stop - start) / (n - 1) if n > 1 else 0.0
+            self._energy_regions = [{'start': start, 'stop': stop, 'step': step,
+                                     'dwell': float(info.get("dwell", 1.0)), 'n': n}]
+            self._active_energy_region = 0
+            self._load_energy_region(0)
+
+        if hasattr(self, "_image_title_lbl"):
+            self._image_title_lbl.setText(name)
+        self._refresh_image_meta()
+        self._on_status(f"Loaded {name} ({scan_type})")
+
     def _refresh_image_meta(self):
         """Refresh the image's bottom metadata overlay from the current scan
         definition (proposal, scan type, sample, pixel size, dwell, energy)."""
@@ -5089,6 +5242,73 @@ class MainWindowDashboard(QMainWindow):
         self._energy_summary_lbl.setText(
             f"{len(regs)} region{'s' if len(regs) != 1 else ''} · {total} pts")
         self._del_energy_btn.setEnabled(len(regs) > 1)
+
+    def _save_energy_preset(self):
+        """Save the current energy regions to a JSON preset file, in the same
+        ``{"energy_regions": {"EnergyRegion1": {...}}}`` format the MVC window reads
+        (see mainwindow_mvc.open_energy_definition), so presets are interchangeable."""
+        self._sync_active_energy_region()   # flush the active field row into the model
+        regs = getattr(self, '_energy_regions', None) or []
+        if not regs:
+            return
+        energy_regions = {
+            f'EnergyRegion{i + 1}': {
+                'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+                'n_energies': r['n'], 'dwell': r['dwell']}
+            for i, r in enumerate(regs)}
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save Energy Preset", "", "JSON Files (*.json);;All Files (*)")
+        if not filename:
+            return
+        if not os.path.splitext(filename)[1]:
+            filename += '.json'
+        try:
+            with open(filename, 'w') as f:
+                json.dump({'energy_regions': energy_regions}, f, indent=2)
+            self._on_status(f"Saved energy preset: {os.path.basename(filename)}")
+        except OSError as e:
+            QMessageBox.warning(self, "Save Energy Preset",
+                                f"Could not save preset:\n{e}")
+
+    def _load_energy_preset(self):
+        """Load energy regions from a JSON preset file and populate the energy
+        fields.  Accepts either ``{"energy_regions": {...}}`` or a raw regions dict,
+        matching mainwindow_mvc.open_energy_definition."""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Load Energy Preset", "", "JSON Files (*.json);;All Files (*)")
+        if not filename:
+            return
+        try:
+            with open(filename, 'r') as f:
+                data = json.load(f)
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(self, "Load Energy Preset",
+                                f"Could not read preset:\n{e}")
+            return
+        regions = data.get('energy_regions', data) if isinstance(data, dict) else None
+        if not isinstance(regions, dict) or not regions:
+            QMessageBox.warning(self, "Load Energy Preset",
+                                f"No energy regions found in:\n{os.path.basename(filename)}")
+            return
+        eregs = []
+        try:
+            for e in regions.values():
+                start = float(e.get('start', 0.0)); stop = float(e.get('stop', 0.0))
+                step = float(e.get('step', 0.0))
+                eregs.append({'start': start, 'stop': stop, 'step': step,
+                              'dwell': float(e.get('dwell', 1.0)),
+                              'n': int(e.get('n_energies', 1)) or 1})
+        except (ValueError, TypeError, AttributeError) as e:
+            QMessageBox.warning(self, "Load Energy Preset",
+                                f"Malformed energy preset:\n{e}")
+            return
+        if not eregs:
+            return
+        self._energy_regions = eregs
+        self._active_energy_region = 0
+        self._load_energy_region(0)
+        self._refresh_image_meta()
+        self._on_status(f"Loaded energy preset: {os.path.basename(filename)}")
 
     def _on_error(self, msg):
         print(f"[dashboard] ERROR: {msg}")
