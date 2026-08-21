@@ -16,18 +16,18 @@ class xpsMotor(motor):
         return self.moving
 
     def checkLimits(self, pos):
+        if self.config["minValue"] <= pos <= self.config["maxValue"]:
+            return True
+        self.moving = False
+        # NaN/inf fails both comparisons above and neither branch below, so
+        # default the reported limit first to avoid an UnboundLocalError that
+        # would mask the real out-of-range (or invalid) position.
+        limit_type = "upper"
+        limit = self.config["maxValue"]
         if pos < self.config["minValue"]:
             limit_type = "lower"
             limit = self.config["minValue"]
-        elif pos > self.config["maxValue"]:
-            limit_type = "upper"
-            limit = self.config["maxValue"]
-        limit_check = self.config["minValue"] <= pos <= self.config["maxValue"]
-        if limit_check:
-            return limit_check
-        else:
-            self.moving = False
-            raise SoftwareLimitError(self.axis, pos, limit, limit_type=limit_type)
+        raise SoftwareLimitError(self.axis, pos, limit, limit_type=limit_type)
 
     def getAxisParams(self):
         dummy,self.velocity, self.acceleration, self.minimumJerkTime, self.maximumJerkTime = \

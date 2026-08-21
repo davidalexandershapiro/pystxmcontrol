@@ -19,10 +19,10 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
     QCheckBox, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
-    QMessageBox, QFileDialog, QInputDialog, QMenu,
+    QMessageBox, QFileDialog, QInputDialog, QMenu, QLayout,
 )
 from PySide6.QtGui import QPixmap, QImage, QColor, QFont, QIntValidator, QCursor
-from PySide6.QtCore import Qt, QTimer, QRectF, Signal, QThread
+from PySide6.QtCore import Qt, QTimer, QRectF, QRect, QPoint, QSize, Signal, QThread
 
 import zmq
 import pyqtgraph as pg
@@ -335,6 +335,84 @@ def _read_scan_file(path):
         return None
 
 
+class FlowLayout(QLayout):
+    """A left-to-right layout that wraps items onto new rows when they run out
+    of horizontal space, growing the parent vertically instead of overflowing
+    off-screen.  (Qt ships no wrapping layout; this is the canonical minimal
+    implementation from the Qt docs, adapted for PySide6.)"""
+
+    def __init__(self, parent=None, margin=0, spacing=6):
+        super().__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self.setSpacing(spacing)
+        self._items = []
+
+    def __del__(self):
+        while self._items:
+            self._items.pop()
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        size += QSize(m.left() + m.right(), m.top() + m.bottom())
+        return size
+
+    def _do_layout(self, rect, test_only):
+        m = self.contentsMargins()
+        eff = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        x, y = eff.x(), eff.y()
+        line_height = 0
+        space = self.spacing()
+        for item in self._items:
+            hint = item.sizeHint()
+            next_x = x + hint.width() + space
+            if next_x - space > eff.right() and line_height > 0:
+                x = eff.x()
+                y = y + line_height + space
+                next_x = x + hint.width() + space
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x = next_x
+            line_height = max(line_height, hint.height())
+        return y + line_height - rect.y() + m.bottom()
+
+
 class EnergyFavoritesBar(QFrame):
     """A drop target + button row for energy-region "favorites".
 
@@ -350,9 +428,10 @@ class EnergyFavoritesBar(QFrame):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setObjectName("favoritesBar")
-        self._row = QHBoxLayout(self)
-        self._row.setContentsMargins(0, 0, 0, 0)
-        self._row.setSpacing(6)
+        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        sp.setHeightForWidth(True)
+        self.setSizePolicy(sp)
+        self._row = FlowLayout(self, margin=0, spacing=6)
 
     def layout_row(self):
         return self._row
@@ -1153,7 +1232,7 @@ class MainWindowDashboard(QMainWindow):
         self._scanning = False
         self._move_mode = True          # True = absolute Move, False = relative Jog
         self._motor_group_index = 0     # index into the data-driven motor groups
-        self._expert = True
+        self._expert = False              # start in User mode (Staff needs a password)
         self._staff_widgets = []          # widgets shown only in Staff mode
         self._motor_widgets = {}          # name -> {value,bar,lo,hi} for live updates
         self._image_seeded = False
@@ -1241,6 +1320,10 @@ class MainWindowDashboard(QMainWindow):
             self.server_heartbeat = ServerHeartbeat(addr, port, self)
             self.server_heartbeat.status_changed.connect(self._on_server_status)
             self.server_heartbeat.start()
+
+        # Apply the initial (User) mode: hide staff-only widgets, filter the motor
+        # list, gate the Begin button on proposal selection.
+        self._apply_mode()
 
         self.resize(2000, 1200)
 
@@ -1535,12 +1618,15 @@ class MainWindowDashboard(QMainWindow):
 
     def _motor_rows(self, group):
         """Return row tuples (name, kind, pos, unit, frac, moving) for a group,
-        sourced from motor.json (`group`/`unit` fields), sorted by index.  All
-        motors are movable here — ``display: false`` only hides a motor from the
-        scan-axis dropdowns, not from the move/jog dashboard."""
+        sourced from motor.json (`group`/`unit` fields), sorted by index.  In
+        Staff mode every motor is listed; in User mode ``display: false`` motors
+        are hidden from the move/jog dashboard (they remain out of the scan-axis
+        dropdowns in both modes — see :meth:`_visible_motors`)."""
         rows = []
         for name, d in self._motors_sorted():
             if self._group_of(d) != group:
+                continue
+            if not self._expert and not self._motor_visible(d):
                 continue
             kind = self._DRIVER_KIND.get(d.get("driver"),
                                          str(d.get("driver", "")).upper())
@@ -1758,10 +1844,14 @@ class MainWindowDashboard(QMainWindow):
         modew = QWidget()
         mv = QHBoxLayout(modew)
         mv.setContentsMargins(20, 0, 20, 0)
-        self.mode_btn = QPushButton("Staff mode")
+        self.mode_btn = QPushButton("User mode")
         self.mode_btn.setObjectName("modeToggle")
         self.mode_btn.setCursor(Qt.PointingHandCursor)
         self.mode_btn.clicked.connect(self._toggle_expert)
+        # Right-click to set/change the staff password (mirrors the classic
+        # window's "Set Staff Password…" File-menu action).
+        self.mode_btn.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.mode_btn.customContextMenuRequested.connect(self._mode_btn_menu)
         mv.addWidget(self.mode_btn)
         hl.addWidget(modew)
         return header
@@ -2306,36 +2396,30 @@ class MainWindowDashboard(QMainWindow):
         self._loop_scan_check = cb
         iv.addWidget(w)
 
-        # Output
-        w, gv = self._group_box("Output")
-        r = QGridLayout()
-        r.setHorizontalSpacing(7)
-        r.addWidget(self._label("File prefix", role="microLabel"), 0, 0)
-        r.addWidget(self._label("Index", role="microLabel"), 0, 1)
-        prefix = self._field("NS_260807", align_right=False)
-        idx = self._field("045", derived=True)
-        r.addWidget(prefix, 1, 0)
-        r.addWidget(idx, 1, 1)
-        r.setColumnStretch(0, 1)
-        gv.addLayout(r)
-        gv.addWidget(self._label("Sample", role="microLabel"))
-        sample = QLineEdit("particle collection, Fe screening")
-        sample.setFont(sans_font(10))
-        self._sample_field = sample
-        self._prefix_field = prefix
-        gv.addWidget(sample)
-        iv.addWidget(w)
-
         # Favorites — energy presets, added by dropping a .json here (see
         # _on_favorite_dropped) and applied with a left-click.
-        w, gv = self._group_box("Favorites", "energy presets · drag .json here",
-                                 sep=False)
+        w, gv = self._group_box("Favorites", "energy presets · drag .json here")
         self._favorites_bar = EnergyFavoritesBar()
         self._favorites_bar.file_dropped.connect(self._on_favorite_dropped)
         gv.addWidget(self._favorites_bar)
         iv.addWidget(w)
         self._favorites = self._read_favorites_file()
         self._rebuild_favorites_bar()
+
+        # Output — Sample and Comment are stored in the scan file (see the
+        # sm.set('sample'/'comment') calls in the scan compiler).
+        w, gv = self._group_box("Output", sep=False)
+        gv.addWidget(self._label("Sample", role="microLabel"))
+        sample = QLineEdit("particle collection, Fe screening")
+        sample.setFont(sans_font(10))
+        self._sample_field = sample
+        gv.addWidget(sample)
+        gv.addWidget(self._label("Comment", role="microLabel"))
+        comment = QLineEdit("")
+        comment.setFont(sans_font(10))
+        self._comment_field = comment
+        gv.addWidget(comment)
+        iv.addWidget(w)
 
         iv.addStretch(1)
         scroll.setWidget(inner)
@@ -2349,15 +2433,16 @@ class MainWindowDashboard(QMainWindow):
         pbox = QVBoxLayout()
         pbox.setSpacing(3)
         pbox.addWidget(self._label("Proposal", font=sans_font(10), color=C["text_dim"]))
-        self._proposal_lbl = self._label("ALS-14872 · Shapiro", role="mono")
-        pbox.addWidget(self._proposal_lbl)
+        combo = QComboBox()
+        combo.setCursor(Qt.PointingHandCursor)
+        combo.setMinimumWidth(200)
+        self._proposal_combo = combo
+        self._esaf_participants = {}   # proposal id -> [participant names]
+        combo.currentIndexChanged.connect(self._on_proposal_changed)
+        pbox.addWidget(combo)
         fv.addLayout(pbox)
+        self._populate_proposal_combo()
         fv.addStretch(1)
-        for name in ("Load scan", "Script"):
-            b = QPushButton(name); b.setProperty("role", "small")
-            if name == "Load scan":
-                b.clicked.connect(self._on_load_scan)
-            fv.addWidget(b)
         body.addWidget(footer)
         return card
 
@@ -2397,6 +2482,9 @@ class MainWindowDashboard(QMainWindow):
             b.clicked.connect(lambda _=False, n=("gray", "viridis", "inferno")[i]:
                               self._set_cmap(n))
         tl.addWidget(cmap_well)
+        load_btn = QPushButton("Load scan"); load_btn.setProperty("role", "small")
+        load_btn.clicked.connect(self._on_load_scan)
+        tl.addWidget(load_btn)
         save_btn = QPushButton("Save"); save_btn.setProperty("role", "small")
         save_btn.clicked.connect(self._save_image_png)
         tl.addWidget(save_btn)
@@ -2495,7 +2583,7 @@ class MainWindowDashboard(QMainWindow):
         prof_card._header_layout.insertSpacing(2, 10)
         # Right side of the header: the spectrum note OR the X/Y line-cut pill,
         # whichever the active tab needs (they share the slot; only one shows).
-        self._profile_note = self._label("Fe L3 · OD vs eV", role="accent")
+        self._profile_note = self._label("mean signal · ROI vs eV", role="accent")
         prof_card._header_layout.addWidget(self._profile_note)
         self._lineout_axis_well, _ = self._segmented(["X", "Y"], 0)
         prof_card._header_layout.addWidget(self._lineout_axis_well)
@@ -2559,14 +2647,101 @@ class MainWindowDashboard(QMainWindow):
         return pw
 
     def _spectrum_panel(self):
-        """ROI absorption spectrum (OD vs eV) — placeholder trace for now."""
+        """ROI spectrum: the mean signal inside the Spectrum ROI as a function of
+        energy, computed live from the scan's energy stack (see
+        _update_roi_spectrum).  Empty for single-energy scans — there is no
+        spectrum to show — and until at least one energy has finished imaging."""
         pw = self._style_plot(pg.PlotWidget())
-        e, od = _spectrum()
-        pw.plot(e[:82], od[:82], pen=pg.mkPen(C["accent"], width=2))
-        cursor = pg.InfiniteLine(pos=e[81], angle=90,
-                                 pen=pg.mkPen(QColor(95, 212, 214, 90), width=1))
-        pw.addItem(cursor)
+        # No units= here: pyqtgraph's auto SI-prefix would rescale hundreds of eV
+        # to "0.7 k" — show the raw eV value on the axis instead.
+        pw.setLabel("bottom", "energy (eV)")
+        pw.getAxis("bottom").enableAutoSIPrefix(False)
+        pw.setLabel("left", "mean signal")
+        self._spectrum_plot = pw
+        self._spectrum_curve = pw.plot(
+            [], [], pen=pg.mkPen(C["accent"], width=2),
+            symbol='o', symbolSize=5, symbolBrush=C["accent"], symbolPen=None)
         return pw
+
+    def _update_roi_spectrum(self):
+        """Redraw the ROI spectrum from the live energy stack."""
+        curve = getattr(self, "_spectrum_curve", None)
+        if curve is None:
+            return
+        xs, ys = self._roi_spectrum_points()
+        curve.setData(xs, ys)
+
+    def _roi_spectrum_points(self):
+        """Return (energies, ROI-mean-signal) for every COMPLETED energy, or
+        ([], []) when a spectrum does not apply.
+
+        The in-progress energy is skipped so its partially-imaged (zero-filled)
+        frame never drags the trace down, which also keeps the horizontal axis
+        limited to energies that have actually been measured.  Nothing is
+        returned for single-energy scans, non-image scans, or before the live
+        energy stack exists."""
+        if (self._spectrum_region is None or self.controller is None
+                or getattr(self, "_ls_mode", False)
+                or getattr(self, "_focus_mode", False)
+                or getattr(self, "_motor_scan_mode", False)
+                or self._is_single_motor()):
+            return [], []
+        try:
+            live = getattr(self.controller, "_live_stxm", None)
+            im = self.controller.get_image_model()
+            energies = list(np.asarray(
+                im.get('energy_list') or [], dtype=float).ravel())
+            if live is None or len(energies) <= 1:
+                return [], []
+
+            channel = im.get('channel_key', 'default') or 'default'
+            region_key = str(im.get('scan_region_index', 'Region1'))
+            try:
+                region_num = int(region_key.split('Region')[-1]) - 1
+            except (ValueError, AttributeError):
+                region_num = 0
+
+            interp = getattr(live, 'interp_counts', None)
+            cube = interp.get(channel) if isinstance(interp, dict) else None
+            if cube is None or region_num >= len(cube):
+                return [], []
+            frames = cube[region_num]
+            rect = self.image_area._region_rects.get(region_key)
+            if rect is None:
+                return [], []
+            x0, y0, xr, yr = rect.x(), rect.y(), rect.width(), rect.height()
+            if not (xr and yr):
+                return [], []
+
+            # Completed energies only: everything before the in-progress index
+            # while scanning; the whole stack once the scan has finished.
+            eidx = im.get('energy_index')
+            n = min(len(frames), len(energies))
+            last = min(eidx, n) if (self._scanning and isinstance(eidx, int)) else n
+
+            r = self._spectrum_region
+            rx0, rx1 = r['xCenter'] - r['xRange'] / 2.0, r['xCenter'] + r['xRange'] / 2.0
+            ry0, ry1 = r['yCenter'] - r['yRange'] / 2.0, r['yCenter'] + r['yRange'] / 2.0
+            xs, ys = [], []
+            for i in range(last):
+                frame = frames[i]
+                if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
+                    continue
+                ny, nx = frame.shape[:2]        # row-major frames: [y, x]
+                cx0, cx1 = sorted((int(round((rx0 - x0) / xr * nx)),
+                                   int(round((rx1 - x0) / xr * nx))))
+                cy0, cy1 = sorted((int(round((ry0 - y0) / yr * ny)),
+                                   int(round((ry1 - y0) / yr * ny))))
+                cx0, cx1 = max(0, min(nx, cx0)), max(0, min(nx, cx1))
+                cy0, cy1 = max(0, min(ny, cy0)), max(0, min(ny, cy1))
+                sub = frame[cy0:max(cy0 + 1, cy1), cx0:max(cx0 + 1, cx1)]
+                if sub.size == 0:
+                    continue
+                xs.append(energies[i])
+                ys.append(float(np.nanmean(sub)))
+            return xs, ys
+        except Exception:
+            return [], []
 
     def _lineout_panel(self):
         """A single cursor line-cut through the image, in physical µm — the
@@ -2595,6 +2770,8 @@ class MainWindowDashboard(QMainWindow):
         self._lineout_axis_well.setVisible(lineout)
         if hasattr(self, "image_area") and hasattr(self, "_scan_regions"):
             self._toggle_spectrum(index == 0)
+        if not lineout:
+            self._update_roi_spectrum()      # entering Spectrum tab → draw it
 
     def _set_profile_tab(self, index):
         """Programmatically select a profile tab (Spectrum=0, Line-outs=1), keeping
@@ -3060,7 +3237,10 @@ class MainWindowDashboard(QMainWindow):
             nb.setSpacing(1)
             nb.addWidget(self._label(name, role="mono"))
             nb.addWidget(self._label(kind, role="microLabel"))
-            nw = QWidget(); nw.setFixedWidth(118); nw.setLayout(nb)
+            # Wider name column (motor names were truncating); the value column is
+            # the flexible one (columnStretch below), so this space comes straight
+            # out of it — shrinking the value column by roughly a third.
+            nw = QWidget(); nw.setFixedWidth(150); nw.setLayout(nb)
             g.addWidget(nw, 0, 0)
             # value + travel bar
             vb = QVBoxLayout()
@@ -4256,7 +4436,9 @@ class MainWindowDashboard(QMainWindow):
             sm.set('proposal', proposal)
             sm.set('experimenters', experimenters)
             sm.set('sample', self._sample_field.text())
-            sm.set('comment', 'preview' if preview else '')
+            user_comment = (self._comment_field.text()
+                            if getattr(self, "_comment_field", None) else "")
+            sm.set('comment', 'preview' if preview else user_comment)
             sm.set('driver', driver)
             sm.set('mode', sc.get('mode', 'continuousLine'))
             self._compile_loop_scan(sm, preview=preview)
@@ -4331,6 +4513,18 @@ class MainWindowDashboard(QMainWindow):
                 self._read_spatial_fields())
         elif self._spectrum_region is not None:
             self._spectrum_region.update(self._read_spatial_fields())
+
+        # Guard against a degenerate spatial grid: an image needs more than one
+        # point on each axis.  A stray Points=1 (X or Y) otherwise compiles a
+        # 1-pixel scan whose zero-width range yields a NaN motor target.
+        to_check = [self._scan_regions[0]] if preview else self._scan_regions
+        for i, r in enumerate(to_check):
+            xp, yp = int(r.get('xPoints', 1)), int(r.get('yPoints', 1))
+            if xp < 2 or yp < 2:
+                raise ValueError(
+                    f"Region {i + 1} spatial grid is {xp}×{yp} — an image scan "
+                    f"needs X and Y Points greater than 1.")
+
         region = self._region_scan_dict(self._scan_regions[0])
         if preview:
             # First region only; no extra regions, no spectrum region.
@@ -4745,6 +4939,11 @@ class MainWindowDashboard(QMainWindow):
             sample = last.get('sample')
             if sample and getattr(self, '_sample_field', None):
                 self._sample_field.setText(str(sample))
+
+            comment = last.get('comment')
+            if (comment and comment != 'preview'
+                    and getattr(self, '_comment_field', None)):
+                self._comment_field.setText(str(comment))
         except (ValueError, TypeError, KeyError) as ex:
             self._on_error(f"Could not pre-fill last scan: {ex}")
 
@@ -4782,14 +4981,57 @@ class MainWindowDashboard(QMainWindow):
                if k in daq_cfg and daq_cfg[k].get('record', True)]
         return daq or ['default']
 
+    # Shown when no proposals come back from the ALS API (offline, or none
+    # currently active for this beamline) — the combobox always has this entry.
+    # Placeholder shown as the default combobox entry — nothing is selected until
+    # the user picks a real proposal (which activates Begin scan in User mode).
+    _SELECT_PROPOSAL = "Select a proposal…"
+
+    def _populate_proposal_combo(self):
+        """Fill the Proposal combobox from the ALS API's current ESAF list for
+        this beamline.  Always starts on a "Select a proposal…" placeholder so
+        no proposal is pre-selected; the list is empty behind it when the API
+        can't be reached (dev / offline)."""
+        combo = getattr(self, "_proposal_combo", None)
+        if combo is None:
+            return
+        combo.blockSignals(True)
+        combo.clear()
+        self._esaf_participants = {}
+        combo.addItem(self._SELECT_PROPOSAL)      # index 0: nothing selected
+        try:
+            client = getattr(self.controller, "client", None)
+            beamline = ((getattr(client, "main_config", None) or {})
+                        .get("source", {}).get("beamline"))
+            if not beamline:
+                raise RuntimeError("no beamline configured")
+            from pystxmcontrol.utils.alsapi import getCurrentEsafList
+            esaf_list, participants_list = getCurrentEsafList(beamline=beamline)
+            for esaf, participants in zip(esaf_list, participants_list):
+                combo.addItem(esaf)
+                self._esaf_participants[esaf] = participants
+        except Exception as e:
+            print(f"Could not fetch ESAF list: {e}")
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
+    def _on_proposal_changed(self, _idx=0):
+        """Selecting a proposal is the sole source of the experimenter list
+        (resolved lazily in _proposal_parts()) and, in User mode, the gate that
+        activates the Begin-scan button."""
+        self._update_begin_enabled()
+
     def _proposal_parts(self):
-        """Split the 'ALS-14872 · Shapiro' proposal label into (proposal,
-        experimenters).  Placeholder until a real proposal selector exists."""
-        txt = self._proposal_lbl.text()
-        if '·' in txt:
-            p, e = txt.split('·', 1)
-            return p.strip(), e.strip()
-        return txt.strip(), ''
+        """Return (proposal, experimenters) for the selected proposal.  The
+        experimenter list comes from that proposal's ALS-API participants."""
+        combo = getattr(self, "_proposal_combo", None)
+        if combo is None:
+            return "", ""
+        proposal = combo.currentText().strip()
+        if not proposal or proposal == self._SELECT_PROPOSAL:
+            return "", ""
+        experimenters = ", ".join(self._esaf_participants.get(proposal, []))
+        return proposal, experimenters
 
     @staticmethod
     def _energy_n(start, stop, step):
@@ -5002,20 +5244,25 @@ class MainWindowDashboard(QMainWindow):
         self._refresh_spatial_image(fit=True)
 
     def _toggle_spectrum(self, on):
-        """Show/hide the special spectrum ROI (a distinct-coloured box)."""
+        """Show/hide the spectrum ROI (a distinct-coloured box).
+
+        The spectrum ROI floats independently of the spatial scan regions: it is
+        never the active region and never edits the Spatial tab fields, so
+        toggling or dragging it leaves the scan definition untouched.  Its point
+        counts mirror the base region purely so the SpectrumRegion emitted at
+        compile time is never a degenerate 1×1 grid."""
         if on:
             base = self._active_region_dict() or self._read_spatial_fields()
             self._spectrum_region = {
                 'xCenter': base['xCenter'], 'yCenter': base['yCenter'],
                 'xRange': max(base['xRange'] * 0.4, 1.0),
                 'yRange': max(base['yRange'] * 0.4, 1.0),
-                'xPoints': 1, 'yPoints': 1}
-            self._load_spatial_region('spectrum')
+                'xPoints': max(2, int(base.get('xPoints', 2))),
+                'yPoints': max(2, int(base.get('yPoints', 2)))}
         else:
             self._spectrum_region = None
-            if self._active_region == 'spectrum':
-                self._load_spatial_region(0)
         self._refresh_spatial_image(fit=True)
+        self._update_roi_spectrum()
 
     def _spatial_region_list(self):
         """Combined list of {key, geometry, label, kind, active} for the image."""
@@ -5027,8 +5274,11 @@ class MainWindowDashboard(QMainWindow):
                            ('xCenter', 'yCenter', 'xRange', 'yRange')}})
         if self._spectrum_region is not None:
             r = self._spectrum_region
+            # Always "active" for styling only: the spectrum ROI is not a scan
+            # region, but keeping its resize handles visible lets it be edited
+            # without ever becoming the selected spatial region.
             out.append({'key': 'spectrum', 'label': "Spec", 'kind': 'spectrum',
-                        'active': self._active_region == 'spectrum',
+                        'active': True,
                         **{k: r[k] for k in
                            ('xCenter', 'yCenter', 'xRange', 'yRange')}})
         return out
@@ -5082,8 +5332,7 @@ class MainWindowDashboard(QMainWindow):
         if getattr(self, '_del_region_btn', None):
             self._del_region_btn.setEnabled(
                 not self._takes_over_image()
-                and (self._active_region == 'spectrum'
-                     or len(self._scan_regions) > 1))
+                and len(self._scan_regions) > 1)
         if self._is_line_scan():
             self.image_area.sync_regions([])
             self._refresh_focus_line()
@@ -5108,15 +5357,28 @@ class MainWindowDashboard(QMainWindow):
         return 'spectrum' if key == 'spectrum' else int(key)
 
     def _on_roi_selected(self, key):
+        # The spectrum ROI floats independently of the spatial regions: selecting
+        # it must NOT make it the active region or touch the Spatial fields.
+        if key == 'spectrum':
+            return
         target = self._key_to_target(key)
         if target != self._active_region:
             self._load_spatial_region(target)
 
     def _on_roi_moving(self, key, xc, yc, xr, yr):
-        """Live geometry during a drag: update grid + model, no FOV refit."""
+        """Live geometry during a drag: update the target's model, no FOV refit.
+
+        The spectrum ROI is decoupled from the spatial regions — dragging it only
+        updates its own geometry and the spectrum trace, never a scan region or
+        the shared Spatial fields."""
+        if key == 'spectrum':
+            if self._spectrum_region is not None:
+                self._spectrum_region.update(
+                    {'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr})
+                self._update_roi_spectrum()
+            return
         target = self._key_to_target(key)
-        reg = (self._spectrum_region if target == 'spectrum'
-               else self._scan_regions[target])
+        reg = self._scan_regions[target]
         reg.update({'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr})
         if target == self._active_region:
             self._syncing_spatial = True
@@ -5126,8 +5388,12 @@ class MainWindowDashboard(QMainWindow):
                 self._syncing_spatial = False
 
     def _on_roi_moved(self, key, xc, yc, xr, yr):
-        """Drag finished: commit geometry and refit the FOV."""
+        """Drag finished: commit geometry."""
         self._on_roi_moving(key, xc, yc, xr, yr)
+        if key == 'spectrum':
+            # A spectrum-ROI drag changes neither the scan definition nor the FOV.
+            self._refresh_spatial_image()
+            return
         self._refresh_spatial_image(fit=True)
         self._refresh_scan_stats()
 
@@ -5558,7 +5824,6 @@ class MainWindowDashboard(QMainWindow):
         if not self._favorites:
             row.addWidget(self._label("Drag an energy preset (.json) here",
                                       role="monoFaint"))
-            row.addStretch(1)
             return
         for i, fav in enumerate(self._favorites):
             b = QPushButton(fav.get('alias', f'Preset {i + 1}'))
@@ -5569,7 +5834,6 @@ class MainWindowDashboard(QMainWindow):
             b.customContextMenuRequested.connect(
                 lambda _pos, idx=i: self._favorite_context_menu(idx))
             row.addWidget(b)
-        row.addStretch(1)
 
     def _on_favorite_dropped(self, path):
         """A .json was dropped on the Favorites bar: read its energy regions, ask
@@ -5667,6 +5931,13 @@ class MainWindowDashboard(QMainWindow):
         # re-polish so the objectName-based style applies
         self.begin_btn.style().unpolish(self.begin_btn)
         self.begin_btn.style().polish(self.begin_btn)
+        # Enabled state: always active as Cancel while scanning; when idle it is
+        # gated by mode + proposal (User mode needs a proposal selected).
+        self._update_begin_enabled()
+        # A finished scan releases its final energy into the ROI spectrum (during
+        # the scan the last energy is the in-progress one and so is held back).
+        if was_scanning and not self._scanning:
+            self._update_roi_spectrum()
 
     def _on_external_scan_started(self, scan_type):
         """A scan was started outside the Begin button — by the task agent, a
@@ -5739,11 +6010,126 @@ class MainWindowDashboard(QMainWindow):
         self._refresh_spatial_image(fit=True)
 
     def _toggle_expert(self):
-        self._expert = not self._expert
-        self.mode_btn.setText("Staff mode" if self._expert else "User mode")
-        self.cmd_log.setVisible(self._expert)
+        """Toggle Staff/User mode.  Entering Staff mode requires the staff
+        password; dropping back to User mode is unrestricted."""
+        if not self._expert:
+            if not self._check_staff_password():
+                return
+            self._expert = True
+        else:
+            self._expert = False
+        self._apply_mode()
+
+    def _apply_mode(self):
+        """Apply the current Staff/User mode across the UI: the mode-button
+        label, staff-only widgets, the command log, the motor list (Staff sees
+        ``display:false`` motors too), and the Begin-scan proposal gate."""
+        staff = self._expert
+        # Button shows the currently active mode.
+        self.mode_btn.setText("Staff mode" if staff else "User mode")
+        if getattr(self, "cmd_log", None) is not None:
+            self.cmd_log.setVisible(staff)
         for wdg in self._staff_widgets:
-            wdg.setVisible(self._expert)
+            wdg.setVisible(staff)
+        # Refilter the motor panel: User mode hides display:false motors.
+        if hasattr(self, "motor_layout"):
+            self._repopulate_motors()
+        self._update_begin_enabled()
+
+    def _mode_btn_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction("Set staff password…", self.set_staff_password)
+        menu.exec(self.mode_btn.mapToGlobal(pos))
+
+    # ── staff password (mirrors mainwindow_mvc: PBKDF2 hash in main.json) ──────
+    @staticmethod
+    def _staff_config_path():
+        return os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json")
+
+    def _read_main_json(self):
+        try:
+            with open(self._staff_config_path()) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _write_main_json(self, data):
+        try:
+            with open(self._staff_config_path(), "w") as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            self._on_error(f"Could not save config: {e}")
+
+    @staticmethod
+    def _hash_password(password, salt):
+        import hashlib
+        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260000).hex()
+
+    def _check_staff_password(self):
+        """Prompt for the staff password.  Returns True if authenticated.  When
+        no password has been set yet, offer to create one (matching the classic
+        window)."""
+        cfg = self._read_main_json()
+        stored_hash = cfg.get("staff_password_hash")
+        stored_salt = cfg.get("staff_password_salt")
+        if not (stored_hash and stored_salt):
+            reply = QMessageBox.question(
+                self, "Staff Password",
+                "No staff password is set. Set one now?",
+                QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return False
+            self.set_staff_password()
+            cfg = self._read_main_json()
+            stored_hash = cfg.get("staff_password_hash")
+            stored_salt = cfg.get("staff_password_salt")
+            if not (stored_hash and stored_salt):
+                return False
+        password, ok = QInputDialog.getText(
+            self, "Staff Access", "Enter staff password:", QLineEdit.Password)
+        if not ok or not password:
+            return False
+        return self._hash_password(password, bytes.fromhex(stored_salt)) == stored_hash
+
+    def set_staff_password(self):
+        """Prompt for and store a new staff password (PBKDF2 hash + salt) in
+        main.json."""
+        password, ok = QInputDialog.getText(
+            self, "Set Staff Password", "Enter new staff password:",
+            QLineEdit.Password)
+        if not ok or not password:
+            return
+        confirm, ok = QInputDialog.getText(
+            self, "Set Staff Password", "Confirm new staff password:",
+            QLineEdit.Password)
+        if not ok or confirm != password:
+            QMessageBox.warning(self, "Staff Password", "Passwords do not match.")
+            return
+        salt = os.urandom(32)
+        cfg = self._read_main_json()
+        cfg["staff_password_hash"] = self._hash_password(password, salt)
+        cfg["staff_password_salt"] = salt.hex()
+        self._write_main_json(cfg)
+        QMessageBox.information(self, "Staff Password", "Staff password updated.")
+
+    def _proposal_selected(self):
+        """True when a real proposal is chosen (not the empty placeholder)."""
+        try:
+            return bool(self._proposal_parts()[0])
+        except Exception:
+            return False
+
+    def _update_begin_enabled(self):
+        """Gate the Begin-scan button: User mode requires a selected proposal;
+        Staff mode does not.  While scanning the button is Cancel and stays
+        enabled."""
+        btn = getattr(self, "begin_btn", None)
+        if btn is None:
+            return
+        if self._scanning:
+            btn.setEnabled(True)
+            return
+        btn.setEnabled(self._expert or self._proposal_selected())
 
     @staticmethod
     def _scan_is_focus(text):
@@ -6116,6 +6502,8 @@ class MainWindowDashboard(QMainWindow):
         # Each frame also refreshes the live-detector CCD panel from the per-detector
         # frames the controller stored on the image model.
         self._refresh_ccd()
+        # …the ROI spectrum (mean signal in the Spectrum ROI vs energy)…
+        self._update_roi_spectrum()
         # …and advances the per-image line counter (line_index just updated).
         if self._scanning:
             self._refresh_scan_progress()
