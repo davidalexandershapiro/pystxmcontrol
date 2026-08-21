@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
     QCheckBox, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
     QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
-    QMessageBox, QFileDialog,
+    QMessageBox, QFileDialog, QInputDialog, QMenu,
 )
-from PySide6.QtGui import QPixmap, QImage, QColor, QFont, QIntValidator
+from PySide6.QtGui import QPixmap, QImage, QColor, QFont, QIntValidator, QCursor
 from PySide6.QtCore import Qt, QTimer, QRectF, Signal, QThread
 
 import zmq
@@ -333,6 +333,53 @@ def _read_scan_file(path):
             return info
     except Exception:
         return None
+
+
+class EnergyFavoritesBar(QFrame):
+    """A drop target + button row for energy-region "favorites".
+
+    Dropping a ``.json`` energy-preset file (from the OS file manager) onto the
+    bar emits ``file_dropped(path)``; the owner then asks for an alias and adds a
+    button.  Child buttons/labels don't accept drops, so drag events over them
+    fall through to this bar — plus the trailing stretch is always an open drop
+    zone.  Left-click / right-click behaviour is wired per button by the owner."""
+
+    file_dropped = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setObjectName("favoritesBar")
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(6)
+
+    def layout_row(self):
+        return self._row
+
+    @staticmethod
+    def _json_urls(md):
+        if not md.hasUrls():
+            return []
+        return [u.toLocalFile() for u in md.urls()
+                if u.toLocalFile().lower().endswith(".json")]
+
+    def dragEnterEvent(self, ev):
+        (ev.acceptProposedAction() if self._json_urls(ev.mimeData())
+         else ev.ignore())
+
+    def dragMoveEvent(self, ev):
+        (ev.acceptProposedAction() if self._json_urls(ev.mimeData())
+         else ev.ignore())
+
+    def dropEvent(self, ev):
+        paths = self._json_urls(ev.mimeData())
+        if not paths:
+            ev.ignore()
+            return
+        for p in paths:
+            self.file_dropped.emit(p)
+        ev.acceptProposedAction()
 
 
 class SciAxis(pg.AxisItem):
@@ -2263,16 +2310,16 @@ class MainWindowDashboard(QMainWindow):
         gv.addWidget(sample)
         iv.addWidget(w)
 
-        # Presets
-        w, gv = self._group_box("Presets", sep=False)
-        pr = QHBoxLayout()
-        pr.setSpacing(6)
-        for name in ("Fe L₃ survey", "Fine ptycho 5 nm", "Focus series", "Save current…"):
-            b = QPushButton(name); b.setProperty("role", "preset")
-            pr.addWidget(b)
-        pr.addStretch(1)
-        gv.addLayout(pr)
+        # Favorites — energy presets, added by dropping a .json here (see
+        # _on_favorite_dropped) and applied with a left-click.
+        w, gv = self._group_box("Favorites", "energy presets · drag .json here",
+                                 sep=False)
+        self._favorites_bar = EnergyFavoritesBar()
+        self._favorites_bar.file_dropped.connect(self._on_favorite_dropped)
+        gv.addWidget(self._favorites_bar)
         iv.addWidget(w)
+        self._favorites = self._read_favorites_file()
+        self._rebuild_favorites_bar()
 
         iv.addStretch(1)
         scroll.setWidget(inner)
@@ -5270,26 +5317,25 @@ class MainWindowDashboard(QMainWindow):
             QMessageBox.warning(self, "Save Energy Preset",
                                 f"Could not save preset:\n{e}")
 
-    def _load_energy_preset(self):
-        """Load energy regions from a JSON preset file and populate the energy
-        fields.  Accepts either ``{"energy_regions": {...}}`` or a raw regions dict,
-        matching mainwindow_mvc.open_energy_definition."""
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Load Energy Preset", "", "JSON Files (*.json);;All Files (*)")
-        if not filename:
-            return
+    @staticmethod
+    def _read_energy_regions_json(path):
+        """Read an energy-preset JSON file.  Accepts either
+        ``{"energy_regions": {...}}`` or a raw ``{EnergyRegionN: {...}}`` dict
+        (matching mainwindow_mvc.open_energy_definition).  Returns the regions dict
+        or None if unreadable / empty."""
         try:
-            with open(filename, 'r') as f:
+            with open(path, 'r') as f:
                 data = json.load(f)
-        except (OSError, ValueError) as e:
-            QMessageBox.warning(self, "Load Energy Preset",
-                                f"Could not read preset:\n{e}")
-            return
+        except (OSError, ValueError):
+            return None
         regions = data.get('energy_regions', data) if isinstance(data, dict) else None
+        return regions if isinstance(regions, dict) and regions else None
+
+    def _apply_energy_regions_dict(self, regions):
+        """Populate the energy fields from an ``{EnergyRegionN: {...}}`` dict.
+        Returns True on success (shared by the file loader and Favorites)."""
         if not isinstance(regions, dict) or not regions:
-            QMessageBox.warning(self, "Load Energy Preset",
-                                f"No energy regions found in:\n{os.path.basename(filename)}")
-            return
+            return False
         eregs = []
         try:
             for e in regions.values():
@@ -5298,17 +5344,151 @@ class MainWindowDashboard(QMainWindow):
                 eregs.append({'start': start, 'stop': stop, 'step': step,
                               'dwell': float(e.get('dwell', 1.0)),
                               'n': int(e.get('n_energies', 1)) or 1})
-        except (ValueError, TypeError, AttributeError) as e:
-            QMessageBox.warning(self, "Load Energy Preset",
-                                f"Malformed energy preset:\n{e}")
-            return
+        except (ValueError, TypeError, AttributeError):
+            return False
         if not eregs:
-            return
+            return False
         self._energy_regions = eregs
         self._active_energy_region = 0
         self._load_energy_region(0)
         self._refresh_image_meta()
+        return True
+
+    def _load_energy_preset(self):
+        """Load energy regions from a JSON preset file and populate the fields."""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Load Energy Preset", "", "JSON Files (*.json);;All Files (*)")
+        if not filename:
+            return
+        regions = self._read_energy_regions_json(filename)
+        if regions is None:
+            QMessageBox.warning(self, "Load Energy Preset",
+                                f"No readable energy regions in:\n"
+                                f"{os.path.basename(filename)}")
+            return
+        if not self._apply_energy_regions_dict(regions):
+            QMessageBox.warning(self, "Load Energy Preset",
+                                f"Malformed energy preset:\n{os.path.basename(filename)}")
+            return
         self._on_status(f"Loaded energy preset: {os.path.basename(filename)}")
+
+    # ── energy favorites (drag-drop presets pinned to the Favorites bar) ──────
+    @staticmethod
+    def _favorites_file_path():
+        """Where energy favorites are persisted: alongside the runtime config
+        (pystxmcontrol_cfg), falling back to the repo config dir, then home."""
+        for d in (os.path.join(sys.prefix, "pystxmcontrol_cfg"),
+                  os.path.join(os.path.dirname(__file__), "..", "..", "config")):
+            if os.path.isdir(d):
+                return os.path.join(d, "dashboard_energy_favorites.json")
+        return os.path.join(os.path.expanduser("~"),
+                            ".pystxmcontrol_energy_favorites.json")
+
+    def _read_favorites_file(self):
+        """Load the persisted favorites list, keeping only well-formed entries."""
+        try:
+            with open(self._favorites_file_path(), 'r') as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return []
+        favs = data.get('favorites', []) if isinstance(data, dict) else []
+        out = []
+        for fav in favs:
+            if isinstance(fav, dict) and isinstance(fav.get('energy_regions'), dict):
+                out.append({'alias': str(fav.get('alias', 'Preset')),
+                            'energy_regions': fav['energy_regions']})
+        return out
+
+    def _write_favorites_file(self):
+        try:
+            with open(self._favorites_file_path(), 'w') as f:
+                json.dump({'favorites': self._favorites}, f, indent=2)
+        except OSError as e:
+            self._on_error(f"Could not save favorites: {e}")
+
+    @staticmethod
+    def _favorite_tooltip(fav):
+        lines = []
+        for r in (fav.get('energy_regions') or {}).values():
+            lines.append(f"{r.get('start')}–{r.get('stop')} eV · "
+                         f"{r.get('n_energies')} pts · {r.get('dwell')} ms")
+        return "\n".join(lines) or "energy preset"
+
+    def _rebuild_favorites_bar(self):
+        """Redraw the Favorites bar from ``self._favorites``: one button each
+        (left-click applies, right-click removes), or a hint when empty."""
+        row = self._favorites_bar.layout_row()
+        while row.count():
+            item = row.takeAt(0)
+            wdg = item.widget()
+            if wdg is not None:
+                wdg.deleteLater()
+        if not self._favorites:
+            row.addWidget(self._label("Drag an energy preset (.json) here",
+                                      role="monoFaint"))
+            row.addStretch(1)
+            return
+        for i, fav in enumerate(self._favorites):
+            b = QPushButton(fav.get('alias', f'Preset {i + 1}'))
+            b.setProperty("role", "preset")
+            b.setToolTip(self._favorite_tooltip(fav))
+            b.clicked.connect(lambda _=False, idx=i: self._apply_favorite(idx))
+            b.setContextMenuPolicy(Qt.CustomContextMenu)
+            b.customContextMenuRequested.connect(
+                lambda _pos, idx=i: self._favorite_context_menu(idx))
+            row.addWidget(b)
+        row.addStretch(1)
+
+    def _on_favorite_dropped(self, path):
+        """A .json was dropped on the Favorites bar: read its energy regions, ask
+        for an alias, then pin it as a new favorite button."""
+        regions = self._read_energy_regions_json(path)
+        if regions is None:
+            QMessageBox.warning(self, "Add favorite",
+                                f"No readable energy regions in:\n"
+                                f"{os.path.basename(path)}")
+            return
+        default_alias = os.path.splitext(os.path.basename(path))[0]
+        alias, ok = QInputDialog.getText(
+            self, "Add favorite", "Favorite name:", text=default_alias)
+        if not ok:
+            return
+        alias = alias.strip() or default_alias
+        self._favorites.append({'alias': alias, 'energy_regions': regions})
+        self._write_favorites_file()
+        self._rebuild_favorites_bar()
+        self._on_status(f"Added favorite: {alias}")
+
+    def _apply_favorite(self, idx):
+        """Left-click: apply a favorite's energy regions (like Load Preset)."""
+        if not (0 <= idx < len(self._favorites)):
+            return
+        fav = self._favorites[idx]
+        if self._apply_energy_regions_dict(fav.get('energy_regions')):
+            self._on_status(f"Applied favorite: {fav.get('alias')}")
+        else:
+            self._on_error(f"Favorite '{fav.get('alias')}' has no valid energy regions")
+
+    def _favorite_context_menu(self, idx):
+        """Right-click: offer to remove the favorite."""
+        menu = QMenu(self)
+        remove_act = menu.addAction("Remove favorite")
+        if menu.exec(QCursor.pos()) is remove_act:
+            self._remove_favorite(idx)
+
+    def _remove_favorite(self, idx):
+        if not (0 <= idx < len(self._favorites)):
+            return
+        alias = self._favorites[idx].get('alias', 'this favorite')
+        reply = QMessageBox.question(
+            self, "Remove favorite", f"Remove energy favorite '{alias}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        del self._favorites[idx]
+        self._write_favorites_file()
+        self._rebuild_favorites_bar()
 
     def _on_error(self, msg):
         print(f"[dashboard] ERROR: {msg}")
