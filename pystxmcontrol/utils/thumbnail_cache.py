@@ -49,10 +49,18 @@ def _normalize(arr):
 
 
 def _downscale(arr, size=THUMB_SIZE):
-    """Resample arr to exactly size×size using nearest-neighbour indexing."""
+    """Resample arr with nearest-neighbour indexing, longest side to ``size``,
+    preserving aspect ratio (so a wide/tall scan stays wide/tall — callers show
+    the thumbnail with KeepAspectRatio).  Never upsamples beyond the source."""
     h, w = arr.shape
-    row_idx = np.round(np.linspace(0, h - 1, size)).astype(int)
-    col_idx = np.round(np.linspace(0, w - 1, size)).astype(int)
+    if h >= w:
+        out_h = min(h, size)
+        out_w = max(1, int(round(w * out_h / h)))
+    else:
+        out_w = min(w, size)
+        out_h = max(1, int(round(h * out_w / w)))
+    row_idx = np.round(np.linspace(0, h - 1, out_h)).astype(int)
+    col_idx = np.round(np.linspace(0, w - 1, out_w)).astype(int)
     return arr[np.ix_(row_idx, col_idx)]
 
 

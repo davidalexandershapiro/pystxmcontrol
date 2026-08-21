@@ -3454,305 +3454,31 @@ class MainWindowDashboard(QMainWindow):
     # ════════════════════════════════════════════════════════════════════
     #  Browser view
     # ════════════════════════════════════════════════════════════════════
-    # Sample session files (shape reference for the real HDF5 listing).
-    _BROWSER_FILES = [
-        ("NS_260809051.stxm", "Focus"), ("NS_260809052.stxm", "Focus"),
-        ("NS_260809053.stxm", "Spiral Image"), ("NS_260809054.stxm", "Spiral Image"),
-        ("NS_260809055.stxm", "Spiral Image"), ("NS_260809056.stxm", "Spiral Image"),
-        ("NS_260809057.stxm", "Spiral Stack"), ("NS_260809058.stxm", "Spiral Stack"),
-        ("NS_260809059.stxm", "Spiral Image"), ("NS_260809060.stxm", "Ptychography"),
-        ("NS_260809061.stxm", "Focus"), ("NS_260809062.stxm", "Spiral Image"),
-        ("NS_260809063.stxm", "Line Spectrum"), ("NS_260809064.stxm", "Spiral Image"),
-        ("NS_260809065.stxm", "Spiral Stack"), ("NS_260809066.stxm", "Ptychography"),
-        ("NS_260809067.stxm", "Spiral Image"), ("NS_260809068.stxm", "Tomography"),
-        ("NS_260809069.stxm", "Spiral Image"), ("NS_260809070.stxm", "Spiral Image"),
-    ]
-    _BROWSER_FILTERS = ["All", "Focus", "Spiral Image", "Spiral Stack",
-                        "Line Spectrum", "Ptychography"]
-
-    @staticmethod
-    def _file_seed(name):
-        try:
-            return int(name.split(".")[0][-3:])
-        except ValueError:
-            return 1
-
     def _build_browser_view(self):
-        self._browser_cmap = "gray"
-        self._browser_filter = "All"
-        self._browser_sel = 5
-        self._browser_tiles = []
+        """The Browser tab: the standalone ``BrowserApp`` data browser, wired so
+        Send to Analysis / Acquisition drive this window's views (see
+        ``browser_app_dashboard``)."""
+        from pystxmcontrol.gui.browser_app_dashboard import BrowserApp
+        self.browser_app = BrowserApp(
+            controller=self.controller,
+            logbook_model=getattr(self.controller, "logbook_model", None),
+            parent=self)
+        self.browser_app.send_to_analysis.connect(self._browser_to_analysis)
+        self.browser_app.send_to_acquisition.connect(self._browser_to_acquisition)
+        self.browser_app.set_scanning(self._scanning)
+        return self.browser_app
 
-        body = QWidget()
-        body.setStyleSheet(f"background:{C['canvas']};")
-        bl = QHBoxLayout(body)
-        bl.setContentsMargins(10, 10, 10, 10)
-        bl.setSpacing(10)
-        col1 = self._browser_files_col(); col1.setFixedWidth(660)
-        col2 = self._browser_viewer_col()
-        col3 = self._browser_details_col(); col3.setFixedWidth(460)
-        bl.addWidget(col1)
-        bl.addWidget(col2, 1)
-        bl.addWidget(col3)
+    def _browser_to_acquisition(self, path):
+        """Send to Acquisition: load the scan into the acquisition definition
+        (if its driver is loadable) and switch to that view."""
+        self._load_scan_file(path)
+        self._go_view(0)
 
-        self._browser_render_grid()
-        self._browser_select(self._browser_sel)
-        return body
+    def _browser_to_analysis(self, path):
+        """Send to Analysis: switch to the Analysis view.  (The Analysis tab will
+        load *path* once it is wired to real data.)"""
+        self._go_view(2)
 
-    def _browser_files_col(self):
-        card, cbody = self._card("Session files")
-        path = self._label("/data/2026/08/09", role="monoFaint")
-        card._header_layout.insertWidget(1, path)
-        card._header_layout.insertSpacing(2, 10)
-        refresh = QPushButton("Refresh"); refresh.setProperty("role", "small")
-        card._header_layout.addWidget(refresh)
-
-        # filter row
-        frow = QFrame()
-        frow.setObjectName("filterRow")
-        frow.setStyleSheet(f"QFrame#filterRow {{background:{C['panel_footer']};"
-                           f"border:none;border-bottom:1px solid {C['border']};}}")
-        fl = QHBoxLayout(frow)
-        fl.setContentsMargins(12, 10, 12, 10)
-        fl.setSpacing(6)
-        self._browser_filter_grp, fbtns = self._filter_pills(self._BROWSER_FILTERS)
-        for i, b in enumerate(fbtns):
-            fl.addWidget(b)
-            b.clicked.connect(
-                lambda _=False, k=self._BROWSER_FILTERS[i]: self._browser_set_filter(k))
-        fl.addStretch(1)
-        self._browser_count = self._label("20 of 20 shown", role="monoFaint")
-        fl.addWidget(self._browser_count)
-        cbody.addWidget(frow)
-
-        # thumbnail grid
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        inner = QWidget()
-        self._browser_grid = QGridLayout(inner)
-        self._browser_grid.setContentsMargins(12, 12, 12, 12)
-        self._browser_grid.setHorizontalSpacing(10)
-        self._browser_grid.setVerticalSpacing(10)
-        for c in range(4):
-            self._browser_grid.setColumnStretch(c, 1)
-        scroll.setWidget(inner)
-        cbody.addWidget(scroll, 1)
-        return card
-
-    def _browser_tile(self, idx):
-        name, kind = self._BROWSER_FILES[idx]
-        field = _thumb_field(self._file_seed(name), kind, 64)
-        tile = QFrame()
-        tile.setObjectName("browserTile")
-        tile.setCursor(Qt.PointingHandCursor)
-        tv = QVBoxLayout(tile)
-        tv.setContentsMargins(6, 6, 6, 6)
-        tv.setSpacing(5)
-        canvas = QLabel()
-        canvas.setFixedHeight(140)
-        canvas.setScaledContents(True)
-        canvas.setStyleSheet("background:#000;border:none;")
-        canvas.setPixmap(_field_pixmap(field, self._browser_cmap, 140))
-        tv.addWidget(canvas)
-        cap = QVBoxLayout(); cap.setSpacing(1)
-        fn = self._label(name, role="mono"); fn.setFont(mono_font(11))
-        cap.addWidget(fn)
-        cap.addWidget(self._label(kind.upper(), role="microLabel"))
-        tv.addLayout(cap)
-        tile.mousePressEvent = lambda e, i=idx: self._browser_select(i)
-        self._browser_tiles.append(
-            {"frame": tile, "canvas": canvas, "field": field, "idx": idx, "name": fn})
-        return tile
-
-    def _browser_render_grid(self):
-        # clear
-        while self._browser_grid.count():
-            item = self._browser_grid.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        self._browser_tiles = []
-        shown = [i for i, (_, kind) in enumerate(self._BROWSER_FILES)
-                 if self._browser_filter == "All" or kind == self._browser_filter]
-        for pos, idx in enumerate(shown):
-            r, c = divmod(pos, 4)
-            self._browser_grid.addWidget(self._browser_tile(idx), r, c)
-        self._browser_count.setText(
-            f"{len(shown)} of {len(self._BROWSER_FILES)} shown")
-        # keep selection if still visible, else pick the first shown
-        if self._browser_sel not in shown and shown:
-            self._browser_sel = shown[0]
-        self._browser_apply_selection_style()
-
-    def _browser_set_filter(self, kind):
-        self._browser_filter = kind
-        self._browser_render_grid()
-        self._browser_select(self._browser_sel)
-
-    def _browser_apply_selection_style(self):
-        for t in self._browser_tiles:
-            sel = t["idx"] == self._browser_sel
-            t["frame"].setStyleSheet(
-                f"QFrame#browserTile {{background:"
-                f"{'#131a20' if sel else C['panel_footer']};"
-                f"border:1px solid {C['accent'] if sel else C['border']};"
-                "border-radius:6px;}")
-            t["name"].setStyleSheet(
-                f"color:{C['text'] if sel else C['text_2']};background:transparent;")
-
-    def _browser_select(self, idx):
-        self._browser_sel = idx
-        self._browser_apply_selection_style()
-        name, kind = self._BROWSER_FILES[idx]
-        field = _thumb_field(self._file_seed(name), kind, 150)
-        self._browser_big.set_field(field, autolevels=True)
-        self._browser_fn.setText(name)
-        self._browser_sub.setText(f"{kind} · 2026-08-09 10:02")
-        # rebuild parameters
-        while self._browser_params.count():
-            item = self._browser_params.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        for k, val in self._browser_detail(name, kind):
-            self._browser_params.addWidget(self._param_row(k, val))
-
-    @staticmethod
-    def _browser_detail(name, kind):
-        is_stack = kind == "Spiral Stack"
-        return [
-            ("File", name), ("Scan type", kind),
-            ("Start", "2026-08-09T10:02:03"), ("End", "2026-08-09T10:02:11"),
-            ("Experimenters", "Jeongho Cho, Gibeom Kim, Eunsoo Nam"),
-            ("Proposal", "ALS-12941-009"),
-            ("Sample", "particle collection, Fe screening"),
-            ("X range", "-138.821 – -119.021 µm  (100 pts, 0.2000 µm/pt)"),
-            ("Y range", "36.365 – 56.165 µm  (100 pts, 0.2000 µm/pt)"),
-            ("Energies", "12  (695.50 – 705.50 eV)" if is_stack
-             else "1 energy  700.75 eV"),
-            ("Dwell", "0.500 ms"), ("X motor", "SampleX"), ("Y motor", "SampleY"),
-            ("Size", "48.2 MB" if is_stack else "4.1 MB"),
-        ]
-
-    def _param_row(self, key, value):
-        row = QFrame()
-        row.setObjectName("rowSep")
-        g = QHBoxLayout(row)
-        g.setContentsMargins(0, 7, 0, 7)
-        g.setSpacing(10)
-        k = self._label(key, font=sans_font(10.5), color=C["text_dim"])
-        k.setFixedWidth(96)
-        g.addWidget(k)
-        v = self._label(value, role="mono")
-        v.setWordWrap(True)
-        g.addWidget(v, 1)
-        return row
-
-    def _browser_viewer_col(self):
-        card = QFrame()
-        card.setObjectName("card")
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
-        tb, self._browser_fn, self._browser_sub = self._viewer_toolbar(
-            "NS_260809056.stxm", "Spiral Image · 2026-08-09 10:02",
-            self._browser_set_cmap, ("Levels", "Unzoom", "Save PNG"))
-        cl.addWidget(tb)
-
-        bodyw = QWidget()
-        bh = QHBoxLayout(bodyw)
-        bh.setContentsMargins(0, 0, 0, 0)
-        bh.setSpacing(0)
-        self._browser_big = OverlayImageView(
-            _thumb_field(56, "Spiral Image", 150), cmap="gray",
-            meta_text="Spiral Image · channel default\n"
-                      "pixel 0.200 µm · dwell 0.5 ms\n"
-                      "700.75 eV · circ. polarization")
-        bh.addWidget(self._browser_big, 1)
-        rail, self._browser_rail = self._viewer_rail("gray")
-        bh.addWidget(rail)
-        cl.addWidget(bodyw, 1)
-
-        footer = QFrame()
-        footer.setObjectName("cardFooter")
-        fv = QHBoxLayout(footer)
-        fv.setContentsMargins(14, 10, 14, 10)
-        fv.setSpacing(10)
-        for name in ("◀", "▶"):
-            b = QPushButton(name); b.setProperty("role", "jog"); b.setFixedWidth(30)
-            fv.addWidget(b)
-        fv.addWidget(self._label("energy 1 of 1", role="monoFaint"))
-        fv.addStretch(1)
-        for lbl, val in (("X", "-128.4"), ("Y", "46.1"), ("I", "8421")):
-            fv.addWidget(self._label(lbl, font=mono_font(11), color=C["text_dim"]))
-            fv.addWidget(self._label(val, font=mono_font(11), color=C["text"]))
-        cl.addWidget(footer)
-        return card
-
-    def _browser_set_cmap(self, name):
-        self._browser_cmap = name
-        self._browser_big.set_cmap(name)
-        self._browser_rail.set_lut(name)
-        for t in self._browser_tiles:
-            t["canvas"].setPixmap(_field_pixmap(t["field"], name, 140))
-
-    def _browser_details_col(self):
-        col = QWidget()
-        v = QVBoxLayout(col)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(10)
-
-        # parameters
-        pcard, pbody = self._card("Parameters")
-        pscroll = QScrollArea()
-        pscroll.setWidgetResizable(True)
-        pscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        pinner = QWidget()
-        self._browser_params = QVBoxLayout(pinner)
-        self._browser_params.setContentsMargins(14, 4, 14, 4)
-        self._browser_params.setSpacing(0)
-        self._browser_params.addStretch(1)
-        pscroll.setWidget(pinner)
-        pbody.addWidget(pscroll, 1)
-        v.addWidget(pcard, 1)
-
-        # actions
-        acard, abody = self._card("Actions")
-        acontent = QWidget()
-        av = QVBoxLayout(acontent)
-        av.setContentsMargins(14, 14, 14, 14)
-        av.setSpacing(10)
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        send_acq = QPushButton("Send to Acquisition")
-        send_acq.setObjectName("beginScan")
-        send_acq.setCursor(Qt.PointingHandCursor)
-        send_acq.clicked.connect(lambda: self._go_view(0))
-        send_ana = QPushButton("Send to Analysis")
-        send_ana.setCursor(Qt.PointingHandCursor)
-        send_ana.clicked.connect(lambda: self._go_view(2))
-        btns.addWidget(send_acq, 1)
-        btns.addWidget(send_ana, 1)
-        av.addLayout(btns)
-        note = self._label(
-            "Send to Acquisition loads the scan's region, energy and dwell into "
-            "the scan definition; Send to Analysis opens the stack.",
-            font=sans_font(10.5), color=C["text_faint"])
-        note.setWordWrap(True)
-        av.addWidget(note)
-        crow = QHBoxLayout()
-        crow.setSpacing(8)
-        comment = QLineEdit()
-        comment.setPlaceholderText("Comment for logbook…")
-        comment.setFont(sans_font(11))
-        crow.addWidget(comment, 1)
-        addb = QPushButton("Add"); addb.setProperty("role", "small")
-        crow.addWidget(addb)
-        av.addLayout(crow)
-        abody.addWidget(acontent)
-        v.addWidget(acard)
-        return col
 
     # ════════════════════════════════════════════════════════════════════
     #  Analysis view
@@ -5938,6 +5664,9 @@ class MainWindowDashboard(QMainWindow):
         # the scan the last energy is the in-progress one and so is held back).
         if was_scanning and not self._scanning:
             self._update_roi_spectrum()
+        # Gate the Browser's Send-to-Acquisition on scan state.
+        if getattr(self, "browser_app", None) is not None:
+            self.browser_app.set_scanning(self._scanning)
 
     def _on_external_scan_started(self, scan_type):
         """A scan was started outside the Begin button — by the task agent, a
