@@ -1009,7 +1009,25 @@ class ToolSet:
         }
         return json.dumps(result, indent=2)
 
-    def find_particles(self, max_particles: int | None = None, daq: str = "default") -> str:
+    def _log_particle_map(self, qimg, meta: dict, text: str) -> str:
+        """Write the just-rendered particle map to the open logbook. Returns a short status
+        suffix for the finder's result. The map is always cached as the computed image
+        (see caller) so add_to_logbook(attach='computed') can re-attach it even when no
+        logbook is open here."""
+        if qimg is None:
+            return " (a particle map could not be rendered)."
+        model = self._logbook_model
+        if model is None or not getattr(model, "folder", None):
+            return (" A particle map was prepared but not saved — no logbook is open. Open one "
+                    "and call add_to_logbook(attach='computed') to save it.")
+        try:
+            idx = model.add(snap_qimage=qimg, meta=meta, text=text, author="agent")
+        except Exception as e:
+            return f" (particle map prepared but the logbook write failed: {e})."
+        return f" A particle map was saved to the logbook (entry #{idx})."
+
+    def find_particles(self, max_particles: int | None = None, daq: str = "default",
+                       save_map: bool = True) -> str:
         """Locate absorbing particles in a single transmission image and return scan regions.
 
         Uses Otsu thresholding on the inverted image plus connected-component analysis — this
@@ -1021,6 +1039,9 @@ class ToolSet:
         Args:
             max_particles: cap on regions returned, ordered by size (default: all found).
             daq: detector channel to analyse.
+            save_map: when True (default), render an overview image with a numbered box
+                around each found region and save it to the open logbook (and cache it as the
+                computed image for add_to_logbook(attach='computed')). Set False to skip.
         """
         if self._image_model is None:
             return "Image model not available."
@@ -1073,6 +1094,26 @@ class ToolSet:
         # sensible default if no pixel_size_nm is requested.
         self._overview_pixel_size_um = (px_x, px_y)
 
+        # Render a map of the found regions on the overview and save it to the logbook so the
+        # user gets a visual of where every ROI sits within the overview. The rendered figure
+        # is also cached as the computed image (add_to_logbook(attach='computed')).
+        logbook_note = ""
+        if save_map:
+            # col 0 → x_center - x_range/2, row 0 → y_center - y_range/2 (find_particles'
+            # pixel-centre convention), drawn origin='lower' so boxes land on their features.
+            extent = (x_center - x_range / 2.0, x_center + x_range / 2.0,
+                      y_center - y_range / 2.0, y_center + y_range / 2.0)
+            map_qimg = self._render_particle_map(
+                image, regions, extent, title=f"Found {len(regions)} particle(s)")
+            map_meta = {'result': 'particle map', 'particles': len(regions),
+                        'overview_um': f"{x_range:.1f}×{y_range:.1f}"}
+            if map_qimg is not None:
+                self._remember_computed_figure(map_qimg, "particle map", map_meta)
+            text = (f"Particle finder located {len(regions)} region(s) in a "
+                    f"{x_range:.1f}×{y_range:.1f} µm overview. Numbered boxes mark each "
+                    "region's footprint.")
+            logbook_note = self._log_particle_map(map_qimg, map_meta, text)
+
         overview_pixel_nm = round(px_x * 1000, 1)
         result = {
             "particles_found": len(regions),
@@ -1080,6 +1121,7 @@ class ToolSet:
             "overview_scan_um": {"x_range": x_range, "y_range": y_range,
                                   "x_center": x_center, "y_center": y_center},
             "regions": regions,
+            "particle_map": logbook_note.strip() or "not requested (save_map=False)",
             "next_step": "Call start_multiregion_scan() to image all regions. "
                          "Pass pixel_size_nm to scan at higher resolution than the overview "
                          f"(overview was {overview_pixel_nm} nm/px).",
@@ -1256,7 +1298,8 @@ class ToolSet:
                                 daq: str = "default", region: int = 0,
                                 scan_id: str | None = None,
                                 scan_index: int | None = None,
-                                max_particles: int | None = None) -> str:
+                                max_particles: int | None = None,
+                                save_map: bool = True) -> str:
         """Count particles and how many contain an element, from a buffered two-energy scan.
 
         Builds the two-energy elemental map (the same OD-difference the Analysis tab's Map
@@ -1285,6 +1328,9 @@ class ToolSet:
             scan_index:  analyse a specific buffered scan by index (see list_buffered_scans);
                          takes precedence over scan_id.
             max_particles: cap on element regions returned, ordered by size (default: all).
+            save_map: when True (default), render the elemental map with a numbered box around
+                each element-containing region and save it to the open logbook (and cache it as
+                the computed image for add_to_logbook(attach='computed')). Set False to skip.
         """
         from pystxmcontrol.utils.image import (two_energy_map, otsu_absorption_mask,
                                                find_feature_boxes)
@@ -1355,6 +1401,7 @@ class ToolSet:
             xpos = ypos = None
 
         regions = []
+        logbook_note = ""
         if xpos is not None and ypos is not None and xpos.size >= 2 and ypos.size >= 2:
             pad_px = 2
             cols = np.arange(xpos.size)
@@ -1377,6 +1424,36 @@ class ToolSet:
             px_y = abs(float(ypos[-1] - ypos[0])) / max(ny - 1, 1)
             self._overview_pixel_size_um = (px_x, px_y)
 
+            # Map the element-containing regions on the elemental map itself (bright = element)
+            # so the user sees where every ROI sits. Extent uses the raw xPos/yPos endpoints
+            # (col 0 → xpos[0], row 0 → ypos[0]) so the picture stays faithful to the scan
+            # direction while the boxes, in absolute µm, stay aligned. Rendered even when no
+            # element region is found — the map alone documents the negative result.
+            if save_map:
+                extent = (float(xpos[0]), float(xpos[-1]), float(ypos[0]), float(ypos[-1]))
+                map_qimg = self._render_particle_map(
+                    element_map, regions, extent,
+                    title=f"{len(regions)} element particle(s)")
+                map_meta = {
+                    'result': 'element particle map',
+                    'element_particles': len(regions),
+                    'pre_energy': f"{float(energies[pre_idx]):.2f} eV",
+                    'edge_energy': f"{float(energies[edge_idx]):.2f} eV",
+                    'daq': daq,
+                }
+                if map_qimg is not None:
+                    # Overwrite the cached elemental map with the boxed version so
+                    # add_to_logbook(attach='computed') attaches the annotated map.
+                    self._remember_computed_figure(map_qimg, "element particle map", map_meta)
+                text = (f"Two-energy element map ({float(energies[pre_idx]):.1f} → "
+                        f"{float(energies[edge_idx]):.1f} eV): {len(regions)} element-containing "
+                        "region(s); numbered boxes mark each footprint.")
+                logbook_note = self._log_particle_map(map_qimg, map_meta, text)
+        elif save_map:
+            logbook_note = (" A map could not be built — the buffered scan has no per-pixel "
+                            "position data; the elemental map is still cached for "
+                            "add_to_logbook(attach='computed').")
+
         total = len(total_boxes)
         n_elem = len(element_boxes)
         result = {
@@ -1388,6 +1465,7 @@ class ToolSet:
             "daq": daq,
             "scan_id": os.path.basename(rec.get('scan_id') or '') or None,
             "element_regions": regions,
+            "element_map": logbook_note.strip() or "not requested (save_map=False)",
             "next_step": ("Element regions stored. Call start_multiregion_scan(pixel_size_nm=...) "
                           "to image the element-containing particles at higher resolution."
                           if regions else
@@ -2802,6 +2880,58 @@ class ToolSet:
             log.warning("[ToolSet] _render_nmf_figure failed: %s", e)
             return None
 
+    # Distinct box colours cycled per particle, matching the Browser "Map Selected" palette
+    # (data_browser_widget._map_selected) so the agent's map reads the same as the GUI's.
+    _MAP_BOX_COLORS = ["#ff5252", "#ffd740", "#69f0ae", "#40c4ff",
+                       "#e040fb", "#ffab40", "#b2ff59", "#64ffda"]
+
+    def _render_particle_map(self, image, regions, extent, title=None):
+        """Render a background image with a numbered box around each found particle region,
+        to a QImage for a logbook snapshot.  Uses matplotlib's Agg canvas directly (no pyplot,
+        no GUI backend) so it is safe on the agent's worker thread.  Returns None on failure.
+
+        ``extent`` is (left, right, bottom, top) in µm, mapping array col 0 → left, row 0 →
+        bottom (origin='lower').  It must use the SAME pixel→µm convention that produced the
+        region boxes so every box lands on the feature it was measured from; passing the raw
+        scan-direction endpoints (which may run high→low) keeps the picture faithful to the
+        acquisition while the boxes, in absolute µm data coordinates, stay aligned."""
+        try:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            from matplotlib.patches import Rectangle
+        except ImportError:
+            return None
+        try:
+            a = np.asarray(image, dtype=float)
+            if a.ndim > 2:
+                a = a.reshape(a.shape[0], a.shape[1])
+            if a.ndim != 2 or a.size == 0:
+                return None
+            left, right, bottom, top = (float(v) for v in extent)
+            fig = Figure(figsize=(6.5, 6.0), dpi=120)
+            FigureCanvasAgg(fig)
+            ax = fig.add_subplot(1, 1, 1)
+            ax.imshow(a, cmap='gray', origin='lower',
+                      extent=[left, right, bottom, top], aspect='equal')
+            for i, r in enumerate(regions):
+                rxc = float(r['xCenter']); ryc = float(r['yCenter'])
+                rxr = float(r['xRange']);  ryr = float(r['yRange'])
+                color = self._MAP_BOX_COLORS[i % len(self._MAP_BOX_COLORS)]
+                ax.add_patch(Rectangle((rxc - rxr / 2.0, ryc - ryr / 2.0), rxr, ryr,
+                                       fill=False, edgecolor=color, linewidth=1.5))
+                # Number at the box's top-left (y increases upward with origin='lower').
+                ax.text(rxc - rxr / 2.0, ryc + ryr / 2.0, str(i + 1),
+                        color='black', fontsize=8, va='bottom', ha='left',
+                        bbox=dict(facecolor=color, edgecolor='none', pad=1.0))
+            ax.set_xlabel("X (µm)")
+            ax.set_ylabel("Y (µm)")
+            ax.set_title(title or f"{len(regions)} particle region(s)")
+            fig.tight_layout()
+            return self._figure_to_qimage(fig)
+        except Exception as e:
+            log.warning("[ToolSet] _render_particle_map failed: %s", e)
+            return None
+
     @staticmethod
     def _figure_to_qimage(fig):
         """Convert a drawn matplotlib Figure to an RGBA QImage.  Thread-safe (no widgets)."""
@@ -3271,8 +3401,10 @@ TOOL_SCHEMAS: list[dict] = [
                 "all particles (pre-edge absorption) plus the element-containing subset (elemental map). "
                 "Use for element questions like 'how many particles contain iron?' after a two-energy "
                 "scan (pre-edge + edge). This is the sole owner of two-energy elemental mapping; it "
-                "works directly on the in-memory buffered scan and caches the map so "
-                "add_to_logbook(attach='computed') can save it. "
+                "works directly on the in-memory buffered scan. "
+                "By default it also saves a map (the elemental map with a numbered box around "
+                "each element-containing region) to the open logbook, and caches it so "
+                "add_to_logbook(attach='computed') can re-attach it. "
                 "Element regions are stored for start_multiregion_scan() to image them. Returns "
                 "total_particles, element_particles, and fraction_with_element."
             ),
@@ -3310,6 +3442,12 @@ TOOL_SCHEMAS: list[dict] = [
                     "max_particles": {
                         "type": "integer",
                         "description": "Cap on element regions returned, ordered by size (default: all).",
+                    },
+                    "save_map": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Save the elemental map with the element regions boxed to the "
+                                       "logbook (default true). Set false to skip the logbook write.",
                     },
                 },
                 "required": [],
@@ -3461,6 +3599,8 @@ TOOL_SCHEMAS: list[dict] = [
                 "Returns scan regions (center, range, points) in µm per particle. Use for a plain "
                 "'find absorbing features' request. For an element (e.g. iron) after a two-energy "
                 "scan, use count_element_particles() instead. "
+                "By default it also saves a map (overview image with a numbered box around each "
+                "found region) to the open logbook. "
                 "Then call start_multiregion_scan() to image all particles."
             ),
             "parameters": {
@@ -3474,6 +3614,12 @@ TOOL_SCHEMAS: list[dict] = [
                         "type": "string",
                         "default": "default",
                         "description": "Detector channel to analyse.",
+                    },
+                    "save_map": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Save a map of the found regions on the overview to the logbook "
+                                       "(default true). Set false to skip the logbook write.",
                     },
                 },
                 "required": [],
