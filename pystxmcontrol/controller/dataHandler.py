@@ -459,6 +459,20 @@ class dataHandler:
         scan["file_name"] = self.currentScanID
         scan["start_time"] = datetime.datetime.now().isoformat()
         self._current_scan_type = scan.get("scan_type", "")
+        # Push the just-submitted scan parameters so every subscribed client refreshes
+        # its cached main_config["lastScan"] at scan START (not only at scan end, see
+        # sendScanData).  This lets an externally launched scan (task agent / remote
+        # script) reflect its real spatial + energy regions in an attached GUI while it
+        # runs.  controller.scan() already deep-copied the submitted scan into the shared
+        # main_config keyed by scan_type; that copy carries no un-serializable handles
+        # (e.g. synch_event is added only afterwards), so it is safe to publish.
+        last = (self.main_config.get("lastScan", {}) or {}).get(self._current_scan_type)
+        if last is not None:
+            self.zmq_publisher.publish_stxm_data({
+                "type": "scan_config_update",
+                "scan_type": self._current_scan_type,
+                "scan": last,
+            })
         intel = getattr(self, 'intelligence', None)
         if intel and intel.enabled:
             intel.on_scan_start(scan)

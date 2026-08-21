@@ -1322,6 +1322,7 @@ class MainWindowDashboard(QMainWindow):
         c.image_updated.connect(self._on_image)
         c.scan_state_changed.connect(self._set_scanning)
         c.external_scan_started.connect(self._on_external_scan_started)
+        c.scan_region_geometry_updated.connect(self._on_external_scan_geometry)
         c.shutter_state_changed.connect(self._on_shutter)
         c.daq_value_updated.connect(self._on_daq_value)
         c.monitor_data_updated.connect(self._on_monitor_data)
@@ -4363,32 +4364,41 @@ class MainWindowDashboard(QMainWindow):
             channel="default", pixel_um=pixel_um, dwell_ms=dwell_ms,
             energy_ev=energy_ev)
 
-    def _prefill_from_last_scan(self):
-        """Pre-fill the spatial + energy regions from the last executed Image
-        scan, which the server ships in ``client.main_config['lastScan']['Image']``
-        on connect.  No-op if unavailable (fresh install / non-Image history)."""
+    def _prefill_from_last_scan(self, scan_type='Image', spatial=True, energy=True):
+        """Pre-fill the spatial and/or energy regions from the last executed scan of
+        ``scan_type``, which the server ships in
+        ``client.main_config['lastScan'][scan_type]`` (on connect, and now also at
+        scan start — see dataHandler.startScanProcess).  Called at startup/reconnect
+        for the last Image scan (both), and by ``_on_external_scan_started`` with
+        ``spatial=False`` (energy only — the spatial region is driven live from the
+        data stream in ``_on_external_scan_geometry``, which is authoritative and
+        server-version-independent, so we must not overwrite it from the cache).
+        No-op if unavailable."""
         client = getattr(self.controller, 'client', None)
         main_cfg = getattr(client, 'main_config', None) or {}
-        last = (main_cfg.get('lastScan') or {}).get('Image')
+        last = (main_cfg.get('lastScan') or {}).get(scan_type)
         if not last:
             return
         try:
-            regs = []
-            for r in (last.get('scan_regions') or {}).values():
-                regs.append({
-                    'xCenter': float(r.get('xCenter', 0.0)),
-                    'yCenter': float(r.get('yCenter', 0.0)),
-                    'xRange': float(r.get('xRange', 10.0)),
-                    'yRange': float(r.get('yRange', 10.0)),
-                    'xPoints': max(1, int(r.get('xPoints', 100))),
-                    'yPoints': max(1, int(r.get('yPoints', 100)))})
-            if regs:
-                self._scan_regions = regs
-                self._active_region = 0
-                self._spectrum_region = None
-                self._write_spatial_fields(regs[0])
-                self._refresh_spatial_image(fit=True)
+            if spatial:
+                regs = []
+                for r in (last.get('scan_regions') or {}).values():
+                    regs.append({
+                        'xCenter': float(r.get('xCenter', 0.0)),
+                        'yCenter': float(r.get('yCenter', 0.0)),
+                        'xRange': float(r.get('xRange', 10.0)),
+                        'yRange': float(r.get('yRange', 10.0)),
+                        'xPoints': max(1, int(r.get('xPoints', 100))),
+                        'yPoints': max(1, int(r.get('yPoints', 100)))})
+                if regs:
+                    self._scan_regions = regs
+                    self._active_region = 0
+                    self._spectrum_region = None
+                    self._write_spatial_fields(regs[0])
+                    self._refresh_spatial_image(fit=True)
 
+            if not energy:
+                return
             eregs = []
             for e in (last.get('energy_regions') or {}).values():
                 start = float(e.get('start', 0.0)); stop = float(e.get('stop', 0.0))
@@ -5123,8 +5133,67 @@ class MainWindowDashboard(QMainWindow):
         the scan (scan completion emits scan_state_changed(False), which restores
         the button via _set_scanning).  The scan-type combo is intentionally left
         untouched: retargeting it mid-scan would run _on_scan_type and tear down
-        the region widgets / display while data is arriving."""
+        the region widgets / display while data is arriving.
+
+        The spatial + energy region fields ARE refreshed to match the running scan
+        (its parameters otherwise go stale the moment the agent launches something
+        different from what the operator last set up).  The server pushes the scan's
+        config over the SUB stream at scan start, refreshing the client's cached
+        main_config['lastScan'][scan_type] before the first frame arrives, so
+        _prefill_from_last_scan reads the just-launched parameters.  Limited to
+        image-like scans (a spatial grid over energy regions): the line-scan (Focus /
+        Line Spectrum) and motor-scan views carry their own field layouts and are
+        left alone."""
         self._set_scanning(True)
+        if not (self._scan_is_focus(scan_type)
+                or self._scan_is_line_spectrum(scan_type)
+                or self._scan_is_motor(scan_type)):
+            # Spatial region is driven live from the data stream
+            # (_on_external_scan_geometry); take only the energy regions from the
+            # cached config here so we don't overwrite the live spatial geometry.
+            self._prefill_from_last_scan(scan_type, spatial=False)
+
+    def _on_external_scan_geometry(self, config, scan_type):
+        """Live scan geometry from the data stream (MainController derives
+        xCenter/xRange/xPoints… from the first broadcast frame of an externally
+        launched scan in ``scan_region_geometry_updated``).  Unlike
+        ``_prefill_from_last_scan`` — which reads the client's cached
+        ``main_config['lastScan']`` and so needs the updated server build to be
+        fresh — this rides the SAME data that already positions the image, so the
+        spatial region + ROI track the running scan against ANY server.
+
+        The controller emits this exactly once per external scan, inside its
+        ``not self.scanning`` block and BEFORE it flips ``scanning`` true / emits
+        ``external_scan_started`` (main_controller.py) — so there is deliberately
+        NO ``self._scanning`` guard here (that flag is still false at this point),
+        and the energy prefill in ``_on_external_scan_started`` is energy-only so it
+        cannot clobber the spatial values applied here.
+
+        Only spatial geometry is broadcast — the energy-region list is not — so
+        energy comes from the config prefill.  The signal always keys a single
+        'Region1', so only the currently scanning region is reflected."""
+        if (self._scan_is_focus(scan_type)
+                or self._scan_is_line_spectrum(scan_type)
+                or self._scan_is_motor(scan_type)):
+            return
+        regs = (config or {}).get('scan_regions') or {}
+        if not regs:
+            return
+        region = next(iter(regs.values()))
+        try:
+            r = {'xCenter': float(region['xCenter']),
+                 'yCenter': float(region['yCenter']),
+                 'xRange':  float(region['xRange']),
+                 'yRange':  float(region['yRange']),
+                 'xPoints': max(1, int(region['xPoints'])),
+                 'yPoints': max(1, int(region['yPoints']))}
+        except (KeyError, ValueError, TypeError):
+            return
+        self._scan_regions = [r]
+        self._active_region = 0
+        self._spectrum_region = None
+        self._write_spatial_fields(r)
+        self._refresh_spatial_image(fit=True)
 
     def _toggle_expert(self):
         self._expert = not self._expert
