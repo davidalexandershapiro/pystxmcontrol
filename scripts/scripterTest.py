@@ -1,4 +1,4 @@
-from pystxmcontrol_mcp.scripter import scripter
+from pystxmcontrol.controller.scripter import scripter
 import numpy as np
 import time
 

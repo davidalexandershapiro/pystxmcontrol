@@ -1196,15 +1196,29 @@ class MainController(QObject):
         self._confirm_events: dict = {}
         self._confirm_results: dict = {}
         self._confirm_counter = 0
+        backend = str(cfg.get("backend", "openai")).lower()
         try:
-            from ...controller.task_agent import TaskAgent
-            self._task_agent = TaskAgent(self.client.main_config, self.client,
-                                         image_model=self.image_model,
-                                         logbook_model=self.logbook_model,
-                                         on_scan_started=self._on_agent_scan_started,
-                                         confirm_fn=self._agent_confirm)
-            log.info("TaskAgent initialized (model=%s)", self._task_agent.model)
-            self.status_updated.emit("TaskAgent initialized")
+            if backend in ("sdk", "claude_code", "claude-code"):
+                # Prototype Claude Code backend (Agent SDK). Same run()/cancel()/
+                # confirm surface as TaskAgent, so the thread + signal wiring below
+                # is unchanged. project_dir = repo root (holds .mcp.json / .claude).
+                from ...controller.task_agent.sdk_agent import SDKAgent
+                project_dir = os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__)))))
+                self._task_agent = SDKAgent(self.client.main_config, project_dir,
+                                            confirm_fn=self._agent_confirm,
+                                            dev_dir=cfg.get("dev_checkout"))
+                log.info("SDKAgent (Claude Code) initialized (project_dir=%s)", project_dir)
+                self.status_updated.emit("Claude Code agent initialized")
+            else:
+                from ...controller.task_agent import TaskAgent
+                self._task_agent = TaskAgent(self.client.main_config, self.client,
+                                             image_model=self.image_model,
+                                             logbook_model=self.logbook_model,
+                                             on_scan_started=self._on_agent_scan_started,
+                                             confirm_fn=self._agent_confirm)
+                log.info("TaskAgent initialized (model=%s)", self._task_agent.model)
+                self.status_updated.emit("TaskAgent initialized")
         except Exception as e:
             self._task_agent = None
             log.exception("TaskAgent init failed")

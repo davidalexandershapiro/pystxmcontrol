@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+
+    "allow": [
+      "mcp__pystxm__get_safety_instructions",
+      "mcp__pystxm__get_config",
+      "mcp__pystxm__get_motor_position",
+      "mcp__pystxm__plot_motor_positions",
+      "mcp__pystxm__connect_to_server",
+      "mcp__pystxm__update_scan",
+      "mcp__pystxm__define_scan_from_file",
+
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(ls *)",
+      "Bash(uv run pytest *)",
+      "Bash(pytest *)",
+      "Bash(python3 -m pytest *)"
+    ],
+
+    "ask": [
+      "mcp__pystxm__move_motor",
+      "mcp__pystxm__stxm_scan"
+    ],
+
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(rm -rf *)",
+      "Bash(git push *)"
+    ]
+  }
+}

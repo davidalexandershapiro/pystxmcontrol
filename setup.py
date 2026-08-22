@@ -47,7 +47,8 @@ setup(  name = 'pystxmcontrol',
         author = 'David Shapiro',
         author_email = 'dashapiro@lbl.gov',
         packages = ['pystxmcontrol','pystxmcontrol.gui','pystxmcontrol.controller',\
-            'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans'],
+            'pystxmcontrol.drivers','pystxmcontrol.utils','pystxmcontrol.controller.scans',\
+            'pystxmcontrol.mcp'],
         entry_points = {
             'console_scripts': [
                 'stxmcontrol = pystxmcontrol.gui.main:main',

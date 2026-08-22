@@ -1,46 +1,83 @@
-from pystxmcontrol.utils.writeNX import stxm
-import matplotlib.pyplot as plt
-import matplotlib as mpl
 import sys, zmq, os, json, traceback, datetime, asyncio
 import numpy as np
-from matplotlib.widgets import Button
 from time import time, sleep
-import zmq.asyncio
+from pystxmcontrol.controller.scan_model import ScanModel
 
 
 class scripter:
-    def __init__(self,host: str = "127.0.0.1", port: int = 9999):
+    def __init__(self,host: str = "127.0.0.1", port: int = 9999, timeout: int = 30000):
         """
         """
 
-        context = zmq.asyncio.Context()
+        context = zmq.Context()
         self.sock = context.socket(zmq.REQ)
+        # Set receive timeout to prevent hanging (in milliseconds)
+        self.sock.setsockopt(zmq.RCVTIMEO, timeout)
+        # Set send timeout as well
+        self.sock.setsockopt(zmq.SNDTIMEO, timeout)
         self.sock.connect("tcp://%s:%s" %(host,port))
 
         ##This is just a default metadata dictionary created when scripter is imported
         ##MOTORS from the last line is used as a check in the move_motor command.  This isn't needed otherwise
-        self.meta = {"proposal": "BLS-000001", "experimenters":"Shapiro", "nx_file_version":3}
-        self.meta["xcenter"] = 0
-        self.meta["xrange"] = 5
-        self.meta["xpoints"] = 50
-        self.meta["ycenter"] = 0
-        self.meta["yrange"] = 5
-        self.meta["ypoints"] = 50
-        self.meta["energyStart"] = 605
-        self.meta["energyStop"] = 700
-        self.meta["energyPoints"] = 20
-        self.meta["dwell"] = 10.
-        self.meta["defocus"] = False
-        self.meta["doubleExposure"] = False
-        self.meta["spiral"] = False
-        self.meta["autofocus"] = True
-        self.meta["daq_list"] = ["default"]
-        self.meta["comment"] = ""
-        self.meta["loop_scan"] = False
-        self.meta["sample_description"] = None
-        self.MOTORS,self.SCANS,self.POSITIONS,self.DAQS,self.CONFIG = asyncio.run(self.get_config())
+        self.scan = ScanModel().model_dump()
 
-    async def move_motor(self, axis=None, pos=None):
+    def update_scan(self,**kwargs) -> str:
+        """
+        TODO:
+        1. get_config(), determine the motors used for the various scan types
+        2. update_scan(), sets the scan parameters as desired, dwell time units are milliseconds.
+        3. confirm the scan configuration with the user
+        4. run the scan if requested
+
+        Docstring for update_scan.  The parameters listed below are part of the scan definition in scripter.py and can
+        be changed upon request.  Any scan defined in the control system configuration can be defined here.  For example,
+        to do an OSA x/y image scan, the scan_type will be set to "OSA Image" if that is the name in the configuration and
+        the x/y motors will be set to those defined in the config, likely OSA_X/OSA_Y for example.
+
+        At a minimum, the x/y motors must be set in kwargs according to what is in the configuration for the given scan_type.
+        For single and double_motor_scans, the x/y motors can be arbitrarily set and don't need to follow a specific configuration.
+        
+        :param proposal: str = None,
+        :param experimenters: str = None,
+        :param sample_descriptions: str = None,
+        :param x_motor: str = None,
+        :param y_motor: str = None,
+        :param z_motor: str = None,
+        :param x_center: float = None,
+        :param y_center: float = None,
+        :param z_center: float = None,
+        :param x_range: float = None,
+        :param y_range: float = None,
+        :param z_range: float = None,
+        :param x_points: int = None,
+        :param y_points: int = None,
+        :param z_points: int = None,
+        :param energy_start: float = None,
+        :param energy_stop: float = None,
+        :param energy_points: int = None,
+        :param dwell: float = None,
+        :param spiral: bool = None,
+        :param autofocus: bool = None,
+        :param defocus: bool = None,
+        :param scan_type: str = None,
+        :param daq_list: str = None,
+        :param comment: str = None,
+        :param energy_list: list = None,
+        :param scan_type: str = None,
+        :param retract: bool = True
+        """
+
+        try:
+            if kwargs:
+                updated = ScanModel(**{**self.scan, **kwargs})
+                self.scan = updated.model_dump()
+                return "The current scan definition has been updated: " + json.dumps(self.scan)
+            else:
+                return "The current scan definition is: " + json.dumps(self.scan)
+        except Exception as e:
+            return f"Failed to update scan parameters: {e}"
+
+    def move_motor(self, axis=None, pos=None):
         if axis not in list(self.MOTORS.keys()):
             print("Bad motor name. Available motors are:")
             for m in list(self.MOTORS.keys()):
@@ -48,207 +85,232 @@ class scripter:
             return
         message = {"command": "moveMotor", "axis": axis, "pos": pos}
         self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
-        if response is not None: return response["status"]
-        else: return False
+        try:
+            response = self.sock.recv_pyobj()
+        except Exception as e:
+            print(e)
+            return None
+        return response
 
-    async def get_config(self):
+    def get_config(self):
         message = {"command": "get_config"}
-        self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
-        if response is not None: return response["data"]
-        else: return False
+        try:
+            self.sock.send_pyobj(message)
+            response = self.sock.recv_pyobj()
+            self.MOTORS,self.SCANS,self.POSITIONS,self.DAQS,self.CONFIG = response["data"]
+            if response is not None: return response["data"]
+            else: return False
+        except zmq.Again:
+            raise TimeoutError("Timeout waiting for response from pystxmcontrol server")
+        except zmq.ZMQError as e:
+            raise ConnectionError(f"ZMQ error communicating with server: {str(e)}")
 
-    async def read_daq(self, daq,dwell, shutter = True):
+    def read_daq(self, daq,dwell, shutter = True):
         message = {"command":"get_data","daq":daq,"dwell":dwell, "shutter":shutter}
         self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        response = self.sock.recv_pyobj()
         if response is not None: return response["data"]
         else: return False
 
-    async def stop_monitor(self):
+    def stop_monitor(self):
         message = {"command": "stop_monitor"}
         self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        response = self.sock.recv_pyobj()
         if response is not None: return response["status"]
         else: return False
 
-    async def start_monitor(self):
+    def start_monitor(self):
         message = {"command": "start_monitor"}
         self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        response = self.sock.recv_pyobj()
         if response is not None: return response["status"]
         else: return False
 
-    async def ptychography_scan(self, meta):
-        xstart = meta['xcenter'] - meta['xrange'] / 2.
-        xstop = meta['xcenter'] + meta['xrange'] / 2.
-        xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
+    def ptychography_scan(self):
+        xstart = self.scan['x_center'] - self.scan['x_range'] / 2.
+        xstop = self.scan['x_center'] + self.scan['x_range'] / 2.
+        xstep = np.round((xstop - xstart) / (self.scan["x_points"] - 1), 3)
         x_range = xstop - xstart
-        xcenter = x_range / 2. + xstart
-        ystart = meta['ycenter'] - meta['yrange'] / 2.
-        ystop = meta['ycenter'] + meta['yrange'] / 2.
-        ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
+        xcenter = self.scan['x_center']
+        ystart = self.scan['y_center'] - self.scan['y_range'] / 2.
+        ystop = self.scan['y_center'] + self.scan['y_range'] / 2.
+        ystep = np.round((ystop - ystart) / (self.scan["y_points"] - 1), 3)
         y_range = ystop - ystart
-        ycenter = y_range / 2. + ystart
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["sample_description"],
+        ycenter = self.scan['y_center']
+        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
+        scan = {"scan_type": "Ptychography Image", "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"],
+                "sample": self.scan["sample_description"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
                 "energy_motor": "Energy",
-                "doubleExposure": meta["doubleExposure"],
+                "doubleExposure": self.scan["double_exposure"],
                 "n_repeats": 1,
-                "defocus": meta["defocus"],
-                "autofocus": meta["autofocus"],
+                "defocus": self.scan["defocus"],
+                "autofocus": self.scan["autofocus"],
                 "oversampling_factor": 1,
                 "mode": 'ptychographyGrid',
                 "coarse_only": False,
                 "spiral": False,
-                "retract": meta["retract"],
+                "retract": self.scan["retract"],
                 "tiled": False,
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
+                "daq_list": self.scan["daq_list"],
+                "comment": self.scan["comment"],
                 "coarse_only": False,
-                "loop_scan": meta["loop_scan"],
+                "loop_scan": self.scan["loop_scan"],
                 "driver": self.SCANS["Ptychography Image"]["driver"], #"ptychography_image",
                 "scan_regions": {"Region1": {"xStart": xstart,
                                             "xStop": xstop,
-                                            "xPoints": meta['xpoints'],
+                                            "xPoints": self.scan['x_points'],
                                             "xStep": xstep,
                                             "xRange": x_range,
                                             "xCenter": xcenter,
                                             "yStart": ystart,
                                             "yStop": ystop,
-                                            "yPoints": meta['ypoints'],
+                                            "yPoints": self.scan['y_points'],
                                             "yStep": ystep,
                                             "yRange": y_range,
                                             "yCenter": ycenter,
                                             "zStart": 0,
                                             "zStop": 0,
                                             "zPoints": 1}},
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
+                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
+                                                    "start": self.scan["energy_start"],
+                                                    "stop": self.scan["energy_stop"],
                                                     "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
+                                                    "n_energies": self.scan["energy_points"]}}
                 }
-        if "energyList" in meta.keys():
-            scan["energy_list"] = meta["energyList"]
-            scan["dwell"] = meta["dwell"]
+        if self.scan["energy_list"] is not None:
+            scan["energy_list"] = self.scan["energy_list"]
+            scan["dwell"] = self.scan["dwell"]
         message = {"command": "scan", "scan": scan}
-        await self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        self.sock.send_pyobj(message)
+        response = self.sock.recv_pyobj()
         if not response["status"]:
             return False
         file_name = response["data"]
         status = False
         while not status:
-            await asyncio.sleep(1)
-            await self.sock.send_pyobj({"command":"getStatus"})
-            response = await self.sock.recv_pyobj()
+            sleep(1)
+            self.sock.send_pyobj({"command":"getStatus"})
+            response = self.sock.recv_pyobj()
             status = response["status"]
         return file_name
 
-    async def stxm_scan(self, meta):
-        xstart = meta['xcenter'] - meta['xrange'] / 2.
-        xstop = meta['xcenter'] + meta['xrange'] / 2.
-        xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
-        x_range = xstop - xstart
-        xcenter = x_range / 2. + xstart
-        ystart = meta['ycenter'] - meta['yrange'] / 2.
-        ystop = meta['ycenter'] + meta['yrange'] / 2.
-        ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
-        y_range = ystop - ystart
-        ycenter = y_range / 2. + ystart
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["sample_description"],
-                "x_motor": "SampleX",
-                "y_motor": "SampleY",
+    def stxm_scan(self):
+        """
+        Docstring for stxm_scan
+
+        This executes any scan defined in the scan config file.  The global scan definition, self.scan, has
+        default values which can be changed by external processes or scripts.
+        
+        """
+ 
+        xstart = self.scan['x_center'] - self.scan['x_range'] / 2.
+        xstop = self.scan['x_center'] + self.scan['x_range'] / 2.
+        xstep = np.round((xstop - xstart) / (self.scan["x_points"] - 1), 3)
+        xrange = xstop - xstart
+        xcenter = xrange / 2. + xstart
+        ystart = self.scan['y_center'] - self.scan['y_range'] / 2.
+        ystop = self.scan['y_center'] + self.scan['y_range'] / 2.
+        ystep = np.round((ystop - ystart) / (self.scan["y_points"] - 1), 3)
+        yrange = ystop - ystart
+        ycenter = yrange / 2. + ystart
+        zstart = self.scan['z_center'] - self.scan['z_range'] / 2.
+        zstop = self.scan['z_center'] + self.scan['z_range'] / 2.
+        zstep = np.round((zstop - zstart) / max(self.scan["z_points"] - 1,1), 3)
+        zrange = zstop - zstart
+        zcenter = zrange / 2. + zstart
+        if self.scan["energy_list"] is not None:
+            self.scan["energy_start"] = self.scan["energy_list"][0]
+            self.scan["energy_stop"] = self.scan["energy_list"][-1]
+            self.scan["energy_points"] = len(self.scan["energy_list"])
+        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
+        scan = {"scan_type": self.scan["scan_type"], "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"],
+                "sample": self.scan["sample_description"],
+                "x_motor": self.scan["x_motor"],
+                "y_motor": self.scan["y_motor"],
+                "z_motor": self.scan["z_motor"],
                 "energy_motor": "Energy",
-                "doubleExposure": False,
+                "doubleExposure": self.scan["double_exposure"],
                 "n_repeats": 1,
-                "defocus": False,
-                "autofocus": meta["autofocus"],
+                "defocus": self.scan["defocus"],
+                "autofocus": self.scan["autofocus"],
                 "oversampling_factor": 3,
-                "mode": "continuousLine",
+                "mode": self.SCANS[self.scan["scan_type"]]["mode"],
                 "coarse_only": False,
-                "spiral": meta["spiral"],
+                "spiral": self.scan["spiral"],
                 "tiled": False,
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
-                "coarse_only": False,
-                "loop_scan": meta["loop_scan"],
+                "daq_list": self.scan["daq_list"],
+                "comment": self.scan["comment"],
+                "loop_scan": self.scan["loop_scan"],
+                "energy_list": self.scan["energy_list"],
+                "dwell": self.scan["dwell"],
+                "retract": self.scan["retract"],
                 "scan_regions": {"Region1": {"xStart": xstart,
                                             "xStop": xstop,
-                                            "xPoints": meta['xpoints'],
+                                            "xPoints": self.scan['x_points'],
                                             "xStep": xstep,
-                                            "xRange": x_range,
+                                            "xRange": xrange,
                                             "xCenter": xcenter,
                                             "yStart": ystart,
                                             "yStop": ystop,
-                                            "yPoints": meta['ypoints'],
+                                            "yPoints": self.scan['y_points'],
                                             "yStep": ystep,
-                                            "yRange": y_range,
+                                            "yRange": yrange,
                                             "yCenter": ycenter,
-                                            "zStart": 0,
-                                            "zStop": 0,
-                                            "zPoints": 1}},
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
+                                            "zStart": zstart,
+                                            "zStop": zstop,
+                                            "zPoints": self.scan['z_points'],
+                                            "zStep": zstep,
+                                            "zRange": zrange,
+                                            "zCenter": zcenter}},
+                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
+                                                    "start": self.scan["energy_start"],
+                                                    "stop": self.scan["energy_stop"],
                                                     "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
+                                                    "n_energies": self.scan["energy_points"]}}
                 }
-        if "energyList" in meta.keys():
-            scan["energy_list"] = meta["energyList"]
-            scan["dwell"] = meta["dwell"]
-        if meta["spiral"]:
-            scan["driver"] = self.SCANS["Spiral Image"]["driver"] #"spiral_image"
-            scan["scan_type"] = 'Spiral Image'
-        else:
-            scan["driver"] = self.SCANS["Image"]["driver"] #"line_image"
+        scan["driver"] = self.SCANS[self.scan["scan_type"]]["driver"]
         message = {"command": "scan", "scan": scan}
-        await self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        self.sock.send_pyobj(message)
+        response = self.sock.recv_pyobj()
         if not response["status"]:
             return False
         file_name = response["data"]
         status = False
         while not status:
-            await asyncio.sleep(1)
-            await self.sock.send_pyobj({"command":"getStatus"})
-            response = await self.sock.recv_pyobj()
+            sleep(1)
+            self.sock.send_pyobj({"command":"getStatus"})
+            response = self.sock.recv_pyobj()
             status = response["status"]
         return file_name
 
-    async def multi_region_ptychography_scan(self, meta, scanRegList):
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["Sample"],
+    def multi_region_ptychography_scan(self, scanRegList):
+        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
+        scan = {"scan_type": "Ptychography Image", "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"], "nx_file_version": 3,
+                "sample": self.scan["Sample"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
                 "energy_motor": "Energy",
-                "doubleExposure": meta["doubleExposure"],
+                "doubleExposure": self.scan["double_exposure"],
                 "n_repeats": 1,
-                "defocus": meta["defocus"],
-                "autofocus": meta["autofocus"],
+                "defocus": self.scan["defocus"],
+                "autofocus": self.scan["autofocus"],
                 "oversampling_factor": 1,
                 "mode": "ptychographyGrid",
                 "coarse_only": False,
-                "spiral": meta["spiral"],
-                "retract": meta["retract"],
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
+                "spiral": self.scan["spiral"],
+                "retract": self.scan["retract"],
+                "daq_list": self.scan["daq_list"],
+                "comment": self.scan["comment"],
                 "coarse_only": False,
-                "loop_scan": meta["loop_scan"],
+                "loop_scan": self.scan["loop_scan"],
                 "driver": self.SCANS["Ptychography Image"]["driver"],
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
+                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
+                                                    "start": self.scan["energy_start"],
+                                                    "stop": self.scan["energy_stop"],
                                                     "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
+                                                    "n_energies": self.scan["energy_points"]}}
                 }
         scan["scan_regions"] = {}
         i = 1
@@ -256,20 +318,20 @@ class scripter:
             xstart, xstop, ystart, ystop = region
             x_range = xstop - xstart
             xcenter = xstart + x_range / 2.
-            xpoints = int(x_range / meta["xstep"])
+            xpoints = int(x_range / self.scan["xstep"])
             y_range = ystop - ystart
             ycenter = ystart + y_range / 2.
-            ypoints = int(y_range / meta["ystep"])
+            ypoints = int(y_range / self.scan["ystep"])
             scan["scan_regions"]["Region" + str(i)] = {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": xpoints,
-                                        "xStep": meta["xstep"],
+                                        "xStep": self.scan["xstep"],
                                         "xRange": x_range,
                                         "xCenter": xcenter,
                                         "yStart": ystart,
                                         "yStop": ystop,
                                         "yPoints": ypoints,
-                                        "yStep": meta["ystep"],
+                                        "yStep": self.scan["ystep"],
                                         "yRange": y_range,
                                         "yCenter": ycenter,
                                         "zStart": 0,
@@ -278,7 +340,7 @@ class scripter:
             i += 1
         message = {"command": "doScan", "scan": scan}
         self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        response = self.sock.recv_pyobj()
         if not response["status"]:
             return False
         file_name = response["data"]
@@ -286,35 +348,35 @@ class scripter:
         while not status:
             sleep(1)
             self.sock.send_pyobj({"command":"getStatus"})
-            response = await self.sock.recv_pyobj()
+            response = self.sock.recv_pyobj()
             status = response["status"]
         return file_name
 
-    async def multi_region_stxm_scan(self, meta, scanRegList):
+    def multi_region_stxm_scan(self, scanRegList):
         # s = connect(ADDRESS, PORT)
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": meta["scan_type"], "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["Sample"],
+        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
+        scan = {"scan_type": self.scan["scan_type"], "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"], "nx_file_version": 3,
+                "sample": self.scan["Sample"],
                 "x_motor": "SampleX",
                 "y_motor": "SampleY",
                 "energy_motor": "Energy",
                 "doubleExposure": False,
                 "n_repeats": 1,
                 "defocus": False,
-                "autofocus": meta["autofocus"],
+                "autofocus": self.scan["autofocus"],
                 "oversampling_factor": 1,
-                "mode": meta["mode"],
+                "mode": self.scan["mode"],
                 "coarse_only": False,
-                "spiral": meta["spiral"],
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
+                "spiral": self.scan["spiral"],
+                "daq_list": self.scan["daq_list"],
+                "comment": self.scan["comment"],
                 "coarse_only": False,
-                "loop_scan": meta["loop_scan"],
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
+                "loop_scan": self.scan["loop_scan"],
+                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
+                                                    "start": self.scan["energy_start"],
+                                                    "stop": self.scan["energy_stop"],
                                                     "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
+                                                    "n_energies": self.scan["energy_points"]}}
                 }
         scan["scan_regions"] = {}
         i = 1
@@ -322,37 +384,37 @@ class scripter:
             xstart, xstop, ystart, ystop = region
             x_range = xstop - xstart
             xcenter = xstart + x_range / 2.
-            xpoints = int(x_range / meta["xstep"])
+            xpoints = int(x_range / self.scan["xstep"])
             y_range = ystop - ystart
             ycenter = ystart + y_range / 2.
-            ypoints = int(y_range / meta["ystep"])
+            ypoints = int(y_range / self.scan["ystep"])
             scan["scan_regions"]["Region" + str(i)] = {"xStart": xstart,
                                         "xStop": xstop,
                                         "xPoints": xpoints,
-                                        "xStep": meta["xstep"],
+                                        "xStep": self.scan["xstep"],
                                         "xRange": x_range,
                                         "xCenter": xcenter,
                                         "yStart": ystart,
                                         "yStop": ystop,
                                         "yPoints": ypoints,
-                                        "yStep": meta["ystep"],
+                                        "yStep": self.scan["ystep"],
                                         "yRange": y_range,
                                         "yCenter": ycenter,
                                         "zStart": 0,
                                         "zStop": 0,
                                         "zPoints": 0}
             i += 1
-        if "energyList" in meta.keys():
-            scan["energy_list"] = meta["energyList"]
-            scan["dwell"] = meta["dwell"]
-        if meta["spiral"]:
+        if self.scan["energy_list"] is not None:
+            scan["energy_list"] = self.scan["energy_list"]
+            scan["dwell"] = self.scan["dwell"]
+        if self.scan["spiral"]:
             scan["driver"] = self.SCANS["Spiral Image"]["driver"] #"spiral_image"
             scan["scan_type"] = 'Spiral Image'
         else:
             scan["driver"] = self.SCANS["Image"]["driver"] #"line_image"
         message = {"command": "doScan", "scan": scan}
         self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
+        response = self.sock.recv_pyobj()
         if not response["status"]:
             return False
         file_name = response["data"]
@@ -360,360 +422,39 @@ class scripter:
         while not status:
             sleep(1)
             self.sock.send_pyobj({"command":"getStatus"})
-            response = await self.sock.recv_pyobj()
+            response = self.sock.recv_pyobj()
             status = response["status"]
         return file_name
 
-    async def decimate(self, stxm_file, step_size, max_size = None, min_size = 1000, pad_size=0):
-        """
-        This is a particle finding routine.  It takes as input a large overview scan and then
-        attempts to locate the particles.  It also defines a bounding box around each particle
-        which can be used as a STXM scan region.  The list of scan regions is the output.
-        """
-        from skimage.morphology import erosion, dilation
-        from skimage.measure import label, regionprops
-        from skimage.filters import threshold_otsu
-        from skimage.segmentation import clear_border
-        from skimage.morphology import closing, square
-        def multi_dil(im, num):
-            for i in range(num):
-                im = dilation(im)
-            return im
-        def multi_ero(im, num):
-            for i in range(num):
-                im = erosion(im)
-            return im
-        datafile = stxm_file
-        s = stxm(stxm_file=datafile)
-        im = s.data['entry0']['counts'][0]
-        sh = im.shape
-        im = im <  0.8 * im.max() #threshold_otsu(im)
-        im = multi_dil(im, 2)
-        im = multi_ero(im, 1)
-        im = clear_border(im)
-        label_im = label(im)
-        scanList = []
-        for i in regionprops(label_im):
-            minr, minc, maxr, maxc = i.bbox
-            xoffset,yoffset = 0,0
-            xstart = s.data['entry0']['xpos'][minc] - pad_size + xoffset
-            xstop = s.data['entry0']['xpos'][maxc] + pad_size + xoffset
-            ystart = (s.data['entry0']['ypos'][minr] - pad_size) + yoffset
-            ystop = (s.data['entry0']['ypos'][maxr] + pad_size) + yoffset
-            nx = (xstop-xstart)/step_size-1
-            ny = (ystop-ystart)/step_size-1
-            npoints=nx*ny
-            if max_size:
-                if (npoints <= max_size) and (npoints >= min_size):
-                    scanList.append([xstart, xstop, ystart, ystop])
-            else:
-                scanList.append([xstart, xstop, ystart, ystop])
-        return scanList
-
-    async def get_motor_position(self, motor):
+    def get_motor_position(self, motor):
         self.sock.send_pyobj({"command": "getMotorPositions"})
-        response = await self.sock.recv_pyobj()
+        response = self.sock.recv_pyobj()
         return response['data'][motor]
+    
+    def help(self):
+        print('='*40)
+        print("Current scan definition")
+        print('='*40)
+        for key in self.scan.keys():
+            print(f"{key}: \t{self.scan[key]}")
+        print('='*40)
+        print("Available Motors and positions")
+        print('='*40)
+        for key in self.MOTORS.keys():
+            if key != 'status':
+                print(f"{key}: \t{self.POSITIONS[key]}")
+        print('='*40)
+        print("Available Scans")
+        print('='*40)
+        for key in self.SCANS.keys():
+            print(f"{key}")
+        print('='*40)
+        print("Available daqs")
+        print('='*40)
+        for key in self.DAQS.keys():
+            print(f"{key}")
+        print('='*40)
 
-    async def single_motor_scan(self, meta):
-        running = {'value': True}
-
-        def exit_function(event):
-            running['value'] = False
-            plt.close(figure)
-
-        def stop_function(event):
-            data.interp_counts["default"] = data.counts["default"].copy()
-            data.saveRegion(0)
-            data.close()
-            self.start_monitor()
-            while running['value']:
-                figure.canvas.flush_events()
-
-        xstart = meta['xcenter'] - meta['xrange'] / 2.
-        xstop = meta['xcenter'] + meta['xrange'] / 2.
-        xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
-        x_range = xstop - xstart
-        xcenter = x_range / 2. + xstart
-        ystart = 0
-        ystop = 0
-        ystep = 0
-        y_range = 0
-        ycenter = 0
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Single Motor", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["Sample"],
-                "x_motor": meta["xmotor"],
-                "y_motor": None,
-                "energy_motor": "Energy",
-                "doubleExposure": False,
-                "n_repeats": 1,
-                "defocus": False,
-                "autofocus": meta["autofocus"],
-                "oversampling_factor": 1,
-                "mode": "point",
-                "coarse_only": False,
-                "spiral": meta["spiral"],
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
-                "scan_regions": {"Region1": {"xStart": xstart,
-                                            "xStop": xstop,
-                                            "xPoints": meta['xpoints'],
-                                            "xStep": xstep,
-                                            "xRange": x_range,
-                                            "xCenter": xcenter,
-                                            "yStart": ystart,
-                                            "yStop": ystop,
-                                            "yPoints": 1,
-                                            "yStep": ystep,
-                                            "yRange": y_range,
-                                            "yCenter": ycenter,
-                                            "zStart": 0,
-                                            "zStop": 0,
-                                            "zPoints": 1}},
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
-                                                    "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
-                }
-        scan["main_config"] = self.CONFIG
-        data = stxm(scan) #create the data structure
-        self.sock.send_pyobj({"command": "getScanID"}) #get the next file name from the server
-        data.file_name = await self.sock.recv_pyobj()["data"]
-        data.start_time = str(datetime.datetime.now())
-        data.startOutput() #allocate the data in the file
-        self.move_motor("Energy",data.energies["default"][0])
-        self.sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-        data.motorPositions = [await self.sock.recv_pyobj()["data"]]
-
-        plt.ion()
-        # here we are creating sub plots
-        figure, ax = plt.subplots(figsize=(10, 8))
-        figure.canvas.mpl_connect('close_event', exit_function)
-        # setting title
-        plt.title(meta["xmotor"] + " Scan: %s" %data.file_name, fontsize=10)
-        # setting x-axis label and y-axis label
-        plt.xlabel(meta["xmotor"] + ' (microns)')
-        plt.ylabel(meta["daq"])
-        mpts = np.linspace(xstart, xstop, meta["xpoints"])
-
-        line1, = ax.plot(mpts, data.counts["default"][0][0,:], 'ro-', mfc='white')
-        ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-        stop_button = Button(ax_button, "Stop")
-        stop_button.on_clicked(stop_function)
-        ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
-        close_button = Button(ax_button2, "Close")
-        close_button.on_clicked(exit_function)
-
-        self.stop_monitor()
-        i = 0
-        for m in mpts:
-            self.move_motor(meta["xmotor"], m)
-            data.counts["default"][0][0,i] = self.read_daq(meta["daq"], meta["dwell"])
-            line1.set_xdata(mpts)
-            line1.set_ydata(data.counts["default"][0][0,:])
-            ax.relim()
-            ax.autoscale_view()
-            figure.canvas.draw()
-            data.end_time = str(datetime.datetime.now())
-            figure.canvas.flush_events()
-            i += 1
-        data.interp_counts["default"] = data.counts["default"].copy()
-        data.saveRegion(0)
-        self.start_monitor()
-
-        while running['value']:
-            figure.canvas.flush_events()
-        return data.file_name
-
-    async def two_motor_scan(self, meta):
-        running = {'value': True}
-
-        def exit_function(event):
-            running['value'] = False
-            plt.close(figure)
-
-        def stop_function(event):
-            data.interp_counts["default"] = data.counts["default"].copy()
-            data.saveRegion(0)
-            data.close()
-            self.start_monitor()
-            while running['value']:
-                figure.canvas.flush_events()
-
-        xstart = meta['xcenter'] - meta['xrange'] / 2.
-        xstop = meta['xcenter'] + meta['xrange'] / 2.
-        xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
-        x_range = xstop - xstart
-        xcenter = x_range / 2. + xstart
-        xpoints = meta['xpoints']
-        ystart = meta['ycenter'] - meta['yrange'] / 2.
-        ystop = meta['ycenter'] + meta['yrange'] / 2.
-        ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
-        y_range = ystop - ystart
-        ycenter = y_range / 2. + ystart
-        ypoints = meta['ypoints']
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Two Motor Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["Sample"],
-                "x_motor": meta["xmotor"],
-                "y_motor": meta["ymotor"],
-                "energy_motor": "Energy",
-                "doubleExposure": False,
-                "n_repeats": 1,
-                "defocus": False,
-                "autofocus": meta["autofocus"],
-                "oversampling_factor": 1,
-                "mode": "point",
-                "coarse_only": False,
-                "spiral": meta["spiral"],
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
-                "scan_regions": {"Region1": {"xStart": xstart,
-                                            "xStop": xstop,
-                                            "xPoints": meta['xpoints'],
-                                            "xStep": xstep,
-                                            "xRange": x_range,
-                                            "xCenter": xcenter,
-                                            "yStart": ystart,
-                                            "yStop": ystop,
-                                            "yPoints": meta['ypoints'],
-                                            "yStep": ystep,
-                                            "yRange": y_range,
-                                            "yCenter": ycenter,
-                                            "zStart": 0,
-                                            "zStop": 0,
-                                            "zPoints": 1}},
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
-                                                    "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
-                }
-        scan["main_config"] = self.CONFIG
-        data = stxm(scan) #create the data structure
-        self.sock.send_pyobj({"command": "getScanID"}) #get the next file name from the server
-        data.file_name = await self.sock.recv_pyobj()["data"]
-        data.start_time = str(datetime.datetime.now())
-        data.startOutput() #allocate the data in the file
-        self.sock.send_pyobj({"command": "getMotorPositions"}) #get the current motor positions
-        data.motorPositions = [await self.sock.recv_pyobj()["data"]]
-
-        plt.ion()
-        # here we are creating sub plots
-        figure, ax = plt.subplots(figsize=(8, 8))
-        figure.canvas.mpl_connect('close_event', exit_function)
-        # setting title
-        plt.suptitle("Two Motor Scan: %s and %s" %(meta["xmotor"],meta["ymotor"]), fontsize=14)
-        plt.title(data.file_name, fontsize=12)
-        # setting x-axis label and y-axis label
-        plt.xlabel(meta["xmotor"] + ' (microns)')
-        plt.ylabel(meta["ymotor"] + ' (microns)')
-        start = xstart,ystart
-        stop = xstop,ystop
-        npoints = meta["xpoints"],meta["ypoints"]
-        x = np.linspace(start[0], stop[0], npoints[0])
-        y = np.linspace(start[1], stop[1], npoints[1])
-
-        im = ax.imshow(np.reshape(data.counts["default"][0][0,:],npoints), extent = (start[1],stop[1],start[0],stop[0]), interpolation = None,cmap=mpl.colormaps[meta["cmap"]])
-        self.move_motor(meta["ymotor"], y[0])
-        self.move_motor(meta["xmotor"], x[0])
-
-        ax_button = plt.axes([0.01, 0.01, 0.15, 0.05])
-        stop_button = Button(ax_button, "Stop")
-        stop_button.on_clicked(stop_function)
-        ax_button2 = plt.axes([0.17,0.01,0.15,0.05])
-        close_button = Button(ax_button2, "Close")
-        close_button.on_clicked(exit_function)
-        self.stop_monitor()
-        for i in range(npoints[1]):
-            self.move_motor(meta["ymotor"],y[i])
-            for j in range(npoints[0]):
-                self.move_motor(meta["xmotor"],x[j])
-                k = j + i * npoints[0]
-                data.counts["default"][0][0,k] = self.read_daq(meta["daq"],meta["dwell"])
-                im.set_data(np.reshape(data.counts["default"][0][0,:],npoints))
-                im.set_clim(vmin = data.counts["default"][0][data.counts["default"][0] > 0.].min(), vmax = data.counts["default"][0].max())
-                ax.relim()
-                ax.autoscale_view()
-                # drawing updated values
-                figure.canvas.draw()
-                data.end_time = str(datetime.datetime.now())
-                figure.canvas.flush_events()
-        data.interp_counts["default"] = data.counts["default"].copy()
-        data.saveRegion(0)
-        self.start_monitor()
-        while running['value']:
-            figure.canvas.flush_events()
-        return data.file_name
-
-    async def andor_ptychography_scan(self, meta):
-        xstart = meta['xcenter'] - meta['xrange'] / 2.
-        xstop = meta['xcenter'] + meta['xrange'] / 2.
-        xstep = np.round((xstop - xstart) / (meta["xpoints"] - 1), 3)
-        x_range = xstop - xstart
-        xcenter = x_range / 2. + xstart
-        ystart = meta['ycenter'] - meta['yrange'] / 2.
-        ystop = meta['ycenter'] + meta['yrange'] / 2.
-        ystep = np.round((ystop - ystart) / (meta["ypoints"] - 1), 3)
-        y_range = ystop - ystart
-        ycenter = y_range / 2. + ystart
-        energyStep = (meta["energyStop"] - meta["energyStart"]) / meta["energyPoints"]
-        scan = {"scan_type": "Andor Ptychography Image", "proposal": meta["proposal"], "experimenters": meta["experimenters"], "nx_file_version": 3,
-                "sample": meta["Sample"],
-                "x_motor": "SampleX",
-                "y_motor": "SampleY",
-                "energy_motor": "Energy",
-                "doubleExposure": meta["doubleExposure"],
-                "n_repeats": 1,
-                "defocus": meta["defocus"],
-                "autofocus": meta["autofocus"],
-                "oversampling_factor": 1,
-                "mode": 'ptychographyGrid',
-                "spiral": False,
-                "retract": meta["retract"],
-                "tiled": False,
-                "coarse_only": False,
-                "daq_list": meta["daq_list"],
-                "comment": meta["comment"],
-                "driver": self.SCANS["Ptychography Image"]["driver"],
-                "scan_regions": {"Region1": {"xStart": xstart,
-                                            "xStop": xstop,
-                                            "xPoints": meta['xpoints'],
-                                            "xStep": xstep,
-                                            "xRange": x_range,
-                                            "xCenter": xcenter,
-                                            "yStart": ystart,
-                                            "yStop": ystop,
-                                            "yPoints": meta['ypoints'],
-                                            "yStep": ystep,
-                                            "yRange": y_range,
-                                            "yCenter": ycenter,
-                                            "zStart": 0,
-                                            "zStop": 0,
-                                            "zPoints": 0}},
-                "energy_regions": {"EnergyRegion1": {"dwell": meta["dwell"],
-                                                    "start": meta["energyStart"],
-                                                    "stop": meta["energyStop"],
-                                                    "step": energyStep,
-                                                    "n_energies": meta["energyPoints"]}}
-                }
-        if "energyList" in meta.keys():
-            scan["energy_list"] = meta["energyList"]
-            scan["dwell"] = meta["dwell"]
-        message = {"command": "scan", "scan": scan}
-        self.sock.send_pyobj(message)
-        response = await self.sock.recv_pyobj()
-        if not response["status"]:
-            return False
-        status = False
-        while not status:
-            sleep(1)
-            self.sock.send_pyobj({"command":"getStatus"})
-            response = await self.sock.recv_pyobj()
-            status = response["status"]
-        return status
 
 
 

@@ -66,6 +66,12 @@ docs = [
     "sphinx>=6.0",
     "sphinx-rtd-theme>=1.2",
 ]
+# The MCP server (pystxmcontrol.mcp). pystxm_core is a private git dependency
+# installed separately (see the pystxm-core install step), so it is not listed here.
+mcp = [
+    "fastmcp",
+    "mcp",
+]
 
 [project.urls]
 Homepage = "https://github.com/davidalexandershapiro/pystxmcontrol"
@@ -76,6 +82,7 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 [project.scripts]
 stxmcontrol = "pystxmcontrol.gui.main:main"
 stxmserver = "pystxmcontrol.controller.server:main"
+pystxmcontrol-mcp = "pystxmcontrol.mcp:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -84,6 +91,7 @@ include = ["pystxmcontrol*"]
 [tool.setuptools.package-data]
 "pystxmcontrol.utils" = ["data/*.csv"]
 "pystxmcontrol.gui" = ["icons/*"]
+"pystxmcontrol.mcp" = ["skills/*.md"]
 
 [tool.setuptools.data-files]
 "pystxmcontrol_cfg" = [
