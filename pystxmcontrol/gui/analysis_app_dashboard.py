@@ -36,6 +36,7 @@ Two pieces:
 import os
 import sys
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import (
@@ -144,17 +145,38 @@ def _field(label, widget):
     return w
 
 
-def _row(*widgets, spacing=8, stretch_last=False):
+def _row(*widgets, spacing=8, stretch_last=False, pad=False, valign=None):
     w = QWidget()
     h = QHBoxLayout(w)
     h.setContentsMargins(0, 0, 0, 0)
     h.setSpacing(spacing)
     for i, x in enumerate(widgets):
+        stretch = 1 if (stretch_last and i == len(widgets) - 1) else 0
         if isinstance(x, QtWidgets.QLayout):
-            h.addLayout(x, 1 if (stretch_last and i == len(widgets) - 1) else 0)
+            h.addLayout(x, stretch)
+        elif valign is not None and stretch == 0:
+            # valign (e.g. Qt.AlignBottom) lines bare buttons up with the input
+            # inside a _field wrapper, whose micro-label would otherwise push
+            # the input below the button's centre.
+            h.addWidget(x, stretch, valign)
         else:
-            h.addWidget(x, 1 if (stretch_last and i == len(widgets) - 1) else 0)
+            h.addWidget(x, stretch)
+    # pad=True packs the widgets to the left, sending all slack to the right
+    # instead of spreading it between them.
+    if pad:
+        h.addStretch(1)
     return w
+
+
+def _hline():
+    line = QFrame()
+    line.setFrameShape(QFrame.HLine)
+    line.setFrameShadow(QFrame.Plain)
+    # C['border'] (#22282f) is nearly black on the dark ground and disappears;
+    # use the near-white text color so the divider is clearly visible.
+    line.setStyleSheet(f"color: {C['text']}; background: {C['text']};")
+    line.setFixedHeight(1)
+    return line
 
 
 def _cmap_control(on_change, checked=0):
@@ -202,8 +224,30 @@ class _ColMajorImageView(ImageView):
         hist.setBackground(C["plot_ground"])
         hist.axis.setPen(C["border"])
         hist.axis.setTextPen(C["text_faint"])
-        # Style the built-in energy (time) slider row.
+        # Style the built-in energy (time) slider row and label its axis with
+        # the real photon energy (values supplied via setImage(xvals=...)).
         self.ui.roiPlot.setBackground(C["plot_ground"])
+        _slider_axis = self.ui.roiPlot.getPlotItem().getAxis("bottom")
+        _slider_axis.setPen(C["border"])
+        _slider_axis.setTextPen(C["text_faint"])
+        _slider_axis.setLabel("Energy", units="eV")
+
+    def timeIndex(self, slider):
+        """Map the slider position to a frame index by nearest tVal.
+
+        pyqtgraph's default assumes ascending time values (``argwhere(xv <= t)``),
+        which freezes the slider on energy stacks scanned high→low (descending
+        energies): every drag snaps to the last frame.  Nearest-value search is
+        correct for ascending, descending, and non-monotonic energy axes alike.
+        """
+        if not self.hasTimeAxis():
+            return 0, 0.0
+        t = slider.value()
+        xv = self.tVals
+        if xv is None or len(xv) == 0:
+            return int(t), t
+        ind = int(np.argmin(np.abs(np.asarray(xv, dtype=float) - t)))
+        return ind, t
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -233,6 +277,11 @@ class _DashboardAnalysisUI:
         root.addWidget(col1)
         root.addWidget(col2, 1)
         root.addWidget(col3)
+
+        # Registration and NNMF report through the single footer progress bar
+        # (built in col2) rather than their own per-tab bars.
+        self.a2_regProgressBar = self.a2_progressBar
+        self.a2_nmfProgressBar = self.a2_progressBar
 
     # ── column 1: spectrum + tools ───────────────────────────────────────────
     def _tools_col(self):
@@ -303,7 +352,17 @@ class _DashboardAnalysisUI:
         page.setObjectName("a2_tab_main")
         self.a2_tab_main = page
 
-        # ROI tools
+        # process actions (on top)
+        self.a2_autoProcessButton = _primary_btn("Auto Process")
+        self.a2_mapButton = _small_btn("Map")
+        self.a2_mapButton.setEnabled(False)
+        self.a2_resetButton = _small_btn("Reset")
+        v.addWidget(_row(self.a2_autoProcessButton, self.a2_mapButton,
+                         self.a2_resetButton, stretch_last=False))
+
+        v.addWidget(_hline())
+
+        # ROI tools.  Delete Frame lives below the image (see _viewer_col).
         self.a2_roiTypeCombo = _combo(["I0", "Spectrum", "Crop"])
         self.a2_drawRoiCheckbox = QCheckBox("Draw ROI")
         self.a2_deleteRoiButton = _small_btn("Delete ROI")
@@ -311,22 +370,13 @@ class _DashboardAnalysisUI:
         self.a2_cropButton = _small_btn("Crop")
         self.a2_cropButton.setEnabled(False)
         v.addWidget(_row(_field("ROI type", self.a2_roiTypeCombo),
-                         self.a2_drawRoiCheckbox))
-        v.addWidget(_row(self.a2_deleteRoiButton, self.a2_deleteFrameButton,
+                         self.a2_drawRoiCheckbox, self.a2_deleteRoiButton,
                          self.a2_cropButton))
 
         self.a2_odCheckbox = QCheckBox("Optical Density")
         self.a2_odCheckbox.setEnabled(False)
         self.a2_selectI0FromHistogramCheckbox = QCheckBox("Select I0 From Histogram")
         v.addWidget(_row(self.a2_odCheckbox, self.a2_selectI0FromHistogramCheckbox))
-
-        # process actions
-        self.a2_autoProcessButton = _primary_btn("Auto Process")
-        self.a2_mapButton = _small_btn("Map")
-        self.a2_mapButton.setEnabled(False)
-        self.a2_resetButton = _small_btn("Reset")
-        v.addWidget(_row(self.a2_autoProcessButton, self.a2_mapButton,
-                         self.a2_resetButton, stretch_last=False))
 
         # pre-edge normalization
         self.a2_preEdgeCheckbox = QCheckBox("Select Pre-Edge")
@@ -335,8 +385,10 @@ class _DashboardAnalysisUI:
         self.a2_subtractPreEdgeButton.setEnabled(False)
         self.a2_detrendButton = _small_btn("Detrend")
         self.a2_detrendButton.setEnabled(False)
-        v.addWidget(self.a2_preEdgeCheckbox)
-        v.addWidget(_row(self.a2_subtractPreEdgeButton, self.a2_detrendButton))
+        v.addWidget(_row(self.a2_preEdgeCheckbox, self.a2_subtractPreEdgeButton,
+                         self.a2_detrendButton))
+
+        v.addWidget(_hline())
 
         self.a2_trackMouseCheckbox = QCheckBox("Track Mouse")
         # Default ON (matches the classic UI): hovering the image plots the pixel
@@ -358,19 +410,21 @@ class _DashboardAnalysisUI:
         self.a2_subtractDarkButton = _small_btn("Subtract Dark Level")
         self.a2_filterUndoButton = _small_btn("Undo")
         v.addWidget(_row(_field("Dark level", self.a2_darkLevelEdit),
-                         self.a2_subtractDarkButton, self.a2_filterUndoButton))
+                         self.a2_subtractDarkButton, self.a2_filterUndoButton,
+                         pad=True, valign=Qt.AlignBottom))
 
         self.a2_medianKernelEdit = _edit("5", width=90)
         self.a2_medianFilterButton = _small_btn("Median Filter")
         v.addWidget(_row(_field("Median kernel", self.a2_medianKernelEdit),
-                         self.a2_medianFilterButton))
+                         self.a2_medianFilterButton, pad=True,
+                         valign=Qt.AlignBottom))
 
         self.a2_despikeKernelEdit = _edit("3", width=90)
         self.a2_despikeNSigmaEdit = _edit("5", width=90)
         self.a2_despikeButton = _small_btn("Despike")
         v.addWidget(_row(_field("Despike kernel", self.a2_despikeKernelEdit),
                          _field("N sigma", self.a2_despikeNSigmaEdit),
-                         self.a2_despikeButton))
+                         self.a2_despikeButton, pad=True, valign=Qt.AlignBottom))
         v.addStretch(1)
         return page
 
@@ -383,15 +437,16 @@ class _DashboardAnalysisUI:
         self.a2_regImageTypeCombo.setEnabled(False)
         self.a2_regModeCombo = _combo(
             ["Translation", "Circular Image", "Affine", "Rigid", "Homographic"])
-        v.addWidget(_row(_field("Image type", self.a2_regImageTypeCombo),
-                         _field("Mode", self.a2_regModeCombo)))
-
         self.a2_regAlignMethodCombo = _combo(["Sequential", "Reference Image"])
+        v.addWidget(_row(_field("Image type", self.a2_regImageTypeCombo),
+                         _field("Mode", self.a2_regModeCombo),
+                         _field("Align to", self.a2_regAlignMethodCombo)))
+
         self.a2_regThresholdCheckbox = QCheckBox("Thresholded")
         self.a2_regThresholdEdit = _edit("0", width=90)
-        v.addWidget(_row(_field("Align to", self.a2_regAlignMethodCombo),
-                         self.a2_regThresholdCheckbox,
-                         _field("Threshold", self.a2_regThresholdEdit)))
+        v.addWidget(_row(self.a2_regThresholdCheckbox,
+                         _field("Threshold", self.a2_regThresholdEdit),
+                         pad=True, valign=Qt.AlignBottom))
 
         self.a2_regSobelCheckbox = QCheckBox("Sobel Filter")
         self.a2_regAutocropCheckbox = QCheckBox("Autocrop")
@@ -402,9 +457,7 @@ class _DashboardAnalysisUI:
         v.addWidget(_row(self.a2_regStartButton, self.a2_regUndoButton,
                          stretch_last=False))
 
-        self.a2_regProgressBar = QProgressBar()
-        self.a2_regProgressBar.setTextVisible(False)
-        v.addWidget(self.a2_regProgressBar)
+        # Progress reports through the shared footer bar (aliased in setupUi).
         v.addStretch(1)
         return page
 
@@ -488,9 +541,7 @@ class _DashboardAnalysisUI:
         v.addWidget(_row(_field("Target spectra", self.a2_nmfTargetSpectraEdit),
                          self.a2_nmfCalcRGBMapButton))
 
-        self.a2_nmfProgressBar = QProgressBar()
-        self.a2_nmfProgressBar.setTextVisible(False)
-        v.addWidget(self.a2_nmfProgressBar)
+        # Progress reports through the shared footer bar (aliased in setupUi).
         v.addStretch(1)
         return page
 
@@ -549,6 +600,8 @@ class _DashboardAnalysisUI:
             lambda v: self.a2_progressPct.setText(f"{int(v)}%"))
         fv.addWidget(self.a2_progressPct)
         fv.addStretch(1)
+        # Delete Frame sits below the image, next to the progress readout.
+        fv.addWidget(self.a2_deleteFrameButton)
         cl.addWidget(footer)
         return card
 

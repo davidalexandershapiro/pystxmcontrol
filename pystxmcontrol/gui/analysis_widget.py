@@ -332,11 +332,19 @@ class Analysis2Widget(QtWidgets.QWidget):
         combo.setCurrentIndex(sv.ui.regionSelect.currentIndex())
         combo.setEnabled(n > 1)
         combo.blockSignals(False)
-        self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))  # → (n_e, nx, ny) for pg slider
-        # Seek to the energy index that the stack viewer already has (e.g. from live data)
+        # xvals=energies labels the slider (timeline) axis with real photon
+        # energies (eV) instead of frame indices; length must match n_e.
+        xvals = np.asarray(sv.stack.energies, dtype=float)
+        self.ui.a2_imageView.setImage(
+            np.ascontiguousarray(frames.transpose(0, 2, 1)),  # → (n_e, nx, ny) for pg slider
+            xvals=xvals if xvals.size == frames.shape[0] else None,
+        )
+        # Seek to the energy index that the stack viewer already has (e.g. from live data).
+        # Always set it explicitly (not only when > 0): setImage parks the timeLine at
+        # value 0, which for a descending-energy axis clamps to the wrong end, so the
+        # displayed frame and slider position would disagree without this.
         energy_idx = sv.ui.verticalSlider.value()
-        if energy_idx > 0:
-            self.ui.a2_imageView.setCurrentIndex(energy_idx)
+        self.ui.a2_imageView.setCurrentIndex(energy_idx)
         self._update_a2_info_panel(energy_idx)
         self._update_a2_scale_bar()
         self._on_a2_roi_changed()
@@ -960,7 +968,12 @@ class Analysis2Widget(QtWidgets.QWidget):
         """Push the current display frames (raw or OD) into a2_imageView."""
         frames = self._a2_get_display_frames()
         current_idx = self.ui.a2_imageView.currentIndex
-        self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
+        # Keep the slider (timeline) axis labeled with real photon energies.
+        xvals = np.asarray(self.ui.a2_stack_viewer.stack.energies, dtype=float)
+        self.ui.a2_imageView.setImage(
+            np.ascontiguousarray(frames.transpose(0, 2, 1)),
+            xvals=xvals if xvals.size == frames.shape[0] else None,
+        )
         self.ui.a2_imageView.setCurrentIndex(current_idx)
 
     def _a2_roi_mean_spectrum(self, roi, frames):
@@ -1233,12 +1246,20 @@ class Analysis2Widget(QtWidgets.QWidget):
         # Update spectrum plot axis label to match OD display
         pi = self.ui.a2_spectrumPlot.getPlotItem()
         self._a2_set_y_axis_od_mode(pi, True)
-        # Display OD frames in imageView
+        # Display OD frames in imageView (xvals keeps the slider axis in eV)
         frames = sv.stack.odFrames
-        self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
+        xvals = np.asarray(sv.stack.energies, dtype=float)
+        self.ui.a2_imageView.setImage(
+            np.ascontiguousarray(frames.transpose(0, 2, 1)),
+            xvals=xvals if xvals.size == frames.shape[0] else None,
+        )
         energy_idx = sv.ui.verticalSlider.value()
-        if energy_idx > 0:
-            self.ui.a2_imageView.setCurrentIndex(energy_idx)
+        self.ui.a2_imageView.setCurrentIndex(energy_idx)
+
+    # Auto-I0 fallback: when the user has not selected an I0, Auto Process picks
+    # the brightest (highest-transmission → substrate) pixels of the mean frame,
+    # above this percentile, as the I0 region.  Drawing an I0 ROI overrides it.
+    _A2_AUTO_I0_PERCENTILE = 90
 
     def _on_a2_auto_process(self):
         """Dispatch Auto Process: special pipeline for 2/4/6-energy map scans, else default."""
@@ -1248,7 +1269,107 @@ class Analysis2Widget(QtWidgets.QWidget):
         if len(sv.stack.energies) in (2, 4, 6):
             self._on_a2_map_scan_process()
         else:
-            sv.autoProcess()
+            self._a2_auto_process_default()
+
+    def _a2_auto_process_default(self):
+        """Auto Process through the same code path as the manual Registration/OD
+        controls, so a one-click run is reproducible from the individual tools.
+
+        Pipeline: despike (Filtering-tab parameters) → "Circular Image"
+        registration via ``alignFramesCustom`` (reference-to-frame-0 with the
+        circular field-of-view mask) → OD via the manual I0 machinery.
+
+        This replaces the old ``stackViewer.autoProcess`` path, which diverged in
+        three ways that changed results: it registered every frame to frame 0 via
+        ``registerFrameStack`` with *no* circular mask, cropped differently, and
+        derived I0 from the coarse 5-bin ``getIOMask`` instead of the histogram-mask
+        OD used here.
+        """
+        sv = self.ui.a2_stack_viewer
+        pb = self.ui.a2_progressBar
+        pb.setValue(0)
+        QtWidgets.QApplication.processEvents()
+
+        # ── Step 1: Despike (manual applyDespike path, Filtering-tab params) ──
+        try:
+            kernel = int(self.ui.a2_despikeKernelEdit.text())
+            n_sigma = float(self.ui.a2_despikeNSigmaEdit.text())
+        except (ValueError, AttributeError):
+            kernel, n_sigma = 3, 5
+        sv.applyDespike(kernel, n_sigma)
+        pb.setValue(20)
+        QtWidgets.QApplication.processEvents()
+
+        # ── Step 2: Circular Image registration (manual alignFramesCustom path) ──
+        # Reference-to-frame-0 + circular FOV mask, honouring the Registration
+        # tab's Sobel / Autocrop / Thresholded options.
+        sobel = (hasattr(self.ui, 'a2_regSobelCheckbox')
+                 and self.ui.a2_regSobelCheckbox.isChecked())
+        autocrop = (hasattr(self.ui, 'a2_regAutocropCheckbox')
+                    and self.ui.a2_regAutocropCheckbox.isChecked())
+        thresholded = (hasattr(self.ui, 'a2_regThresholdCheckbox')
+                       and self.ui.a2_regThresholdCheckbox.isChecked())
+        threshold = 0.0
+        if thresholded and hasattr(self.ui, 'a2_regThresholdEdit'):
+            try:
+                threshold = float(self.ui.a2_regThresholdEdit.text())
+            except ValueError:
+                pass
+        sv.stack.alignFramesCustom(
+            mode='manualtranslation',
+            align_method='reference',
+            reference_idx=0,
+            thresholded=thresholded,
+            threshold=threshold,
+            sobelFilter=sobel,
+            autocrop=autocrop,
+            progress_callback=lambda pct: (
+                pb.setValue(20 + int(pct * 0.6)),
+                QtWidgets.QApplication.processEvents(),
+            ),
+        )
+        pb.setValue(80)
+        QtWidgets.QApplication.processEvents()
+
+        # ── Step 3: Optical density (manual OD path) ─────────────────────────
+        # Prefer a user-selected I0 (ROI or histogram); otherwise auto-select the
+        # brightest substrate pixels and route them through the same
+        # computeODFromHistogramMask the GUI histogram selector uses.
+        i0_entries = [e for e in self._a2_rois if e['type'] == 'I0']
+        if i0_entries or self._a2_i0_hist_spectrum is not None:
+            self._a2_compute_od()
+        else:
+            # Clear first so a failed auto-I0 leaves odFrames None (the display
+            # handler then no-ops) rather than showing stale, wrong-shape OD.
+            sv.stack.odFrames = None
+            mean_frame = sv.stack.processedFrames.mean(axis=0)
+            nz = mean_frame[mean_frame > 0]
+            if nz.size:
+                thr = np.percentile(nz, self._A2_AUTO_I0_PERCENTILE)
+                try:
+                    sv.stack.computeODFromHistogramMask(mean_frame >= thr)
+                except ValueError:
+                    pass
+        pb.setValue(100)
+
+        # ── Step 4: Display OD (shared with the auto_process_done handler) ────
+        self._on_a2_auto_process_done()
+        self._update_a2_scale_bar()
+        self._on_a2_roi_changed()
+
+        # Record the individual manual steps (not a synthetic "auto_process"
+        # action) so Export Script yields a runnable, manual-equivalent script.
+        self._recorder.record("despike", kernel_size=kernel, n_sigma=n_sigma)
+        self._recorder.record(
+            "align_frames_custom", mode="manualtranslation",
+            align_method="reference", reference_idx=0, thresholded=thresholded,
+            threshold=threshold, sobel=sobel, autocrop=autocrop,
+        )
+        if sv.stack.odFrames is not None and sv.stack.I0 is not None:
+            self._recorder.record(
+                "compute_od",
+                i0_spectrum=np.asarray(sv.stack.I0, dtype=float).reshape(-1).tolist(),
+            )
 
     def _on_a2_map_scan_process(self):
         """Despike → Circular Image align → OD → difference map display for 2/4/6-energy stacks."""
