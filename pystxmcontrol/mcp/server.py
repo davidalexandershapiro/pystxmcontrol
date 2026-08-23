@@ -12,6 +12,24 @@ import traceback
 # 3. Single/Double motor scans
 
 mcp = FastMCP("pystxmcontrol-mcp")
+
+# Read-only mode: when PYSTXM_MCP_READONLY is set, hardware-mutating tools
+# (move_motor, stxm_scan) are NOT advertised to the agent, so general users can
+# read state and build scan configs but cannot move motors or start acquisitions.
+# Launch this mode via `python -m pystxmcontrol.mcp.readonly`.
+READONLY = os.environ.get("PYSTXM_MCP_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _hw_tool():
+    """Register a hardware-mutating tool only when NOT in read-only mode.
+
+    In read-only mode the function stays importable/callable (tests, internal
+    use) but is never registered with the MCP server, so it is invisible to the
+    agent — a stronger guarantee than a permission deny-rule the user could edit.
+    """
+    def deco(fn):
+        return fn if READONLY else mcp.tool()(fn)
+    return deco
 # Module state, populated on connect. Initialise ALL to None so a tool called
 # before connect_to_server() hits a clean guard (or lazy auto-connect) instead of
 # `NameError: name 'SCRIPTER' is not defined`.
@@ -129,7 +147,7 @@ def define_scan_from_file(file_path: str) -> str:
     else:
         return f"Generated a new scan from file {file_path}"
 
-@mcp.tool()
+@_hw_tool()
 def stxm_scan() -> str:
     """
     TODO:
@@ -319,7 +337,7 @@ def connect_to_server(host: str = None, port: int = None) -> str:
     except Exception as e:
         return f"Failed to connect to {host}:{port}. Error: {type(e).__name__}: {str(e)}"
 
-@mcp.tool()
+@_hw_tool()
 def move_motor(axis: str = None, pos: float = None) -> dict:
     """
     Things to be careful about:

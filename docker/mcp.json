@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "pystxm": {
+      "command": "python",
+      "args": [
+        "-m",
+        "pystxmcontrol.mcp"
+      ]
+    }
+  }
+}
