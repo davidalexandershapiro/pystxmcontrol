@@ -5374,14 +5374,19 @@ class MainWindowDashboard(QMainWindow):
     def _update_begin_enabled(self):
         """Gate the Begin-scan button: User mode requires a selected proposal;
         Staff mode does not.  While scanning the button is Cancel and stays
-        enabled."""
+        enabled.  The agent Send button shares the same gate."""
+        allowed = self._expert or self._proposal_selected()
+        # Agent console Send button follows the same Staff/proposal gate.
+        agent_app = getattr(self, "_agent_app", None)
+        if agent_app is not None and hasattr(agent_app, "set_gate_allowed"):
+            agent_app.set_gate_allowed(allowed)
         btn = getattr(self, "begin_btn", None)
         if btn is None:
             return
         if self._scanning:
             btn.setEnabled(True)
             return
-        btn.setEnabled(self._expert or self._proposal_selected())
+        btn.setEnabled(allowed)
 
     @staticmethod
     def _scan_is_focus(text):

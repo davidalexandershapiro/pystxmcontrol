@@ -592,6 +592,10 @@ class AgentApp(QWidget):
         self.setStyleSheet(build_stylesheet())
 
         self._task_running = False
+        # Staff/proposal gate (mirrors the Begin-scan button): the host window
+        # sets this False in User mode until a proposal is selected.  Defaults
+        # True so the console still works when run standalone.
+        self._gate_allowed = True
         self._show_traces = True
         self._trace_blocks = []       # every trace container, for the toggle
         self._active_trace = None     # the turn's in-progress trace container
@@ -690,16 +694,26 @@ class AgentApp(QWidget):
         if hasattr(c, "agent_confirmation_requested"):
             c.agent_confirmation_requested.connect(self._show_confirmation)
 
+    def set_gate_allowed(self, allowed: bool):
+        """Host-window gate mirroring the Begin-scan button: enabled in Staff
+        mode, or in User mode once a proposal is selected."""
+        self._gate_allowed = bool(allowed)
+        self._refresh_composer()
+
     def _refresh_composer(self):
-        """Composer is live only with a controller (placeholder mode disables it),
-        and while a task runs the Send button becomes Stop."""
+        """Composer is live only with a controller (placeholder mode disables it)
+        and when the Staff/proposal gate is open; while a task runs the Send
+        button becomes Stop and stays enabled so the task can be stopped."""
         connected = self.controller is not None
-        self._input.setEnabled(connected and not self._task_running)
-        self._send.setEnabled(connected)
+        allowed = connected and (self._task_running or self._gate_allowed)
+        self._input.setEnabled(connected and not self._task_running and self._gate_allowed)
+        self._send.setEnabled(allowed)
         if not connected:
             self._input.setPlaceholderText("Task agent unavailable (no server connection)")
         elif self._task_running:
             self._input.setPlaceholderText("Agent is running…")
+        elif not self._gate_allowed:
+            self._input.setPlaceholderText("Select a proposal to use the task agent")
         else:
             self._input.setPlaceholderText("Describe a goal for the task agent…")
 
