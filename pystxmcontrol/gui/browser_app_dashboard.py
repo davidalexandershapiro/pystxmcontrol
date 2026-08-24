@@ -815,13 +815,25 @@ class BrowserApp(QWidget):
 
     def _render_grid(self):
         """Lay the (filtered) tiles into the grid and update the count.  Called
-        at load and on filter change — NOT per thumbnail."""
-        for i in reversed(range(self._grid.count())):
-            self._grid.itemAt(i).widget().setParent(None)
+        at load and on filter change — NOT per thumbnail.
+
+        Tiles are detached with layout.takeAt(...) + hide(), NOT setParent(None):
+        reparenting a tile to None turns it into a top-level window, and rapid
+        filter typing queues enough relayouts that a pending show/paint event
+        flashes the detached tiles as floating popup windows.  Keeping every tile
+        parented to the grid container (only toggling layout membership and
+        visibility) makes that impossible."""
+        while self._grid.count():
+            item = self._grid.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.hide()
         shown = [fp for fp, t in self._tiles.items() if self._tile_matches(t)]
         for pos, fp in enumerate(shown):
             r, c = divmod(pos, self.THUMB_COLS)
-            self._grid.addWidget(self._tiles[fp], r, c)
+            tile = self._tiles[fp]
+            self._grid.addWidget(tile, r, c)
+            tile.show()
         self._count_lbl.setText(f"{len(shown)} of {len(self._tiles)} shown")
 
     def _on_thumbnail_ready(self, filepath, arr, scan_type, start_time, x_range_um):
@@ -1193,6 +1205,7 @@ class BrowserApp(QWidget):
             item = self._params.takeAt(0)
             w = item.widget()
             if w:
+                w.hide()               # hide before reparenting so it can't flash as a window
                 w.setParent(None)      # remove from view now; deleteLater is async
                 w.deleteLater()
         self._params.addStretch(1)
