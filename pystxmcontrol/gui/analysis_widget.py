@@ -332,19 +332,11 @@ class Analysis2Widget(QtWidgets.QWidget):
         combo.setCurrentIndex(sv.ui.regionSelect.currentIndex())
         combo.setEnabled(n > 1)
         combo.blockSignals(False)
-        # xvals=energies labels the slider (timeline) axis with real photon
-        # energies (eV) instead of frame indices; length must match n_e.
-        xvals = np.asarray(sv.stack.energies, dtype=float)
-        self.ui.a2_imageView.setImage(
-            np.ascontiguousarray(frames.transpose(0, 2, 1)),  # → (n_e, nx, ny) for pg slider
-            xvals=xvals if xvals.size == frames.shape[0] else None,
-        )
-        # Seek to the energy index that the stack viewer already has (e.g. from live data).
-        # Always set it explicitly (not only when > 0): setImage parks the timeLine at
-        # value 0, which for a descending-energy axis clamps to the wrong end, so the
-        # displayed frame and slider position would disagree without this.
+        self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))  # → (n_e, nx, ny) for pg slider
+        # Seek to the energy index that the stack viewer already has (e.g. from live data)
         energy_idx = sv.ui.verticalSlider.value()
-        self.ui.a2_imageView.setCurrentIndex(energy_idx)
+        if energy_idx > 0:
+            self.ui.a2_imageView.setCurrentIndex(energy_idx)
         self._update_a2_info_panel(energy_idx)
         self._update_a2_scale_bar()
         self._on_a2_roi_changed()
@@ -968,12 +960,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         """Push the current display frames (raw or OD) into a2_imageView."""
         frames = self._a2_get_display_frames()
         current_idx = self.ui.a2_imageView.currentIndex
-        # Keep the slider (timeline) axis labeled with real photon energies.
-        xvals = np.asarray(self.ui.a2_stack_viewer.stack.energies, dtype=float)
-        self.ui.a2_imageView.setImage(
-            np.ascontiguousarray(frames.transpose(0, 2, 1)),
-            xvals=xvals if xvals.size == frames.shape[0] else None,
-        )
+        self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
         self.ui.a2_imageView.setCurrentIndex(current_idx)
 
     def _a2_roi_mean_spectrum(self, roi, frames):
@@ -1246,15 +1233,12 @@ class Analysis2Widget(QtWidgets.QWidget):
         # Update spectrum plot axis label to match OD display
         pi = self.ui.a2_spectrumPlot.getPlotItem()
         self._a2_set_y_axis_od_mode(pi, True)
-        # Display OD frames in imageView (xvals keeps the slider axis in eV)
+        # Display OD frames in imageView
         frames = sv.stack.odFrames
-        xvals = np.asarray(sv.stack.energies, dtype=float)
-        self.ui.a2_imageView.setImage(
-            np.ascontiguousarray(frames.transpose(0, 2, 1)),
-            xvals=xvals if xvals.size == frames.shape[0] else None,
-        )
+        self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
         energy_idx = sv.ui.verticalSlider.value()
-        self.ui.a2_imageView.setCurrentIndex(energy_idx)
+        if energy_idx > 0:
+            self.ui.a2_imageView.setCurrentIndex(energy_idx)
 
     # Auto-I0 fallback: when the user has not selected an I0, Auto Process picks
     # the brightest (highest-transmission → substrate) pixels of the mean frame,

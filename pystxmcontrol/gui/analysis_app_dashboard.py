@@ -36,7 +36,6 @@ Two pieces:
 import os
 import sys
 
-import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import (
@@ -224,30 +223,8 @@ class _ColMajorImageView(ImageView):
         hist.setBackground(C["plot_ground"])
         hist.axis.setPen(C["border"])
         hist.axis.setTextPen(C["text_faint"])
-        # Style the built-in energy (time) slider row and label its axis with
-        # the real photon energy (values supplied via setImage(xvals=...)).
+        # Style the built-in frame (time) slider row.
         self.ui.roiPlot.setBackground(C["plot_ground"])
-        _slider_axis = self.ui.roiPlot.getPlotItem().getAxis("bottom")
-        _slider_axis.setPen(C["border"])
-        _slider_axis.setTextPen(C["text_faint"])
-        _slider_axis.setLabel("Energy", units="eV")
-
-    def timeIndex(self, slider):
-        """Map the slider position to a frame index by nearest tVal.
-
-        pyqtgraph's default assumes ascending time values (``argwhere(xv <= t)``),
-        which freezes the slider on energy stacks scanned high→low (descending
-        energies): every drag snaps to the last frame.  Nearest-value search is
-        correct for ascending, descending, and non-monotonic energy axes alike.
-        """
-        if not self.hasTimeAxis():
-            return 0, 0.0
-        t = slider.value()
-        xv = self.tVals
-        if xv is None or len(xv) == 0:
-            return int(t), t
-        ind = int(np.argmin(np.abs(np.asarray(xv, dtype=float) - t)))
-        return ind, t
 
 
 # ════════════════════════════════════════════════════════════════════════════
