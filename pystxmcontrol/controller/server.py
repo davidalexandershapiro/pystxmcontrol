@@ -80,8 +80,14 @@ class stxmServer:
                 self.controller.readConfig()
                 self.controller.updateMotorConfig()
                 message["status"] = True
+                # Strip staff-password secrets from the outgoing config: no client
+                # reads them from here (both GUIs authenticate against their local
+                # main.json), so the hash/salt must never leave the server.  Shallow
+                # copy of the top level only — do not mutate the in-memory config.
+                safe_main_config = {k: v for k, v in self.controller.main_config.items()
+                                    if k not in ("staff_password_hash", "staff_password_salt")}
                 message["data"] = self.controller.motorConfig, self.controller.scanConfig, \
-                    self.controller.allMotorPositions,self.controller.daqConfig, self.controller.main_config
+                    self.controller.allMotorPositions,self.controller.daqConfig, safe_main_config
                 message["mode"] = "idle"
                 message["time"] = str(datetime.datetime.now())
                 self.command_sock.send_pyobj(message)

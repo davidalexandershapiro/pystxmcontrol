@@ -289,28 +289,65 @@ class TestMoveMotor:
 class TestGetConfig:
     """Test get_config function"""
 
-    def test_get_config_success(self):
-        """Test successful config retrieval"""
+    @staticmethod
+    def _mock_scripter():
         mock_scripter = Mock()
-
-        motors = {"SampleX": {"min": 0, "max": 100}}
+        motors = {"SampleX": {"type": "primary", "unit": "um",
+                              "minScanValue": 0, "maxScanValue": 100,
+                              "last value": 50, "driver": "smaract"}}
         scans = {"Image": {"driver": "line_image"}}
         positions = {"SampleX": 50}
         daqs = {"default": {}}
-        config = {"server": {"data_dir": "/data"}}
-
+        config = {"server": {"data_dir": "/data"},
+                  "lastScan": {"Image": {"dwell": 1.0}},
+                  "staff_password_hash": "SECRET", "staff_password_salt": "SECRET"}
         mock_scripter.get_config.return_value = [motors, scans, positions, daqs, config]
+        return mock_scripter, (motors, scans, positions, daqs, config)
+
+    def test_get_config_summary_default(self):
+        """Default returns a compact summary, not the full dump."""
+        mock_scripter, (motors, scans, positions, daqs, config) = self._mock_scripter()
         server.SCRIPTER = mock_scripter
 
-        result = server.get_config()
+        result_dict = json.loads(server.get_config())
 
-        result_dict = json.loads(result)
-
-        assert result_dict["motors"] == motors
-        assert result_dict["scans"] == scans
+        assert result_dict["scan_types"] == ["Image"]
         assert result_dict["positions"] == positions
-        assert result_dict["daqs"] == daqs
-        assert result_dict["config"] == config
+        assert result_dict["daqs"] == ["default"]
+        # motor summary keeps units/limits, drops driver/calibration fields
+        assert result_dict["motors"]["SampleX"] == {
+            "type": "primary", "unit": "um", "min": 0, "max": 100, "value": 50}
+        assert "driver" not in result_dict["motors"]["SampleX"]
+        assert "hint" in result_dict
+
+    def test_get_config_sections(self):
+        """Named sections return the full underlying data."""
+        mock_scripter, (motors, scans, positions, daqs, config) = self._mock_scripter()
+        server.SCRIPTER = mock_scripter
+
+        assert json.loads(server.get_config("scans")) == scans
+        assert json.loads(server.get_config("motors")) == motors
+        assert json.loads(server.get_config("positions")) == positions
+        assert json.loads(server.get_config("daqs")) == daqs
+        assert json.loads(server.get_config("lastScan")) == config["lastScan"]
+
+        all_dict = json.loads(server.get_config("all"))
+        assert all_dict["motors"] == motors
+        assert all_dict["scans"] == scans
+
+    def test_get_config_strips_secrets(self):
+        """staff-password secrets never appear in any section."""
+        mock_scripter, _ = self._mock_scripter()
+        server.SCRIPTER = mock_scripter
+
+        for sec in (None, "config", "all", "lastScan"):
+            assert "staff_password" not in server.get_config(sec).lower()
+
+    def test_get_config_unknown_section(self):
+        """Unknown section returns a helpful error, not a crash."""
+        mock_scripter, _ = self._mock_scripter()
+        server.SCRIPTER = mock_scripter
+        assert "Unknown section" in server.get_config("bogus")
 
     def test_get_config_exception(self):
         """Test get_config with exception"""

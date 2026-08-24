@@ -370,18 +370,58 @@ def move_motor(axis: str = None, pos: float = None) -> dict:
     except Exception as e:
         return f"Failed to communicate with the control server with error: {str(e)}"
 
+# Password secrets must never be echoed back to the model / proxy.  The server
+# already strips these, but strip again here as defense-in-depth against an older
+# server that still includes them.
+_SECRET_KEYS = ("staff_password_hash", "staff_password_salt")
+
+
+def _strip_secrets(cfg: dict) -> dict:
+    """Shallow copy of the main config with staff-password secrets removed."""
+    if not isinstance(cfg, dict):
+        return cfg
+    return {k: v for k, v in cfg.items() if k not in _SECRET_KEYS}
+
+
+def _motor_summary(motors: dict) -> dict:
+    """Compact per-motor view: just the fields needed to plan moves/scans
+    (units and travel limits), dropping the ~30 calibration/driver fields."""
+    out = {}
+    for name, m in (motors or {}).items():
+        if not isinstance(m, dict):
+            out[name] = m
+            continue
+        out[name] = {
+            "type": m.get("type"),
+            "unit": m.get("unit"),
+            "min": m.get("minScanValue", m.get("minValue")),
+            "max": m.get("maxScanValue", m.get("maxValue")),
+            "value": m.get("last value"),
+        }
+    return out
+
+
 @mcp.tool()
-def get_config() -> str:
-    """Returns the full configuration of the control system.
+def get_config(section: str = None) -> str:
+    """Returns the control-system configuration.
+
+    The full configuration is large (~50k characters), so by default this
+    returns a compact SUMMARY (available scan types, a motor summary with
+    units/limits, current positions, and DAQ names).  Request a specific
+    section when you need full detail.
+
     Args:
-        None
+        section: Which slice to return. One of:
+            - None / "summary" (default): compact overview (~5k chars)
+            - "scans":     full scan-type templates
+            - "motors":    full motor configuration (all calibration fields)
+            - "positions": current motor positions
+            - "daqs":      full DAQ configuration
+            - "lastScan":  last-used parameters per scan type (use these to build update_scan)
+            - "config":    main config (minus secrets), including lastScan
+            - "all":       everything (minus secrets) — the legacy full dump
     Returns:
-        A JSON string containing:
-        - motors: motor configuration
-        - scans: scan configuration
-        - positions: current positions
-        - daqs: DAQ configuration
-        - config: main config
+        A JSON string for the requested section.
     """
     global SCRIPTER, MOTORS, SCANS, POSITIONS, DAQS, CONFIG
     err = _ensure_connected()
@@ -389,14 +429,43 @@ def get_config() -> str:
         return err
     try:
         MOTORS, SCANS, POSITIONS, DAQS, CONFIG = SCRIPTER.get_config()
-        config_dict = {
-            "motors": MOTORS,
-            "scans": SCANS,
-            "positions": POSITIONS,
-            "daqs": DAQS,
-            "config": CONFIG
-        }
-        return json.dumps(config_dict, indent=2)
+        safe_config = _strip_secrets(CONFIG)
+        sec = (section or "summary").strip().lower()
+
+        if sec in ("summary", "none"):
+            payload = {
+                "scan_types": list(SCANS.keys()) if isinstance(SCANS, dict) else SCANS,
+                "motors": _motor_summary(MOTORS),
+                "positions": POSITIONS,
+                "daqs": list(DAQS.keys()) if isinstance(DAQS, dict) else DAQS,
+                "hint": ("This is a summary. For full detail call get_config with "
+                         "section='scans', 'motors', 'daqs', 'lastScan', 'config', or 'all'."),
+            }
+        elif sec == "scans":
+            payload = SCANS
+        elif sec == "motors":
+            payload = MOTORS
+        elif sec == "positions":
+            payload = POSITIONS
+        elif sec == "daqs":
+            payload = DAQS
+        elif sec == "lastscan":
+            payload = safe_config.get("lastScan", {}) if isinstance(safe_config, dict) else {}
+        elif sec == "config":
+            payload = safe_config
+        elif sec == "all":
+            payload = {
+                "motors": MOTORS,
+                "scans": SCANS,
+                "positions": POSITIONS,
+                "daqs": DAQS,
+                "config": safe_config,
+            }
+        else:
+            return (f"Unknown section '{section}'. Valid sections: summary, scans, "
+                    "motors, positions, daqs, lastScan, config, all.")
+
+        return json.dumps(payload, indent=2)
     except Exception as e:
         return f"Failed to communicate with the control server. Error: {str(e)}"
     

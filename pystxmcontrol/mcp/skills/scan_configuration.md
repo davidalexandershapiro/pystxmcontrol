@@ -8,8 +8,9 @@ description: Comprehensive scan configuration checklist
 When configuring scans from a user prompt, follow these steps:
 
 ## Update the scan configuration
-- [ ] Run get_config(), this returns the configuration of recently run scans, available scan types, available motors and detectors.  This is important because other remote processes may run scans
-- [ ] Ask the user the scan type if they did not indicate it in their prompt.  Prompt the user with the available options.
+- [ ] Run get_config(), which by default returns a compact summary: available scan types, a motor summary (units/limits), current positions, and DAQ names.  This is important because other remote processes may run scans.
+- [ ] Ask the user the scan type if they did not indicate it in their prompt.  Prompt the user with the available scan types from the summary.
+- [ ] Call get_config(section="lastScan") to retrieve the last-used parameters (keyed by scan type); read the entry for the chosen scan type and use it as the basis for update_scan.  Use get_config(section="motors") or "daqs" only if you need full motor/detector detail.
 - [ ] run update_scan() to update the config with the requested scan type and any other arguments the user supplies
 - [ ] present the updated configuration to the user for confirmation
 
