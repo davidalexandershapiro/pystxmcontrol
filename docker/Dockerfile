@@ -8,9 +8,16 @@
 # Everything site-specific is injected at runtime — control-server address (env),
 # API key (env), scripts folder (volume) — so the same image deploys anywhere.
 #
-# Build (from the repo root — build context must be the repo root):
-#   docker build -f docker/Dockerfile -t stxm-mcp:latest .
-#
+# Build (from the repo root — build context must be the repo root).
+# pystxm-core is a PRIVATE repo, so a GitHub token is passed as a BuildKit secret
+# (never baked into an image layer — see the pystxm_core stage below):
+#   export GITHUB_TOKEN=$(gh auth token)   # or a PAT with repo scope
+#   DOCKER_BUILDKIT=1 docker build --secret id=gh_token,env=GITHUB_TOKEN \
+#     -f docker/Dockerfile -t stxm-mcp:latest .
+# Example build:
+# DOCKER_BUILDKIT=1 docker build --secret id=gh_token,env=GITHUB_TOKEN \
+#   -f <path to docker file> -t <docker username>/<image name> <path to pystxmcontrol>
+
 # Run — FULL access (default; Claude can move motors / run scans via MCP):
 #   docker run -it --rm --network host \
 #     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
@@ -38,13 +45,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- MCP runtime deps ONLY (verified set — none of the repo's GUI/hardware stack) ----
-RUN pip install --no-cache-dir mcp pyzmq pydantic numpy matplotlib h5py
+# NOTE: pin mcp to 1.x — the 2.0 release removed mcp.server.fastmcp, which server.py imports.
+RUN pip install --no-cache-dir "mcp==1.26.0" pyzmq pydantic numpy matplotlib h5py
 
-# ---- pystxm_core: currently a PRIVATE repo. Until it is public on PyPI this needs
-#      build-time credentials (or vendor a wheel and COPY it in). Once public,
-#      replace the git spec with the plain PyPI name.
-ARG PYSTXM_CORE_SPEC="git+https://github.com/als-computing/pystxm-core.git@david/refactor"
-RUN pip install --no-cache-dir "${PYSTXM_CORE_SPEC}"
+# ---- pystxm_core: currently a PRIVATE repo. A BuildKit secret carries a GitHub
+#      token into the build WITHOUT baking it into any image layer. Once the repo
+#      is public on PyPI, drop the secret and replace this with the plain PyPI name.
+#
+#      Build (from the repo root):
+#        export GITHUB_TOKEN=$(gh auth token)   # or a PAT with repo scope
+#        DOCKER_BUILDKIT=1 docker build --secret id=gh_token,env=GITHUB_TOKEN \
+#          -f docker/Dockerfile -t dashapiro76/pystxmcontrol-mcp .
+ARG PYSTXM_CORE_REF="david/refactor"
+RUN --mount=type=secret,id=gh_token \
+    pip install --no-cache-dir \
+    "git+https://$(cat /run/secrets/gh_token)@github.com/als-computing/pystxm-core.git@${PYSTXM_CORE_REF}"
 
 # ---- MCP server code on PYTHONPATH (NO `pip install .` → skips the monolithic
 #      GUI/hardware dependency set that fails headless). Only the mcp/controller

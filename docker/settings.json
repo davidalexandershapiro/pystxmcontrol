@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov"
+  },
   "permissions": {
     "defaultMode": "default",
     "allow": [
