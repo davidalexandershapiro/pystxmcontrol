@@ -12,6 +12,7 @@
       "Edit",
       "mcp__pystxm__get_safety_instructions",
       "mcp__pystxm__get_config",
+      "mcp__pystxm__list_energy_presets",
       "mcp__pystxm__get_motor_position",
       "mcp__pystxm__plot_motor_positions",
       "mcp__pystxm__connect_to_server",

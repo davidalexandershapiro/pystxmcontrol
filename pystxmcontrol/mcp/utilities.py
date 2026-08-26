@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pystxm_core.io.stxm_reader import read_stxm_stack
+from pystxmcontrol.controller.scan_conversion import convert_scan as _convert_scan
 
 def scan_from_stxm(stxm_file: str) -> dict:
     stack = read_stxm_stack(stxm_file)
@@ -42,39 +43,13 @@ def scan_from_stxm(stxm_file: str) -> dict:
     return scan
 
 def convert_scan(scan: dict) -> dict:
-    scan = {
-        'scan_type': scan['scan_type'],
-        'proposal': scan['proposal'],
-        'experimenters': scan['experimenters'],
-        'nx_file_version': float(scan.get('nx_file_version') or 3),
-        'sample_description': scan['sample'],
-        'x_motor': scan['x_motor'],
-        'y_motor': scan['y_motor'],
-        'z_motor': scan.get('z_motor',None),
-        'x_center': scan['scan_regions']['Region1']['xCenter'],
-        'y_center': scan['scan_regions']['Region1']['yCenter'],
-        'z_center': scan['scan_regions']['Region1']['zCenter'],
-        'x_range': scan['scan_regions']['Region1']['xRange'],
-        'y_range': scan['scan_regions']['Region1']['yRange'],
-        'z_range': scan['scan_regions']['Region1']['zRange'],
-        'x_points': scan['scan_regions']['Region1']['xPoints'],
-        'y_points': scan['scan_regions']['Region1']['yPoints'],
-        'z_points': scan['scan_regions']['Region1']['zPoints'],
-        'energy_start': scan['energy_regions']['EnergyRegion1']['start'],
-        'energy_stop': scan['energy_regions']['EnergyRegion1']['stop'],
-        'energy_points': scan['energy_regions']['EnergyRegion1']['n_energies'],
-        'dwell': scan['energy_regions']['EnergyRegion1']['dwell'],
-        'spiral': scan.get('spiral',False),
-        'autofocus': scan.get('autofocus',True),
-        'defocus': scan.get('defocus',False),
-        'daq_list': scan.get('daq_list',['default']),
-        'comment': scan.get('comment',''),
-        'energy_list': scan.get('energy_list',None),
-        'retract': scan.get('retract',True),
-        'double_exposure': False,
-        'loop_scan': False
-    }
-    return scan
+    """Convert a server scan dict (nested scan_regions) to the flat ScanModel format.
+
+    Thin alias for the shared converter in ``pystxmcontrol.controller.scan_conversion``,
+    which the task agent uses too — the two paths must read a scan back identically.
+    """
+    return _convert_scan(scan)
+
 
 def _get_db_directory(db_base_dir):
     """Get database directory"""

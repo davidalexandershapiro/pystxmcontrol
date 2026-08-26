@@ -2787,15 +2787,16 @@ class MainWindowMVC(QtWidgets.QMainWindow):
         if not filename:
             return
         try:
-            import json
-            with open(filename, 'r') as f:
-                data = json.load(f)
-            # Accept either {"energy_regions": {...}} or the raw regions dict
-            if 'energy_regions' in data:
-                cfg = {'energy_regions': data['energy_regions']}
-            else:
-                cfg = {'energy_regions': data}
-            self._populate_ui_from_scan_config(cfg)
+            # Shared reader: accepts either {"energy_regions": {...}} or the raw regions
+            # dict, and is the same one the dashboard and the agents use, so a definition
+            # that loads here loads everywhere.
+            from pystxmcontrol.controller import energy_presets
+            regions = energy_presets.read_energy_regions_json(filename)
+            if regions is None:
+                self.show_error_message(
+                    f"No readable energy regions in: {filename}")
+                return
+            self._populate_ui_from_scan_config({'energy_regions': regions})
         except Exception as e:
             self.show_error_message(f"Failed to open energy definition: {filename}\nError: {str(e)}")
 

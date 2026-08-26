@@ -2,6 +2,9 @@ import sys, zmq, os, json, traceback, datetime, asyncio
 import numpy as np
 from time import time, sleep
 from pystxmcontrol.controller.scan_model import ScanModel
+from pystxmcontrol.controller.scan_conversion import (
+    build_energy_regions, energy_list_for_scan,
+)
 
 
 class scripter:
@@ -137,7 +140,6 @@ class scripter:
         ystep = np.round((ystop - ystart) / (self.scan["y_points"] - 1), 3)
         y_range = ystop - ystart
         ycenter = self.scan['y_center']
-        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
         scan = {"scan_type": "Ptychography Image", "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"],
                 "sample": self.scan["sample_description"],
                 "x_motor": "SampleX",
@@ -173,14 +175,11 @@ class scripter:
                                             "zStart": 0,
                                             "zStop": 0,
                                             "zPoints": 1}},
-                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
-                                                    "start": self.scan["energy_start"],
-                                                    "stop": self.scan["energy_stop"],
-                                                    "step": energyStep,
-                                                    "n_energies": self.scan["energy_points"]}}
+                "energy_regions": build_energy_regions(self.scan)
                 }
-        if self.scan["energy_list"] is not None:
-            scan["energy_list"] = self.scan["energy_list"]
+        energy_list = energy_list_for_scan(self.scan)
+        if energy_list is not None:
+            scan["energy_list"] = energy_list
             scan["dwell"] = self.scan["dwell"]
         message = {"command": "scan", "scan": scan}
         self.sock.send_pyobj(message)
@@ -224,7 +223,6 @@ class scripter:
             self.scan["energy_start"] = self.scan["energy_list"][0]
             self.scan["energy_stop"] = self.scan["energy_list"][-1]
             self.scan["energy_points"] = len(self.scan["energy_list"])
-        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
         scan = {"scan_type": self.scan["scan_type"], "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"],
                 "sample": self.scan["sample_description"],
                 "x_motor": self.scan["x_motor"],
@@ -243,7 +241,7 @@ class scripter:
                 "daq_list": self.scan["daq_list"],
                 "comment": self.scan["comment"],
                 "loop_scan": self.scan["loop_scan"],
-                "energy_list": self.scan["energy_list"],
+                "energy_list": energy_list_for_scan(self.scan),
                 "dwell": self.scan["dwell"],
                 "retract": self.scan["retract"],
                 "scan_regions": {"Region1": {"xStart": xstart,
@@ -264,11 +262,7 @@ class scripter:
                                             "zStep": zstep,
                                             "zRange": zrange,
                                             "zCenter": zcenter}},
-                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
-                                                    "start": self.scan["energy_start"],
-                                                    "stop": self.scan["energy_stop"],
-                                                    "step": energyStep,
-                                                    "n_energies": self.scan["energy_points"]}}
+                "energy_regions": build_energy_regions(self.scan)
                 }
         scan["driver"] = self.SCANS[self.scan["scan_type"]]["driver"]
         message = {"command": "scan", "scan": scan}
@@ -286,7 +280,6 @@ class scripter:
         return file_name
 
     def multi_region_ptychography_scan(self, scanRegList):
-        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
         scan = {"scan_type": "Ptychography Image", "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"], "nx_file_version": 3,
                 "sample": self.scan["Sample"],
                 "x_motor": "SampleX",
@@ -306,11 +299,7 @@ class scripter:
                 "coarse_only": False,
                 "loop_scan": self.scan["loop_scan"],
                 "driver": self.SCANS["Ptychography Image"]["driver"],
-                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
-                                                    "start": self.scan["energy_start"],
-                                                    "stop": self.scan["energy_stop"],
-                                                    "step": energyStep,
-                                                    "n_energies": self.scan["energy_points"]}}
+                "energy_regions": build_energy_regions(self.scan)
                 }
         scan["scan_regions"] = {}
         i = 1
@@ -354,7 +343,6 @@ class scripter:
 
     def multi_region_stxm_scan(self, scanRegList):
         # s = connect(ADDRESS, PORT)
-        energyStep = (self.scan["energy_stop"] - self.scan["energy_start"]) / self.scan["energy_points"]
         scan = {"scan_type": self.scan["scan_type"], "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"], "nx_file_version": 3,
                 "sample": self.scan["Sample"],
                 "x_motor": "SampleX",
@@ -372,11 +360,7 @@ class scripter:
                 "comment": self.scan["comment"],
                 "coarse_only": False,
                 "loop_scan": self.scan["loop_scan"],
-                "energy_regions": {"EnergyRegion1": {"dwell": self.scan["dwell"],
-                                                    "start": self.scan["energy_start"],
-                                                    "stop": self.scan["energy_stop"],
-                                                    "step": energyStep,
-                                                    "n_energies": self.scan["energy_points"]}}
+                "energy_regions": build_energy_regions(self.scan)
                 }
         scan["scan_regions"] = {}
         i = 1
@@ -404,8 +388,9 @@ class scripter:
                                         "zStop": 0,
                                         "zPoints": 0}
             i += 1
-        if self.scan["energy_list"] is not None:
-            scan["energy_list"] = self.scan["energy_list"]
+        energy_list = energy_list_for_scan(self.scan)
+        if energy_list is not None:
+            scan["energy_list"] = energy_list
             scan["dwell"] = self.scan["dwell"]
         if self.scan["spiral"]:
             scan["driver"] = self.SCANS["Spiral Image"]["driver"] #"spiral_image"

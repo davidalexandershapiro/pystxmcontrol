@@ -32,6 +32,9 @@ from pystxmcontrol.gui.dashboard_theme import (
     mono_font, sans_font, TravelBar, ProgressBar, EnergyRegionStrip,
     HistColorBar,
 )
+# Saved energy definitions: one definition of the preset format and of where presets
+# live, shared with the task agent and the MCP server so all three agree.
+from pystxmcontrol.controller import energy_presets
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
 
@@ -5001,18 +5004,26 @@ class MainWindowDashboard(QMainWindow):
     def _save_energy_preset(self):
         """Save the current energy regions to a JSON preset file, in the same
         ``{"energy_regions": {"EnergyRegion1": {...}}}`` format the MVC window reads
-        (see mainwindow_mvc.open_energy_definition), so presets are interchangeable."""
+        (see mainwindow_mvc.open_energy_definition), so presets are interchangeable.
+
+        The dialog opens on the shared presets directory: a preset saved there is
+        discoverable BY NAME (its filename) to the task agent and the MCP server as well
+        as to Load Preset, so the operator defines an edge once and can then just ask for
+        it. Saving elsewhere still works — it is only the starting directory."""
         self._sync_active_energy_region()   # flush the active field row into the model
         regs = getattr(self, '_energy_regions', None) or []
         if not regs:
             return
-        energy_regions = {
-            f'EnergyRegion{i + 1}': {
-                'start': r['start'], 'stop': r['stop'], 'step': r['step'],
-                'n_energies': r['n'], 'dwell': r['dwell']}
-            for i, r in enumerate(regs)}
+        energy_regions = energy_presets.regions_to_dict(
+            [{'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+              'n_energies': r['n'], 'dwell': r['dwell']} for r in regs])
+        start_dir = energy_presets.presets_dir()
+        try:
+            os.makedirs(start_dir, exist_ok=True)
+        except OSError:
+            start_dir = ''      # fall back to the dialog's default location
         filename, _ = QFileDialog.getSaveFileName(
-            self, "Save Energy Preset", "", "JSON Files (*.json);;All Files (*)")
+            self, "Save Energy Preset", start_dir, "JSON Files (*.json);;All Files (*)")
         if not filename:
             return
         if not os.path.splitext(filename)[1]:
@@ -5030,32 +5041,22 @@ class MainWindowDashboard(QMainWindow):
         """Read an energy-preset JSON file.  Accepts either
         ``{"energy_regions": {...}}`` or a raw ``{EnergyRegionN: {...}}`` dict
         (matching mainwindow_mvc.open_energy_definition).  Returns the regions dict
-        or None if unreadable / empty."""
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            return None
-        regions = data.get('energy_regions', data) if isinstance(data, dict) else None
-        return regions if isinstance(regions, dict) and regions else None
+        or None if unreadable / empty.
+
+        Delegates to the shared reader so the GUI and the agents agree on what a saved
+        energy definition is, rather than agreeing by luck."""
+        return energy_presets.read_energy_regions_json(path)
 
     def _apply_energy_regions_dict(self, regions):
         """Populate the energy fields from an ``{EnergyRegionN: {...}}`` dict.
         Returns True on success (shared by the file loader and Favorites)."""
-        if not isinstance(regions, dict) or not regions:
+        # The shared normaliser orders regions by their EnergyRegionN index and derives a
+        # missing 'step', so hand-written presets load the same way here as for an agent.
+        normalized = energy_presets.normalize_regions(regions)
+        if normalized is None:
             return False
-        eregs = []
-        try:
-            for e in regions.values():
-                start = float(e.get('start', 0.0)); stop = float(e.get('stop', 0.0))
-                step = float(e.get('step', 0.0))
-                eregs.append({'start': start, 'stop': stop, 'step': step,
-                              'dwell': float(e.get('dwell', 1.0)),
-                              'n': int(e.get('n_energies', 1)) or 1})
-        except (ValueError, TypeError, AttributeError):
-            return False
-        if not eregs:
-            return False
+        eregs = [{'start': r['start'], 'stop': r['stop'], 'step': r['step'],
+                  'dwell': r['dwell'], 'n': r['n_energies']} for r in normalized]
         self._energy_regions = eregs
         self._active_energy_region = 0
         self._load_energy_region(0)
@@ -5084,13 +5085,11 @@ class MainWindowDashboard(QMainWindow):
     @staticmethod
     def _favorites_file_path():
         """Where energy favorites are persisted: alongside the runtime config
-        (pystxmcontrol_cfg), falling back to the repo config dir, then home."""
-        for d in (os.path.join(sys.prefix, "pystxmcontrol_cfg"),
-                  os.path.join(os.path.dirname(__file__), "..", "..", "config")):
-            if os.path.isdir(d):
-                return os.path.join(d, "dashboard_energy_favorites.json")
-        return os.path.join(os.path.expanduser("~"),
-                            ".pystxmcontrol_energy_favorites.json")
+        (pystxmcontrol_cfg), falling back to the repo config dir, then home.
+
+        Resolved by the shared module, which is also where the agents look for presets by
+        name — so a pinned favorite is agent-visible without any export step."""
+        return energy_presets.favorites_file_path()
 
     def _read_favorites_file(self):
         """Load the persisted favorites list, keeping only well-formed entries."""

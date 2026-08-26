@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 from pystxmcontrol.controller.scripter import scripter
+from pystxmcontrol.controller import energy_presets
 import pystxmcontrol.mcp.utilities as stxm_utils
 import os
 import json
@@ -205,6 +206,7 @@ def update_scan(
     daq_list: list[str] = None,
     comment: str = None,
     energy_list: list = None,
+    energy_preset: str = None,
     retract: bool = None,
     double_exposure: bool = None,
     loop_scan: bool = None
@@ -252,6 +254,11 @@ def update_scan(
     :param daq_list: List of data acquisition devices
     :param comment: Comment for the scan
     :param energy_list: List of energies
+    :param energy_preset: Name of a saved energy definition to apply (see list_energy_presets).
+        Sets the scan's energy regions from a preset the operator saved in the GUI, keeping
+        each region's own dwell, so an edge scan needs no energy ranges typed out.  A path to
+        a .json energy definition works too.  Passing an explicit energy_start/stop/points
+        instead clears any preset carried over from the last scan.
     :param retract: Enable retraction after scan
     """
 
@@ -269,12 +276,61 @@ def update_scan(
         # Load the previous scan for scan_type as the baseline
         SCRIPTER.scan = stxm_utils.convert_scan(CONFIG["lastScan"][scan_type])
 
+        # Energy presets and the baseline's energy fields are reconciled on the BASELINE
+        # rather than through updated_params: the None-filter below cannot express
+        # "clear this", and a leftover energy_list would make the server ignore
+        # energy_regions (and their per-region dwells) entirely.
+        preset_note = ""
+        if energy_preset is not None:
+            try:
+                preset_name, regions = energy_presets.resolve_preset(energy_preset)
+            except energy_presets.PresetNotFound as e:
+                return str(e)
+            SCRIPTER.scan["energy_regions"] = regions
+            SCRIPTER.scan["energy_list"] = None
+            preset_note = (f"Applied energy preset '{preset_name}': "
+                           f"{energy_presets.summarize_regions(regions)}\n")
+        elif any(v is not None for v in (energy_start, energy_stop, energy_points)):
+            # An explicit range means a single region; drop a multi-region baseline that
+            # would otherwise silently override it.
+            SCRIPTER.scan["energy_regions"] = None
+
         # Filter out None values and delegate to scripter.update_scan for validation
         updated_params = {key: value for key, value in params.items() if value is not None}
-        return SCRIPTER.update_scan(**updated_params)
+        updated_params.pop("energy_preset", None)   # resolved above; not a ScanModel field
+        return preset_note + SCRIPTER.update_scan(**updated_params)
     except Exception as e:
         return f"Failed to update scan parameters with error: {e}.  Requested parameters: {locals()}"
-    
+
+@mcp.tool()
+def list_energy_presets() -> str:
+    """
+    Lists the saved energy definitions ("energy presets") that can be applied with
+    update_scan(energy_preset="<name>").
+
+    These are the same presets the GUI loads: entries pinned to the dashboard's Favorites
+    bar, plus JSON files in the shared energy-presets directory.  A preset may hold several
+    energy regions, each with its own dwell, and applying one preserves that — so prefer
+    applying a preset by name over asking the user to type out energy ranges whenever they
+    name an edge or a standard scan.
+
+    Needs no server connection; presets are read from disk.
+
+    :return: JSON listing each preset's name, source, region count, total energy points and
+        a one-line summary.
+    :rtype: str
+    """
+    presets = energy_presets.describe_presets()
+    if not presets:
+        return json.dumps({
+            "presets": [],
+            "note": ("No saved energy definitions found. They come from the dashboard "
+                     f"Favorites bar ({energy_presets.favorites_file_path()}) or JSON "
+                     f"files in {energy_presets.presets_dir()}."),
+        }, indent=2)
+    return json.dumps({"presets": presets}, indent=2)
+
+
 @mcp.tool()
 def get_motor_position(axis: str) -> str:
     """

@@ -3,6 +3,48 @@ from typing import Optional
 from pydantic import BaseModel, field_validator, model_validator
 
 
+class EnergyRegionModel(BaseModel):
+    """One energy region of a scan: a linspace from ``start`` to ``stop`` measured
+    at ``dwell`` ms per point.
+
+    Scans may carry several of these (that is what a saved energy definition holds),
+    and each keeps its OWN dwell — the server builds a per-energy dwell array from
+    them and the scan drivers index it, so a fine near-edge region can be measured
+    longer than the coarse pre-edge one.
+    """
+
+    start: float
+    stop: float
+    n_energies: int = 1
+    dwell: float = 1.0
+    step: Optional[float] = None
+
+    @field_validator("n_energies")
+    @classmethod
+    def n_energies_must_be_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("n_energies must be >= 1")
+        return v
+
+    @field_validator("dwell")
+    @classmethod
+    def dwell_must_be_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("Dwell time must be > 0")
+        return v
+
+    @model_validator(mode="after")
+    def region_range_check(self) -> EnergyRegionModel:
+        if self.stop < self.start:
+            raise ValueError(
+                f"Energy region stop ({self.stop}) must be >= start ({self.start})"
+            )
+        if self.step is None:
+            self.step = ((self.stop - self.start) / (self.n_energies - 1)
+                         if self.n_energies > 1 else 0.0)
+        return self
+
+
 class ScanModel(BaseModel):
     proposal: str = "BLS-000001"
     experimenters: str = "Shapiro"
@@ -26,6 +68,11 @@ class ScanModel(BaseModel):
     energy_stop: float = 700.0
     energy_points: int = 1
     energy_list: Optional[list[float]] = None
+    # Multi-region energy definition (a saved energy preset, or a multi-region scan
+    # read back from the server).  When set it OVERRIDES energy_start/stop/points —
+    # those are kept in sync with the overall span so anything reading the flat
+    # fields still sees sensible values.  Each region keeps its own dwell.
+    energy_regions: Optional[list[EnergyRegionModel]] = None
 
     # Timing
     dwell: float = 0.2
@@ -44,6 +91,11 @@ class ScanModel(BaseModel):
     autofocus: bool = True
     loop_scan: bool = False
     retract: bool = True
+    # Large-scan handling (range exceeds the fine/piezo travel). Mutually exclusive:
+    #   tiled       - split into sub-regions that each fit the fine range (server stitches)
+    #   coarse_only - position with the coarse stage instead of the fine piezo
+    tiled: bool = False
+    coarse_only: bool = False
 
     @field_validator("x_points", "y_points", "z_points", "energy_points")
     @classmethod
@@ -68,11 +120,38 @@ class ScanModel(BaseModel):
 
     @model_validator(mode="after")
     def energy_range_check(self) -> ScanModel:
-        if self.energy_list is None and self.energy_stop < self.energy_start:
+        # An explicit energy_list or energy_regions defines the energies outright,
+        # so the flat start/stop pair is descriptive only and need not be ordered.
+        if (self.energy_list is None and self.energy_regions is None
+                and self.energy_stop < self.energy_start):
             raise ValueError(
                 f"energy_stop ({self.energy_stop}) must be >= energy_start ({self.energy_start})"
             )
         return self
+
+    @model_validator(mode="after")
+    def sync_flat_energy_fields(self) -> ScanModel:
+        """Mirror a multi-region definition into the flat energy fields.
+
+        ``energy_start``/``energy_stop`` become the overall span, ``energy_points``
+        the total count and ``dwell`` the first region's — so callers that only know
+        the flat model (limit checks, summaries, the GUI's last-scan display) read
+        something truthful instead of a stale single-region leftover.
+        """
+        if self.energy_regions:
+            self.energy_start = min(r.start for r in self.energy_regions)
+            self.energy_stop = max(r.stop for r in self.energy_regions)
+            self.energy_points = sum(r.n_energies for r in self.energy_regions)
+            self.dwell = self.energy_regions[0].dwell
+        return self
+
+    def total_energies(self) -> int:
+        """Number of energy points this scan will measure."""
+        if self.energy_regions:
+            return sum(r.n_energies for r in self.energy_regions)
+        if self.energy_list:
+            return len(self.energy_list)
+        return int(self.energy_points or 1)
 
 
 def validate_scan(scan_dict: dict) -> tuple[bool, str]:

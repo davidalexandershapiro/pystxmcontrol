@@ -18,11 +18,35 @@
 # DOCKER_BUILDKIT=1 docker build --secret id=gh_token,env=GITHUB_TOKEN \
 #   -f <path to docker file> -t <docker username>/<image name> <path to pystxmcontrol>
 
+# One-time host preparation of the scripts folder.  The container runs as
+# uid 1000 / gid 801 (cosmic) and a bind mount passes those numeric ids straight
+# through, so the folder must be writable by that group or every write the agent
+# attempts fails with EACCES — which looks exactly like a read-only mount:
+#   sudo chgrp -R cosmic /srv/stxm/scripts
+#   sudo chmod -R g+ws  /srv/stxm/scripts     # g+s: new files stay in the group
+#
+# Saved energy definitions (list_energy_presets / update_scan(energy_preset=...)) live
+# in the host's pystxmcontrol_cfg — i.e. under the GUI environment's sys.prefix, NOT in
+# the repo.  The container's own sys.prefix is /usr/local, so it finds nothing unless
+# that directory is mounted and pointed at explicitly:
+#     -v <sys.prefix>/pystxmcontrol_cfg:/opt/stxm/pystxmcontrol_cfg:ro \
+#     -e PYSTXM_CFG_DIR=/opt/stxm/pystxmcontrol_cfg
+# Find <sys.prefix> with:  python -c "import sys; print(sys.prefix)"  in the GUI env.
+#
+# That directory also contains main.json with the staff-password hash/salt.  To share
+# ONLY the presets, mount the presets subfolder instead and use the narrower override:
+#     -v <sys.prefix>/pystxmcontrol_cfg/energy_presets:/opt/stxm/energy_presets:ro \
+#     -e PYSTXM_ENERGY_PRESETS_DIR=/opt/stxm/energy_presets
+# (Favorites pinned in the dashboard live in the cfg dir itself, so that narrower form
+#  sees only the presets saved as files.  PYSTXM_ENERGY_FAVORITES_JSON can add them.)
+#
 # Run — FULL access (default; Claude can move motors / run scans via MCP):
 #   docker run -it --rm --network host \
 #     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
 #     -e PYSTXM_SERVER_HOST=131.243.191.90 -e PYSTXM_SERVER_PORT=9999 \
 #     -v /srv/stxm/scripts:/work \
+#     -v /srv/stxm/pystxmcontrol_cfg:/opt/stxm/pystxmcontrol_cfg:ro \
+#     -e PYSTXM_CFG_DIR=/opt/stxm/pystxmcontrol_cfg \
 #     stxm-mcp:latest
 #
 # Run — READ-ONLY MCP (opt-in; drops move_motor/stxm_scan from Claude's tools).
@@ -70,14 +94,30 @@ ENV PYTHONPATH=/opt/stxm \
     MPLBACKEND=Agg
 
 # ---- non-root user; /work is the mount point for the site's scripts folder ----
-RUN useradd -m -u 1000 stxm
+# The container user's group MUST match the beamline's: files it writes into the
+# mounted scripts folder have to be readable AND writable by beamline staff, and a
+# bind mount carries numeric ids straight through — the host has no idea what
+# "stxm" means, it only sees uid 1000 / gid 801.  cosmic (gid 801) is therefore
+# stxm's PRIMARY group, so everything the agent creates in /work is group-owned by
+# cosmic whether or not the host directory carries the setgid bit.
+#
+# The host side must allow the group to write (see the run examples above):
+#   sudo chgrp -R cosmic /srv/stxm/scripts
+#   sudo chmod -R g+ws  /srv/stxm/scripts     # g+s: new files stay in the group
+RUN groupadd -g 801 cosmic \
+    && useradd -m -u 1000 -g cosmic stxm
 USER stxm
 WORKDIR /work
 
 # Launch claude in the scripts folder with the READ-ONLY MCP profile.
 # --strict-mcp-config ignores any .mcp.json a user drops into /work, so the tool
 # surface can't be widened from inside the container.
-ENTRYPOINT ["claude", \
+#
+# umask 002 makes agent-written scripts group-writable (664/775) instead of the
+# default 644 — without it beamline staff could read an agent-written script but
+# not edit it in place.  "$@" forwards any extra `docker run` arguments to claude.
+ENTRYPOINT ["sh", "-c", \
+            "umask 002 && exec claude \"$@\"", "--", \
             "--mcp-config", "/opt/stxm/mcp.json", \
             "--strict-mcp-config", \
             "--settings", "/opt/stxm/settings.json"]

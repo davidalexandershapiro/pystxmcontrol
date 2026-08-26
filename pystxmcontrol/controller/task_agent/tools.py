@@ -15,7 +15,11 @@ import math
 import os
 import time
 import numpy as np
-from .scan_model import ScanModel, validate_scan
+from pystxmcontrol.controller.scan_model import ScanModel, validate_scan
+from pystxmcontrol.controller.scan_conversion import (
+    build_energy_regions, convert_scan, energy_list_for_scan,
+)
+from pystxmcontrol.controller import energy_presets
 
 log = logging.getLogger(__name__)
 
@@ -203,49 +207,11 @@ def _resolve_scan_type(raw: str) -> str:
 
 
 def _convert_scan(scan: dict) -> dict:
-    """Convert a pystxmcontrol scan dict (nested scan_regions) to the flat ScanModel format."""
-    _er = scan['energy_regions']['EnergyRegion1']
-    _e_start = _er['start']
-    _e_points = _er['n_energies']
-    # A single-energy scan sits at ONE energy — the region's 'start'.  Its stored 'stop'
-    # can be stale or descending (start > stop), e.g. after the beamline energy is moved,
-    # which trips ScanModel's energy_stop >= energy_start validator and makes the caller
-    # silently fall back to ScanModel() DEFAULTS (5x5 µm, 50x50, 700 eV, 0.2 ms, …) — the
-    # symptom of the agent reporting default parameters instead of the real last scan.
-    # Collapse stop→start when there is only one energy so it round-trips cleanly.
-    _e_stop = _e_start if (_e_points and int(_e_points) <= 1) else _er['stop']
-    return {
-        'scan_type':          scan['scan_type'],
-        'proposal':           scan['proposal'],
-        'experimenters':      scan['experimenters'],
-        'nx_file_version':    float(scan.get('nx_file_version') or 3.0),
-        'sample_description': scan['sample'],
-        'x_motor':            scan['x_motor'],
-        'y_motor':            scan['y_motor'],
-        'z_motor':            scan.get('z_motor'),
-        'x_center':           scan['scan_regions']['Region1']['xCenter'],
-        'y_center':           scan['scan_regions']['Region1']['yCenter'],
-        'z_center':           scan['scan_regions']['Region1']['zCenter'],
-        'x_range':            scan['scan_regions']['Region1']['xRange'],
-        'y_range':            scan['scan_regions']['Region1']['yRange'],
-        'z_range':            scan['scan_regions']['Region1']['zRange'],
-        'x_points':           scan['scan_regions']['Region1']['xPoints'],
-        'y_points':           scan['scan_regions']['Region1']['yPoints'],
-        'z_points':           scan['scan_regions']['Region1']['zPoints'],
-        'energy_start':       _e_start,
-        'energy_stop':        _e_stop,
-        'energy_points':      _e_points,
-        'dwell':              _er['dwell'],
-        'spiral':             scan.get('spiral', False),
-        'autofocus':          scan.get('autofocus', True),
-        'defocus':            scan.get('defocus', False),
-        'daq_list':           scan.get('daq_list', ['default']),
-        'comment':            scan.get('comment', ''),
-        'energy_list':        scan.get('energy_list'),
-        'retract':            scan.get('retract', True),
-        'double_exposure':    False,
-        'loop_scan':          False,
-    }
+    """Convert a pystxmcontrol scan dict (nested scan_regions) to the flat ScanModel format.
+
+    Thin alias for the shared converter, which the MCP server uses too.
+    """
+    return convert_scan(scan)
 
 
 def _build_scan_dict(scan: dict, scans_config: dict) -> dict:
@@ -269,16 +235,10 @@ def _build_scan_dict(scan: dict, scans_config: dict) -> dict:
     z_stop   = scan['z_center'] + scan['z_range'] / 2.0 - z_step_raw / 2.0
     z_step   = round(z_step_raw, 3)
 
-    energy_list = scan.get('energy_list')
-    if energy_list:
-        e_start  = energy_list[0]
-        e_stop   = energy_list[-1]
-        e_points = len(energy_list)
-    else:
-        e_start  = scan['energy_start']
-        e_stop   = scan['energy_stop']
-        e_points = scan['energy_points']
-    e_step = (e_stop - e_start) / max(e_points, 1)
+    # Energy construction is shared with the MCP/scripter path (and preserves a
+    # multi-region definition, e.g. an applied energy preset, with per-region dwell).
+    energy_regions = build_energy_regions(scan)
+    energy_list = energy_list_for_scan(scan)
 
     scan_type = scan['scan_type']
     driver = scans_config.get(scan_type, {}).get('driver', 'derived_line_image')
@@ -322,16 +282,7 @@ def _build_scan_dict(scan: dict, scans_config: dict) -> dict:
                 'zRange':  scan['z_range'],  'zCenter': scan['z_center'],
             }
         },
-        'energy_regions': {
-            'EnergyRegion1': {
-                'dwell':      scan['dwell'],
-                'start':      e_start,
-                'stop':       e_stop,
-                'step':       e_step,
-                'n_energies': e_points,
-                'energy_list': energy_list,
-            }
-        },
+        'energy_regions': energy_regions,
     }
 
 
@@ -577,6 +528,11 @@ class ToolSet:
         Pass keyword arguments matching ScanModel fields to change values.
         The updated scan is held in memory until start_scan() is called.
 
+        Energy presets: pass energy_preset="<name>" to apply a saved energy definition —
+        the same files the GUI loads (see list_energy_presets). Multi-region presets keep
+        each region's own dwell. An explicit energy_start/stop/points clears an applied
+        preset, so set the preset in the same call as (or after) the other energy fields.
+
         Energy note: setting energy_start (a single-energy scan) only records the value in the
         scan config — it does NOT move the Energy motor. The motor is moved to that energy by
         start_scan() just before the scan runs, so a scan requested at a different energy than
@@ -598,12 +554,32 @@ class ToolSet:
                         f"Note: colloquial terms like 'stack', 'z-stack', or 'tomo' are not valid — "
                         f"use the exact names listed above."
                     )
+                # A saved energy definition is applied here: it becomes the scan's
+                # energy_regions (keeping each region's own dwell) and displaces any
+                # energy_list, which would otherwise win server-side.
+                preset_note = ""
+                preset = kwargs.pop('energy_preset', None)
+                if preset:
+                    try:
+                        preset_name, regions = energy_presets.resolve_preset(preset)
+                    except energy_presets.PresetNotFound as e:
+                        return str(e)
+                    kwargs['energy_regions'] = regions
+                    kwargs['energy_list'] = None
+                    preset_note = (f"Applied energy preset '{preset_name}': "
+                                   f"{energy_presets.summarize_regions(regions)}\n")
+
                 # If the caller is setting an energy range but not an explicit energy_list,
                 # clear any energy_list from the baseline — otherwise it silently overrides
                 # energy_start/stop/points in both _build_scan_dict and stxm._extractEnergies.
+                # Multi-region energy_regions take precedence over both, so an explicit range
+                # has to clear those too or the change would be silently ignored.
                 _energy_range_keys = {'energy_start', 'energy_stop', 'energy_points'}
                 if _energy_range_keys & kwargs.keys() and 'energy_list' not in kwargs:
                     kwargs['energy_list'] = None
+                if (_energy_range_keys & kwargs.keys()
+                        and 'energy_regions' not in kwargs):
+                    kwargs['energy_regions'] = None
 
                 # Seed from the server's last-used scan ONLY when switching scan types.
                 # For repeated updates of the same type, build on the in-memory working scan
@@ -623,11 +599,28 @@ class ToolSet:
                 if not ok:
                     return f"Invalid scan parameters: {err}"
                 self._scan = ScanModel(**merged).model_dump()
-                return "Scan updated: " + json.dumps(self._scan, indent=2)
+                return preset_note + "Scan updated: " + json.dumps(self._scan, indent=2)
             else:
                 return "Current scan definition: " + json.dumps(self._scan, indent=2)
         except Exception as e:
             return f"Failed to update scan: {e}"
+
+    def list_energy_presets(self) -> str:
+        """List the saved energy definitions available to apply with update_scan().
+
+        These are the same presets the GUI loads: entries pinned to the dashboard's
+        Favorites bar, plus JSON files in the shared energy-presets directory.  Apply one
+        with update_scan(energy_preset="<name>") instead of typing out energy ranges.
+        """
+        presets = energy_presets.describe_presets()
+        if not presets:
+            return json.dumps({
+                "presets": [],
+                "note": ("No saved energy definitions found. They come from the dashboard "
+                         f"Favorites bar ({energy_presets.favorites_file_path()}) or JSON "
+                         f"files in {energy_presets.presets_dir()}."),
+            }, indent=2)
+        return json.dumps({"presets": presets}, indent=2)
 
     def _validate_scan_limits(self) -> tuple:
         """Core scan-range check, mirroring the GUI's scan_model.validate_ranges.
@@ -3223,6 +3216,7 @@ TOOL_SCHEMAS: list[dict] = [
                     "energy_stop":        {"type": "number", "description": "eV"},
                     "energy_points":      {"type": "integer"},
                     "energy_list":        {"type": "array", "items": {"type": "number"}, "description": "Explicit energy list in eV"},
+                    "energy_preset":      {"type": "string", "description": "Name of a saved energy definition to apply (see list_energy_presets). Sets the scan's energy regions, keeping each region's own dwell. A path to a .json energy definition also works."},
                     "autofocus":          {"type": "boolean"},
                     "spiral":             {"type": "boolean"},
                     "tiled":              {"type": "boolean", "description": "Large-scan mode: split into sub-regions that each fit the fine/piezo range (server stitches). Use when a range exceeds fine travel."},
@@ -3234,6 +3228,20 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "required": [],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_energy_presets",
+            "description": (
+                "List saved energy definitions (energy presets) that can be applied with "
+                "update_scan(energy_preset=\"<name>\"). These are the same presets the GUI "
+                "loads — the dashboard's pinned Favorites plus JSON files in the shared "
+                "energy-presets directory. Prefer applying a preset by name over typing out "
+                "energy ranges when the user names an edge or a standard scan."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
