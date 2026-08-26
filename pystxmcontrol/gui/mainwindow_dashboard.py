@@ -791,7 +791,12 @@ class ImageArea(QWidget):
                              handlePen=pg.mkPen(color),
                              hoverPen=pg.mkPen(color, width=3))
             roi.setAcceptedMouseButtons(Qt.LeftButton)
-            roi.setZValue(10)             # ROI boxes sit above the image tiles
+            # ROI boxes sit above the image tiles (z 0).  The spectrum box goes
+            # above everything else — including the crosshair (12) — so live scan
+            # data streaming into the tiles can never bury the one ROI the
+            # operator adjusts while a scan is running.
+            spectrum = kind == "spectrum"
+            roi.setZValue(20 if spectrum else 10)
             roi.sigRegionChangeStarted.connect(lambda _, k=key: self._on_start(k))
             roi.sigRegionChanged.connect(lambda _, k=key: self._on_changed(k))
             roi.sigRegionChangeFinished.connect(lambda _, k=key: self._on_finished(k))
@@ -799,7 +804,7 @@ class ImageArea(QWidget):
             self.vb.addItem(roi)
             label = pg.TextItem("", color=color, anchor=(0, 1))
             label.setFont(mono_font(8))
-            label.setZValue(11)
+            label.setZValue(21 if spectrum else 11)
             self.vb.addItem(label)
             it = self._roi_items[key] = {"roi": roi, "label": label}
         it["kind"] = kind
@@ -2661,7 +2666,27 @@ class MainWindowDashboard(QMainWindow):
         return pw
 
     def _update_roi_spectrum(self):
-        """Redraw the ROI spectrum from the live energy stack."""
+        """Request a redraw of the ROI spectrum from the live energy stack.
+
+        Coalesced onto a single-shot timer: this is called both from every
+        ``sigRegionChanged`` of an ROI drag (one per mouse-move) and from every
+        incoming frame, and re-averaging the whole energy stack + redrawing the
+        curve on each of those starves the event loop — which is what makes the
+        ROI feel like it is fighting the incoming data.  One redraw per interval
+        is indistinguishable on screen."""
+        if getattr(self, "_spectrum_curve", None) is None:
+            return
+        t = getattr(self, "_spectrum_redraw_timer", None)
+        if t is None:
+            t = self._spectrum_redraw_timer = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(120)
+            t.timeout.connect(self._redraw_roi_spectrum)
+        if not t.isActive():
+            t.start()
+
+    def _redraw_roi_spectrum(self):
+        """Recompute and draw the ROI spectrum (see _update_roi_spectrum)."""
         curve = getattr(self, "_spectrum_curve", None)
         if curve is None:
             return
@@ -2719,6 +2744,11 @@ class MainWindowDashboard(QMainWindow):
             r = self._spectrum_region
             rx0, rx1 = r['xCenter'] - r['xRange'] / 2.0, r['xCenter'] + r['xRange'] / 2.0
             ry0, ry1 = r['yCenter'] - r['yRange'] / 2.0, r['yCenter'] + r['yRange'] / 2.0
+            # The ROI only analyses pixels that were actually scanned: dragged
+            # off the imaged region entirely, it has nothing to average (clamping
+            # would otherwise report a spurious one-pixel edge strip).
+            if rx1 <= x0 or rx0 >= x0 + xr or ry1 <= y0 or ry0 >= y0 + yr:
+                return [], []
             xs, ys = [], []
             for i in range(last):
                 frame = frames[i]
@@ -3756,12 +3786,12 @@ class MainWindowDashboard(QMainWindow):
         (the start of the first energy region) — an abridged sanity check.  The
         view's region/energy lists are only read, never reassigned."""
         # Spatial regions — flush the grid into the active region, then emit
-        # every image region (plus the spectrum region, if enabled).
+        # every image region.  The spectrum ROI is display-only (it selects the
+        # pixels the Profile spectrum averages) and is never an active region,
+        # so the Spatial fields never write to it and it is never emitted here.
         if isinstance(self._active_region, int):
             self._scan_regions[self._active_region].update(
                 self._read_spatial_fields())
-        elif self._spectrum_region is not None:
-            self._spectrum_region.update(self._read_spatial_fields())
 
         # Guard against a degenerate spatial grid: an image needs more than one
         # point on each axis.  A stray Points=1 (X or Y) otherwise compiles a
@@ -3776,15 +3806,11 @@ class MainWindowDashboard(QMainWindow):
 
         region = self._region_scan_dict(self._scan_regions[0])
         if preview:
-            # First region only; no extra regions, no spectrum region.
+            # First region only; no extra regions.
             sm.add_scan_region('Region1', region)
         else:
             for i, r in enumerate(self._scan_regions):
                 sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
-            if self._spectrum_region is not None:
-                spec = self._region_scan_dict(self._spectrum_region)
-                spec['spectrum'] = True
-                sm.add_scan_region('SpectrumRegion', spec)
 
         # Energy regions — flush the field row into the active region first.
         self._sync_active_energy_region()
@@ -4034,7 +4060,7 @@ class MainWindowDashboard(QMainWindow):
                  'yPoints': int(info.get("yPoints", frame.shape[0]))}
             self._scan_regions = [r]
             self._active_region = 0
-            self._spectrum_region = None
+            self._keep_spectrum_region(r)
             self._write_spatial_fields(r)
         # Force a fresh auto-level: set_primary_frame only levels the first frame,
         # but a loaded file replaces whatever was shown and needs its own contrast.
@@ -4167,7 +4193,7 @@ class MainWindowDashboard(QMainWindow):
                 if regs:
                     self._scan_regions = regs
                     self._active_region = 0
-                    self._spectrum_region = None
+                    self._keep_spectrum_region(regs[0])
                     self._write_spatial_fields(regs[0])
                     self._refresh_spatial_image(fit=True)
 
@@ -4356,9 +4382,9 @@ class MainWindowDashboard(QMainWindow):
         elif is_motor:
             regions = [self._motor_region_scan_dict(self._motor_axis_count(scan_type))]
         else:
+            # Image regions only — the spectrum ROI is not scanned, so it adds
+            # neither points nor time.
             regions = [self._region_scan_dict(r) for r in self._scan_regions]
-            if self._spectrum_region is not None:
-                regions.append(self._region_scan_dict(self._spectrum_region))
 
         # Energy regions.  Focus is always a single energy (compile forces it),
         # so use only the first region's dwell there.
@@ -4495,23 +4521,58 @@ class MainWindowDashboard(QMainWindow):
     def _toggle_spectrum(self, on):
         """Show/hide the spectrum ROI (a distinct-coloured box).
 
-        The spectrum ROI floats independently of the spatial scan regions: it is
-        never the active region and never edits the Spatial tab fields, so
-        toggling or dragging it leaves the scan definition untouched.  Its point
-        counts mirror the base region purely so the SpectrumRegion emitted at
-        compile time is never a degenerate 1×1 grid."""
+        The spectrum ROI is a VISUALIZATION region only: it selects the pixels
+        averaged into the Profile spectrum and is never compiled into the scan
+        (see _compile_image_regions) nor counted in the time estimate.  It floats
+        independently of the spatial scan regions — never the active region,
+        never edits the Spatial tab fields — so toggling or dragging it leaves
+        the scan definition untouched.  Its point counts merely mirror the base
+        region so the dict has the same shape as a spatial region."""
         if on:
-            base = self._active_region_dict() or self._read_spatial_fields()
-            self._spectrum_region = {
-                'xCenter': base['xCenter'], 'yCenter': base['yCenter'],
-                'xRange': max(base['xRange'] * 0.4, 1.0),
-                'yRange': max(base['yRange'] * 0.4, 1.0),
-                'xPoints': max(2, int(base.get('xPoints', 2))),
-                'yPoints': max(2, int(base.get('yPoints', 2)))}
+            # Re-selecting the Spectrum tab keeps the box the operator already
+            # placed; it is only created the first time.
+            if self._spectrum_region is None:
+                self._spectrum_region = self._default_spectrum_region()
         else:
             self._spectrum_region = None
         self._refresh_spatial_image(fit=True)
         self._update_roi_spectrum()
+
+    def _default_spectrum_region(self):
+        """A fresh spectrum ROI: a box 40% the size of the region being defined,
+        centred on it."""
+        base = self._active_region_dict() or self._read_spatial_fields()
+        return {'xCenter': base['xCenter'], 'yCenter': base['yCenter'],
+                'xRange': max(base['xRange'] * 0.4, 1.0),
+                'yRange': max(base['yRange'] * 0.4, 1.0),
+                'xPoints': max(2, int(base.get('xPoints', 2))),
+                'yPoints': max(2, int(base.get('yPoints', 2)))}
+
+    def _keep_spectrum_region(self, region):
+        """Carry the spectrum ROI over to a new spatial geometry (a scan starting,
+        a file loaded, a config prefill).
+
+        The ROI is display-only, so a new scan must never silently delete it —
+        the Profile panel would still show the Spectrum tab with no box to drag.
+        It lives in absolute µm, so it is left exactly where the operator put it
+        whenever it still overlaps the new region; only a box that has fallen
+        completely outside is re-centred (its size preserved, capped to fit)."""
+        r = self._spectrum_region
+        if r is None or not region:
+            return
+        try:
+            overlaps = (
+                abs(r['xCenter'] - region['xCenter'])
+                < (r['xRange'] + region['xRange']) / 2.0
+                and abs(r['yCenter'] - region['yCenter'])
+                < (r['yRange'] + region['yRange']) / 2.0)
+        except (KeyError, TypeError):
+            return
+        if overlaps:
+            return
+        r['xCenter'], r['yCenter'] = region['xCenter'], region['yCenter']
+        r['xRange'] = min(r['xRange'], region['xRange'])
+        r['yRange'] = min(r['yRange'], region['yRange'])
 
     def _spatial_region_list(self):
         """Combined list of {key, geometry, label, kind, active} for the image."""
@@ -5257,7 +5318,8 @@ class MainWindowDashboard(QMainWindow):
             return
         self._scan_regions = [r]
         self._active_region = 0
-        self._spectrum_region = None
+        # The spectrum ROI is display-only and survives the new geometry.
+        self._keep_spectrum_region(r)
         self._write_spatial_fields(r)
         self._refresh_spatial_image(fit=True)
 
