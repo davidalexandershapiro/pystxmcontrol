@@ -137,6 +137,38 @@ def _h5str(val) -> str:
     return str(val)
 
 
+def _read_scan_footprint(filepath):
+    """Read a scan's sample-XY footprint in motor µm.
+
+    Returns ``(x_min, x_max, y_min, y_max, x_motor, y_motor)`` unioned across all
+    ``entry*`` regions, or ``None`` if the file has no usable sample-XY extent.
+    """
+    x_lo = y_lo = float("inf")
+    x_hi = y_hi = float("-inf")
+    x_motor = y_motor = ""
+    try:
+        with h5py.File(filepath, "r") as hf:
+            for ekey in (k for k in hf.keys() if k.startswith("entry")):
+                grp = hf.get(f"{ekey}/default")
+                if grp is None or "sample_x" not in grp or "sample_y" not in grp:
+                    continue
+                xp = np.atleast_1d(grp["sample_x"][()])
+                yp = np.atleast_1d(grp["sample_y"][()])
+                if xp.size == 0 or yp.size == 0:
+                    continue
+                x_lo, x_hi = min(x_lo, float(xp.min())), max(x_hi, float(xp.max()))
+                y_lo, y_hi = min(y_lo, float(yp.min())), max(y_hi, float(yp.max()))
+                if not x_motor and "motor_name_x" in grp:
+                    x_motor = _h5str(grp["motor_name_x"][()])
+                if not y_motor and "motor_name_y" in grp:
+                    y_motor = _h5str(grp["motor_name_y"][()])
+    except Exception:
+        return None
+    if x_hi <= x_lo or y_hi <= y_lo:
+        return None
+    return (x_lo, x_hi, y_lo, y_hi, x_motor, y_motor)
+
+
 def _get_version(f):
     """Return the numeric nexus version from an open h5py.File."""
     try:
@@ -892,35 +924,9 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
     @staticmethod
     def _read_scan_footprint(filepath):
-        """Read a scan's sample-XY footprint in motor µm.
-
-        Returns ``(x_min, x_max, y_min, y_max, x_motor, y_motor)`` unioned across all
-        ``entry*`` regions, or ``None`` if the file has no usable sample-XY extent.
-        """
-        x_lo = y_lo = float("inf")
-        x_hi = y_hi = float("-inf")
-        x_motor = y_motor = ""
-        try:
-            with h5py.File(filepath, "r") as hf:
-                for ekey in (k for k in hf.keys() if k.startswith("entry")):
-                    grp = hf.get(f"{ekey}/default")
-                    if grp is None or "sample_x" not in grp or "sample_y" not in grp:
-                        continue
-                    xp = np.atleast_1d(grp["sample_x"][()])
-                    yp = np.atleast_1d(grp["sample_y"][()])
-                    if xp.size == 0 or yp.size == 0:
-                        continue
-                    x_lo, x_hi = min(x_lo, float(xp.min())), max(x_hi, float(xp.max()))
-                    y_lo, y_hi = min(y_lo, float(yp.min())), max(y_hi, float(yp.max()))
-                    if not x_motor and "motor_name_x" in grp:
-                        x_motor = _h5str(grp["motor_name_x"][()])
-                    if not y_motor and "motor_name_y" in grp:
-                        y_motor = _h5str(grp["motor_name_y"][()])
-        except Exception:
-            return None
-        if x_hi <= x_lo or y_hi <= y_lo:
-            return None
-        return (x_lo, x_hi, y_lo, y_hi, x_motor, y_motor)
+        """Scan footprint in motor µm — see the module-level helper of the same
+        name, shared with the dashboard browser."""
+        return _read_scan_footprint(filepath)
 
     def _map_selected(self):
         """Overlay each marked scan's footprint as a labelled box on the overview image."""

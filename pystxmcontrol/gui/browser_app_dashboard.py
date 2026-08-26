@@ -25,7 +25,9 @@ Two classes:
 ``BrowserApp``
     The whole tab: Session files (folder / date navigation, scan-type filter
     pills, a scrolling grid of themed thumbnail tiles), the viewer, and a
-    details column (scan Parameters + Actions).  Works standalone (carries its
+    details column (scan Parameters + Actions).  Right-clicking tiles marks them
+    for ROI mapping; "Map Selected" then overlays their scan footprints as
+    numbered boxes on the displayed overview image.  Works standalone (carries its
     own stylesheet) and embedded in ``mainwindow_dashboard`` alike, and — like
     ``DataBrowserWidget`` — emits ``file_selected`` / ``send_to_analysis`` /
     ``send_to_acquisition`` and accepts a ``logbook_model`` for "Add to log".
@@ -42,21 +44,28 @@ import pyqtgraph as pg
 from PySide6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QLineEdit, QComboBox, QDateEdit,
     QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea, QButtonGroup,
-    QFileDialog, QProgressBar, QSizePolicy, QSlider,
+    QFileDialog, QProgressBar, QSizePolicy, QSlider, QGraphicsRectItem,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt, Signal, QDate, QTimer, QRectF
-from PySide6.QtGui import QFont, QImage, QPixmap
+from PySide6.QtGui import QFont, QImage, QPixmap, QColor
 
 from pystxmcontrol.gui.dashboard_theme import (
     C, build_stylesheet, mono_font, sans_font, make_lut,
 )
 # Reuse the proven data path from the classic browser: the background thumbnail
-# thread (and its HDF5 preview reader / SQLite cache) plus the metadata-overlay
-# item and the h5py-string helper.  Rebuilding these would only invite drift.
+# thread (and its HDF5 preview reader / SQLite cache), the metadata-overlay item,
+# the h5py-string helper and the ROI footprint reader.  Rebuilding these would
+# only invite drift.
 from pystxmcontrol.gui.data_browser_widget import (
-    ThumbnailLoader, _MetadataOverlay, _h5str,
+    ThumbnailLoader, _MetadataOverlay, _h5str, _read_scan_footprint,
 )
 from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache
+
+# Distinct box colours cycled across the ROI-map overlay, tuned for the dark
+# plot ground.
+_MAP_COLORS = ["#ff6b5e", "#ffc45e", "#8ee06a", "#5fd4d6", "#c08cf0",
+               "#ff9a58", "#b6f06a", "#6ac7f0"]
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
 _ALS_LOGO = os.path.join(_ICONS_DIR, "als-logo.png")
@@ -167,10 +176,19 @@ def _cmap_control(on_change, checked=0):
 # ════════════════════════════════════════════════════════════════════════════
 class BrowserTile(QFrame):
     """A clickable thumbnail card on the dashboard palette: a colour-mapped
-    preview canvas over the filename and scan type.  Emits ``clicked`` with its
-    filepath."""
+    preview canvas over the filename and scan type.
 
-    clicked = Signal(str)
+    Two independent states:
+
+    - ``selected`` (left-click): the tile whose scan fills the viewer — accent
+      border and a lifted background.
+    - ``marked`` (right-click): the tile is in the ROI-mapping set — an "ok"
+      green border plus a numbered badge giving its position in the map order.
+      A tile can be both selected and marked.
+    """
+
+    clicked = Signal(str)          # left-click: show this file in the viewer
+    right_clicked = Signal(str)    # right-click: toggle ROI-map membership
 
     CANVAS = 188            # square image-area side (px)
 
@@ -182,6 +200,7 @@ class BrowserTile(QFrame):
         self._raw = None                # cached thumbnail array (for cmap swaps)
         self._cmap = "gray"
         self._selected = False
+        self._marked = False
         self.setCursor(Qt.PointingHandCursor)
 
         # The image area is a fixed SQUARE (the Session-files column is a fixed
@@ -199,6 +218,16 @@ class BrowserTile(QFrame):
         self.canvas.setStyleSheet(
             f"background:#000;border:none;color:{C['text_faint']};font-size:11px;")
         v.addWidget(self.canvas, alignment=Qt.AlignHCenter)
+        # Map-order badge, floated over the canvas' top-left corner.  Parented to
+        # the tile rather than added to the layout so it overlaps the thumbnail.
+        self.badge = QLabel("", self)
+        self.badge.setAlignment(Qt.AlignCenter)
+        self.badge.setFixedSize(20, 20)
+        self.badge.move(12, 12)
+        self.badge.setStyleSheet(
+            f"background:{C['ok']};color:{C['canvas']};border-radius:10px;"
+            "font-weight:600;font-size:11px;")
+        self.badge.hide()
         cap = QVBoxLayout()
         cap.setSpacing(1)
         self.name_lbl = _mk_label(os.path.basename(filepath), role="mono")
@@ -248,12 +277,27 @@ class BrowserTile(QFrame):
         self._selected = selected
         self._apply_style()
 
+    def set_marked(self, marked, number=None):
+        """Mark/unmark this tile for ROI mapping; ``number`` labels the badge."""
+        self._marked = marked
+        if marked and number is not None:
+            self.badge.setText(str(number))
+            self.badge.show()
+            self.badge.raise_()
+        else:
+            self.badge.hide()
+        self._apply_style()
+
     def _apply_style(self):
+        # Marked (green) takes border precedence over selected (accent); the
+        # lifted background still tracks selection, so a tile that is both reads
+        # as "displayed and mapped".
         sel = self._selected
+        border = C["ok"] if self._marked else (C["accent"] if sel else C["border"])
         self.setStyleSheet(
             f"QFrame#browserTile {{background:"
             f"{'#131a20' if sel else C['panel_footer']};"
-            f"border:1px solid {C['accent'] if sel else C['border']};"
+            f"border:1px solid {border};"
             "border-radius:6px;}")
         self.name_lbl.setStyleSheet(
             f"color:{C['text'] if sel else C['text_2']};background:transparent;")
@@ -261,6 +305,8 @@ class BrowserTile(QFrame):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.filepath)
+        elif event.button() == Qt.RightButton:
+            self.right_clicked.emit(self.filepath)
         super().mousePressEvent(event)
 
 
@@ -288,6 +334,7 @@ class DashboardImageViewer(QWidget):
         self.setStyleSheet(f"background:{C['plot_ground']};")
         self._cmap = cmap
         self._tile_items = []           # bare ImageItems for tiled displays
+        self._roi_items = []            # ROI-map boxes + labels drawn over the image
 
         self.iv = pg.ImageView(parent=self)
         self.iv.ui.roiBtn.hide()
@@ -324,6 +371,7 @@ class DashboardImageViewer(QWidget):
     # ── display ──────────────────────────────────────────────────────────────
     def clear(self):
         self._clear_tiles()
+        self.clear_roi_boxes()
         self.iv.clear()
         self.overlay.set_visible(False)
 
@@ -372,6 +420,37 @@ class DashboardImageViewer(QWidget):
             self.iv.getView().addItem(it)
             self._tile_items.append(it)
         self.iv.getView().autoRange()
+
+    # ── ROI-map boxes ────────────────────────────────────────────────────────
+    def add_roi_box(self, x, y, w, h, color, label=""):
+        """Draw a labelled rectangle in data (µm) coordinates over the image.
+
+        ``ignoreBounds=True`` keeps the boxes out of the view's auto-range, so a
+        footprint that falls outside the overview cannot rescale the display."""
+        view = self.iv.getView()
+        qcolor = QColor(color)
+        pen = pg.mkPen(qcolor, width=2)
+        pen.setCosmetic(True)           # constant on-screen width at any zoom
+        rect = QGraphicsRectItem(x, y, w, h)
+        rect.setPen(pen)
+        view.addItem(rect, ignoreBounds=True)
+        self._roi_items.append(rect)
+        if label:
+            text = pg.TextItem(label, color=C["canvas"], anchor=(0, 0),
+                               fill=pg.mkBrush(qcolor))
+            text.setPos(x, y + h)       # top-left corner (y increases upward)
+            view.addItem(text, ignoreBounds=True)
+            self._roi_items.append(text)
+
+    def clear_roi_boxes(self):
+        """Remove every drawn ROI box/label from the view."""
+        view = self.iv.getView()
+        for it in self._roi_items:
+            try:
+                view.removeItem(it)
+            except Exception:
+                pass
+        self._roi_items = []
 
     def set_index(self, i):
         """Select frame ``i`` of a stack."""
@@ -463,6 +542,9 @@ class BrowserApp(QWidget):
         self._filter = ""               # lowercase scan-type substring ("" = all)
         self._current_filepath = None
         self._scanning = False
+        self._map_selection = []        # filepaths right-click-marked for ROI mapping, in order
+        self._map_drawn = False         # ROI boxes currently on the viewer
+        self._is_ptycho = False         # viewer is showing a reconstruction
 
         # detail state
         self._det_data = {}             # detector -> (data, x_scale, y_scale, x_range)
@@ -602,6 +684,20 @@ class BrowserApp(QWidget):
             f"text-align:center;height:22px;}}"
             f"QProgressBar::chunk{{background:{C['accent_fill']};border-radius:3px;}}")
         tl.addWidget(self._progress)
+        # ROI mapping: right-click tiles to mark them, then overlay their scan
+        # footprints as labelled boxes on the displayed overview image.
+        self._map_btn = _small_btn(
+            "Map Selected",
+            "Overlay the scan regions of right-click-marked tiles as labelled "
+            "boxes on the displayed overview image.")
+        self._map_btn.setEnabled(False)
+        self._map_btn.clicked.connect(self._map_selected)
+        tl.addWidget(self._map_btn)
+        self._clear_map_btn = _small_btn(
+            "Clear Map", "Remove the ROI boxes and unmark every tile")
+        self._clear_map_btn.setEnabled(False)
+        self._clear_map_btn.clicked.connect(self._clear_map)
+        tl.addWidget(self._clear_map_btn)
         savepng = _small_btn("Save PNG", "Export the current view to PNG")
         savepng.clicked.connect(self._save_png)
         tl.addWidget(savepng)
@@ -779,6 +875,7 @@ class BrowserApp(QWidget):
             t.deleteLater()
         self._tiles.clear()
 
+        self._clear_map()
         day_dir = self._day_dir()
         self._direct_day_dir = None      # consumed; next Load uses the hierarchy
         if not os.path.isdir(day_dir):
@@ -797,6 +894,7 @@ class BrowserApp(QWidget):
             tile = BrowserTile(fp)
             tile.set_cmap(self._cmap)
             tile.clicked.connect(self._on_select)
+            tile.right_clicked.connect(self._on_tile_right_clicked)
             self._tiles[fp] = tile
         self._render_grid()
 
@@ -875,6 +973,76 @@ class BrowserApp(QWidget):
         self._send_ana_btn.setEnabled(True)
         self.file_selected.emit(filepath)
         self._show_detail(filepath)
+        self._update_map_buttons()
+
+    # ── ROI mapping ──────────────────────────────────────────────────────────
+    def _on_tile_right_clicked(self, filepath):
+        """Toggle a tile in the ROI-mapping set and renumber the badges."""
+        if filepath in self._map_selection:
+            self._map_selection.remove(filepath)
+        else:
+            self._map_selection.append(filepath)
+        self._refresh_map_badges()
+        self._update_map_buttons()
+
+    def _refresh_map_badges(self):
+        """Sync each tile's marked state and badge number to the selection order."""
+        order = {fp: i + 1 for i, fp in enumerate(self._map_selection)}
+        for fp, tile in self._tiles.items():
+            tile.set_marked(fp in order, order.get(fp))
+
+    def _update_map_buttons(self):
+        n = len(self._map_selection)
+        self._map_btn.setText(f"Map Selected ({n})" if n else "Map Selected")
+        self._map_btn.setEnabled(n > 0 and bool(self._current_filepath))
+        self._clear_map_btn.setEnabled(n > 0 or self._map_drawn)
+
+    def _clear_map(self):
+        """Full reset: remove the drawn boxes, unmark every tile, empty the selection."""
+        self.viewer.clear_roi_boxes()
+        self._map_drawn = False
+        self._map_selection = []
+        for tile in self._tiles.values():
+            tile.set_marked(False)
+        self._update_map_buttons()
+
+    def _map_selected(self):
+        """Overlay each marked scan's footprint as a labelled box on the overview."""
+        if not self._current_filepath or not self._map_selection:
+            return
+        # A reconstruction is displayed in its own pixel frame starting at (0, 0),
+        # not in sample motor µm, so footprints drawn on it would be meaningless.
+        if self._is_ptycho:
+            QMessageBox.information(
+                self, "Map Selected",
+                "Display a normal STXM scan as the overview before mapping regions.")
+            return
+
+        self.viewer.clear_roi_boxes()
+        overview = _read_scan_footprint(self._current_filepath)
+        ov_xmot, ov_ymot = (overview[4], overview[5]) if overview else ("", "")
+
+        mismatched = []
+        for i, fp in enumerate(self._map_selection):
+            fprint = _read_scan_footprint(fp)
+            if fprint is None:
+                continue
+            x_lo, x_hi, y_lo, y_hi, x_mot, y_mot = fprint
+            # Flag scans taken on different motors than the overview — their µm
+            # coordinates may not correspond, so the box position is unreliable.
+            if overview and ((ov_xmot and x_mot and x_mot != ov_xmot) or
+                             (ov_ymot and y_mot and y_mot != ov_ymot)):
+                mismatched.append(os.path.basename(fp))
+            self.viewer.add_roi_box(x_lo, y_lo, x_hi - x_lo, y_hi - y_lo,
+                                    _MAP_COLORS[i % len(_MAP_COLORS)], str(i + 1))
+            self._map_drawn = True
+
+        self._update_map_buttons()
+        if mismatched:
+            QMessageBox.warning(
+                self, "Motor mismatch",
+                "These scans use different X/Y motors than the overview, so their "
+                "box positions may be wrong:\n\n  " + "\n  ".join(mismatched))
 
     def _show_detail(self, filepath):
         self._clear_params()
@@ -886,6 +1054,9 @@ class BrowserApp(QWidget):
         self._is_spectrum = False
         self._n_frames = 1
         self._frame_idx = 0
+        self._is_ptycho = False
+        self._map_drawn = False          # viewer.clear() above dropped the boxes
+        self._update_map_buttons()
         self._ptycho_combo.setVisible(False)
 
         # Ptychography: show the reconstruction (object amp/phase, probe amp).
@@ -1154,6 +1325,7 @@ class BrowserApp(QWidget):
 
         self._is_tiled = False
         self._is_spectrum = False
+        self._is_ptycho = True
         self._det_combo.setVisible(False)
         self._export_meta = {
             "filename": os.path.basename(stxm_path),
