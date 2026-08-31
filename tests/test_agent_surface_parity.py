@@ -18,11 +18,16 @@ from pystxmcontrol.controller import scan_conversion as sc
 from pystxmcontrol.controller.scan_model import ScanModel
 from pystxmcontrol.controller.task_agent import tools as agent_tools
 
-# The MCP server imports fastmcp, which is an optional extra; skip rather than fail when
-# the mcp extra is not installed in this environment.
-mcp_server = pytest.importorskip("pystxmcontrol.mcp.server",
-                                 reason="mcp extra not installed")
-import pystxmcontrol.mcp.utilities as stxm_utils   # noqa: E402
+# The MCP server imports fastmcp, which is an optional extra.  Skip only the classes that
+# actually need it — the shared-layer tests below must still run in an env without the
+# extra, which is where most of this repo's development happens.
+try:
+    import pystxmcontrol.mcp.server as mcp_server
+    import pystxmcontrol.mcp.utilities as stxm_utils
+except ImportError:                                  # pragma: no cover - env-dependent
+    mcp_server = stxm_utils = None
+
+needs_mcp = pytest.mark.skipif(mcp_server is None, reason="mcp extra not installed")
 
 
 def agent_schema(name):
@@ -51,6 +56,7 @@ class TestOneScanModel:
         assert m.tiled is False and m.coarse_only is False
 
 
+@needs_mcp
 class TestOneConverter:
     """A scan read back from the server must mean the same thing on both paths."""
 
@@ -73,6 +79,7 @@ class TestOneConverter:
         assert built["energy_list"] is None      # would override the regions server-side
 
 
+@needs_mcp
 class TestEnergyPresetParity:
     """The feature this shared layer was built for must exist on both surfaces."""
 
@@ -101,6 +108,97 @@ class TestEnergyPresetParity:
         params = set(inspect.signature(mcp_server.update_scan).parameters)
         params.discard("energy_preset")
         assert params <= set(ScanModel.model_fields)
+
+
+class TestOneScanBuilder:
+    """One builder for every outbound scan, on both surfaces.
+
+    scripter.stxm_scan used to build scan_regions inline with step = range/(points-1)
+    and no half-pixel inset, so an MCP-launched scan came out one pixel larger than the
+    same scan from the GUI. Both paths now go through scan_conversion.build_server_scan.
+    """
+
+    def test_agent_builder_is_the_shared_one(self):
+        scan = ScanModel().model_dump()
+        assert agent_tools._build_scan_dict(scan, {}) == sc.build_server_scan(scan, {})
+
+    def test_gui_pixel_convention(self):
+        """range is the FULL field: step = range/points, pixel centres inset half a step,
+        so the centres span (points-1)*step — not points*step."""
+        reg = sc.build_scan_region(0.0, 10.0, 100, 0.0, 10.0, 100)
+        assert reg["xStep"] == pytest.approx(0.1)               # range/points, not /(points-1)
+        assert reg["xStart"] == pytest.approx(-4.95)            # -5 + half a step
+        assert reg["xStop"] == pytest.approx(4.95)
+        assert reg["xStop"] - reg["xStart"] == pytest.approx(99 * 0.1)
+        assert reg["xRange"] == 10.0 and reg["xCenter"] == 0.0
+
+    def test_region_ndigits_keeps_small_pixels(self):
+        """A particle ROI's pixel size can be under 10 nm; 3 decimals cannot express it."""
+        assert sc.build_scan_region(0.0, 1.0, 100, 0.0, 1.0, 100)["xStep"] == 0.01
+        assert sc.build_scan_region(0.0, 0.5, 100, 0.0, 0.5, 100,
+                                    ndigits=4)["xStep"] == 0.005
+
+    def test_scripter_scan_uses_the_shared_builder(self):
+        """The dict scripter.stxm_scan puts on the wire is build_server_scan's, verbatim."""
+        from pystxmcontrol.controller import scripter as scripter_mod
+
+        s = scripter_mod.scripter.__new__(scripter_mod.scripter)   # no socket/connect
+        s.scan = ScanModel(x_range=10.0, x_points=100,
+                           y_range=10.0, y_points=100).model_dump()
+        s.SCANS = {"Image": {"driver": "derived_line_image", "mode": "continuousLine"}}
+        s.sock = _FakeSock([{"status": True, "data": "/data/f.stxm"}, {"status": True}])
+
+        assert s.stxm_scan() == "/data/f.stxm"
+        sent = s.sock.sent[0]
+        assert sent["command"] == "scan"
+        assert sent["scan"] == sc.build_server_scan(s.scan, s.SCANS)
+
+    def test_multiregion_uses_the_shared_region_builder(self):
+        """The agent's multi-region path must not re-derive the geometry either."""
+        regions = [{"xCenter": 1.0, "yCenter": 2.0, "xRange": 0.5, "yRange": 0.5},
+                   {"xCenter": -3.0, "yCenter": 4.0, "xRange": 0.8, "yRange": 0.4}]
+        ts = agent_tools.ToolSet.__new__(agent_tools.ToolSet)
+        ts._client = _FakeClient()
+        ts._image_model = None
+        ts._scan = ScanModel().model_dump()
+        ts._scans_config = {"Image": {"driver": "derived_line_image",
+                                      "mode": "continuousLine"}}
+        ts._particle_regions = regions
+        ts._overview_pixel_size_um = None
+
+        assert "started" in ts.start_multiregion_scan(pixel_size_nm=10.0)
+        sent = ts._client.sent[0]["scan"]["scan_regions"]
+        for i, r in enumerate(regions):
+            pts_x = max(10, round(r["xRange"] / 0.01))
+            pts_y = max(10, round(r["yRange"] / 0.01))
+            assert sent[f"Region{i + 1}"] == sc.build_scan_region(
+                r["xCenter"], r["xRange"], pts_x,
+                r["yCenter"], r["yRange"], pts_y, ndigits=4)
+
+
+class _FakeSock:
+    """Minimal stand-in for scripter's REQ socket: replies from a queued list."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.sent = []
+
+    def send_pyobj(self, msg):
+        self.sent.append(msg)
+
+    def recv_pyobj(self):
+        return self.replies.pop(0)
+
+
+class _FakeClient:
+    """Minimal stand-in for stxm_client: records the scan commands it is sent."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send_message(self, msg):
+        self.sent.append(msg)
+        return {"status": True, "data": "ok"}
 
 
 _SERVER_SCAN = {

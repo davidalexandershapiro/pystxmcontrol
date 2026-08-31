@@ -13,10 +13,12 @@ respect: a top-level ``energy_list`` short-circuits ``energy_regions`` entirely 
 forces one uniform dwell.  A multi-region scan must therefore send ``energy_list``
 as None.
 
-The spatial (``scan_regions``) construction is deliberately NOT shared: the task
-agent insets the first/last pixel centres by half a step to match the GUI, while
-``scripter`` spans the full range without an inset.  Unifying those would change
-scan geometry, which is a separate decision from this one.
+``build_server_scan`` builds the whole outbound scan dict, spatial geometry included.
+That was forked for a while — ``scripter`` spanned the full range with
+``step = range/(points-1)`` and no inset, so an MCP-launched scan came out one pixel
+larger than the same scan launched from the GUI or the task agent.  The GUI convention
+(``step = range/points``, first/last pixel centres inset half a step) is the correct one
+and is now the only one.
 """
 
 
@@ -160,4 +162,87 @@ def convert_scan(scan: dict) -> dict:
         'retract':            scan.get('retract', True),
         'double_exposure':    False,
         'loop_scan':          False,
+    }
+
+
+def build_scan_region(x_center: float, x_range: float, x_points: int,
+                      y_center: float, y_range: float, y_points: int,
+                      z_center: float = 0.0, z_range: float = 0.0, z_points: int = 1,
+                      ndigits: int = 3) -> dict:
+    """Build one server ``Region`` entry from a centre/range/points triple per axis.
+
+    Follows the GUI/server convention (mainwindow_mvc / main_controller._get_region):
+    ``range`` is the FULL field, so ``step = range/points`` and the first/last pixel
+    CENTRES are inset half a step from the field edges — the scanned span is
+    ``(points-1)*step``.  Using ``range/(points-1)`` with no inset makes the field one
+    pixel too big, which is exactly the divergence this helper exists to prevent.
+
+    ``start``/``stop`` use the unrounded step so the geometry matches the GUI exactly;
+    only the reported ``Step`` field is rounded, to *ndigits*.  Small particle ROIs pass
+    ``ndigits=4`` because 3 decimals cannot express their sub-10 nm pixel size.
+    """
+    out = {}
+    for axis, center, rng, points in (("x", x_center, x_range, x_points),
+                                      ("y", y_center, y_range, y_points),
+                                      ("z", z_center, z_range, z_points)):
+        step_raw = (rng / points) if points else 0.0
+        out[f"{axis}Start"]  = center - rng / 2.0 + step_raw / 2.0
+        out[f"{axis}Stop"]   = center + rng / 2.0 - step_raw / 2.0
+        out[f"{axis}Points"] = points
+        out[f"{axis}Step"]   = round(step_raw, ndigits)
+        out[f"{axis}Range"]  = rng
+        out[f"{axis}Center"] = center
+    return out
+
+
+def build_server_scan(scan: dict, scans_config: dict) -> dict:
+    """Convert a flat ``ScanModel`` dict into the nested scan dict the server consumes.
+
+    The inverse of :func:`convert_scan`, and the single builder for every outbound
+    scan: the task agent's ``start_scan``, its multi-region scan (which replaces
+    ``scan_regions`` afterwards), and ``scripter.stxm_scan``.
+
+    *scans_config* is the server's scan.json (scan-type → driver/mode metadata); a
+    scan type missing from it falls back to a derived-line image on continuous lines.
+    """
+    energy_regions = build_energy_regions(scan)
+    energy_list = energy_list_for_scan(scan)
+
+    scan_type = scan['scan_type']
+    driver = scans_config.get(scan_type, {}).get('driver', 'derived_line_image')
+    mode   = scans_config.get(scan_type, {}).get('mode', 'continuousLine')
+
+    return {
+        'scan_type':          scan_type,
+        'proposal':           scan['proposal'],
+        'experimenters':      scan['experimenters'],
+        'sample':             scan['sample_description'],
+        'x_motor':            scan['x_motor'],
+        'y_motor':            scan['y_motor'],
+        'z_motor':            scan.get('z_motor'),
+        'energy_motor':       'Energy',
+        'doubleExposure':     scan.get('double_exposure', False),
+        'n_repeats':          1,
+        'defocus':            scan.get('defocus', False),
+        'autofocus':          scan.get('autofocus', True),
+        'oversampling_factor': 3,
+        'mode':               mode,
+        'coarse_only':        scan.get('coarse_only', False),
+        'spiral':             scan.get('spiral', False),
+        'tiled':              scan.get('tiled', False),
+        'daq_list':           scan.get('daq_list', ['default']),
+        'comment':            scan.get('comment', ''),
+        'loop_scan':          scan.get('loop_scan', False),
+        'energy_list':        energy_list,
+        'dwell':              scan['dwell'],
+        'retract':            scan.get('retract', True),
+        'driver':             driver,
+        'scan_regions': {
+            'Region1': build_scan_region(
+                scan['x_center'], scan['x_range'], scan['x_points'],
+                scan['y_center'], scan['y_range'], scan['y_points'],
+                scan['z_center'], scan['z_range'], scan['z_points'],
+            )
+        },
+        'energy_regions': energy_regions,
     }

@@ -247,10 +247,17 @@ class TestScripterScanMethods:
 
         result = s.stxm_scan()
 
-        # Verify energy parameters were updated
-        assert s.scan["energy_start"] == 700
-        assert s.scan["energy_stop"] == 715
-        assert s.scan["energy_points"] == 4
+        # The energy list is resolved into the energy region the server receives.
+        # (stxm_scan used to also back-fill energy_start/stop/points onto s.scan as a
+        # side effect of launching; build_server_scan derives them without mutating the
+        # caller's working definition, so assert on what actually goes on the wire.)
+        assert result == "/data/scan_001.nxs"
+        sent = mock_socket.send_pyobj.call_args_list[0][0][0]["scan"]
+        region = sent["energy_regions"]["EnergyRegion1"]
+        assert region["start"] == 700
+        assert region["stop"] == 715
+        assert region["n_energies"] == 4
+        assert sent["energy_list"] == [700, 705, 710, 715]
 
     @patch('pystxmcontrol.controller.scripter.zmq.Context')
     def test_stxm_scan_failure(self, mock_context):

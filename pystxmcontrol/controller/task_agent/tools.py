@@ -17,7 +17,8 @@ import time
 import numpy as np
 from pystxmcontrol.controller.scan_model import ScanModel, validate_scan
 from pystxmcontrol.controller.scan_conversion import (
-    build_energy_regions, convert_scan, energy_list_for_scan,
+    build_energy_regions, build_scan_region, build_server_scan, convert_scan,
+    energy_list_for_scan,
 )
 from pystxmcontrol.controller import energy_presets
 
@@ -215,75 +216,11 @@ def _convert_scan(scan: dict) -> dict:
 
 
 def _build_scan_dict(scan: dict, scans_config: dict) -> dict:
-    """Convert flat ScanModel dict back to the nested format expected by the server."""
-    # Match the GUI/server convention (mainwindow_mvc / main_controller._get_region):
-    # x_range is the FULL field (N*step), so step = range/points and the first/last pixel
-    # CENTERS are inset half a pixel from the field edges → the scanned span is (N-1)*step.
-    # Using range/(points-1) with no inset (as the scripter does) makes the field one pixel
-    # too big. Use the unrounded step for start/stop to match the GUI exactly; round only
-    # the reported step field.
-    x_step_raw = scan['x_range'] / scan['x_points'] if scan['x_points'] else 0.0
-    x_start  = scan['x_center'] - scan['x_range'] / 2.0 + x_step_raw / 2.0
-    x_stop   = scan['x_center'] + scan['x_range'] / 2.0 - x_step_raw / 2.0
-    x_step   = round(x_step_raw, 3)
-    y_step_raw = scan['y_range'] / scan['y_points'] if scan['y_points'] else 0.0
-    y_start  = scan['y_center'] - scan['y_range'] / 2.0 + y_step_raw / 2.0
-    y_stop   = scan['y_center'] + scan['y_range'] / 2.0 - y_step_raw / 2.0
-    y_step   = round(y_step_raw, 3)
-    z_step_raw = scan['z_range'] / scan['z_points'] if scan['z_points'] else 0.0
-    z_start  = scan['z_center'] - scan['z_range'] / 2.0 + z_step_raw / 2.0
-    z_stop   = scan['z_center'] + scan['z_range'] / 2.0 - z_step_raw / 2.0
-    z_step   = round(z_step_raw, 3)
+    """Convert flat ScanModel dict back to the nested format expected by the server.
 
-    # Energy construction is shared with the MCP/scripter path (and preserves a
-    # multi-region definition, e.g. an applied energy preset, with per-region dwell).
-    energy_regions = build_energy_regions(scan)
-    energy_list = energy_list_for_scan(scan)
-
-    scan_type = scan['scan_type']
-    driver = scans_config.get(scan_type, {}).get('driver', 'derived_line_image')
-    mode   = scans_config.get(scan_type, {}).get('mode', 'continuousLine')
-
-    return {
-        'scan_type':          scan_type,
-        'proposal':           scan['proposal'],
-        'experimenters':      scan['experimenters'],
-        'sample':             scan['sample_description'],
-        'x_motor':            scan['x_motor'],
-        'y_motor':            scan['y_motor'],
-        'z_motor':            scan.get('z_motor'),
-        'energy_motor':       'Energy',
-        'doubleExposure':     scan.get('double_exposure', False),
-        'n_repeats':          1,
-        'defocus':            scan.get('defocus', False),
-        'autofocus':          scan.get('autofocus', True),
-        'oversampling_factor': 3,
-        'mode':               mode,
-        'coarse_only':        scan.get('coarse_only', False),
-        'spiral':             scan.get('spiral', False),
-        'tiled':              scan.get('tiled', False),
-        'daq_list':           scan.get('daq_list', ['default']),
-        'comment':            scan.get('comment', ''),
-        'loop_scan':          scan.get('loop_scan', False),
-        'energy_list':        energy_list,
-        'dwell':              scan['dwell'],
-        'retract':            scan.get('retract', True),
-        'driver':             driver,
-        'scan_regions': {
-            'Region1': {
-                'xStart':  x_start, 'xStop':  x_stop,
-                'xPoints': scan['x_points'], 'xStep': x_step,
-                'xRange':  scan['x_range'],  'xCenter': scan['x_center'],
-                'yStart':  y_start, 'yStop':  y_stop,
-                'yPoints': scan['y_points'], 'yStep': y_step,
-                'yRange':  scan['y_range'],  'yCenter': scan['y_center'],
-                'zStart':  z_start, 'zStop':  z_stop,
-                'zPoints': scan['z_points'], 'zStep': z_step,
-                'zRange':  scan['z_range'],  'zCenter': scan['z_center'],
-            }
-        },
-        'energy_regions': energy_regions,
-    }
+    Thin alias for the shared builder, which scripter (and so the MCP server) uses too.
+    """
+    return build_server_scan(scan, scans_config)
 
 
 # ---------------------------------------------------------------------------
@@ -1159,22 +1096,14 @@ class ToolSet:
         for i, r in enumerate(self._particle_regions):
             xpts = max(10, round(r['xRange'] / px_um))
             ypts = max(10, round(r['yRange'] / px_um))
-            # Full-field range with half-pixel inset, same convention as _build_scan_dict /
-            # the GUI: step = range/points; pixel centers span (N-1)*step.
-            x_step_raw = r['xRange'] / xpts
-            y_step_raw = r['yRange'] / ypts
-            scan_regions[f'Region{i + 1}'] = {
-                'xStart':  r['xCenter'] - r['xRange'] / 2 + x_step_raw / 2,
-                'xStop':   r['xCenter'] + r['xRange'] / 2 - x_step_raw / 2,
-                'xCenter': r['xCenter'], 'xRange': r['xRange'],
-                'xPoints': xpts,         'xStep':  round(x_step_raw, 4),
-                'yStart':  r['yCenter'] - r['yRange'] / 2 + y_step_raw / 2,
-                'yStop':   r['yCenter'] + r['yRange'] / 2 - y_step_raw / 2,
-                'yCenter': r['yCenter'], 'yRange': r['yRange'],
-                'yPoints': ypts,         'yStep':  round(y_step_raw, 4),
-                'zStart': 0, 'zStop': 0, 'zCenter': 0,
-                'zRange': 0, 'zPoints': 1, 'zStep': 0,
-            }
+            # Same builder (and so the same half-pixel inset) as the single-region path;
+            # ndigits=4 because a particle ROI's pixel size is often below 10 nm, which
+            # the default 3 decimals of the reported step cannot express.
+            scan_regions[f'Region{i + 1}'] = build_scan_region(
+                r['xCenter'], r['xRange'], xpts,
+                r['yCenter'], r['yRange'], ypts,
+                ndigits=4,
+            )
         base['scan_regions'] = scan_regions
 
         n = len(scan_regions)

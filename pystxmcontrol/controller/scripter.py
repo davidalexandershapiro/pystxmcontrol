@@ -3,7 +3,7 @@ import numpy as np
 from time import time, sleep
 from pystxmcontrol.controller.scan_model import ScanModel
 from pystxmcontrol.controller.scan_conversion import (
-    build_energy_regions, energy_list_for_scan,
+    build_energy_regions, build_server_scan, energy_list_for_scan,
 )
 
 
@@ -201,70 +201,16 @@ class scripter:
 
         This executes any scan defined in the scan config file.  The global scan definition, self.scan, has
         default values which can be changed by external processes or scripts.
-        
+
+        The outbound scan dict is built by scan_conversion.build_server_scan, the same
+        builder the GUI task agent uses, so a scan launched from here has exactly the
+        geometry it would have had from the GUI.  (This method used to build the regions
+        inline with step = range/(points-1) and no half-pixel inset, which made every
+        scripter/MCP scan one pixel larger than the same scan run from the GUI.)
+
+        Blocks until the server reports the scan finished, then returns the file name.
         """
- 
-        xstart = self.scan['x_center'] - self.scan['x_range'] / 2.
-        xstop = self.scan['x_center'] + self.scan['x_range'] / 2.
-        xstep = np.round((xstop - xstart) / (self.scan["x_points"] - 1), 3)
-        xrange = xstop - xstart
-        xcenter = xrange / 2. + xstart
-        ystart = self.scan['y_center'] - self.scan['y_range'] / 2.
-        ystop = self.scan['y_center'] + self.scan['y_range'] / 2.
-        ystep = np.round((ystop - ystart) / (self.scan["y_points"] - 1), 3)
-        yrange = ystop - ystart
-        ycenter = yrange / 2. + ystart
-        zstart = self.scan['z_center'] - self.scan['z_range'] / 2.
-        zstop = self.scan['z_center'] + self.scan['z_range'] / 2.
-        zstep = np.round((zstop - zstart) / max(self.scan["z_points"] - 1,1), 3)
-        zrange = zstop - zstart
-        zcenter = zrange / 2. + zstart
-        if self.scan["energy_list"] is not None:
-            self.scan["energy_start"] = self.scan["energy_list"][0]
-            self.scan["energy_stop"] = self.scan["energy_list"][-1]
-            self.scan["energy_points"] = len(self.scan["energy_list"])
-        scan = {"scan_type": self.scan["scan_type"], "proposal": self.scan["proposal"], "experimenters": self.scan["experimenters"],
-                "sample": self.scan["sample_description"],
-                "x_motor": self.scan["x_motor"],
-                "y_motor": self.scan["y_motor"],
-                "z_motor": self.scan["z_motor"],
-                "energy_motor": "Energy",
-                "doubleExposure": self.scan["double_exposure"],
-                "n_repeats": 1,
-                "defocus": self.scan["defocus"],
-                "autofocus": self.scan["autofocus"],
-                "oversampling_factor": 3,
-                "mode": self.SCANS[self.scan["scan_type"]]["mode"],
-                "coarse_only": False,
-                "spiral": self.scan["spiral"],
-                "tiled": False,
-                "daq_list": self.scan["daq_list"],
-                "comment": self.scan["comment"],
-                "loop_scan": self.scan["loop_scan"],
-                "energy_list": energy_list_for_scan(self.scan),
-                "dwell": self.scan["dwell"],
-                "retract": self.scan["retract"],
-                "scan_regions": {"Region1": {"xStart": xstart,
-                                            "xStop": xstop,
-                                            "xPoints": self.scan['x_points'],
-                                            "xStep": xstep,
-                                            "xRange": xrange,
-                                            "xCenter": xcenter,
-                                            "yStart": ystart,
-                                            "yStop": ystop,
-                                            "yPoints": self.scan['y_points'],
-                                            "yStep": ystep,
-                                            "yRange": yrange,
-                                            "yCenter": ycenter,
-                                            "zStart": zstart,
-                                            "zStop": zstop,
-                                            "zPoints": self.scan['z_points'],
-                                            "zStep": zstep,
-                                            "zRange": zrange,
-                                            "zCenter": zcenter}},
-                "energy_regions": build_energy_regions(self.scan)
-                }
-        scan["driver"] = self.SCANS[self.scan["scan_type"]]["driver"]
+        scan = build_server_scan(self.scan, self.SCANS)
         message = {"command": "scan", "scan": scan}
         self.sock.send_pyobj(message)
         response = self.sock.recv_pyobj()
