@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
 from pystxmcontrol.gui.mainwindow_dashboard import MainWindowDashboard
+from pystxmcontrol.gui.splash import show_splash, finish_splash
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
 
@@ -35,8 +36,14 @@ def main():
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(os.path.join(_ICONS_DIR, "pystxmcontrol_icon.png")))
     app.setApplicationName("STXM Control — Acquisition")
+
+    # Shown before the window is built: in live mode the constructor probes the
+    # control server, which is exactly the delay the splash exists to cover.
+    splash = show_splash(app)
+
     window = MainWindowDashboard(live=not args.offline)
     window.showMaximized()
+    finish_splash(splash, window)
     sys.exit(app.exec())
 
 

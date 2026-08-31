@@ -20,10 +20,10 @@ logging.basicConfig(
 )
 
 import qdarktheme
-from PySide6.QtWidgets import QApplication, QSplashScreen
-from PySide6.QtGui import QIcon, QPixmap, QFont
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon, QFont
 from pystxmcontrol.gui.mainwindow_mvc import MainWindowMVC
+from pystxmcontrol.gui.splash import show_splash, finish_splash
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), 'icons')
 
@@ -80,19 +80,11 @@ def main():
     app.setWindowIcon(QIcon(os.path.join(_ICONS_DIR, 'pystxmcontrol_icon.png')))
     app.setDesktopFileName('pystxmcontrol')
 
-    splash = QSplashScreen(
-        QPixmap(os.path.join(_ICONS_DIR, 'pystxmcontrol_splash.png')),
-        Qt.WindowStaysOnTopHint,
-    )
-    splash.show()
-    splash.raise_()
-    for i in range(10000):
-        app.processEvents()
-    splash.repaint()
+    splash = show_splash(app)
 
     window = MainWindowMVC()
     window.show()
-    splash.finish(window)
+    finish_splash(splash, window)
 
     sys.exit(app.exec())
 
