@@ -11,11 +11,15 @@ should break a test here rather than surface at the beamline.
 """
 
 import inspect
+import pathlib
+import re
+import sys
 
 import pytest
 
 from pystxmcontrol.controller import scan_conversion as sc
 from pystxmcontrol.controller.scan_model import ScanModel
+from pystxmcontrol.controller import instrument_client as ic
 from pystxmcontrol.controller.task_agent import tools as agent_tools
 
 # The MCP server imports fastmcp, which is an optional extra.  Skip only the classes that
@@ -28,6 +32,14 @@ except ImportError:                                  # pragma: no cover - env-de
     mcp_server = stxm_utils = None
 
 needs_mcp = pytest.mark.skipif(mcp_server is None, reason="mcp extra not installed")
+
+# client.py imports PySide6 at module scope; the MCP-side env has no GUI stack.
+try:
+    import PySide6  # noqa: F401
+    _HAS_GUI = True
+except ImportError:                                  # pragma: no cover - env-dependent
+    _HAS_GUI = False
+needs_gui = pytest.mark.skipif(not _HAS_GUI, reason="PySide6 not installed")
 
 
 def agent_schema(name):
@@ -108,6 +120,139 @@ class TestEnergyPresetParity:
         params = set(inspect.signature(mcp_server.update_scan).parameters)
         params.discard("energy_preset")
         assert params <= set(ScanModel.model_fields)
+
+
+class TestOneClientPort:
+    """One client surface beneath both agent surfaces.
+
+    ToolSet was written against the GUI's stxm_client but uses only nine of its members.
+    instrument_client names those nine so the same tools can also run out of process over
+    scripter. These tests fail if a tool starts depending on a tenth member, or if the two
+    clients drift apart on the nine.
+    """
+
+    def test_port_module_is_headless(self):
+        """It must not drag in Qt — the MCP server has no display and no PySide6."""
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; import pystxmcontrol.controller.instrument_client; "
+             "assert 'PySide6' not in sys.modules; print('clean')"],
+            capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert "clean" in r.stdout
+
+    def test_tools_use_only_the_port(self):
+        """Every self._client.<x> in tools.py must be a member of the port.
+
+        This is the test that actually keeps the port honest: it fails the moment a tool
+        reaches for something only stxm_client has.
+        """
+        source = pathlib.Path(agent_tools.__file__).read_text()
+        used = set(re.findall(r"self\._client\.(\w+)", source))
+        allowed = set(ic.CLIENT_METHODS) | set(ic.CLIENT_ATTRIBUTES)
+        assert used <= allowed, f"tools.py uses non-port client members: {used - allowed}"
+
+    def test_scripter_client_satisfies_the_port(self):
+        client = ic.ScripterClient(_FakeScripter())
+        assert ic.missing_members(client) == []
+        assert isinstance(client, ic.InstrumentClient)      # methods only
+
+    @needs_gui
+    def test_stxm_client_satisfies_the_port(self):
+        from pystxmcontrol.controller.client import stxm_client
+        assert ic.missing_members(stxm_client) == []        # class: methods only
+
+    @needs_gui
+    def test_stxm_client_get_config_populates_the_attributes(self, tmp_path, monkeypatch):
+        """The four data attributes are set by get_config(), not __init__, so check the
+        method actually assigns all of them."""
+        from pystxmcontrol.controller import client as client_mod
+
+        cfg = tmp_path / "main.json"
+        cfg.write_text('{"server": {}}')
+        monkeypatch.setattr(client_mod, "MAINCONFIGFILE", str(cfg))
+
+        c = client_mod.stxm_client.__new__(client_mod.stxm_client)   # no server needed
+        c.send_message = lambda msg: {"data": ({"SampleX": {}}, {"Image": {}},
+                                               {"SampleX": 1.0}, {"default": {}},
+                                               {"lastScan": {}})}
+        c.get_config()
+        assert ic.missing_members(c) == []
+        assert c.motorInfo == {"SampleX": {}}
+        assert c.scanConfig == {"Image": {}}
+        assert c.currentMotorPositions == {"SampleX": 1.0}
+        assert c.main_config == {"lastScan": {}}
+
+    def test_adapter_maps_the_same_server_tuple(self):
+        """scripter and stxm_client unpack the SAME five-tuple; the adapter renames it."""
+        client = ic.ScripterClient(_FakeScripter())
+        client.get_config()
+        assert client.motorInfo == {"SampleX": {}}
+        assert client.scanConfig == {"Image": {}}
+        assert client.currentMotorPositions == {"SampleX": 1.0}
+        assert client.main_config == {"lastScan": {}}
+
+    def test_adapter_adopts_an_already_connected_scripter(self):
+        """The MCP server's _ensure_connected already called get_config; don't re-fetch."""
+        s = _FakeScripter()
+        s.MOTORS, s.SCANS, s.POSITIONS, s.DAQS, s.CONFIG = s._config_tuple()
+        client = ic.ScripterClient(s)
+        assert client.motorInfo == {"SampleX": {}}
+        assert s.get_config_calls == 0
+
+    def test_adapter_wire_messages(self):
+        s = _FakeScripter()
+        client = ic.ScripterClient(s)
+
+        s.sock.replies = [{"status": True, "mode": "idle"}]
+        assert client.get_status()["mode"] == "idle"
+        assert s.sock.sent[-1] == {"command": "getStatus"}
+
+        s.sock.replies = [{"status": True, "data": {"SampleX": 4.2}}]
+        assert client.getMotorPositions() == {"SampleX": 4.2}
+        assert s.sock.sent[-1] == {"command": "getMotorPositions"}
+
+        s.sock.replies = [{"status": True}]
+        client.change_motor_config("ZonePlateZ", "offset", 1.5)
+        assert s.sock.sent[-1] == {
+            "command": "changeMotorConfig",
+            "data": {"motor": "ZonePlateZ", "config": "offset", "value": 1.5}}
+        assert s.get_config_calls == 1          # re-reads after the write
+
+    def test_toolset_constructs_over_the_adapter(self):
+        """The point of Stage 1: the GUI's ToolSet runs on a scripter connection."""
+        s = _FakeScripter()
+        s.CONFIG = {"lastScan": {}}
+        s.MOTORS, s.SCANS, s.POSITIONS, s.DAQS = ({"SampleX": {}}, {"Image": {}},
+                                                  {"SampleX": 1.0}, {"default": {}})
+        ts = agent_tools.ToolSet(ic.ScripterClient(s))
+
+        s.sock.replies = [{"status": True, "mode": "idle"}]
+        assert "idle" in ts.get_scan_status()
+
+        s.sock.replies = [{"status": True}]
+        assert "Successfully moved" in ts.move_motor("SampleX", 2.0)
+        assert s.sock.sent[-1] == {"command": "moveMotor", "axis": "SampleX", "pos": 2.0}
+
+
+class _FakeScripter:
+    """Minimal stand-in for a connected scripter: a socket plus the config five-tuple."""
+
+    MOTORS = None
+
+    def __init__(self):
+        self.sock = _FakeSock([])
+        self.get_config_calls = 0
+
+    @staticmethod
+    def _config_tuple():
+        return ({"SampleX": {}}, {"Image": {}}, {"SampleX": 1.0},
+                {"default": {}}, {"lastScan": {}})
+
+    def get_config(self):
+        self.get_config_calls += 1
+        return self._config_tuple()
 
 
 class TestOneScanBuilder:
