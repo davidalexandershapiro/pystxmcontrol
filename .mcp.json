@@ -1,14 +1,11 @@
 {
   "mcpServers": {
     "pystxm": {
-      "command": "/home/david/miniconda3/envs/stxm/bin/python",
+      "command": "python",
       "args": [
         "-m",
         "pystxmcontrol.mcp"
-      ],
-      "env": {
-        "PYSTXM_MAIN_JSON": "/home/david/miniconda3/envs/stxm/pystxmcontrol_cfg/main.json"
-      }
+      ]
     }
   }
 }
