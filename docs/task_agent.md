@@ -304,10 +304,32 @@ produces spatially consistent results.
 1. Add a method to `ToolSet` in `tools.py`.  The method must accept only plain Python
    types and return a `str`.
 
-2. Add an entry to `TOOL_SCHEMAS` following the OpenAI function-calling format.
+2. Decorate it with `@tool(...)` from `controller/tool_registry.py`.  There is no schema
+   to write: parameter names, JSON types and the required list are derived from the
+   signature, and the prose comes from the docstring.  Declare only what cannot be
+   inferred:
 
-3. If the tool should not appear in the GUI trace (e.g. it is setup/plumbing), add its
+   * `requires=("frames",)` — capabilities the tool needs (`frames`, `logbook`,
+     `approval`).  A surface that cannot satisfy them does not advertise the tool at
+     all, rather than offering it and failing at call time.
+   * `mutates_hardware=True` — it commands the instrument (moves a motor, starts or
+     cancels a scan, opens the shutter).  Read-only surfaces never advertise these.
+   * `feature="..."` — advertise only when a named config feature is enabled.
+   * `hidden_params=(...)` — arguments the function accepts but must not advertise,
+     e.g. a deprecated one kept working for backward compatibility.
+   * `schema=` / `params=` — escape hatches for a `**kwargs` tool or a parameter
+     description that cannot live in the docstring.  Prefer a real signature and an
+     `Args:` block.
+
+3. Write the docstring for the MODEL, not just for a developer.  Its summary becomes
+   the tool description and its `Args:` entries the parameter descriptions, on every
+   surface.  Include units (µm, ms, eV) and any rule about when to use the tool or
+   when to ask the operator first — that text is the only thing the model has to go on
+   when choosing between tools.
+
+4. If the tool should not appear in the GUI trace (e.g. it is setup/plumbing), add its
    name to `_SILENT_TOOLS` in `agent.py`.
 
-The `dispatch` method in `ToolSet` resolves tool names to methods by name via
-`getattr`, so no registration step is required beyond the two items above.
+`ToolSet.dispatch` resolves tool names to methods via `getattr`, and `TOOL_SPECS =
+specs_for(ToolSet)` collects every decorated method in definition order, so there is no
+registration list to update.  An undecorated tool method is invisible to every surface.
