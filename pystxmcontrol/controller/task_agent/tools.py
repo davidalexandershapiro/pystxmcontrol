@@ -21,6 +21,7 @@ from pystxmcontrol.controller.scan_conversion import (
     energy_list_for_scan,
 )
 from pystxmcontrol.controller import energy_presets
+from pystxmcontrol.controller.tool_registry import openai_schemas, specs_for, tool
 from pystxmcontrol.controller.agent_ports import (
     NullFrameSource, approval_or_auto, frame_geometry, frames_available,
     lifecycle_or_null,
@@ -227,6 +228,49 @@ def _build_scan_dict(scan: dict, scans_config: dict) -> dict:
     return build_server_scan(scan, scans_config)
 
 
+# update_scan takes **kwargs, so its parameters cannot be derived from the signature.
+# This block is therefore the contract: every key must be a ScanModel field (a parity
+# test enforces that), and giving update_scan a real typed signature would retire it.
+_UPDATE_SCAN_SCHEMA: dict = {'type': 'object',
+ 'properties': {'scan_type': {'type': 'string'},
+                'x_motor': {'type': 'string'},
+                'y_motor': {'type': 'string'},
+                'x_center': {'type': 'number', 'description': 'µm'},
+                'y_center': {'type': 'number', 'description': 'µm'},
+                'x_range': {'type': 'number', 'description': 'µm'},
+                'y_range': {'type': 'number', 'description': 'µm'},
+                'x_points': {'type': 'integer'},
+                'y_points': {'type': 'integer'},
+                'dwell': {'type': 'number', 'description': 'ms per pixel'},
+                'energy_start': {'type': 'number', 'description': 'eV'},
+                'energy_stop': {'type': 'number', 'description': 'eV'},
+                'energy_points': {'type': 'integer'},
+                'energy_list': {'type': 'array',
+                                'items': {'type': 'number'},
+                                'description': 'Explicit energy list in eV'},
+                'energy_preset': {'type': 'string',
+                                  'description': 'Name of a saved energy definition to apply '
+                                                 "(see list_energy_presets). Sets the scan's "
+                                                 "energy regions, keeping each region's own "
+                                                 'dwell. A path to a .json energy definition '
+                                                 'also works.'},
+                'autofocus': {'type': 'boolean'},
+                'spiral': {'type': 'boolean'},
+                'tiled': {'type': 'boolean',
+                          'description': 'Large-scan mode: split into sub-regions that each '
+                                         'fit the fine/piezo range (server stitches). Use '
+                                         'when a range exceeds fine travel.'},
+                'coarse_only': {'type': 'boolean',
+                                'description': 'Large-scan mode: position with the coarse '
+                                               'stage instead of the fine piezo. Use when a '
+                                               'range exceeds fine travel.'},
+                'sample_description': {'type': 'string'},
+                'comment': {'type': 'string'},
+                'proposal': {'type': 'string'},
+                'experimenters': {'type': 'string'}},
+ 'required': []}
+
+
 # ---------------------------------------------------------------------------
 # ToolSet
 # ---------------------------------------------------------------------------
@@ -326,7 +370,10 @@ class ToolSet:
     # Tools
     # ------------------------------------------------------------------
 
+    @tool()
     def get_safety_instructions(self) -> str:
+        """Return the safety rules and recommended workflows for operating this
+        instrument. Call this first."""
         return (
             "HOW TO CONFIRM:\n"
             "  Whenever a rule below says to confirm/ask before acting, call "
@@ -357,6 +404,7 @@ class ToolSet:
             "  6. Report results to the user."
         )
 
+    @tool(requires=('approval',))
     def request_confirmation(self, summary: str, details: str = "") -> str:
         """Ask the operator to approve an action BEFORE executing it.
 
@@ -364,6 +412,12 @@ class ToolSet:
         Returns a string beginning with 'APPROVED' or 'DECLINED'.  Call this — not a prose
         question — wherever the safety rules require confirmation (scan config, large motor
         or energy move, applying a calibration, …).  If DECLINED, stop and report; do not act.
+
+        Args:
+            summary: One-line action to confirm, e.g. 'Run Image scan 5x5 um, 100x100,
+                710 eV, 0.2 ms on SampleX/SampleY'.
+            details: Optional extra context shown under the summary (key parameters,
+                risks, current vs target positions).
         """
         if not self._confirm_fn.interactive:
             # No interactive UI (e.g. a headless / cron run) — cannot gate the action.
@@ -400,6 +454,7 @@ class ToolSet:
             log.warning("[ToolSet] set_baseline_from_server_scan failed: %s", e)
             return False
 
+    @tool()
     def get_config(self) -> str:
         """Fetch current motor positions, scan configs, and DAQ settings from the server."""
         try:
@@ -435,8 +490,13 @@ class ToolSet:
         except Exception as e:
             return f"Failed to get config: {e}"
 
+    @tool()
     def get_motor_position(self, axis: str) -> str:
-        """Return the current position of a named motor."""
+        """Return the current position of a named motor.
+
+        Args:
+            axis: Motor name, e.g. 'SampleX'
+        """
         if self._motors is None:
             self.get_config()
         if self._motors and axis not in self._motors:
@@ -450,8 +510,14 @@ class ToolSet:
         except Exception as e:
             return f"Failed to get position for {axis}: {e}"
 
+    @tool(mutates_hardware=True)
     def move_motor(self, axis: str, pos: float) -> str:
-        """Move a named motor to the given position."""
+        """Move a named motor to the given position.
+
+        Args:
+            axis: Motor name
+            pos: Target position in µm (or degrees for rotation)
+        """
         if self._motors is None:
             self.get_config()
         if self._motors and axis not in self._motors:
@@ -466,6 +532,7 @@ class ToolSet:
         except Exception as e:
             return f"Failed to move {axis}: {e}"
 
+    @tool(schema=_UPDATE_SCAN_SCHEMA)
     def update_scan(self, **kwargs) -> str:
         """Update the current scan definition.
 
@@ -550,6 +617,7 @@ class ToolSet:
         except Exception as e:
             return f"Failed to update scan: {e}"
 
+    @tool()
     def list_energy_presets(self) -> str:
         """List the saved energy definitions available to apply with update_scan().
 
@@ -638,6 +706,7 @@ class ToolSet:
                         "then start_scan(). (These are the same options the GUI offers.)"),
         }
 
+    @tool()
     def check_scan_limits(self) -> str:
         """Validate the current scan geometry against motor (fine/piezo) travel limits.
 
@@ -686,6 +755,7 @@ class ToolSet:
         return f"moved Energy {current}→{target} eV before scan" if current is not None \
                else f"moved Energy to {target} eV before scan"
 
+    @tool(mutates_hardware=True)
     def start_scan(self) -> str:
         """Submit the current scan definition to the server and start acquisition.
 
@@ -729,6 +799,7 @@ class ToolSet:
         except Exception as e:
             return f"Failed to start scan: {e}"
 
+    @tool(mutates_hardware=True)
     def cancel_scan(self) -> str:
         """Stop the scan currently running on the instrument.
 
@@ -748,6 +819,7 @@ class ToolSet:
             return "Scan cancelled — the server is aborting the current acquisition."
         return "No scan is currently running on the instrument, so there was nothing to cancel."
 
+    @tool()
     def get_scan_status(self) -> str:
         """Check whether a scan is currently running."""
         try:
@@ -767,12 +839,17 @@ class ToolSet:
         except Exception as e:
             return f"Failed to get scan status: {e}"
 
+    @tool()
     def wait_for_scan(self, timeout_seconds: float | None = None) -> str:
         """Block until the current scan finishes, then return a completion message.
 
         Uses the server's live time_remaining estimate (updated during the scan) to
         set the timeout.  Call this once after start_scan() instead of polling
         get_scan_status() in a loop — it consumes only one agent iteration.
+
+        Args:
+            timeout_seconds: Maximum seconds to wait. Omit to use the server's time
+                estimate.
         """
         import time as _time
 
@@ -857,11 +934,16 @@ class ToolSet:
             "again to keep waiting. Do NOT silently proceed past this alarm."
         )
 
+    @tool(requires=('frames',))
     def get_last_scan_stats(self, daq: str = "default") -> str:
         """Return statistics and spatial analysis of the most recently completed scan image.
 
         Computes mean, std, contrast, and the physical coordinates (µm) of the
         darkest region — useful for locating absorbing features such as particles.
+
+        Args:
+            daq: DAQ channel to analyse (e.g. 'default', 'xrf', 'tey'). Falls back to
+                'default' if the requested channel is absent.
         """
         if not frames_available(self._image_model):
             return "Image model not available."
@@ -955,6 +1037,7 @@ class ToolSet:
             return f" (particle map prepared but the logbook write failed: {e})."
         return f" A particle map was saved to the logbook (entry #{idx})."
 
+    @tool(requires=('frames',))
     def find_particles(self, max_particles: int | None = None, daq: str = "default",
                        save_map: bool = True) -> str:
         """Locate absorbing particles in a single transmission image and return scan regions.
@@ -1054,6 +1137,7 @@ class ToolSet:
         }
         return json.dumps(result, indent=2)
 
+    @tool(requires=('frames',), mutates_hardware=True)
     def start_multiregion_scan(self, pixel_size_nm: float | None = None) -> str:
         """Start an image scan covering every loaded particle region.
 
@@ -1063,6 +1147,9 @@ class ToolSet:
         Uses the current scan parameters (energy, dwell, proposal, etc.) but replaces
         the scan geometry with those particle regions.
 
+
+        Call update_scan() first if you want to change energy or dwell for the follow-up
+        scan.
         Args:
             pixel_size_nm: desired pixel size in nm for the zoom scans. Each region
                 gets its own point count computed as round(range_um / pixel_size_um).
@@ -1116,6 +1203,7 @@ class ToolSet:
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"
 
+    @tool(requires=('frames',))
     def get_intelligence_recommendations(self) -> str:
         """Return any pending recommendations from the intelligence module and clear the queue.
 
@@ -1184,6 +1272,7 @@ class ToolSet:
                 return rec
         return None
 
+    @tool(requires=('frames',))
     def list_buffered_scans(self) -> str:
         """List the completed scans held in memory, newest last.
 
@@ -1209,6 +1298,7 @@ class ToolSet:
             })
         return json.dumps({"buffered_scans": out, "count": len(out)}, indent=2)
 
+    @tool(requires=('frames',))
     def count_element_particles(self, pre_energy: float | None = None,
                                 edge_energy: float | None = None,
                                 daq: str = "default", region: int = 0,
@@ -1389,6 +1479,7 @@ class ToolSet:
         }
         return json.dumps(result, indent=2)
 
+    @tool(requires=('frames',))
     def analyze_energy_stack(self,
                              file: str | None = None,
                              daq: str = "default", region: int = 0,
@@ -1535,6 +1626,7 @@ class ToolSet:
 
         return json.dumps(result, indent=2)
 
+    @tool(requires=('frames',))
     def get_image_center_of_mass(self, daq: str = "default") -> str:
         """Return the center of mass of the Otsu-thresholded absorption mask.
 
@@ -1586,6 +1678,7 @@ class ToolSet:
                     "to re-centre the next scan on this feature.",
         }, indent=2)
 
+    @tool()
     def get_last_scan_params(self, scan_type: str | None = None) -> str:
         """Refresh and return the most recently used parameters for a scan type.
 
@@ -1618,10 +1711,16 @@ class ToolSet:
 
         return f"Last '{target_type}' scan parameters:\n" + json.dumps(self._scan, indent=2)
 
+    @tool(mutates_hardware=True)
     def read_daq(self, daq: str = "default", dwell: float = 100.0, shutter: bool = True) -> str:
         """Take a single-point DAQ reading without running a scan.
 
         Useful for checking beam intensity before committing to a full scan.
+
+        Args:
+            daq: DAQ channel name
+            dwell: Integration time in ms
+            shutter: Open shutter during measurement
         """
         try:
             response = self._client.send_message({
@@ -1661,6 +1760,7 @@ class ToolSet:
             return None, 0
         return float(arr.mean()), int(arr.size)
 
+    @tool()
     def get_toolset_debug(self) -> str:
         """Return a diagnostic dump of ToolSet internal state for debugging."""
         last_scan_keys = list((self._last_scans or {}).keys())
@@ -1777,6 +1877,7 @@ class ToolSet:
             "scan_complete": bool(scan_idle),
         }
 
+    @tool(mutates_hardware=True)
     def start_tuning_session(self, energy: float | None = None) -> str:
         """Begin a beamline-tuning session: anchor origins and pick step sizes.
 
@@ -1785,6 +1886,10 @@ class ToolSet:
         position to centre the tuning scan on.  Call this first, then configure and
         start the tuning scan, then run the search with read_beam_quality() /
         step_tuning_parameter().
+
+        Args:
+            energy: Target photon energy in eV to tune at. Omit to tune at the current
+                energy.
         """
         self.get_config()
         if energy is not None:
@@ -1869,6 +1974,7 @@ class ToolSet:
             ),
         }, indent=2)
 
+    @tool(requires=('frames',))
     def read_beam_quality(self, daq: str = "default", settle_lines: int = 5) -> str:
         """Measure live beam intensity, noise RMS, and SNR from the running tuning scan.
 
@@ -1877,6 +1983,10 @@ class ToolSet:
         objective — compare it across calls to judge whether a step helped or hurt.
         Returns scan_complete=true if the scan has finished (ask the user whether to
         start another scan to continue the search).
+
+        Args:
+            daq: Detector channel to measure.
+            settle_lines: Number of fresh scan lines to wait for and average over.
         """
         result = self._beam_quality_window(daq, max(1, int(settle_lines)))
         if result is None:
@@ -1890,6 +2000,7 @@ class ToolSet:
             }
         return json.dumps(result, indent=2)
 
+    @tool(mutates_hardware=True)
     def step_tuning_parameter(self, parameter: str, n_steps: float) -> str:
         """Step a tuning parameter by n_steps × its step size (sign sets direction).
 
@@ -1897,6 +2008,10 @@ class ToolSet:
         ±max_steps steps from the search origin; a step that would exceed the limit is
         refused.  Sleeps for the slow-motor beam settle time before returning, so the
         next read_beam_quality() reflects the new beam.
+
+        Args:
+            parameter: Which parameter to step.
+            n_steps: Number of steps (e.g. +1, -1, +2). Sign sets direction.
         """
         if self._tuning is None:
             return "No active tuning session — call start_tuning_session() first."
@@ -1942,6 +2057,7 @@ class ToolSet:
                     "Call read_beam_quality() to measure.",
         }, indent=2)
 
+    @tool()
     def reanchor_tuning_limit(self, parameter: str) -> str:
         """Re-centre a parameter's ±max_steps travel limit on its current position.
 
@@ -1950,6 +2066,9 @@ class ToolSet:
         ±max_steps window around the first phase's optimum. This moves only the limit
         anchor; the session start position used by finalize_tuning() is unchanged, so the
         EPU-offset correction still reflects the total gap change from the original gap.
+
+        Args:
+            parameter: Which parameter's limit to re-anchor.
         """
         if self._tuning is None:
             return "No active tuning session — call start_tuning_session() first."
@@ -1969,6 +2088,7 @@ class ToolSet:
                     "original session position.",
         }, indent=2)
 
+    @tool(mutates_hardware=True)
     def finalize_tuning(self) -> str:
         """Finish tuning: set EPUOFFSET by the EPU-gap delta and report the optimum.
 
@@ -2014,6 +2134,7 @@ class ToolSet:
         self._tuning = None
         return json.dumps(summary, indent=2)
 
+    @tool()
     def save_beamline_entry(self, desired_energy: float,
                             populate_from_current: bool = False,
                             commanded_energy: float | None = None,
@@ -2034,6 +2155,16 @@ class ToolSet:
         is True, the commanded_energy / harmonic / feedback_offset / epu_offset fields are
         filled from the current motor positions for any you did not pass explicitly — ideal
         right after tuning, when the live positions already hold the tuned result.
+
+
+        The desired_energy key is rounded to the nearest whole eV (entries do not need
+        sub-eV precision; commanded_energy keeps its precise value). After a tuning run,
+        ASK the user before saving.
+        Args:
+            desired_energy: Photon energy in eV (the entry key).
+            populate_from_current: Fill mappable fields from current motor positions for
+                any not passed explicitly.
+            modified_by: Who made the change (default 'task_agent').
         """
         from pystxmcontrol.controller.beamline_database import (
             BeamlineDatabaseClient, COLUMNS,
@@ -2096,6 +2227,7 @@ class ToolSet:
             "modified_by": modified_by,
         }, indent=2)
 
+    @tool(mutates_hardware=True)
     def set_beamline_from_database(self, desired_energy: float) -> str:
         """Set the beamline from a stored database entry for *desired_energy*.
 
@@ -2105,6 +2237,14 @@ class ToolSet:
         high-level target is always the desired energy). Columns without a clean motor
         mapping (grating, exit slits, m121/m101 angles) are reported, not moved.
         Moving Energy can be a large move — confirm with the user first per the safety rules.
+
+
+        The energy you pass is rounded to the nearest whole eV for the lookup (a live
+        707.8 eV finds the 708 eV entry). If no entry exists this returns 'not_found'
+        with the closest stored energy in 'nearest_energy_eV' — ASK the user whether to
+        apply that nearest entry before calling again with it.
+        Args:
+            desired_energy: Photon energy in eV of the entry to apply.
         """
         from pystxmcontrol.controller.beamline_database import (
             BeamlineDatabaseClient, COLUMN_NAMES,
@@ -2203,6 +2343,7 @@ class ToolSet:
     # OSA alignment
     # ------------------------------------------------------------------
 
+    @tool()
     def configure_osa_scan(self, extent_um: float, points: int,
                            velocity_mm_s: float | None = None,
                            x_center: float | None = None,
@@ -2223,6 +2364,9 @@ class ToolSet:
             velocity_mm_s: override the configured target stage velocity.
             x_center, y_center: scan center in OSA µm; default to 0 (use the large-scan
                 beam center here for the follow-up small scan).
+            x_center: Scan center X in OSA µm. Default: current OSA_X (use the large-
+                scan beam center for the follow-up small scan).
+            y_center: Scan center Y in OSA µm. Default: current OSA_Y.
         """
         if self._motors is None or self._positions is None:
             self.get_config()
@@ -2300,6 +2444,7 @@ class ToolSet:
             result["warning"] = warning
         return json.dumps(result, indent=2)
 
+    @tool(requires=('frames',))
     def get_osa_beam_center(self, daq: str = "default", mode: str = "small",
                             method: str = "auto") -> str:
         """Find the OSA beam center from the last scan image.
@@ -2434,6 +2579,7 @@ class ToolSet:
                               "— re-run with method='centroid'.")
         return json.dumps(result, indent=2)
 
+    @tool(mutates_hardware=True)
     def zero_osa_position(self) -> str:
         """Set the last-found OSA beam center as the new OSA zero (mirrors the GUI 'Set to 0').
 
@@ -2480,6 +2626,7 @@ class ToolSet:
     # Focus (OSA focus → Z=0 calibration)
     # ------------------------------------------------------------------
 
+    @tool()
     def configure_focus_scan(self, scan_type: str = "OSA Focus",
                              line_center_x: float = 20.0, line_y: float = 0.0,
                              line_length: float = 50.0, line_points: int = 100,
@@ -2504,6 +2651,10 @@ class ToolSet:
             z_range, z_points: ZonePlateZ scan extent (µm) and step count.
             z_center: ZonePlateZ scan center; defaults to the current ZonePlateZ position.
             velocity_mm_s: override the OSA stage velocity used to derive dwell.
+            line_length: Line length (µm), default 50.
+            line_points: Points along the line, default 100.
+            z_range: ZonePlateZ scan range (µm), default 500.
+            z_points: ZonePlateZ steps, default 100.
         """
         if self._motors is None or self._positions is None:
             self.get_config()
@@ -2575,6 +2726,7 @@ class ToolSet:
                          "get_intelligence_recommendations() for the focus result.",
         }, indent=2)
 
+    @tool(mutates_hardware=True)
     def apply_focus_calibration(self, delta_z: float | None = None) -> str:
         """Apply the focus correction to the ZonePlateZ offset (defines the Z=0 calibration).
 
@@ -2584,6 +2736,10 @@ class ToolSet:
         the delta is frame-independent so no A0 handling is needed). Does NOT move any motor.
         ALWAYS confirm with the user first AND report the correction magnitude — this changes
         the stored Z calibration.
+
+        Args:
+            delta_z: Focus offset from the scan center (µm). Omit to use the last focus
+                recommendation.
         """
         if delta_z is None:
             if not self._last_focus_report:
@@ -2866,6 +3022,7 @@ class ToolSet:
             "meta": dict(meta or {}),
         }
 
+    @tool(requires=('logbook',), hidden_params=("attach_last_scan",))
     def add_to_logbook(self, text: str, attach: str = "scan",
                        daq: str = "default", attach_last_scan: bool | None = None) -> str:
         """Add an entry to the active logbook on the user's behalf.
@@ -2875,6 +3032,9 @@ class ToolSet:
         is stamped author='agent'. Requires a logbook to be open in the Logbook tab; if none
         is open, ask the user to open or create one.
 
+
+        Only add entries the user asked for, or that clearly document the work just done
+        — do not spam the logbook.
         Args:
             attach: which image to embed (grayscale, autoscaled):
                 "scan"     — the most recent live scan image (default);
@@ -2885,6 +3045,7 @@ class ToolSet:
                 "none"     — text-only entry, no image.
             daq:    detector channel for the "scan" image (default 'default').
             attach_last_scan: deprecated — True maps to attach="scan", False to attach="none".
+            text: The entry body — the observation, result, or recommendation.
         """
         model = self._logbook_model
         if model is None:
@@ -3003,11 +3164,21 @@ class ToolSet:
             header += f" (showing last {len(shown)})"
         return header + "\n" + "\n".join(lines)
 
+    @tool(requires=('logbook',), feature="logbook_context")
     def search_logbook(self, query: str = "", author: str = "", limit: int = 20) -> str:
         """Search the active logbook. Substring match (case-insensitive) over the entry text,
         comment, metadata, and filename; optionally filter by author ('human'/'agent'/
         'intelligence'). Returns compact hits (id, #, author, timestamp, title, snippet) —
-        call get_logbook_entry(id) for the full text."""
+        call get_logbook_entry(id) for the full text.
+
+
+        Human-authored entries are the operator's own observations — weight them above
+        your own prior agent entries.
+        Args:
+            query: Search text; empty lists recent entries.
+            author: Optional: restrict to one author.
+            limit: Max hits (default 20, most recent).
+        """
         model = self._logbook_model
         if model is None or not getattr(model, "folder", None):
             return "No logbook is open."
@@ -3028,9 +3199,14 @@ class ToolSet:
         hits = hits[-limit:]   # most recent matches if capped
         return json.dumps({"count": len(hits), "entries": hits}, indent=2)
 
+    @tool(requires=('logbook',), feature="logbook_context")
     def get_logbook_entry(self, entry_id: str) -> str:
         """Return the full text/metadata of one logbook entry by id (image not included;
-        has_image flags whether a snapshot exists)."""
+        has_image flags whether a snapshot exists).
+
+        Args:
+            entry_id: The entry id.
+        """
         model = self._logbook_model
         if model is None or not getattr(model, "folder", None):
             return "No logbook is open."
@@ -3041,6 +3217,22 @@ class ToolSet:
                                      "scan_type", "energy", "text", "comment", "detail_text")}
         out["has_image"] = bool(e.get("snap_file"))
         return json.dumps(out, indent=2)
+
+    def capabilities(self) -> tuple[str, ...]:
+        """The capability names this ToolSet can actually satisfy.
+
+        Surfaces pass this to the emitters so a session advertises only tools it can
+        run: a headless ToolSet has no frames, so it does not offer find_particles at
+        all rather than offering it and failing at call time.
+        """
+        caps = []
+        if frames_available(self._image_model):
+            caps.append("frames")
+        if self._logbook_model is not None:
+            caps.append("logbook")
+        if self._confirm_fn.interactive:
+            caps.append("approval")
+        return tuple(caps)
 
     def dispatch(self, name: str, args: dict) -> str:
         fn = getattr(self, name, None)
@@ -3053,884 +3245,10 @@ class ToolSet:
 
 
 # ---------------------------------------------------------------------------
-# OpenAI-format tool schemas
+# The registry
 # ---------------------------------------------------------------------------
 
-TOOL_SCHEMAS: list[dict] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_safety_instructions",
-            "description": "Return the safety rules and recommended workflows for operating this instrument. Call this first.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_config",
-            "description": "Fetch current motor list, scan type configurations, and motor positions from the server.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_motor_position",
-            "description": "Return the current position of a named motor.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "axis": {"type": "string", "description": "Motor name, e.g. 'SampleX'"},
-                },
-                "required": ["axis"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "move_motor",
-            "description": "Move a named motor to the given position. Respects software limits on the server.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "axis": {"type": "string", "description": "Motor name"},
-                    "pos":  {"type": "number", "description": "Target position in µm (or degrees for rotation)"},
-                },
-                "required": ["axis", "pos"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_scan",
-            "description": (
-                "Update the pending scan definition. Call without arguments to inspect the current config. "
-                "Pass any subset of scan parameters to change them. "
-                "Available scan_type values depend on the instrument configuration — check get_config(). "
-                "Use the exact strings returned there; colloquial terms like 'stack', 'z-stack', or 'tomo' are not valid."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "scan_type":          {"type": "string"},
-                    "x_motor":            {"type": "string"},
-                    "y_motor":            {"type": "string"},
-                    "x_center":           {"type": "number", "description": "µm"},
-                    "y_center":           {"type": "number", "description": "µm"},
-                    "x_range":            {"type": "number", "description": "µm"},
-                    "y_range":            {"type": "number", "description": "µm"},
-                    "x_points":           {"type": "integer"},
-                    "y_points":           {"type": "integer"},
-                    "dwell":              {"type": "number", "description": "ms per pixel"},
-                    "energy_start":       {"type": "number", "description": "eV"},
-                    "energy_stop":        {"type": "number", "description": "eV"},
-                    "energy_points":      {"type": "integer"},
-                    "energy_list":        {"type": "array", "items": {"type": "number"}, "description": "Explicit energy list in eV"},
-                    "energy_preset":      {"type": "string", "description": "Name of a saved energy definition to apply (see list_energy_presets). Sets the scan's energy regions, keeping each region's own dwell. A path to a .json energy definition also works."},
-                    "autofocus":          {"type": "boolean"},
-                    "spiral":             {"type": "boolean"},
-                    "tiled":              {"type": "boolean", "description": "Large-scan mode: split into sub-regions that each fit the fine/piezo range (server stitches). Use when a range exceeds fine travel."},
-                    "coarse_only":        {"type": "boolean", "description": "Large-scan mode: position with the coarse stage instead of the fine piezo. Use when a range exceeds fine travel."},
-                    "sample_description": {"type": "string"},
-                    "comment":            {"type": "string"},
-                    "proposal":           {"type": "string"},
-                    "experimenters":      {"type": "string"},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_energy_presets",
-            "description": (
-                "List saved energy definitions (energy presets) that can be applied with "
-                "update_scan(energy_preset=\"<name>\"). These are the same presets the GUI "
-                "loads — the dashboard's pinned Favorites plus JSON files in the shared "
-                "energy-presets directory. Prefer applying a preset by name over typing out "
-                "energy ranges when the user names an edge or a standard scan."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_scan_limits",
-            "description": (
-                "Validate the current scan geometry against motor (fine/piezo) travel limits — "
-                "the same check the GUI runs before starting a scan. If a range exceeds the fine "
-                "travel and no large-scan mode is set, the result has needs_decision=True with "
-                "'tiled' vs 'coarse_only' options: ask the user which to use, set it via "
-                "update_scan(tiled=True) or update_scan(coarse_only=True), then start_scan(). "
-                "start_scan() runs this automatically and refuses if unresolved."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "start_scan",
-            "description": "Submit the current scan definition and start acquisition. Runs check_scan_limits() first and refuses if a range exceeds fine travel with no tiled/coarse_only mode set. Returns when the server acknowledges the start.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "cancel_scan",
-            "description": (
-                "Stop the scan currently running on the instrument — the same action as the "
-                "acquisition tab's Cancel button. Use this when the user asks to stop, cancel, "
-                "or abort the ongoing scan. This is different from stopping the agent's own task "
-                "loop: it aborts the acquisition itself. Reports if no scan was running."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_scan_status",
-            "description": "Check whether a scan is currently running or the instrument is idle.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "wait_for_scan",
-            "description": (
-                "Block until the running scan finishes and return a completion message. "
-                "Preferred over polling get_scan_status() in a loop — call this once after "
-                "start_scan() so the scan wait consumes only one agent iteration. "
-                "Uses the server's live time_remaining estimate automatically; "
-                "pass timeout_seconds only to override."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "timeout_seconds": {
-                        "type": "number",
-                        "description": "Maximum seconds to wait. Omit to use the server's time estimate.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "request_confirmation",
-            "description": (
-                "Ask the operator to approve an action BEFORE executing it, showing "
-                "Approve/Decline buttons in the GUI. Blocks until they choose and returns "
-                "a string starting with APPROVED or DECLINED. Use this — NOT a prose "
-                "question — wherever the safety rules require confirmation (scan config, "
-                "large motor or energy move, applying a calibration, tiled/coarse choice, "
-                "OSA zeroing, etc.). If DECLINED, stop and report; do not act."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "summary": {
-                        "type": "string",
-                        "description": "One-line action to confirm, e.g. 'Run Image scan "
-                                       "5x5 um, 100x100, 710 eV, 0.2 ms on SampleX/SampleY'.",
-                    },
-                    "details": {
-                        "type": "string",
-                        "description": "Optional extra context shown under the summary "
-                                       "(key parameters, risks, current vs target positions).",
-                    },
-                },
-                "required": ["summary"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_toolset_debug",
-            "description": "Return a diagnostic dump of ToolSet internal state. Use when scan parameters look wrong.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_last_scan_stats",
-            "description": (
-                "Return statistical analysis of the most recently completed scan image: "
-                "mean, std, contrast, and the physical coordinates (µm) of the darkest region. "
-                "Use this after get_scan_status() returns idle to decide whether features "
-                "were found and where to zoom in next."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "daq": {
-                        "type": "string",
-                        "default": "default",
-                        "description": "DAQ channel to analyse (e.g. 'default', 'xrf', 'tey'). "
-                                       "Falls back to 'default' if the requested channel is absent.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_intelligence_recommendations",
-            "description": (
-                "Return and clear pending recommendations from the intelligence module: "
-                "recentre suggestions (off-centre feature) and focus calibrations. Two-energy "
-                "element mapping is NOT posted here — use count_element_particles() to find "
-                "element-bearing particles on demand. Call after every wait_for_scan()."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_buffered_scans",
-            "description": (
-                "List the completed scans held in memory (newest last). The GUI retains the last "
-                "several full multi-energy scans so you can analyse a prior scan without re-running "
-                "it. Each entry's 'index' can be passed to count_element_particles(scan_index=...). "
-                "Use when the user refers to an earlier scan or asks to compare scans."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "count_element_particles",
-            "description": (
-                "Count particles AND how many contain an element, from a buffered two-energy scan. "
-                "Builds the two-energy elemental map (the Analysis-tab Map / OD-difference) and counts "
-                "all particles (pre-edge absorption) plus the element-containing subset (elemental map). "
-                "Use for element questions like 'how many particles contain iron?' after a two-energy "
-                "scan (pre-edge + edge). This is the sole owner of two-energy elemental mapping; it "
-                "works directly on the in-memory buffered scan. "
-                "By default it also saves a map (the elemental map with a numbered box around "
-                "each element-containing region) to the open logbook, and caches it so "
-                "add_to_logbook(attach='computed') can re-attach it. "
-                "Element regions are stored for start_multiregion_scan() to image them. Returns "
-                "total_particles, element_particles, and fraction_with_element."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pre_energy": {
-                        "type": "number",
-                        "description": "Pre-edge energy in eV; snaps to nearest frame. "
-                                       "Omit to use the lowest-energy frame.",
-                    },
-                    "edge_energy": {
-                        "type": "number",
-                        "description": "On-edge energy in eV; snaps to nearest frame. "
-                                       "Omit to use the highest-energy frame.",
-                    },
-                    "daq": {
-                        "type": "string",
-                        "description": "Detector channel to analyse (default 'default').",
-                    },
-                    "region": {
-                        "type": "integer",
-                        "description": "Scan-region index for multi-region scans (default 0).",
-                    },
-                    "scan_id": {
-                        "type": "string",
-                        "description": "Analyse a specific buffered scan by id substring. "
-                                       "Default: most recent scan with >= 2 energies.",
-                    },
-                    "scan_index": {
-                        "type": "integer",
-                        "description": "Analyse a specific buffered scan by index "
-                                       "(see list_buffered_scans). Takes precedence over scan_id.",
-                    },
-                    "max_particles": {
-                        "type": "integer",
-                        "description": "Cap on element regions returned, ordered by size (default: all).",
-                    },
-                    "save_map": {
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Save the elemental map with the element regions boxed to the "
-                                       "logbook (default true). Set false to skip the logbook write.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_energy_stack",
-            "description": (
-                "Analyse a many-energy spectral stack with autoProcess + non-negative matrix "
-                "factorisation (NNMF), the headless equivalent of the Analysis tab's Auto Process "
-                "+ Calculate NNMF buttons. Pipeline: subtract dark field -> despike -> align "
-                "frames -> optical density, then sklearn NMF with k-means clustering of the NMF "
-                "weight maps, producing a colour-coded cluster map and per-cluster OD spectra. "
-                "Use for a NEXAFS / energy-stack scan (>= 3 energies), NOT a two-energy scan (use "
-                "count_element_particles for two energies). Analyses the most recent buffered "
-                "multi-energy scan by default, or a saved .stxm/.hdr/.cxi file via 'file'. When "
-                "log is true (default) and a logbook is open, it posts one entry with a combined "
-                "cluster-map + cluster-spectra figure; the figure is also cached so "
-                "add_to_logbook(attach='computed') can re-post it."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file": {
-                        "type": "string",
-                        "description": "Analyse a saved stack file (.stxm/.hdr/.cxi) by path. "
-                                       "Omit to use the most recent buffered in-memory scan.",
-                    },
-                    "daq": {
-                        "type": "string",
-                        "description": "Detector channel for buffered scans (default 'default').",
-                    },
-                    "region": {
-                        "type": "integer",
-                        "description": "Scan-region index for multi-region scans/files (default 0).",
-                    },
-                    "scan_id": {
-                        "type": "string",
-                        "description": "Analyse a specific buffered scan by id substring "
-                                       "(buffered scans only).",
-                    },
-                    "scan_index": {
-                        "type": "integer",
-                        "description": "Analyse a specific buffered scan by index "
-                                       "(see list_buffered_scans). Takes precedence over scan_id.",
-                    },
-                    "n_components": {
-                        "type": "integer",
-                        "description": "Number of NMF components (default 4). "
-                                       "Clamped to the number of energies.",
-                    },
-                    "n_clusters": {
-                        "type": "integer",
-                        "description": "Number of k-means clusters of the NMF weight maps (default 4).",
-                    },
-                    "max_iter": {
-                        "type": "integer",
-                        "description": "NMF maximum iterations (default 500).",
-                    },
-                    "init": {
-                        "type": "string",
-                        "description": "NMF initialisation: 'nndsvda' (default) or 'random'.",
-                    },
-                    "log": {
-                        "type": "boolean",
-                        "description": "Post the result to the logbook (default true).",
-                    },
-                    "note": {
-                        "type": "string",
-                        "description": "Logbook entry text; a summary is generated when omitted.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_image_center_of_mass",
-            "description": (
-                "Compute the centroid of the Otsu-thresholded absorption mask of the last scan image. "
-                "Uses the same Otsu inversion used by find_particles(), so the result is consistent "
-                "with particle detection. "
-                "Returns physical µm coordinates — pass them to update_scan(x_center=..., y_center=...) "
-                "to re-centre the next scan on the feature."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "daq": {
-                        "type": "string",
-                        "description": "DAQ channel to use (default 'default').",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_last_scan_params",
-            "description": (
-                "Fetch the most recently used scan parameters from the server for a given scan type. "
-                "Always queries the server for fresh data — use this whenever the user asks about "
-                "a recent scan, or before modifying parameters from the last scan. "
-                "Also updates the working scan definition so update_scan() builds on the latest state."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "scan_type": {
-                        "type": "string",
-                        "description": "Scan type to retrieve (e.g. 'Image', 'Image Stack'). "
-                                       "Omit to use the current working scan type.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_daq",
-            "description": "Take a single-point intensity reading without running a full scan. Useful for checking beam before starting.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "daq":     {"type": "string", "default": "default", "description": "DAQ channel name"},
-                    "dwell":   {"type": "number", "default": 100.0, "description": "Integration time in ms"},
-                    "shutter": {"type": "boolean", "default": True, "description": "Open shutter during measurement"},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_particles",
-            "description": (
-                "Locate GENERIC absorbing particles in a SINGLE transmission image using Otsu "
-                "thresholding + connected components (NOT element-specific). "
-                "Returns scan regions (center, range, points) in µm per particle. Use for a plain "
-                "'find absorbing features' request. For an element (e.g. iron) after a two-energy "
-                "scan, use count_element_particles() instead. "
-                "By default it also saves a map (overview image with a numbered box around each "
-                "found region) to the open logbook. "
-                "Then call start_multiregion_scan() to image all particles."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "max_particles": {
-                        "type": "integer",
-                        "description": "Cap on number of regions returned, ordered by size (default: all).",
-                    },
-                    "daq": {
-                        "type": "string",
-                        "default": "default",
-                        "description": "Detector channel to analyse.",
-                    },
-                    "save_map": {
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Save a map of the found regions on the overview to the logbook "
-                                       "(default true). Set false to skip the logbook write.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "start_multiregion_scan",
-            "description": (
-                "Start an image scan covering every loaded particle region (from "
-                "count_element_particles() or find_particles(), whichever you called last). "
-                "Uses the current scan parameters (energy, dwell, proposal, etc.) with particle regions as geometry. "
-                "Each region's point count is computed from pixel_size_nm so all regions have uniform pixel size. "
-                "find_particles() reports the overview pixel size — pass a smaller value here for higher resolution. "
-                "Call update_scan() first if you want to change energy or dwell for the follow-up scan."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pixel_size_nm": {
-                        "type": "number",
-                        "description": (
-                            "Desired pixel size in nm. Each region gets point count = range_um / pixel_size_um. "
-                            "Omit to use the same pixel size as the overview scan."
-                        ),
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "start_tuning_session",
-            "description": (
-                "Begin a beamline-tuning session. Optionally moves Energy to the target, reads the "
-                "undulator harmonic to pick the EPU gap step (0.05/0.02/0.01 mm for harmonic 1/3/5; "
-                "feedback step 0.1; max 10 steps each direction), records EPU Gap / FBKOFFSET / "
-                "EPUOFFSET as search origins, and reports SampleX/Y so the tuning scan can be centred "
-                "there. Call this FIRST, then configure & start the tuning scan, then run the search."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "energy": {
-                        "type": "number",
-                        "description": "Target photon energy in eV to tune at. Omit to tune at the current energy.",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_beam_quality",
-            "description": (
-                "Measure live beam intensity, noise RMS, and SNR from the running tuning scan, using "
-                "the most recently filled scan lines. SNR = intensity / noise_RMS is the composite "
-                "tuning objective — compare it across calls to judge whether a step helped. Returns "
-                "scan_complete=true when the scan has finished (then ask the user whether to start "
-                "another scan to continue the search)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "daq": {"type": "string", "default": "default",
-                            "description": "Detector channel to measure."},
-                    "settle_lines": {"type": "integer", "default": 5,
-                                     "description": "Number of fresh scan lines to wait for and average over."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "step_tuning_parameter",
-            "description": (
-                "Step a tuning parameter by n_steps × its step size (sign sets direction). parameter "
-                "is 'gap' (EPU Gap) or 'feedback' (FBKOFFSET). Bounded to ±10 steps from the search "
-                "origin; an over-limit step is refused. Sleeps ~2 s for the slow-motor beam to settle "
-                "before returning. Optimize 'gap' first to its local SNR maximum, then 'feedback'."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "parameter": {"type": "string", "enum": ["gap", "feedback"],
-                                  "description": "Which parameter to step."},
-                    "n_steps": {"type": "number",
-                                "description": "Number of steps (e.g. +1, -1, +2). Sign sets direction."},
-                },
-                "required": ["parameter", "n_steps"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "reanchor_tuning_limit",
-            "description": (
-                "Re-centre a parameter's ±10-step travel limit on its current position. Call "
-                "this between two search phases on the SAME parameter (e.g. after the gap "
-                "intensity search, before the gap SNR search) so the next phase gets a full "
-                "±10-step window around the current optimum. Only the limit anchor moves; the "
-                "EPU-offset correction in finalize_tuning() still uses the original gap."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "parameter": {"type": "string", "enum": ["gap", "feedback"],
-                                  "description": "Which parameter's limit to re-anchor."},
-                },
-                "required": ["parameter"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "finalize_tuning",
-            "description": (
-                "Finish the tuning session: set EPUOFFSET = origin EPUOFFSET + (best EPU Gap − origin "
-                "EPU Gap), clamped to limits, and report the optimum gap / feedback / offset. EPU Gap "
-                "and FBKOFFSET are left at their optimised positions. Call once both parameters are tuned."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "save_beamline_entry",
-            "description": (
-                "Insert or update an entry in the beamline-parameter database (keyed by desired "
-                "energy in eV), written to the server over the network. Only the fields you pass are "
-                "written; other fields of an existing entry are preserved. Set populate_from_current=true "
-                "to fill commanded_energy/harmonic/feedback_offset/epu_offset from the current motor "
-                "positions — use this right after tuning (the live positions hold the tuned result) or "
-                "whenever the user asks to record the current beamline state. The desired_energy key is "
-                "rounded to the nearest whole eV (entries don't need sub-eV precision; commanded_energy "
-                "keeps its precise value). After a tuning run, ASK the user before saving."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "desired_energy":      {"type": "number", "description": "Photon energy in eV (the entry key)."},
-                    "populate_from_current": {"type": "boolean", "description": "Fill mappable fields from current motor positions for any not passed explicitly."},
-                    "commanded_energy":    {"type": "number"},
-                    "harmonic":            {"type": "integer"},
-                    "grating":             {"type": "string"},
-                    "exit_slit_h_pos":     {"type": "number"},
-                    "exit_slit_size":      {"type": "number"},
-                    "m121_vertical_angle": {"type": "number"},
-                    "feedback_offset":     {"type": "number"},
-                    "m101_angle":          {"type": "number"},
-                    "epu_offset":          {"type": "number"},
-                    "notes":               {"type": "string"},
-                    "modified_by":         {"type": "string", "description": "Who made the change (default 'task_agent')."},
-                },
-                "required": ["desired_energy"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_beamline_from_database",
-            "description": (
-                "Set the beamline from a stored database entry: apply the entry's harmonic, EPU "
-                "offset, and feedback offset to their motors, then move Energy to the entry's "
-                "desired_energy. The energy you pass is rounded to the nearest whole eV for the "
-                "lookup (e.g. a live energy of 707.8 eV finds the 708 eV entry). Columns without a "
-                "motor mapping (grating, exit slits, m121/m101 angles) are reported under "
-                "'set_manually', not moved. If no entry exists, returns 'not_found' with the closest "
-                "stored energy in 'nearest_energy_eV' — ASK the user whether to apply that nearest "
-                "entry before calling again with it. This moves Energy, which can be a large move — "
-                "confirm with the user before calling."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "desired_energy": {"type": "number", "description": "Photon energy in eV of the entry to apply."},
-                },
-                "required": ["desired_energy"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "configure_osa_scan",
-            "description": (
-                "Configure an 'OSA Image' alignment scan (OSA_X/OSA_Y, continuousLine) centred on "
-                "the current OSA position or a passed center, and derive the per-pixel dwell from "
-                "the target stage velocity: dwell_ms = step_um / velocity_mm_s. OSA motors are "
-                "finicky — wrong velocity distorts the image — so dwell is computed here, not "
-                "guessed. Velocity defaults to the configured osa_velocity_mm_s (~0.25 mm/s). Energy "
-                "is left unchanged. Typical: large ~500 µm/50 pts, small ~60 µm/30 pts. After this, "
-                "call check_scan_limits(), start_scan(), wait_for_scan()."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "extent_um": {"type": "number", "description": "Square scan range in µm (e.g. 500 large, 60 small)."},
-                    "points":    {"type": "integer", "description": "Points per axis (e.g. 50 large, 30 small)."},
-                    "velocity_mm_s": {"type": "number", "description": "Override the configured target stage velocity (mm/s)."},
-                    "x_center": {"type": "number", "description": "Scan center X in OSA µm. Default: current OSA_X (use the large-scan beam center for the follow-up small scan)."},
-                    "y_center": {"type": "number", "description": "Scan center Y in OSA µm. Default: current OSA_Y."},
-                },
-                "required": ["extent_um", "points"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_osa_beam_center",
-            "description": (
-                "Find the OSA beam center in the last OSA scan image (BRIGHT beam on a near-dark "
-                "field). Two estimators, chosen with 'method': 'centroid' = intensity center of mass "
-                "(robust for a single broad/concentric blob); 'log' = curvature-isolated focused peak "
-                "(rejects an off-centre ramp of unfocused light, but can lock onto a broad blob's "
-                "curvature ring); 'auto' = log for small mode, centroid for large. The result reports "
-                "BOTH estimates and their gap so you can compare and re-run with an explicit method if "
-                "the chosen one looks wrong. Returns the center in OSA_X/OSA_Y µm and caches it for "
-                "zero_osa_position(). For a large scan, feed beam_center_um to configure_osa_scan() for "
-                "the small follow-up; after the small scan, confirm with the user and call "
-                "zero_osa_position()."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "daq":  {"type": "string", "default": "default", "description": "Detector channel to analyse."},
-                    "mode": {"type": "string", "enum": ["large", "small"], "description": "Only affects the 'auto' estimator choice (log for small, centroid for large)."},
-                    "method": {"type": "string", "enum": ["auto", "centroid", "log"], "description": "Estimator: 'auto' (default), 'centroid' (intensity COM — use for a single broad blob), or 'log' (focused-peak)."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "zero_osa_position",
-            "description": (
-                "Set the last get_osa_beam_center() result as the new OSA zero, mirroring the GUI "
-                "'Set to 0' button: for OSA_X and OSA_Y, new_offset = current_offset - beam_center. "
-                "This does NOT move any motor — it relabels the coordinate origin. ALWAYS confirm "
-                "with the user before calling (it changes the stored OSA calibration). Requires a "
-                "prior get_osa_beam_center() call."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "configure_focus_scan",
-            "description": (
-                "Configure an 'OSA Focus' (or 'Focus') scan: a line across the feature × ZonePlateZ "
-                "(Z is the outer axis). For OSA focus (the Z=0 calibration) the line runs along OSA_X "
-                "at fixed OSA_Y (0 once centered); Z is stepped around the current ZonePlateZ. Dwell "
-                "is derived from the OSA stage velocity; energy is unchanged. Defaults are typical: "
-                "line center ~20 µm (so it crosses the OSA edge), 50 µm / 100 pts; Z range 500 µm / "
-                "100 pts. After this: check_scan_limits(), start_scan(), wait_for_scan(), then "
-                "get_intelligence_recommendations() for the focus result."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "scan_type":     {"type": "string", "description": "'OSA Focus' (default) or 'Focus'."},
-                    "line_center_x": {"type": "number", "description": "Line center along the line axis (µm); ~20 for OSA."},
-                    "line_y":        {"type": "number", "description": "Fixed off-line position (µm); 0 for a centered OSA."},
-                    "line_length":   {"type": "number", "description": "Line length (µm), default 50."},
-                    "line_points":   {"type": "integer", "description": "Points along the line, default 100."},
-                    "z_range":       {"type": "number", "description": "ZonePlateZ scan range (µm), default 500."},
-                    "z_points":      {"type": "integer", "description": "ZonePlateZ steps, default 100."},
-                    "z_center":      {"type": "number", "description": "ZonePlateZ scan center; default current ZonePlateZ."},
-                    "velocity_mm_s": {"type": "number", "description": "Override OSA stage velocity for dwell."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "apply_focus_calibration",
-            "description": (
-                "Apply the focus correction to the ZonePlateZ offset (defines Z=0). Uses delta_z = "
-                "focus_z - scan_center from the intelligence module's last focus recommendation (or "
-                "an explicit delta_z): new ZonePlateZ offset = current_offset - delta_z. The delta is "
-                "frame-independent (no A0 handling). Does NOT move any motor. ALWAYS confirm with the "
-                "user first and report the correction magnitude. Refuses if the focus was out of range."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "delta_z": {"type": "number",
-                                "description": "Focus offset from the scan center (µm). Omit to use the "
-                                               "last focus recommendation."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_to_logbook",
-            "description": (
-                "Add an entry to the active logbook on the user's behalf — e.g. after a scan, "
-                "summarise what was done and attach the image, or record an intelligence "
-                "recommendation. The entry is stamped author='agent'. Choose what image to embed "
-                "with 'attach': 'scan' (the live scan image, default), 'computed' (the most recent "
-                "calculated image, e.g. the two-energy elemental/difference map from "
-                "count_element_particles — use this to save a computed result), or 'none'. "
-                "Requires a logbook to be open in the Logbook tab; if none is open the tool returns "
-                "a message asking the user to open or create one. Only add entries the user asked "
-                "for or that clearly document the work just done — do not spam the logbook."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string",
-                             "description": "The entry body — the observation, result, or recommendation."},
-                    "attach": {"type": "string", "enum": ["scan", "computed", "none"],
-                               "description": "Which image to embed: 'scan' (live scan image, "
-                                              "default), 'computed' (last calculated map, e.g. a "
-                                              "two-energy difference map), or 'none'."},
-                    "daq": {"type": "string",
-                            "description": "Detector channel for the 'scan' image (default 'default')."},
-                },
-                "required": ["text"],
-            },
-        },
-    },
-]
-
-
-# Logbook-as-context read tools — appended to the agent's tool list ONLY when
-# task_agent.logbook_context is enabled (see TaskAgent). add_to_logbook (writing) lives in
-# TOOL_SCHEMAS above and is always available; these two are read-only and opt-in.
-LOGBOOK_CONTEXT_TOOL_SCHEMAS: list[dict] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_logbook",
-            "description": (
-                "Search the active experiment logbook for entries relevant to your reasoning. "
-                "Case-insensitive substring match over each entry's text, comment, metadata, and "
-                "filename; optionally filter by author. Returns compact hits (id, #, author, "
-                "timestamp, title, snippet); call get_logbook_entry(id) for the full text. "
-                "Human-authored entries are the operator's own observations — weight them above "
-                "your own prior agent entries."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query":  {"type": "string", "description": "Search text; empty lists recent entries."},
-                    "author": {"type": "string", "enum": ["human", "agent", "intelligence"],
-                               "description": "Optional: restrict to one author."},
-                    "limit":  {"type": "integer", "description": "Max hits (default 20, most recent)."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_logbook_entry",
-            "description": (
-                "Return the full text and metadata of one logbook entry by id (from the injected "
-                "index or a search_logbook hit). The image itself is not returned; has_image flags "
-                "whether a snapshot exists."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "entry_id": {"type": "string", "description": "The entry id."},
-                },
-                "required": ["entry_id"],
-            },
-        },
-    },
-]
+# Every @tool-decorated method above, in definition order.  Surfaces advertise a
+# filtered view of this: openai_schemas(TOOL_SPECS, have=..., features=...) for the
+# task agent's loop, register_mcp(...) for the MCP server.
+TOOL_SPECS = specs_for(ToolSet)

@@ -20,6 +20,7 @@ import pytest
 from pystxmcontrol.controller import scan_conversion as sc
 from pystxmcontrol.controller.scan_model import ScanModel
 from pystxmcontrol.controller import agent_ports as ap
+from pystxmcontrol.controller import tool_registry as tr
 from pystxmcontrol.controller import instrument_client as ic
 from pystxmcontrol.controller.task_agent import tools as agent_tools
 
@@ -43,8 +44,18 @@ except ImportError:                                  # pragma: no cover - env-de
 needs_gui = pytest.mark.skipif(not _HAS_GUI, reason="PySide6 not installed")
 
 
+ALL_CAPABILITIES = ("frames", "logbook", "approval")
+ALL_FEATURES = ("logbook_context",)
+
+
+def agent_schemas():
+    """Every tool the agent can advertise, generated from the registry."""
+    return tr.openai_schemas(agent_tools.TOOL_SPECS,
+                             have=ALL_CAPABILITIES, features=ALL_FEATURES)
+
+
 def agent_schema(name):
-    for schema in agent_tools.TOOL_SCHEMAS:
+    for schema in agent_schemas():
         if schema["function"]["name"] == name:
             return schema["function"]
     raise AssertionError(f"No agent tool schema named {name!r}")
@@ -254,6 +265,83 @@ class _FakeScripter:
     def get_config(self):
         self.get_config_calls += 1
         return self._config_tuple()
+
+
+class TestOneToolRegistry:
+    """One decorated function per tool; every surface's advertisement is derived.
+
+    The hand-written TOOL_SCHEMAS block this replaced is gone; these assert the
+    invariants it used to be checked against. Parameter names, JSON types and required
+    lists are DERIVED from the signature, so they cannot drift from the function.
+    Prose comes from the docstring and is not asserted here — but it must not be empty,
+    because a tool with no description is one the model cannot choose correctly.
+    """
+
+    def _generated(self):
+        return agent_schemas()
+
+    def test_every_tool_method_is_registered(self):
+        """A @tool-less tool method is invisible to every surface, silently."""
+        registered = {s.name for s in agent_tools.TOOL_SPECS}
+        assert len(registered) == 38
+        # Spot-check the ends of the file so a whole domain cannot go unregistered.
+        assert {"get_safety_instructions", "get_logbook_entry"} <= registered
+
+    def test_no_tool_is_advertised_without_a_description(self):
+        for entry in self._generated():
+            assert entry["function"]["description"].strip(), entry["function"]["name"]
+
+    def test_advertised_parameters_are_real_parameters(self):
+        """A schema promising an argument the function does not accept fails only when
+        an agent tries it. Derivation makes that impossible; this proves it."""
+        for spec in agent_tools.TOOL_SPECS:
+            advertised = set(tr.parameters_schema(spec)["properties"])
+            accepted = set(inspect.signature(spec.fn).parameters) - {"self"}
+            if any(p.kind is inspect.Parameter.VAR_KEYWORD
+                   for p in inspect.signature(spec.fn).parameters.values()):
+                continue                      # **kwargs tool: its override is the contract
+            assert advertised <= accepted, spec.name
+
+    def test_hidden_params_are_accepted_but_not_advertised(self):
+        """add_to_logbook keeps a deprecated argument working without inviting its use."""
+        spec = next(s for s in agent_tools.TOOL_SPECS if s.name == "add_to_logbook")
+        assert "attach_last_scan" in inspect.signature(spec.fn).parameters
+        assert "attach_last_scan" not in tr.parameters_schema(spec)["properties"]
+
+    def test_update_scan_override_fields_are_scan_model_fields(self):
+        """The **kwargs override is the contract, so it must still describe real fields."""
+        documented = set(agent_tools._UPDATE_SCAN_SCHEMA["properties"])
+        documented.discard("energy_preset")           # resolved into energy_regions
+        assert documented <= set(ScanModel.model_fields)
+
+    def test_capability_gating_selects_the_tier(self):
+        """A surface advertises only what its capabilities can satisfy."""
+        client_only = {s["function"]["name"] for s in tr.openai_schemas(agent_tools.TOOL_SPECS)}
+        assert "move_motor" in client_only            # needs only the client
+        assert "find_particles" not in client_only    # needs frames
+        assert "add_to_logbook" not in client_only    # needs a logbook
+        assert "request_confirmation" not in client_only
+
+        with_frames = {s["function"]["name"]
+                       for s in tr.openai_schemas(agent_tools.TOOL_SPECS, have=("frames",))}
+        assert "find_particles" in with_frames
+
+    def test_feature_gating_hides_the_logbook_context_tools(self):
+        """They are off by default so they cost no tokens (agent.py's current rule)."""
+        without = {s["function"]["name"] for s in tr.openai_schemas(
+            agent_tools.TOOL_SPECS, have=("frames", "logbook", "approval"))}
+        assert "search_logbook" not in without
+        assert "add_to_logbook" in without            # writing is always available
+        assert len(without) == 36      # the GUI's advertised surface
+
+    def test_hardware_tools_are_declared(self):
+        """mutates_hardware drives read-only mode, so the set must be exact."""
+        mutating = {s.name for s in agent_tools.TOOL_SPECS if s.mutates_hardware}
+        assert mutating == {
+            "move_motor", "start_scan", "cancel_scan", "start_multiregion_scan",
+            "start_tuning_session", "step_tuning_parameter", "finalize_tuning",
+            "set_beamline_from_database", "zero_osa_position",
+            "apply_focus_calibration", "read_daq"}
 
 
 class TestCollaboratorPorts:

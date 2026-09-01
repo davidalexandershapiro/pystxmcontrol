@@ -11,7 +11,8 @@ import os
 import threading
 from typing import Callable, Optional
 
-from .tools import TOOL_SCHEMAS, LOGBOOK_CONTEXT_TOOL_SCHEMAS, ToolSet
+from pystxmcontrol.controller.tool_registry import openai_schemas
+from .tools import TOOL_SPECS, ToolSet
 
 log = logging.getLogger(__name__)
 
@@ -275,10 +276,15 @@ class TaskAgent:
             self._logbook_ctx_max = 50
             self._logbook_ctx_authors = None
 
-        # When the feature is off the read tools are not advertised and no index is injected,
-        # so there is zero added token cost. (add_to_logbook — writing — is always available.)
-        self._tools = TOOL_SCHEMAS + (LOGBOOK_CONTEXT_TOOL_SCHEMAS
-                                      if self._logbook_ctx_enabled else [])
+        # Advertise the filtered registry rather than a hand-maintained list. Capability
+        # gating comes from what this ToolSet can actually do, so a session without a
+        # live image model does not offer the frame tools at all; feature gating keeps
+        # the logbook-context READ tools off unless enabled, so they cost zero tokens.
+        # (add_to_logbook — writing — is always available.)
+        self._tools = openai_schemas(
+            TOOL_SPECS,
+            have=self._toolset.capabilities(),
+            features=("logbook_context",) if self._logbook_ctx_enabled else ())
         self._system_prompt = _SYSTEM_PROMPT + (_LOGBOOK_CONTEXT_PROMPT
                                                 if self._logbook_ctx_enabled else "")
 
