@@ -19,6 +19,7 @@ import pytest
 
 from pystxmcontrol.controller import scan_conversion as sc
 from pystxmcontrol.controller.scan_model import ScanModel
+from pystxmcontrol.controller import agent_ports as ap
 from pystxmcontrol.controller import instrument_client as ic
 from pystxmcontrol.controller.task_agent import tools as agent_tools
 
@@ -255,6 +256,113 @@ class _FakeScripter:
         return self._config_tuple()
 
 
+class TestCollaboratorPorts:
+    """The optional collaborators are ports with headless stand-ins.
+
+    The tools must never test them for None again: absent ones read empty and write
+    nowhere. What must NOT collapse is the operator-facing distinction between "no live
+    frames in this session" and "no scan has run yet" — confusing those sends the
+    operator chasing a scan that cannot help.
+    """
+
+    def test_ports_module_is_headless(self):
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; import pystxmcontrol.controller.agent_ports; "
+             "assert 'PySide6' not in sys.modules; print('clean')"],
+            capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert "clean" in r.stdout
+
+    def test_no_none_checks_left_in_tools(self):
+        """The whole point of the null implementations: the guards are gone."""
+        source = pathlib.Path(agent_tools.__file__).read_text()
+        assert not re.search(r"_image_model is (?:not )?None", source)
+        assert not re.search(r"_confirm_fn is (?:not )?None", source)
+        assert not re.search(r"_on_scan_started is (?:not )?None", source)
+
+    def test_null_frame_source_reads_empty_writes_nowhere(self):
+        f = ap.NullFrameSource()
+        assert f.get("all_detector_images") is None
+        assert f.get("scan_type", "") == ""
+        f.set("pending_alarms", [1, 2, 3])         # must not raise
+        assert f.get("pending_alarms") is None      # and must not remember
+
+    def test_frames_available_distinguishes_the_two_absences(self):
+        assert ap.frames_available(ap.NullFrameSource()) is False
+        assert ap.frames_available(_DictFrames()) is True
+
+    def test_frame_geometry_defaults_ranges_to_one(self):
+        """Ranges are divisors in pixel->um conversion; 0.0 would divide by zero."""
+        assert ap.frame_geometry(ap.NullFrameSource()) == (0.0, 0.0, 1.0, 1.0)
+        frames = _DictFrames({"x_center": 3.0, "y_center": -2.0,
+                              "x_range": 10.0, "y_range": 5.0})
+        assert ap.frame_geometry(frames) == (3.0, -2.0, 10.0, 5.0)
+
+    def test_toolset_normalises_absent_collaborators(self):
+        ts = agent_tools.ToolSet(_FakeClient())
+        assert isinstance(ts._image_model, ap.NullFrameSource)
+        assert isinstance(ts._confirm_fn, ap.AutoApprove)
+        assert isinstance(ts._on_scan_started, ap.NullScanLifecycle)
+
+    def test_headless_approval_says_it_could_not_ask(self):
+        """AutoApprove must not pass itself off as a real operator approval."""
+        ts = agent_tools.ToolSet(_FakeClient())
+        result = ts.request_confirmation("move Energy to 708 eV")
+        assert result.startswith("APPROVED")
+        assert "no interactive confirmation UI" in result
+
+    def test_gui_approval_is_still_honoured(self):
+        for approved, expected in ((True, "APPROVED"), (False, "DECLINED")):
+            ts = agent_tools.ToolSet(_FakeClient(), confirm_fn=lambda req: approved)
+            assert ts.request_confirmation("do the thing").startswith(expected)
+
+    def test_declined_approval_reports_the_decline(self):
+        ts = agent_tools.ToolSet(_FakeClient(), confirm_fn=lambda req: False)
+        assert "Do NOT proceed" in ts.request_confirmation("risky")
+
+    def test_approval_failure_declines_rather_than_proceeds(self):
+        def boom(req):
+            raise RuntimeError("dialog died")
+        ts = agent_tools.ToolSet(_FakeClient(), confirm_fn=boom)
+        assert ts.request_confirmation("x").startswith("DECLINED")
+
+    def test_frameless_tools_explain_the_absence(self):
+        """Not 'run a scan first' — that scan would not help in this session."""
+        ts = agent_tools.ToolSet(_FakeClient())
+        for result in (ts.get_last_scan_stats(), ts.find_particles(),
+                       ts.get_intelligence_recommendations()):
+            assert result == "Image model not available."
+
+    def test_null_lifecycle_does_not_block_a_scan(self):
+        """A headless start_scan must still reach the server."""
+        client = _FakeClient()
+        ts = agent_tools.ToolSet(client)
+        ts._scans_config = {"Image": {"driver": "derived_line_image",
+                                      "mode": "continuousLine"}}
+        ts._motors = {"SampleX": {"minValue": -50.0, "maxValue": 50.0},
+                      "SampleY": {"minValue": -50.0, "maxValue": 50.0},
+                      "Energy": {}}
+        # Already at the scan energy, so start_scan's pre-move is skipped.
+        client.positions = {"Energy": ScanModel().energy_start}
+        assert "Scan started" in ts.start_scan()
+        assert any(m.get("command") == "scan" for m in client.sent)
+
+
+class _DictFrames:
+    """A live FrameSource backed by a plain dict (what ImageModel is, minus Qt)."""
+
+    def __init__(self, data=None):
+        self._d = dict(data or {})
+
+    def get(self, key, default=None):
+        return self._d.get(key, default)
+
+    def set(self, key, value):
+        self._d[key] = value
+
+
 class TestOneScanBuilder:
     """One builder for every outbound scan, on both surfaces.
 
@@ -304,7 +412,9 @@ class TestOneScanBuilder:
                    {"xCenter": -3.0, "yCenter": 4.0, "xRange": 0.8, "yRange": 0.4}]
         ts = agent_tools.ToolSet.__new__(agent_tools.ToolSet)
         ts._client = _FakeClient()
-        ts._image_model = None
+        # __new__ bypasses __init__, so establish the invariant it would have set:
+        # _image_model is always a FrameSource, never None.
+        ts._image_model = ap.NullFrameSource()
         ts._scan = ScanModel().model_dump()
         ts._scans_config = {"Image": {"driver": "derived_line_image",
                                       "mode": "continuousLine"}}
@@ -340,10 +450,14 @@ class _FakeClient:
 
     def __init__(self):
         self.sent = []
+        self.positions = {}
 
     def send_message(self, msg):
         self.sent.append(msg)
         return {"status": True, "data": "ok"}
+
+    def getMotorPositions(self):
+        return self.positions
 
 
 _SERVER_SCAN = {

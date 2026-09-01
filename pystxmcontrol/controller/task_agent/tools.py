@@ -21,6 +21,10 @@ from pystxmcontrol.controller.scan_conversion import (
     energy_list_for_scan,
 )
 from pystxmcontrol.controller import energy_presets
+from pystxmcontrol.controller.agent_ports import (
+    NullFrameSource, approval_or_auto, frame_geometry, frames_available,
+    lifecycle_or_null,
+)
 
 log = logging.getLogger(__name__)
 
@@ -238,17 +242,21 @@ class ToolSet:
     def __init__(self, client, image_model=None, logbook_model=None, on_scan_started=None,
                  confirm_fn=None):
         self._client = client
-        self._image_model = image_model
+        # The optional collaborators are normalised to ports (see agent_ports) so the
+        # tools never test them for None: absent ones become null implementations that
+        # read empty and write nowhere.  The constructor still takes the raw GUI objects,
+        # so callers need no change.
+        self._image_model = NullFrameSource() if image_model is None else image_model
         self._logbook_model = logbook_model   # shared LogbookModel for add_to_logbook
-        # Callback(request: dict) -> bool used by request_confirmation() to gate an action
-        # on operator approval.  The GUI supplies one that shows Approve/Decline buttons and
-        # BLOCKS this (agent) thread until the operator chooses.  None ⇒ headless: cannot
-        # gate, so request_confirmation() proceeds automatically with a note.
-        self._confirm_fn = confirm_fn
-        # Callback(scan_dict) invoked when start_scan launches a scan, letting the GUI
-        # controller build the live stxm object so the completed scan gets buffered for
-        # post-scan analysis (agent scans otherwise bypass that GUI machinery).
-        self._on_scan_started = on_scan_started
+        # Gates an action on operator approval.  The GUI supplies a confirm_fn that shows
+        # Approve/Decline buttons and BLOCKS this (agent) thread until the operator
+        # chooses.  Headless ⇒ AutoApprove, whose interactive=False makes
+        # request_confirmation() say so rather than claim a real approval.
+        self._confirm_fn = approval_or_auto(confirm_fn)
+        # Invoked when start_scan launches a scan, letting the GUI controller build the
+        # live stxm object so the completed scan gets buffered for post-scan analysis
+        # (agent scans otherwise bypass that GUI machinery).
+        self._on_scan_started = lifecycle_or_null(on_scan_started)
         # Flat scan definition managed by update_scan / start_scan
         self._scan: dict = ScanModel().model_dump()
         # Cached config — populated on first get_config() call
@@ -357,7 +365,7 @@ class ToolSet:
         question — wherever the safety rules require confirmation (scan config, large motor
         or energy move, applying a calibration, …).  If DECLINED, stop and report; do not act.
         """
-        if self._confirm_fn is None:
+        if not self._confirm_fn.interactive:
             # No interactive UI (e.g. a headless / cron run) — cannot gate the action.
             return ("APPROVED (no interactive confirmation UI is available in this session, "
                     "so proceeding automatically). Action: " + (summary or ""))
@@ -705,11 +713,10 @@ class ToolSet:
             # Let the GUI controller build the live stxm object BEFORE the scan command
             # is sent, so no early frames are missed and the completed scan is buffered
             # for post-scan analysis (two-energy maps, particle counting).
-            if self._on_scan_started is not None:
-                try:
-                    self._on_scan_started(scan_dict)
-                except Exception as e:
-                    log.debug("on_scan_started callback failed: %s", e)
+            try:
+                self._on_scan_started(scan_dict)
+            except Exception as e:
+                log.debug("on_scan_started callback failed: %s", e)
             response = self._client.send_message({"command": "scan", "scan": scan_dict})
             if response and response.get('status'):
                 self._was_scanning = True
@@ -774,8 +781,7 @@ class ToolSet:
         if timeout_seconds is None:
             # Use the most recently received time_remaining from the monitor stream,
             # or fall back to a conservative 30-minute ceiling.
-            tr = (self._image_model.get('time_remaining')
-                  if self._image_model is not None else None)
+            tr = self._image_model.get('time_remaining')
             timeout_seconds = (tr * 2.0) if (tr and tr > 0) else 1800.0
 
         deadline = _time.monotonic() + timeout_seconds
@@ -801,10 +807,9 @@ class ToolSet:
                         "Call get_last_scan_stats() to analyse the result.")
 
             # Refresh timeout from the live time_remaining estimate if available
-            if self._image_model is not None:
-                tr = self._image_model.get('time_remaining')
-                if tr and tr > 0:
-                    deadline = _time.monotonic() + tr * 2.0
+            tr = self._image_model.get('time_remaining')
+            if tr and tr > 0:
+                deadline = _time.monotonic() + tr * 2.0
 
             _time.sleep(POLL_INTERVAL)
 
@@ -822,8 +827,7 @@ class ToolSet:
 
     def _clear_scan_alarms(self) -> None:
         """Drop any queued anomaly alarms so a new scan starts with a clean slate."""
-        if self._image_model is not None:
-            self._image_model.set('pending_alarms', [])
+        self._image_model.set('pending_alarms', [])
 
     def _drain_scan_alarms(self) -> str | None:
         """Return a formatted anomaly-alarm message if the intelligence module raised one
@@ -834,8 +838,6 @@ class ToolSet:
         controller. wait_for_scan() drains them so it can hand control back to the agent —
         with the scan STILL RUNNING — instead of blocking until the scan finishes.
         """
-        if self._image_model is None:
-            return None
         alarms = self._image_model.get('pending_alarms')
         if not alarms:
             return None
@@ -861,7 +863,7 @@ class ToolSet:
         Computes mean, std, contrast, and the physical coordinates (µm) of the
         darkest region — useful for locating absorbing features such as particles.
         """
-        if self._image_model is None:
+        if not frames_available(self._image_model):
             return "Image model not available."
 
         all_images = self._image_model.get('all_detector_images')
@@ -886,10 +888,7 @@ class ToolSet:
         contrast  = round(std_val / mean_val, 4) if mean_val > 0 else 0.0
 
         # Physical geometry from the model
-        x_center = float(self._image_model.get('x_center') or 0.0)
-        y_center = float(self._image_model.get('y_center') or 0.0)
-        x_range  = float(self._image_model.get('x_range')  or 1.0)
-        y_range  = float(self._image_model.get('y_range')  or 1.0)
+        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
 
         def px_to_um(col, row):
             x = x_center + (col / max(nx - 1, 1) - 0.5) * x_range
@@ -973,7 +972,7 @@ class ToolSet:
                 around each found region and save it to the open logbook (and cache it as the
                 computed image for add_to_logbook(attach='computed')). Set False to skip.
         """
-        if self._image_model is None:
+        if not frames_available(self._image_model):
             return "Image model not available."
 
         all_images = self._image_model.get('all_detector_images')
@@ -988,10 +987,7 @@ class ToolSet:
             return f"No valid image for DAQ '{daq}'."
 
         ny, nx = image.shape[:2]
-        x_center = float(self._image_model.get('x_center') or 0.0)
-        y_center = float(self._image_model.get('y_center') or 0.0)
-        x_range  = float(self._image_model.get('x_range')  or 1.0)
-        y_range  = float(self._image_model.get('y_range')  or 1.0)
+        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
         px_x = x_range / nx   # µm per pixel in x
         px_y = y_range / ny   # µm per pixel in y
 
@@ -1131,7 +1127,7 @@ class ToolSet:
 
         This tool drains the queue — call it after every wait_for_scan().
         """
-        if self._image_model is None:
+        if not frames_available(self._image_model):
             return "Image model not available."
 
         pending = list(self._image_model.get("pending_recommendations") or [])
@@ -1153,8 +1149,6 @@ class ToolSet:
 
     def _get_scan_buffer(self) -> list:
         """Return the buffered-scan records (newest last), or [] if unavailable."""
-        if self._image_model is None:
-            return []
         buf = self._image_model.get('scan_buffer')
         if buf is None:
             return []
@@ -1557,7 +1551,7 @@ class ToolSet:
         """
         from pystxmcontrol.utils.image import image_com, otsu_absorption_mask
 
-        if self._image_model is None:
+        if not frames_available(self._image_model):
             return "Image model not available."
 
         all_images = self._image_model.get('all_detector_images')
@@ -1571,10 +1565,7 @@ class ToolSet:
         if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
             return f"No valid image data for DAQ '{daq}'."
 
-        x_center = float(self._image_model.get('x_center') or 0.0)
-        y_center = float(self._image_model.get('y_center') or 0.0)
-        x_range  = float(self._image_model.get('x_range')  or 1.0)
-        y_range  = float(self._image_model.get('y_range')  or 1.0)
+        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
 
         result = image_com(image, x_center, y_center, x_range, y_range)
         if result is None:
@@ -1726,8 +1717,6 @@ class ToolSet:
         Returns None if no image data is available yet.
         """
         def _get_arr():
-            if self._image_model is None:
-                return None
             all_images = self._image_model.get('all_detector_images')
             if not isinstance(all_images, dict):
                 return None
@@ -2341,7 +2330,7 @@ class ToolSet:
             mode: 'large' or 'small' — only affects the 'auto' estimator choice.
             method: 'auto' (default), 'centroid' (intensity COM), or 'log' (focused peak).
         """
-        if self._image_model is None:
+        if not frames_available(self._image_model):
             return "Image model not available."
 
         all_images = self._image_model.get('all_detector_images')
@@ -2365,10 +2354,7 @@ class ToolSet:
         if total <= 0:
             return "Image has no positive signal — cannot locate the beam (check exposure/shutter)."
 
-        x_center = float(self._image_model.get('x_center') or 0.0)
-        y_center = float(self._image_model.get('y_center') or 0.0)
-        x_range  = float(self._image_model.get('x_range')  or 1.0)
-        y_range  = float(self._image_model.get('y_range')  or 1.0)
+        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
 
         cols = np.arange(nx)
         rows = np.arange(ny)
@@ -2918,13 +2904,12 @@ class ToolSet:
 
         # Best-effort metadata from the current scan context.
         meta = {}
-        if self._image_model is not None:
-            scan_type = self._image_model.get('scan_type', '')
-            energy = self._image_model.get('current_energy')
-            if scan_type:
-                meta['scan_type'] = scan_type
-            if energy is not None:
-                meta['energy'] = f"{float(energy):.1f} eV"
+        scan_type = self._image_model.get('scan_type', '')
+        energy = self._image_model.get('current_energy')
+        if scan_type:
+            meta['scan_type'] = scan_type
+        if energy is not None:
+            meta['energy'] = f"{float(energy):.1f} eV"
 
         qimg = None
         attach_desc = ""
@@ -2962,8 +2947,7 @@ class ToolSet:
                              " (no computed image was available to attach — run a "
                              "calculation such as count_element_particles first)")
         elif attach == "scan":
-            all_images = (self._image_model.get('all_detector_images')
-                          if self._image_model is not None else None)
+            all_images = self._image_model.get('all_detector_images')
             image = all_images.get(daq) if isinstance(all_images, dict) else None
             if image is None and isinstance(all_images, dict):
                 image = all_images.get('default')
