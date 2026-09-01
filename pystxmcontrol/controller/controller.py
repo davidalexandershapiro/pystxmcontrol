@@ -2,7 +2,6 @@ import json, time, traceback
 import threading
 from pystxmcontrol.drivers import *
 import os, sys
-from pystxmcontrol.controller.zmqFrameMonitor import zmqFrameMonitor
 from pystxmcontrol.drivers.derivedEnergy import derivedEnergy
 from pystxmcontrol.controller.dataHandler import dataHandler
 from pystxmcontrol.controller.scans import *
