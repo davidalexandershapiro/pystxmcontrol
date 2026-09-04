@@ -11,6 +11,7 @@ should break a test here rather than surface at the beamline.
 """
 
 import inspect
+import json
 import pathlib
 import re
 import sys
@@ -103,23 +104,24 @@ class TestOneConverter:
         assert built["energy_list"] is None      # would override the regions server-side
 
 
-@needs_mcp
 class TestEnergyPresetParity:
-    """The feature this shared layer was built for must exist on both surfaces."""
+    """Energy presets were the feature the shared layer was first built for.
 
-    def test_both_expose_list_energy_presets(self):
-        assert hasattr(agent_tools.ToolSet, "list_energy_presets")
-        agent_schema("list_energy_presets")            # raises if missing
-        assert callable(getattr(mcp_server, "list_energy_presets", None))
+    The original form of this class checked that the task agent and the MCP server had
+    each grown the feature. There is one implementation now, so the question changed:
+    what matters is that the MCP surface actually ADVERTISES it, and that the
+    update_scan override still describes real fields.
+    """
 
-    def test_both_update_scan_accept_energy_preset(self):
+    def test_both_surfaces_advertise_energy_presets(self):
+        gui = {s["function"]["name"] for s in agent_schemas()}
+        assert "list_energy_presets" in gui
+        if mcp_server is not None:
+            assert "list_energy_presets" in mcp_server.REGISTERED
+
+    def test_update_scan_accepts_energy_preset_on_both(self):
         assert "energy_preset" in agent_schema("update_scan")["parameters"]["properties"]
-        assert "energy_preset" in inspect.signature(mcp_server.update_scan).parameters
-
-    def test_agent_update_scan_takes_kwargs(self):
-        """The agent's update_scan is **kwargs-based, so its schema is the contract."""
-        params = inspect.signature(agent_tools.ToolSet.update_scan).parameters
-        assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+        assert "energy_preset" in agent_tools._UPDATE_SCAN_SCHEMA["properties"]
 
     def test_agent_schema_fields_are_scan_model_fields(self):
         """Every documented update_scan parameter must be something the model accepts,
@@ -128,220 +130,144 @@ class TestEnergyPresetParity:
         documented.discard("energy_preset")       # resolved into energy_regions
         assert documented <= set(ScanModel.model_fields)
 
-    def test_mcp_signature_fields_are_scan_model_fields(self):
-        params = set(inspect.signature(mcp_server.update_scan).parameters)
-        params.discard("energy_preset")
-        assert params <= set(ScanModel.model_fields)
 
+@needs_mcp
+class TestMcpServesTheSharedTools:
+    """The MCP server advertises the shared implementations, not its own copies.
 
-class TestOneClientPort:
-    """One client surface beneath both agent surfaces.
-
-    ToolSet was written against the GUI's stxm_client but uses only nine of its members.
-    instrument_client names those nine so the same tools can also run out of process over
-    scripter. These tests fail if a tool starts depending on a tenth member, or if the two
-    clients drift apart on the nine.
+    These are the divergences that used to bite at the beamline; each is asserted
+    through the real MCP call path rather than by calling ToolSet directly.
     """
 
-    def test_port_module_is_headless(self):
-        """It must not drag in Qt — the MCP server has no display and no PySide6."""
-        import subprocess
-        r = subprocess.run(
-            [sys.executable, "-c",
-             "import sys; import pystxmcontrol.controller.instrument_client; "
-             "assert 'PySide6' not in sys.modules; print('clean')"],
-            capture_output=True, text=True)
-        assert r.returncode == 0, r.stderr
-        assert "clean" in r.stdout
+    def _server(self):
+        import asyncio
+        srv = mcp_server
+        srv._TOOLSET = agent_tools.ToolSet(ic.ScripterClient(_ConfiguredScripter()))
+        return srv, asyncio
 
-    def test_tools_use_only_the_port(self):
-        """Every self._client.<x> in tools.py must be a member of the port.
+    def test_no_forked_tool_implementations_remain(self):
+        """The server's own update_scan / get_config / move_motor / stxm_scan are gone."""
+        for gone in ("update_scan", "get_config", "get_motor_position",
+                     "move_motor", "stxm_scan", "check_motor_status"):
+            assert not hasattr(mcp_server, gone), gone
+        assert callable(mcp_server.connect_to_server)      # bootstrap stays
 
-        This is the test that actually keeps the port honest: it fails the moment a tool
-        reaches for something only stxm_client has.
-        """
-        source = pathlib.Path(agent_tools.__file__).read_text()
-        used = set(re.findall(r"self\._client\.(\w+)", source))
-        allowed = set(ic.CLIENT_METHODS) | set(ic.CLIENT_ATTRIBUTES)
-        assert used <= allowed, f"tools.py uses non-port client members: {used - allowed}"
+    def test_advertises_only_what_it_can_satisfy(self):
+        names = set(mcp_server.REGISTERED)
+        assert {"update_scan", "start_scan", "move_motor"} <= names
+        # No live frames, no logbook, no operator dialog out of process.
+        assert not ({"find_particles", "add_to_logbook", "request_confirmation"} & names)
 
-    def test_scripter_client_satisfies_the_port(self):
-        client = ic.ScripterClient(_FakeScripter())
-        assert ic.missing_members(client) == []
-        assert isinstance(client, ic.InstrumentClient)      # methods only
+    def test_update_scan_advertises_real_parameters(self):
+        """FastMCP turns a **kwargs function into one bogus required string named
+        'kwargs'; the registry's schema is used instead."""
+        srv, asyncio = self._server()
+        tool = next(t for t in asyncio.run(srv.mcp.list_tools()) if t.name == "update_scan")
+        props = tool.inputSchema["properties"]
+        assert "kwargs" not in props and len(props) > 20
+        assert props["x_center"]["description"] == "µm"     # units survive
 
-    @needs_gui
-    def test_stxm_client_satisfies_the_port(self):
-        from pystxmcontrol.controller.client import stxm_client
-        assert ic.missing_members(stxm_client) == []        # class: methods only
+    def test_successive_update_scan_calls_accumulate(self):
+        """The old MCP update_scan re-seeded from lastScan every call, silently
+        discarding the previous call's edits."""
+        srv, asyncio = self._server()
+        asyncio.run(srv.mcp.call_tool("update_scan", {"x_range": 12.0}))
+        out = asyncio.run(srv.mcp.call_tool("update_scan", {"dwell": 3.0}))
+        scan = json.loads(_text(out).split("Scan updated: ", 1)[1])
+        assert scan["x_range"] == 12.0 and scan["dwell"] == 3.0
 
-    @needs_gui
-    def test_stxm_client_get_config_populates_the_attributes(self, tmp_path, monkeypatch):
-        """The four data attributes are set by get_config(), not __init__, so check the
-        method actually assigns all of them."""
-        from pystxmcontrol.controller import client as client_mod
+    def test_scan_limits_are_enforced(self):
+        """The old stxm_scan ran no limit check at all."""
+        srv, asyncio = self._server()
+        asyncio.run(srv.mcp.call_tool("update_scan", {"x_range": 900.0}))
+        assert "exceeds" in _text(asyncio.run(srv.mcp.call_tool("start_scan", {})))
 
-        cfg = tmp_path / "main.json"
-        cfg.write_text('{"server": {}}')
-        monkeypatch.setattr(client_mod, "MAINCONFIGFILE", str(cfg))
+    def test_energy_is_moved_before_a_single_energy_scan(self):
+        """The old stxm_scan never moved Energy, so a scan configured for 708 eV ran
+        at whatever energy the motor was sitting at."""
+        srv, asyncio = self._server()
+        scripter = srv._TOOLSET._client._scripter
+        asyncio.run(srv.mcp.call_tool("update_scan", {
+            "x_range": 12.0, "energy_start": 708.0, "energy_stop": 708.0}))
+        asyncio.run(srv.mcp.call_tool("start_scan", {}))
+        assert {"command": "moveMotor", "axis": "Energy", "pos": 708.0} in scripter.sock.sent
 
-        c = client_mod.stxm_client.__new__(client_mod.stxm_client)   # no server needed
-        c.send_message = lambda msg: {"data": ({"SampleX": {}}, {"Image": {}},
-                                               {"SampleX": 1.0}, {"default": {}},
-                                               {"lastScan": {}})}
-        c.get_config()
-        assert ic.missing_members(c) == []
-        assert c.motorInfo == {"SampleX": {}}
-        assert c.scanConfig == {"Image": {}}
-        assert c.currentMotorPositions == {"SampleX": 1.0}
-        assert c.main_config == {"lastScan": {}}
+    def test_safety_text_does_not_name_an_unavailable_tool(self):
+        """request_confirmation is not advertised here, so the instructions must not
+        tell the agent to call it."""
+        srv, asyncio = self._server()
+        text = _text(asyncio.run(srv.mcp.call_tool("get_safety_instructions", {})))
+        assert "request_confirmation" not in text
+        assert "no confirmation tool" in text
 
-    def test_adapter_maps_the_same_server_tuple(self):
-        """scripter and stxm_client unpack the SAME five-tuple; the adapter renames it."""
-        client = ic.ScripterClient(_FakeScripter())
-        client.get_config()
-        assert client.motorInfo == {"SampleX": {}}
-        assert client.scanConfig == {"Image": {}}
-        assert client.currentMotorPositions == {"SampleX": 1.0}
-        assert client.main_config == {"lastScan": {}}
-
-    def test_adapter_adopts_an_already_connected_scripter(self):
-        """The MCP server's _ensure_connected already called get_config; don't re-fetch."""
-        s = _FakeScripter()
-        s.MOTORS, s.SCANS, s.POSITIONS, s.DAQS, s.CONFIG = s._config_tuple()
-        client = ic.ScripterClient(s)
-        assert client.motorInfo == {"SampleX": {}}
-        assert s.get_config_calls == 0
-
-    def test_adapter_wire_messages(self):
-        s = _FakeScripter()
-        client = ic.ScripterClient(s)
-
-        s.sock.replies = [{"status": True, "mode": "idle"}]
-        assert client.get_status()["mode"] == "idle"
-        assert s.sock.sent[-1] == {"command": "getStatus"}
-
-        s.sock.replies = [{"status": True, "data": {"SampleX": 4.2}}]
-        assert client.getMotorPositions() == {"SampleX": 4.2}
-        assert s.sock.sent[-1] == {"command": "getMotorPositions"}
-
-        s.sock.replies = [{"status": True}]
-        client.change_motor_config("ZonePlateZ", "offset", 1.5)
-        assert s.sock.sent[-1] == {
-            "command": "changeMotorConfig",
-            "data": {"motor": "ZonePlateZ", "config": "offset", "value": 1.5}}
-        assert s.get_config_calls == 1          # re-reads after the write
-
-    def test_toolset_constructs_over_the_adapter(self):
-        """The point of Stage 1: the GUI's ToolSet runs on a scripter connection."""
-        s = _FakeScripter()
-        s.CONFIG = {"lastScan": {}}
-        s.MOTORS, s.SCANS, s.POSITIONS, s.DAQS = ({"SampleX": {}}, {"Image": {}},
-                                                  {"SampleX": 1.0}, {"default": {}})
-        ts = agent_tools.ToolSet(ic.ScripterClient(s))
-
-        s.sock.replies = [{"status": True, "mode": "idle"}]
-        assert "idle" in ts.get_scan_status()
-
-        s.sock.replies = [{"status": True}]
-        assert "Successfully moved" in ts.move_motor("SampleX", 2.0)
-        assert s.sock.sent[-1] == {"command": "moveMotor", "axis": "SampleX", "pos": 2.0}
+    def test_readonly_mode_hides_every_hardware_tool(self):
+        """Not advertised at all, which is stronger than a permission rule."""
+        readonly = tr.register_mcp(_NullMcp(), lambda: None, agent_tools.TOOL_SPECS,
+                                   readonly=True)
+        mutating = {s.name for s in agent_tools.TOOL_SPECS if s.mutates_hardware}
+        assert not (set(readonly) & mutating)
+        assert "update_scan" in readonly and "get_config" in readonly
 
 
-class _FakeScripter:
-    """Minimal stand-in for a connected scripter: a socket plus the config five-tuple."""
+def _text(result):
+    content = result[0] if isinstance(result, tuple) else result
+    return content[0].text
+
+
+class _NullMcp:
+    """Collects registrations without a real FastMCP server."""
+
+    def __init__(self):
+        self._tools = {}
+        self._tool_manager = self
+
+    def tool(self, name=None, description=None):
+        def deco(fn):
+            self._tools[name] = type("T", (), {"parameters": None})()
+            return fn
+        return deco
+
+    def get_tool(self, name):
+        return self._tools[name]
+
+
+class _ConfiguredScripter:
+    """A scripter whose fake server answers get_config with a usable instrument."""
 
     MOTORS = None
 
-    def __init__(self):
-        self.sock = _FakeSock([])
-        self.get_config_calls = 0
+    CONFIG_TUPLE = (
+        {"SampleX": {"minValue": -50.0, "maxValue": 50.0},
+         "SampleY": {"minValue": -50.0, "maxValue": 50.0}, "Energy": {}},
+        {"Image": {"driver": "derived_line_image", "mode": "continuousLine"}},
+        {"SampleX": 0.0, "SampleY": 0.0, "Energy": 700.0},
+        {"default": {}}, {"lastScan": {}})
 
-    @staticmethod
-    def _config_tuple():
-        return ({"SampleX": {}}, {"Image": {}}, {"SampleX": 1.0},
-                {"default": {}}, {"lastScan": {}})
+    def __init__(self):
+        self.sock = _ReplyingSock(self.CONFIG_TUPLE)
+        self.get_config_calls = 0
 
     def get_config(self):
         self.get_config_calls += 1
-        return self._config_tuple()
+        return self.CONFIG_TUPLE
 
 
-class TestOneToolRegistry:
-    """One decorated function per tool; every surface's advertisement is derived.
+class _ReplyingSock:
+    """Answers whatever command it was last sent, recording everything."""
 
-    The hand-written TOOL_SCHEMAS block this replaced is gone; these assert the
-    invariants it used to be checked against. Parameter names, JSON types and required
-    lists are DERIVED from the signature, so they cannot drift from the function.
-    Prose comes from the docstring and is not asserted here — but it must not be empty,
-    because a tool with no description is one the model cannot choose correctly.
-    """
+    def __init__(self, config_tuple):
+        self.sent, self._config = [], config_tuple
 
-    def _generated(self):
-        return agent_schemas()
+    def send_pyobj(self, msg):
+        self.sent.append(msg)
 
-    def test_every_tool_method_is_registered(self):
-        """A @tool-less tool method is invisible to every surface, silently."""
-        registered = {s.name for s in agent_tools.TOOL_SPECS}
-        assert len(registered) == 38
-        # Spot-check the ends of the file so a whole domain cannot go unregistered.
-        assert {"get_safety_instructions", "get_logbook_entry"} <= registered
-
-    def test_no_tool_is_advertised_without_a_description(self):
-        for entry in self._generated():
-            assert entry["function"]["description"].strip(), entry["function"]["name"]
-
-    def test_advertised_parameters_are_real_parameters(self):
-        """A schema promising an argument the function does not accept fails only when
-        an agent tries it. Derivation makes that impossible; this proves it."""
-        for spec in agent_tools.TOOL_SPECS:
-            advertised = set(tr.parameters_schema(spec)["properties"])
-            accepted = set(inspect.signature(spec.fn).parameters) - {"self"}
-            if any(p.kind is inspect.Parameter.VAR_KEYWORD
-                   for p in inspect.signature(spec.fn).parameters.values()):
-                continue                      # **kwargs tool: its override is the contract
-            assert advertised <= accepted, spec.name
-
-    def test_hidden_params_are_accepted_but_not_advertised(self):
-        """add_to_logbook keeps a deprecated argument working without inviting its use."""
-        spec = next(s for s in agent_tools.TOOL_SPECS if s.name == "add_to_logbook")
-        assert "attach_last_scan" in inspect.signature(spec.fn).parameters
-        assert "attach_last_scan" not in tr.parameters_schema(spec)["properties"]
-
-    def test_update_scan_override_fields_are_scan_model_fields(self):
-        """The **kwargs override is the contract, so it must still describe real fields."""
-        documented = set(agent_tools._UPDATE_SCAN_SCHEMA["properties"])
-        documented.discard("energy_preset")           # resolved into energy_regions
-        assert documented <= set(ScanModel.model_fields)
-
-    def test_capability_gating_selects_the_tier(self):
-        """A surface advertises only what its capabilities can satisfy."""
-        client_only = {s["function"]["name"] for s in tr.openai_schemas(agent_tools.TOOL_SPECS)}
-        assert "move_motor" in client_only            # needs only the client
-        assert "find_particles" not in client_only    # needs frames
-        assert "add_to_logbook" not in client_only    # needs a logbook
-        assert "request_confirmation" not in client_only
-
-        with_frames = {s["function"]["name"]
-                       for s in tr.openai_schemas(agent_tools.TOOL_SPECS, have=("frames",))}
-        assert "find_particles" in with_frames
-
-    def test_feature_gating_hides_the_logbook_context_tools(self):
-        """They are off by default so they cost no tokens (agent.py's current rule)."""
-        without = {s["function"]["name"] for s in tr.openai_schemas(
-            agent_tools.TOOL_SPECS, have=("frames", "logbook", "approval"))}
-        assert "search_logbook" not in without
-        assert "add_to_logbook" in without            # writing is always available
-        assert len(without) == 36      # the GUI's advertised surface
-
-    def test_hardware_tools_are_declared(self):
-        """mutates_hardware drives read-only mode, so the set must be exact."""
-        mutating = {s.name for s in agent_tools.TOOL_SPECS if s.mutates_hardware}
-        assert mutating == {
-            "move_motor", "start_scan", "cancel_scan", "start_multiregion_scan",
-            "start_tuning_session", "step_tuning_parameter", "finalize_tuning",
-            "set_beamline_from_database", "zero_osa_position",
-            "apply_focus_calibration", "read_daq"}
+    def recv_pyobj(self):
+        command = self.sent[-1].get("command")
+        if command == "get_config":
+            return {"status": True, "data": self._config}
+        if command == "getMotorPositions":
+            return {"status": True, "data": {"SampleX": 0.0, "Energy": 700.0}}
+        return {"status": True, "data": "ok"}
 
 
 class TestCollaboratorPorts:

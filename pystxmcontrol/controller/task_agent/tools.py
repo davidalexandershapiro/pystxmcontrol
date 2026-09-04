@@ -13,6 +13,7 @@ import json
 import logging
 import math
 import os
+import tempfile
 import time
 import numpy as np
 from pystxmcontrol.controller.scan_model import ScanModel, validate_scan
@@ -207,6 +208,27 @@ _SCAN_TYPE_ALIASES: dict[str, str] = {
     "ptycho stack":        "Ptychography Image",
 }
 
+def _motor_summary(motors: dict) -> dict:
+    """Compact per-motor view: what an agent needs to plan a move or a scan.
+
+    Units and travel limits only — the full motor config carries ~30 calibration and
+    driver fields per motor that are noise to the agent and cost tokens on every
+    get_config().  Prefers the SCAN limits where present, since those are the bounds a
+    scan must fit inside.
+    """
+    out = {}
+    for name, m in (motors or {}).items():
+        if not isinstance(m, dict):
+            out[name] = m
+            continue
+        out[name] = {
+            "unit": m.get("unit"),
+            "min":  m.get("minScanValue", m.get("minValue")),
+            "max":  m.get("maxScanValue", m.get("maxValue")),
+        }
+    return out
+
+
 def _resolve_scan_type(raw: str) -> str:
     """Normalise user-friendly scan type names (e.g. 'Image Stack') to server names."""
     return _SCAN_TYPE_ALIASES.get(raw.strip().lower(), raw)
@@ -374,15 +396,33 @@ class ToolSet:
     def get_safety_instructions(self) -> str:
         """Return the safety rules and recommended workflows for operating this
         instrument. Call this first."""
+        # The confirmation mechanism differs by surface, and naming the wrong one is
+        # worse than naming none: in-process the operator gets Approve/Decline buttons,
+        # but out of process request_confirmation is not advertised at all, so telling
+        # the agent to call it would point it at a tool that does not exist.
+        if self._confirm_fn.interactive:
+            how_to_confirm = (
+                "HOW TO CONFIRM:\n"
+                "  Whenever a rule below says to confirm/ask before acting, call "
+                "request_confirmation(summary, details) and act on its result — it shows the "
+                "operator Approve/Decline buttons and blocks until they choose. If it returns "
+                "DECLINED, stop and report; do NOT act. Do not just ask in prose.\n")
+            confirm_scan = ("  1. Always confirm the scan configuration (via "
+                            "request_confirmation) before executing.\n")
+        else:
+            how_to_confirm = (
+                "HOW TO CONFIRM:\n"
+                "  This session has no confirmation tool. Where a rule below says to "
+                "confirm, ask the user in your reply and WAIT for their answer before "
+                "calling the tool that acts. Never carry out a rule-flagged action in the "
+                "same turn you asked about it.\n")
+            confirm_scan = "  1. Always confirm the scan configuration before executing.\n"
+
         return (
-            "HOW TO CONFIRM:\n"
-            "  Whenever a rule below says to confirm/ask before acting, call "
-            "request_confirmation(summary, details) and act on its result — it shows the "
-            "operator Approve/Decline buttons and blocks until they choose. If it returns "
-            "DECLINED, stop and report; do NOT act. Do not just ask in prose.\n"
-            "\n"
+            how_to_confirm
+            + "\n"
             "CRITICAL SAFETY RULES:\n"
-            "  1. Always confirm the scan configuration (via request_confirmation) before executing.\n"
+            + confirm_scan +
             "  2. Never move the OSA_Z motor — this can cause hardware failure.\n"
             "  3. Confirm before moving CoarseR by more than 5 degrees.\n"
             "  4. Confirm before moving Energy by more than 100 eV.\n"
@@ -481,8 +521,11 @@ class ToolSet:
                             scan_type, list(self._last_scans.keys()))
             self._last_was_multiregion = False
 
+            # Motors carry their units and travel limits, not just their names: an agent
+            # planning a move or a scan needs the bounds, and asking per motor would cost
+            # a round trip each.
             config_summary = {
-                "motors":     list(self._motors.keys()) if self._motors else [],
+                "motors":     _motor_summary(self._motors),
                 "scan_types": list(self._scans_config.keys()) if self._scans_config else [],
                 "positions":  self._positions,
             }
@@ -3217,6 +3260,69 @@ class ToolSet:
                                      "scan_type", "energy", "text", "comment", "detail_text")}
         out["has_image"] = bool(e.get("snap_file"))
         return json.dumps(out, indent=2)
+
+    @tool()
+    def define_scan_from_file(self, file_path: str) -> str:
+        """Load the scan definition from an existing .stxm file, to repeat that scan.
+
+        Reads the file's metadata and adopts it as the working scan, so the user can say
+        "run that again" (optionally with update_scan() changes) without retyping the
+        parameters. Call update_scan() with no arguments afterwards to review what was
+        loaded before start_scan().
+
+        Args:
+            file_path: path to the existing .stxm file.
+        """
+        from pystxmcontrol.mcp.utilities import scan_from_stxm
+        try:
+            loaded = scan_from_stxm(file_path)
+        except Exception as e:
+            return f"Failed to read a scan from {file_path}: {e}"
+        try:
+            self._scan = ScanModel(**loaded).model_dump()
+        except Exception as e:
+            return f"Read {file_path} but its parameters are not a valid scan: {e}"
+        return ("Scan definition loaded from " + file_path + ":\n"
+                + json.dumps(self._scan, indent=2))
+
+    @tool()
+    def plot_motor_positions(self, axis: str, date: str | None = None,
+                             start_date: str | None = None, end_date: str | None = None,
+                             file_path: str | None = None) -> str:
+        """Plot a motor's logged position history and return the saved image path.
+
+        Reads the server's motor-history database, so it answers "was the energy drifting
+        overnight?" without a scan. Give a time range one of three ways; a date range wins
+        over a single date.
+
+        Args:
+            axis: motor name, e.g. 'Energy'.
+            date: single date to plot, YYYY-MM-DD (default: today).
+            start_date: start of a date range, YYYY-MM-DD.
+            end_date: end of a date range, YYYY-MM-DD.
+            file_path: where to save the PNG (default: a temporary file).
+        """
+        from pystxmcontrol.mcp.utilities import plot_motor_positions as _plot
+        if self._motors is None:
+            self.get_config()
+        if self._motors and axis not in self._motors:
+            return f"Unknown motor '{axis}'. Call get_config() to see available motors."
+        main_cfg = getattr(self._client, "main_config", None) or {}
+        db_base_dir = (main_cfg.get("server") or {}).get("data_dir")
+        if not db_base_dir:
+            return ("No motor-history database directory is configured "
+                    "(server.data_dir), so position history cannot be plotted.")
+        if file_path is None:
+            file_path = os.path.join(tempfile.gettempdir(), f"{axis}_position_plot.png")
+        try:
+            img = _plot(axis, date=date, start_date=start_date, end_date=end_date,
+                        db_base_dir=db_base_dir, file_path=file_path)
+        except Exception as e:
+            return f"Error generating plot for {axis}: {e}"
+        if img and "No data found" in str(img):
+            return str(img)
+        return f"Saved {axis} position plot to {img}" if img else \
+               f"Failed to generate a plot for {axis}"
 
     def capabilities(self) -> tuple[str, ...]:
         """The capability names this ToolSet can actually satisfy.

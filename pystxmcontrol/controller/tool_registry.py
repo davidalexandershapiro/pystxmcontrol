@@ -227,3 +227,79 @@ def openai_schemas(specs: typing.Sequence[ToolSpec], *,
                    features: typing.Iterable[str] = ()) -> list[dict]:
     """OpenAI function schemas for the tools this surface can advertise."""
     return [openai_schema(s) for s in specs if s.available(have, features)]
+
+
+# ---------------------------------------------------------------------------
+# Emitter: FastMCP registration
+# ---------------------------------------------------------------------------
+
+_PY_TYPES = {"string": str, "integer": int, "number": float,
+             "boolean": bool, "array": list, "object": dict}
+
+
+def _mcp_callable(spec: ToolSpec, get_toolset, schema: dict):
+    """A wrapper over ``get_toolset().<spec.name>`` carrying an explicit signature.
+
+    FastMCP builds its argument validation from ``inspect.signature``, which two of
+    our tools defeat: a ``**kwargs`` tool becomes a single required string parameter
+    named "kwargs", and hidden parameters would be advertised.  Synthesising the
+    signature from the registry's schema fixes both, and keeps ONE derivation of the
+    parameter set behind both surfaces.
+
+    Arguments the caller omitted arrive as None and are dropped, so the underlying
+    method applies its own defaults rather than being handed a None it never expects.
+
+    The toolset is resolved per call, not captured: a host may connect lazily on first
+    use, or swap in a new connection (a reconnect), and tools bound to the old one
+    would keep talking to a dead socket.
+    """
+    params = []
+    for name, prop in schema["properties"].items():
+        annotation = _PY_TYPES.get(prop.get("type"), str)
+        if name in schema.get("required", ()):
+            params.append(inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY,
+                                            annotation=annotation))
+        else:
+            params.append(inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY,
+                                            default=None, annotation=annotation | None))
+
+    def call(**kwargs):
+        method = getattr(get_toolset(), spec.name)
+        return method(**{k: v for k, v in kwargs.items() if v is not None})
+
+    call.__signature__ = inspect.Signature(params)
+    call.__name__ = spec.name
+    call.__doc__ = spec.fn.__doc__
+    return call
+
+
+def register_mcp(mcp, get_toolset: typing.Callable[[], typing.Any],
+                 specs: typing.Sequence[ToolSpec], *,
+                 have: typing.Iterable[str] = (),
+                 features: typing.Iterable[str] = (),
+                 readonly: bool = False) -> list[str]:
+    """Register the tools this MCP surface can serve.  Returns the names registered.
+
+    *get_toolset* is a zero-argument callable returning the live ToolSet, called on
+    each tool invocation rather than once here, so the host can connect lazily.
+
+    *readonly* drops every hardware-mutating tool.  They are not registered at all, so
+    they are invisible to the agent rather than merely denied — a stronger guarantee
+    than a permission rule the user can edit.
+
+    FastMCP's own schema derivation is weaker than this module's: it ignores ``Args:``
+    descriptions entirely, so units ("µm", "ms per pixel") would be lost.  The tool's
+    ``parameters`` is therefore overwritten with the registry's schema after
+    registration, which is also what keeps the two surfaces advertising the same text.
+    """
+    registered = []
+    for spec in specs:
+        if not spec.available(have, features) or (readonly and spec.mutates_hardware):
+            continue
+        schema = parameters_schema(spec)
+        summary, _ = parse_docstring(spec.fn.__doc__)
+        mcp.tool(name=spec.name,
+                 description=summary)(_mcp_callable(spec, get_toolset, schema))
+        mcp._tool_manager.get_tool(spec.name).parameters = schema
+        registered.append(spec.name)
+    return registered
