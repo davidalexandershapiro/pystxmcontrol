@@ -37,8 +37,9 @@ mcp = FastMCP("pystxmcontrol-mcp")
 
 READONLY = os.environ.get("PYSTXM_MCP_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
 
-# No open logbook and no way to ask the operator out of process, so those tools stay
-# unadvertised.  What this surface CAN serve comes from its RemoteFrameSource and is
+# Completed scan data comes from the server on request and intelligence recommendations
+# from its stream, so this surface serves both.  No open logbook and no way to ask the
+# operator out of process, so those tools stay unadvertised.  What this surface CAN serve comes from its RemoteFrameSource and is
 # discovered per connection (see _build_toolset), because it depends on whether the
 # intelligence stream could be reached.
 FEATURES: tuple[str, ...] = ()
@@ -82,7 +83,9 @@ def _build_toolset(host: str, port: int) -> ToolSet:
     client = ScripterClient(scripter(host, port))
     client.get_config()
 
-    frames = RemoteFrameSource()
+    # The client is what lets it fetch completed scans: the SERVER reads the files, so
+    # this works from a host with no access to the data directory.
+    frames = RemoteFrameSource(client=client)
     data_port = ((client.main_config or {}).get("server") or {}).get("stxm_data_port")
     if data_port:
         # The intelligence module publishes its recommendations here as a scan runs.
@@ -147,7 +150,7 @@ def connect_to_server(host: str = None, port: int = None) -> str:
 # Advertise everything this surface could serve once connected.  Registration happens
 # at import, before any connection exists, so the capability set cannot be read off a
 # live ToolSet — it is what a successful connection yields.
-CAPABILITIES: tuple[str, ...] = ("recommendations",)
+CAPABILITIES: tuple[str, ...] = ("frames", "recommendations")
 
 REGISTERED = register_mcp(mcp, _toolset, TOOL_SPECS,
                           have=CAPABILITIES, features=FEATURES, readonly=READONLY)

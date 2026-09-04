@@ -24,6 +24,7 @@ import numpy as np
 
 from pystxmcontrol.controller import agent_ports as ap
 from pystxmcontrol.controller import remote_frames as rf
+from pystxmcontrol.controller import scan_files as sfiles
 from pystxmcontrol.controller import tool_registry as tr
 from pystxmcontrol.controller import instrument_client as ic
 from pystxmcontrol.controller.task_agent import tools as agent_tools
@@ -158,8 +159,10 @@ class TestMcpServesTheSharedTools:
     def test_advertises_only_what_it_can_satisfy(self):
         names = set(mcp_server.REGISTERED)
         assert {"update_scan", "start_scan", "move_motor"} <= names
-        # No live frames, no logbook, no operator dialog out of process.
-        assert not ({"find_particles", "add_to_logbook", "request_confirmation"} & names)
+        # Completed scans come from the server, so the analysis tools are served here.
+        assert {"find_particles", "get_intelligence_recommendations"} <= names
+        # But there is no open logbook and no way to ask the operator out of process.
+        assert not ({"add_to_logbook", "request_confirmation"} & names)
 
     def test_update_scan_advertises_real_parameters(self):
         """FastMCP turns a **kwargs function into one bogus required string named
@@ -333,6 +336,127 @@ class TestRemoteIntelligence:
     def test_headless_says_why_rather_than_blaming_the_image_model(self):
         ts = agent_tools.ToolSet(_FakeClient())
         assert "not available in this session" in ts.get_intelligence_recommendations()
+
+
+class TestScanDataFromTheServer:
+    """Completed scans reach a client with no filesystem access to the data directory.
+
+    The server reads the files and returns the arrays, which is not an MCP concession:
+    data_browser_widget enumerates scans with os.listdir today, so a remotely-run GUI
+    has the same limitation.
+    """
+
+    def test_frame_selection(self):
+        assert sfiles._frame_indices(None, 5) is None          # full dataset default
+        assert sfiles._frame_indices(2, 5) == [3, 4]           # the LAST N
+        assert sfiles._frame_indices(9, 5) is None             # more than there are
+        assert sfiles._frame_indices([0, 3], 5) == [0, 3]      # explicit
+        assert sfiles._frame_indices([9], 5) is None           # out of range
+
+    def test_buffer_records_match_the_gui_shape(self):
+        """The analysis tools must not be able to tell a server-read scan from one the
+        GUI buffered live."""
+        feed = rf.RemoteFrameSource(client=_ScanServer())
+        record = feed.get("scan_buffer")[-1]
+        assert set(record) == {"stxm", "scan_id", "energies", "scan_type", "timestamp"}
+        assert record["scan_id"] == "b.stxm"
+
+    def test_buffer_is_ordered_oldest_first(self):
+        """The tools read the buffer with [-1] for 'most recent', so the server's
+        newest-first listing has to be reversed once here, not in every tool."""
+        feed = rf.RemoteFrameSource(client=_ScanServer())
+        assert [r["scan_id"] for r in feed.get("scan_buffer")] == ["a.stxm", "b.stxm"]
+
+    def test_listing_moves_no_image_data(self):
+        """list_buffered_scans must not pull megabytes per entry just to list them."""
+        client = _ScanServer()
+        feed = rf.RemoteFrameSource(client=client)
+        feed.get("scan_buffer")
+        assert [m["command"] for m in client.sent] == ["list_scans"]
+
+    def test_arrays_arrive_only_when_a_tool_reads_them(self):
+        client = _ScanServer()
+        feed = rf.RemoteFrameSource(client=client)
+        record = feed.get("scan_buffer")[-1]
+        assert record["stxm"].interp_counts["default"][0].shape == (2, 6, 8)
+        assert any(m["command"] == "get_scan_data" for m in client.sent)
+
+    def test_a_scan_is_fetched_once_and_cached(self):
+        client = _ScanServer()
+        scan = rf._LazyScan(client, "/d/a.stxm")
+        scan.interp_counts, scan.xPos, scan.yPos
+        assert sum(m["command"] == "get_scan_data" for m in client.sent) == 1
+
+    def test_single_frame_keys_do_not_pull_a_stack(self):
+        """all_detector_images needs the frame the scan ended on, not 50 energies."""
+        client = _ScanServer()
+        feed = rf.RemoteFrameSource(client=client)
+        images = feed.get("all_detector_images")
+        assert images["default"].shape == (6, 8)               # 2-D, not (2, 6, 8)
+        request = next(m for m in client.sent if m["command"] == "get_scan_data")
+        assert request["frames"] == 1
+
+    def test_geometry_is_derived_from_the_position_arrays(self):
+        feed = rf.RemoteFrameSource(client=_ScanServer())
+        assert feed.get("x_center") == 0.0 and feed.get("x_range") == 4.0
+        assert feed.get("y_center") == 0.0 and feed.get("y_range") == 3.0
+
+    def test_an_unreadable_scan_degrades_instead_of_raising(self):
+        feed = rf.RemoteFrameSource(client=_FailingScanServer())
+        assert feed.get("all_detector_images") is None
+        assert feed.get("all_detector_images", "fallback") == "fallback"
+
+    def test_frames_capability_requires_a_client(self):
+        assert ap.frame_capabilities(rf.RemoteFrameSource()) == ()
+        assert ap.serves(rf.RemoteFrameSource(client=_ScanServer()), "frames")
+
+    def test_the_analysis_tools_run_on_it(self):
+        """The whole point: a frame tool works with no filesystem and no GUI."""
+        feed = rf.RemoteFrameSource(client=_ScanServer())
+        ts = agent_tools.ToolSet(_FakeClient(), image_model=feed)
+        assert "frames" in ts.capabilities()
+        stats = json.loads(ts.get_last_scan_stats())
+        assert stats["image_shape_px"] == [6, 8]
+        listed = json.loads(ts.list_buffered_scans())
+        assert listed["count"] == 2
+        assert [s["scan_id"] for s in listed["buffered_scans"]] == ["a.stxm", "b.stxm"]
+
+
+class _ScanServer:
+    """A control server holding two completed scans."""
+
+    STACK = np.arange(2 * 6 * 8, dtype=float).reshape(2, 6, 8)
+
+    def __init__(self):
+        self.sent = []
+
+    def send_message(self, msg):
+        self.sent.append(msg)
+        if msg["command"] == "list_scans":
+            return {"status": True, "data": [                  # newest first
+                {"scan_id": "b.stxm", "path": "/d/b.stxm", "timestamp": 200.0,
+                 "scan_type": "Image", "energies": [700.0, 710.0]},
+                {"scan_id": "a.stxm", "path": "/d/a.stxm", "timestamp": 100.0,
+                 "scan_type": "Image", "energies": [700.0, 710.0]}]}
+        if msg["command"] == "get_scan_data":
+            frames = msg.get("frames")
+            array = self.STACK[-frames:] if isinstance(frames, int) else self.STACK
+            return {"status": True, "data": {
+                "scan_id": "b.stxm", "images": {"default": array},
+                "x_positions": list(np.linspace(-2.0, 2.0, 8)),
+                "y_positions": list(np.linspace(-1.5, 1.5, 6)),
+                "energies": [700.0, 710.0], "scan_type": "Image"}}
+        return {"status": True, "data": "ok"}
+
+
+class _FailingScanServer(_ScanServer):
+    """A server that lists a scan it then cannot read."""
+
+    def send_message(self, msg):
+        response = super().send_message(msg)
+        if msg["command"] == "get_scan_data":
+            return {"status": False, "data": "unreadable"}
+        return response
 
 
 class TestBeamQualityFromTheServer:

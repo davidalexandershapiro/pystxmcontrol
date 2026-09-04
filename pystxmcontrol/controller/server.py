@@ -1,6 +1,7 @@
 import threading, traceback, zmq
 from pystxmcontrol.controller.controller import controller
 from pystxmcontrol.utils.logger import logger
+from pystxmcontrol.controller import scan_files
 import time, os, datetime, sys
 import asyncio
 import atexit
@@ -216,6 +217,44 @@ class stxmServer:
                     dwell=message.get("dwell"),
                     shutter=message.get("shutter"),
                 )
+            elif message["command"] == "list_scans":
+                # Metadata only: an agent can see what scans exist without moving any
+                # image data, which matters because the client may be on another host.
+                try:
+                    data_dir = self.controller.main_config["server"]["data_dir"]
+                    message["data"] = scan_files.list_scans(
+                        data_dir, limit=int(message.get("limit", 20) or 20))
+                    message["status"] = True
+                except Exception as e:
+                    message["status"] = False
+                    message["data"] = f"Could not list scans: {e}"
+                message["mode"] = "scanning" if scanning else "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+
+            elif message["command"] == "get_scan_data":
+                # The whole point: a client with no filesystem access to data_dir gets
+                # the arrays from here. frames=None returns the full dataset; pass an
+                # int for the last N energy frames when that is all that is needed.
+                try:
+                    path = message.get("path")
+                    if not path:
+                        data_dir = self.controller.main_config["server"]["data_dir"]
+                        listing = scan_files.list_scans(data_dir, limit=1)
+                        path = listing[0]["path"] if listing else None
+                    result = scan_files.read_scan(
+                        path, frames=message.get("frames"),
+                        detector=message.get("detector", "default")) if path else None
+                    message["status"] = result is not None
+                    message["data"] = result if result is not None else \
+                        f"No scan data available for {path!r}"
+                except Exception as e:
+                    message["status"] = False
+                    message["data"] = f"Could not read scan data: {e}"
+                message["mode"] = "scanning" if scanning else "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+
             elif message["command"] == "get_beam_quality":
                 # Answered from the in-progress scan data, and answered IMMEDIATELY:
                 # the caller polls n_filled_rows to decide when enough fresh lines have

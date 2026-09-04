@@ -11,7 +11,8 @@ Two sources, added independently, which is why the class reports its own
   ``intelligence_suggestion`` dicts on the scan-data stream.  They ride the same socket
   as the frame data but are small dicts, so collecting them needs none of the frame
   assembly the GUI does.
-* **frames** — completed scan data, fetched from the server on request.
+* **frames** — completed scan data, fetched from the server on request. The server
+  reads the files, so this works from a host with no access to the data directory.
 
 Deliberately NOT here: live frame assembly.  Intermediate frames during a scan serve
 GUI visualisation and the server-side intelligence module; an out-of-process agent
@@ -20,6 +21,7 @@ wants the finished result, and reproducing the assembly out here would fork it.
 
 import logging
 import threading
+import time
 
 log = logging.getLogger(__name__)
 
@@ -40,13 +42,32 @@ class RemoteFrameSource:
     registry should have kept it unadvertised in the first place.
     """
 
-    def __init__(self):
+    # Scan listings are re-fetched at most this often. A scan takes far longer than
+    # this to run, so it is short enough that a just-finished scan appears promptly and
+    # long enough that a tool reading several keys does not re-fetch for each.
+    _LISTING_TTL_SECONDS = 5.0
+
+    def __init__(self, client=None, buffer_depth: int = 8):
         self._lock = threading.Lock()
         self._data: dict = {"pending_recommendations": [], "pending_alarms": []}
         self._subscriber: "_StreamSubscriber | None" = None
+        self._client = client
+        self._buffer_depth = max(1, int(buffer_depth))
+        self._listing: list | None = None
+        self._listing_at = 0.0
 
     # ── FrameSource port ──────────────────────────────────────────────────────
+    # Keys served by fetching completed scans from the server rather than from the
+    # queues the subscriber fills.
+    _SCAN_KEYS = ("scan_buffer", "all_detector_images", "scan_type", "current_energy",
+                  "x_center", "y_center", "x_range", "y_range")
+
     def get(self, key: str, default=None):
+        if key in self._SCAN_KEYS and self._client is not None:
+            value = self._scan_key(key)
+            if value is not None:
+                return value
+            return default
         with self._lock:
             value = self._data.get(key, default)
             # Hand back a copy of the queues: tools drain them by reading and then
@@ -59,11 +80,78 @@ class RemoteFrameSource:
             self._data[key] = value
 
     def capabilities(self) -> tuple[str, ...]:
-        """Which capabilities this source is actually serving right now."""
+        """Which capabilities this source is actually serving right now.
+
+        Reported rather than assumed because the two arrive independently: a server
+        whose intelligence stream could not be reached still serves completed scans,
+        and advertising tools for a capability that is not there would offer tools that
+        cannot work.
+        """
         caps = []
+        if self._client is not None:
+            caps.append("frames")
         if self._subscriber is not None:
             caps.append("recommendations")
         return tuple(caps)
+
+    # ── completed scans ───────────────────────────────────────────────────────
+    def _listing_now(self) -> list:
+        """Recent scans, newest LAST to match the GUI buffer's ordering.
+
+        The agent tools treat the buffer as oldest-first and read it with [-1], so the
+        server's newest-first listing has to be reversed here rather than in each tool.
+        """
+        now = time.monotonic()
+        if self._listing is not None and (now - self._listing_at) < self._LISTING_TTL_SECONDS:
+            return self._listing
+        try:
+            response = self._client.send_message(
+                {"command": "list_scans", "limit": self._buffer_depth})
+        except Exception as e:
+            log.debug("list_scans failed: %s", e)
+            return self._listing or []
+        if not response or not response.get("status"):
+            return self._listing or []
+        records = list(response.get("data") or [])
+        records.reverse()
+        self._listing, self._listing_at = records, now
+        return records
+
+    def _scan_key(self, key: str):
+        records = self._listing_now()
+        if not records:
+            return None
+        if key == "scan_buffer":
+            # Same record shape the GUI buffers, so the analysis tools cannot tell the
+            # difference. 'stxm' is lazy: listing is metadata-only, and the arrays move
+            # only when a tool actually reads them.
+            return [{"stxm": _LazyScan(self._client, rec.get("path")),
+                     "scan_id": rec.get("scan_id", ""),
+                     "energies": rec.get("energies") or [],
+                     "scan_type": rec.get("scan_type", ""),
+                     "timestamp": rec.get("timestamp", 0.0)}
+                    for rec in records]
+
+        latest = records[-1]
+        if key == "scan_type":
+            return latest.get("scan_type", "")
+        if key == "current_energy":
+            energies = latest.get("energies") or []
+            return energies[-1] if energies else None
+
+        # frames=1: these keys need only the frame the scan ended on, so an energy
+        # stack is not worth moving. The buffer records above keep frames=None, since
+        # the analysis tools index across energies.
+        scan = _LazyScan(self._client, latest.get("path"), frames=1).loaded()
+        if scan is None:
+            return None
+        if key == "all_detector_images":
+            # The tools want the 2-D frame per detector, so read the raw (energy, y, x)
+            # arrays rather than interp_counts, which wraps each in a per-region list.
+            # A stack yields its last frame — the one a completed scan ended on.
+            return {daq: (arr[-1] if getattr(arr, "ndim", 0) == 3 else arr)
+                    for daq, arr in (scan.images or {}).items()}
+        return _geometry(scan, key)
 
     # ── intelligence stream ───────────────────────────────────────────────────
     def start_recommendations(self, address: str, port: int) -> None:
@@ -136,3 +224,89 @@ class _StreamSubscriber(threading.Thread):
 
     def stop(self) -> None:
         self._running.clear()
+
+
+def _geometry(scan: "_LazyScan", key: str):
+    """Centre/range in µm from a scan's position arrays.
+
+    The GUI gets these from the live scan's metadata; here they are derived from the
+    positions the server returned, which is the same information by another route.
+    """
+    positions = scan.xPos if key.startswith("x") else scan.yPos
+    if positions is None or len(positions) == 0:
+        return None
+    low, high = float(min(positions)), float(max(positions))
+    return (low + high) / 2.0 if key.endswith("center") else (high - low)
+
+
+class _LazyScan:
+    """A buffered-scan record's ``stxm``, fetched on first array access.
+
+    Exposes the three attributes the analysis tools read off a live scan object —
+    ``interp_counts``, ``xPos``, ``yPos`` — so a record built from a server-side file
+    read is interchangeable with one the GUI buffered from a live scan.
+
+    Lazy because listing scans must stay cheap: ``list_buffered_scans`` shows the
+    operator what is available and should not pull megabytes per entry to do it. The
+    arrays move only when a tool actually reaches for them, and then once, cached.
+    """
+
+    def __init__(self, client, path: str | None, frames=None):
+        self._client, self._path, self._frames = client, path, frames
+        self._payload: dict | None = None
+        self._failed = False
+
+    def loaded(self) -> "_LazyScan | None":
+        """Force the fetch; None if the scan could not be read."""
+        self._fetch()
+        return None if self._failed else self
+
+    def _fetch(self) -> None:
+        if self._payload is not None or self._failed:
+            return
+        if self._client is None or not self._path:
+            self._failed = True
+            return
+        try:
+            response = self._client.send_message(
+                {"command": "get_scan_data", "path": self._path, "frames": self._frames})
+        except Exception as e:
+            log.warning("get_scan_data failed for %s: %s", self._path, e)
+            self._failed = True
+            return
+        if not response or not response.get("status") or not isinstance(response.get("data"), dict):
+            log.warning("get_scan_data returned no data for %s", self._path)
+            self._failed = True
+            return
+        self._payload = response["data"]
+
+    @property
+    def interp_counts(self) -> dict:
+        """``{detector: (energy, y, x) array}`` — the shape the tools index."""
+        self._fetch()
+        if self._payload is None:
+            return {}
+        # The tools index interp_counts[daq][region]; a file holds one region, so wrap
+        # each array in a single-entry list to match.
+        return {daq: [arr] for daq, arr in (self._payload.get("images") or {}).items()}
+
+    @property
+    def images(self) -> dict:
+        """``{detector: (energy, y, x) array}`` as the server returned it."""
+        self._fetch()
+        return (self._payload or {}).get("images") or {}
+
+    @property
+    def xPos(self):
+        self._fetch()
+        return (self._payload or {}).get("x_positions")
+
+    @property
+    def yPos(self):
+        self._fetch()
+        return (self._payload or {}).get("y_positions")
+
+    @property
+    def energies(self):
+        self._fetch()
+        return (self._payload or {}).get("energies") or []
