@@ -56,14 +56,48 @@ class NullFrameSource:
         pass
 
 
+# What a FrameSource can serve.  Two capabilities, not one, because they arrive by
+# different routes: scan images come from completed scans, while recommendations are
+# pushed by the server's intelligence module as a scan runs.  A surface can have
+# either without the other, and advertising an image tool to a session that only has
+# recommendations would offer a tool that cannot work.
+FRAME_CAPABILITIES = ("frames", "recommendations")
+
+
+def frame_capabilities(frames: FrameSource) -> tuple[str, ...]:
+    """Which capabilities *frames* can actually serve.
+
+    A source may declare its own by exposing ``capabilities`` (the out-of-process ones
+    do, since they are built up piecewise).  The GUI's ImageModel does not and cannot
+    reasonably be made to — it is a plain key/value model — so anything that is neither
+    null nor self-describing is taken to serve both, which is true of the GUI.
+    """
+    if isinstance(frames, NullFrameSource):
+        return ()
+    declared = getattr(frames, "capabilities", None)
+    if declared is not None:
+        return tuple(declared() if callable(declared) else declared)
+    return FRAME_CAPABILITIES
+
+
+def serves(frames: FrameSource, capability: str) -> bool:
+    """Whether *frames* can serve *capability*.
+
+    A tool's guard must ask about the capability it actually needs: a session with the
+    intelligence stream but no scan data can serve recommendations perfectly well, and
+    refusing it for want of "frames" would be wrong.
+    """
+    return capability in frame_capabilities(frames)
+
+
 def frames_available(frames: FrameSource) -> bool:
     """False when *frames* is the null source, i.e. no live frames reach this session.
 
     The distinction matters to the operator: a tool that says "run a scan first" when
     the real problem is that this session can never see frames sends them chasing a
-    scan that will not help.  Stage 3's registry keys tool tiering on this too.
+    scan that will not help.
     """
-    return not isinstance(frames, NullFrameSource)
+    return "frames" in frame_capabilities(frames)
 
 
 def frame_geometry(frames: FrameSource) -> tuple[float, float, float, float]:

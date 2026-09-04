@@ -19,25 +19,28 @@ build scan configurations but cannot move motors or start acquisitions.
 """
 
 import json
+import logging
 import os
 import sys
 
 from mcp.server.fastmcp import FastMCP
 
 from pystxmcontrol.controller.instrument_client import ScripterClient
+from pystxmcontrol.controller.remote_frames import RemoteFrameSource
 from pystxmcontrol.controller.scripter import scripter
 from pystxmcontrol.controller.task_agent.tools import TOOL_SPECS, ToolSet
 from pystxmcontrol.controller.tool_registry import register_mcp
+
+log = logging.getLogger(__name__)
 
 mcp = FastMCP("pystxmcontrol-mcp")
 
 READONLY = os.environ.get("PYSTXM_MCP_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
 
-# What this surface can satisfy.  Empty: an out-of-process server has no live frame
-# feed, no open logbook and no way to ask the operator.  Granting "frames" here (a
-# completed-scan reader) is what would light up the analysis tools — see the plan's
-# Stage 5; every tool is already written to work through the port.
-CAPABILITIES: tuple[str, ...] = ()
+# No open logbook and no way to ask the operator out of process, so those tools stay
+# unadvertised.  What this surface CAN serve comes from its RemoteFrameSource and is
+# discovered per connection (see _build_toolset), because it depends on whether the
+# intelligence stream could be reached.
 FEATURES: tuple[str, ...] = ()
 
 # Built on first use by _toolset().
@@ -72,13 +75,29 @@ def _build_toolset(host: str, port: int) -> ToolSet:
     """Connect to *host*:*port* and build a ToolSet on it.
 
     The config read is not just a warm-up: it is what verifies the connection (a dead
-    server raises here rather than at the first tool call), and ToolSet seeds its
-    working scan from the cached config when it is constructed, so it has to happen
-    first.
+    server raises here rather than at the first tool call), it tells us which port the
+    scan-data stream is on, and ToolSet seeds its working scan from the cached config
+    when it is constructed, so it has to happen first.
     """
     client = ScripterClient(scripter(host, port))
     client.get_config()
-    return ToolSet(client)
+
+    frames = RemoteFrameSource()
+    data_port = ((client.main_config or {}).get("server") or {}).get("stxm_data_port")
+    if data_port:
+        # The intelligence module publishes its recommendations here as a scan runs.
+        # Failing to subscribe must not stop the server coming up: the rest of the
+        # tools work without it, and the registry simply will not advertise the ones
+        # that need it.
+        try:
+            frames.start_recommendations(host, int(data_port))
+        except Exception as e:
+            log.warning("could not subscribe to the intelligence stream at %s:%s: %s",
+                        host, data_port, e)
+    else:
+        log.warning("no server.stxm_data_port in the config; intelligence "
+                    "recommendations will not be available")
+    return ToolSet(client, image_model=frames)
 
 
 def _toolset() -> ToolSet:
@@ -125,5 +144,10 @@ def connect_to_server(host: str = None, port: int = None) -> str:
 
 # The instrument tools themselves are the shared ones; this is the only place that
 # decides which of them this surface advertises.
+# Advertise everything this surface could serve once connected.  Registration happens
+# at import, before any connection exists, so the capability set cannot be read off a
+# live ToolSet — it is what a successful connection yields.
+CAPABILITIES: tuple[str, ...] = ("recommendations",)
+
 REGISTERED = register_mcp(mcp, _toolset, TOOL_SPECS,
                           have=CAPABILITIES, features=FEATURES, readonly=READONLY)

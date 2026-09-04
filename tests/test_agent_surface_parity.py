@@ -20,7 +20,10 @@ import pytest
 
 from pystxmcontrol.controller import scan_conversion as sc
 from pystxmcontrol.controller.scan_model import ScanModel
+import numpy as np
+
 from pystxmcontrol.controller import agent_ports as ap
+from pystxmcontrol.controller import remote_frames as rf
 from pystxmcontrol.controller import tool_registry as tr
 from pystxmcontrol.controller import instrument_client as ic
 from pystxmcontrol.controller.task_agent import tools as agent_tools
@@ -270,6 +273,150 @@ class _ReplyingSock:
         return {"status": True, "data": "ok"}
 
 
+class TestRemoteIntelligence:
+    """Recommendations reach an out-of-process agent without shipping it live frames.
+
+    The intelligence module publishes task_recommendation / intelligence_suggestion
+    dicts on the scan-data stream. They ride the same socket as the frame payloads but
+    are small dicts, so collecting them needs none of the GUI's frame assembly.
+    """
+
+    def test_recommendations_and_alarms_are_routed(self):
+        feed = rf.RemoteFrameSource()
+        feed._handle({"type": "task_recommendation", "subtype": "focus", "delta_z": 1.5})
+        feed._handle({"type": "intelligence_suggestion", "anomaly_type": "beam_loss"})
+        assert len(feed.get("pending_recommendations")) == 1
+        assert len(feed.get("pending_alarms")) == 1
+
+    def test_a_user_query_answer_is_not_an_alarm(self):
+        """Only diagnoses should interrupt a waiting agent, not answers to questions."""
+        feed = rf.RemoteFrameSource()
+        feed._handle({"type": "intelligence_suggestion", "anomaly_type": "user_query"})
+        feed._handle({"type": "intelligence_suggestion"})
+        assert feed.get("pending_alarms") == []
+
+    def test_frame_payloads_are_ignored(self):
+        """The stream carries scan data too; it must not end up in the queues."""
+        feed = rf.RemoteFrameSource()
+        feed._handle({"scan_data": [1, 2, 3]})
+        feed._handle("scan_complete")
+        assert feed.get("pending_recommendations") == []
+        assert feed.get("pending_alarms") == []
+
+    def test_reading_a_queue_hands_back_a_copy(self):
+        """Tools drain by reading then setting []; a shared list would let an arriving
+        message land in what the caller is still iterating."""
+        feed = rf.RemoteFrameSource()
+        feed._handle({"type": "task_recommendation"})
+        first = feed.get("pending_recommendations")
+        feed._handle({"type": "task_recommendation"})
+        assert len(first) == 1
+
+    def test_capabilities_reflect_what_is_actually_subscribed(self):
+        feed = rf.RemoteFrameSource()
+        assert ap.frame_capabilities(feed) == ()
+        assert not ap.serves(feed, "recommendations")
+        feed._subscriber = object()                    # as start_recommendations would
+        assert ap.serves(feed, "recommendations")
+        assert not ap.serves(feed, "frames")           # 5a, not yet
+
+    def test_the_tool_guards_on_recommendations_not_frames(self):
+        """A session with the stream but no scan data can serve recommendations fine;
+        refusing it for want of 'frames' would be wrong."""
+        feed = rf.RemoteFrameSource()
+        feed._subscriber = object()
+        feed._handle({"type": "task_recommendation", "subtype": "focus", "delta_z": 1.5})
+        ts = agent_tools.ToolSet(_FakeClient(), image_model=feed)
+        assert ts.capabilities() == ("recommendations",)
+        assert "delta_z" in ts.get_intelligence_recommendations()
+
+    def test_headless_says_why_rather_than_blaming_the_image_model(self):
+        ts = agent_tools.ToolSet(_FakeClient())
+        assert "not available in this session" in ts.get_intelligence_recommendations()
+
+
+class TestBeamQualityFromTheServer:
+    """The tuning search runs identically in the GUI and out of process.
+
+    read_beam_quality used to measure an assembled image, which an out-of-process agent
+    does not have. It now asks the server, where the data already is.
+    """
+
+    def test_the_whole_tuning_workflow_needs_no_frames(self):
+        client_only = {s.name for s in agent_tools.TOOL_SPECS if not s.requires}
+        assert {"start_tuning_session", "read_beam_quality", "step_tuning_parameter",
+                "reanchor_tuning_limit", "finalize_tuning"} <= client_only
+
+    def test_it_asks_the_server_and_waits_for_fresh_lines(self):
+        client = _FillingClient(rows_per_poll=4)
+        ts = agent_tools.ToolSet(client)
+        result = json.loads(ts.read_beam_quality(settle_lines=5))
+        assert result["snr"] == 5.0 and result["scan_complete"] is False
+        assert [m["command"] for m in client.sent].count("get_beam_quality") >= 2
+
+    def test_it_stops_when_the_scan_finishes(self):
+        client = _FillingClient(rows_per_poll=0, idle=True)
+        ts = agent_tools.ToolSet(client)
+        assert json.loads(ts.read_beam_quality())["scan_complete"] is True
+
+    def test_no_scan_data_yet_is_reported_plainly(self):
+        client = _FillingClient(rows_per_poll=0, no_data=True)
+        assert "No scan data yet" in agent_tools.ToolSet(client).read_beam_quality()
+
+    def test_server_side_math(self):
+        """The computation moved to dataHandler; check it on a known image."""
+        from pystxmcontrol.controller.dataHandler import dataHandler
+        holder = type("D", (), {"beam_quality": dataHandler.beam_quality})()
+        image = np.zeros((10, 8))
+        image[:6] = 4.0
+        holder.data = type("S", (), {"interp_counts": {"default": [image]}})()
+        stats = holder.beam_quality("default", lines=2)
+        assert stats["intensity"] == 4.0 and stats["noise_rms"] == 0.0
+        assert stats["n_filled_rows"] == 6 and stats["lines_measured"] == 2
+
+    def test_server_side_picks_the_filling_energy_slice(self):
+        """interp_counts is (energy, y, x); measure the slice being acquired."""
+        from pystxmcontrol.controller.dataHandler import dataHandler
+        holder = type("D", (), {"beam_quality": dataHandler.beam_quality})()
+        stack = np.zeros((3, 10, 8))
+        stack[1, :7] = 2.0                       # the one with data
+        holder.data = type("S", (), {"interp_counts": {"default": [stack]}})()
+        assert holder.beam_quality()["n_filled_rows"] == 7
+
+    def test_server_side_returns_none_without_data(self):
+        from pystxmcontrol.controller.dataHandler import dataHandler
+        holder = type("D", (), {"beam_quality": dataHandler.beam_quality})()
+        holder.data = type("S", (), {"interp_counts": {}})()
+        assert holder.beam_quality() is None
+
+
+class _FillingClient:
+    """A server whose tuning scan fills fresh lines between polls."""
+
+    def __init__(self, rows_per_poll=4, idle=False, no_data=False):
+        self.sent, self.positions = [], {}
+        self._rows, self._per_poll = 3, rows_per_poll
+        self._idle, self._no_data = idle, no_data
+
+    def send_message(self, msg):
+        self.sent.append(msg)
+        if msg.get("command") == "get_beam_quality":
+            if self._no_data:
+                return {"status": False, "data": None}
+            self._rows += self._per_poll
+            return {"status": True,
+                    "data": {"intensity": 10.0, "noise_rms": 2.0, "snr": 5.0,
+                             "n_filled_rows": self._rows,
+                             "lines_measured": msg.get("lines", 5)}}
+        return {"status": True, "data": "ok"}
+
+    def get_status(self):
+        return {"mode": "idle" if self._idle else "scanning"}
+
+    def getMotorPositions(self):
+        return self.positions
+
+
 class TestCollaboratorPorts:
     """The optional collaborators are ports with headless stand-ins.
 
@@ -345,9 +492,16 @@ class TestCollaboratorPorts:
     def test_frameless_tools_explain_the_absence(self):
         """Not 'run a scan first' — that scan would not help in this session."""
         ts = agent_tools.ToolSet(_FakeClient())
-        for result in (ts.get_last_scan_stats(), ts.find_particles(),
-                       ts.get_intelligence_recommendations()):
+        for result in (ts.get_last_scan_stats(), ts.find_particles()):
             assert result == "Image model not available."
+
+    def test_the_message_names_the_capability_that_is_missing(self):
+        """get_intelligence_recommendations needs the intelligence stream, not images,
+        so blaming the image model would point the operator at the wrong thing."""
+        ts = agent_tools.ToolSet(_FakeClient())
+        result = ts.get_intelligence_recommendations()
+        assert "intelligence stream" in result
+        assert "Image model" not in result
 
     def test_null_lifecycle_does_not_block_a_scan(self):
         """A headless start_scan must still reach the server."""

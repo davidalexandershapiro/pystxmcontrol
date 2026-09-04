@@ -24,8 +24,8 @@ from pystxmcontrol.controller.scan_conversion import (
 from pystxmcontrol.controller import energy_presets
 from pystxmcontrol.controller.tool_registry import openai_schemas, specs_for, tool
 from pystxmcontrol.controller.agent_ports import (
-    NullFrameSource, approval_or_auto, frame_geometry, frames_available,
-    lifecycle_or_null,
+    NullFrameSource, approval_or_auto, frame_capabilities, frame_geometry,
+    frames_available, lifecycle_or_null, serves,
 )
 
 log = logging.getLogger(__name__)
@@ -1246,7 +1246,7 @@ class ToolSet:
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"
 
-    @tool(requires=('frames',))
+    @tool(requires=('recommendations',))
     def get_intelligence_recommendations(self) -> str:
         """Return any pending recommendations from the intelligence module and clear the queue.
 
@@ -1258,8 +1258,9 @@ class ToolSet:
 
         This tool drains the queue — call it after every wait_for_scan().
         """
-        if not frames_available(self._image_model):
-            return "Image model not available."
+        if not serves(self._image_model, "recommendations"):
+            return ("Intelligence recommendations are not available in this session "
+                    "— nothing is subscribed to the server's intelligence stream.")
 
         pending = list(self._image_model.get("pending_recommendations") or [])
         self._image_model.set("pending_recommendations", [])
@@ -1854,43 +1855,38 @@ class ToolSet:
     def _beam_quality_window(self, daq: str, settle_lines: int) -> dict | None:
         """Measure beam quality over the most recently filled scan lines.
 
-        Waits until *settle_lines* new rows fill (so the result reflects the latest
-        parameter value), the instrument goes idle, or a timeout, then computes
-        intensity (mean), noise RMS (std) and SNR (mean/std) over the trailing window.
-        Returns None if no image data is available yet.
+        Asks the SERVER for the numbers rather than measuring an assembled image, so
+        this works identically in the GUI and out of process — the tuning search was
+        otherwise the one workflow an out-of-process agent could not finish.
+
+        Waits until *settle_lines* fresh rows have filled (so the result reflects the
+        latest parameter value), the instrument goes idle, or a timeout. The waiting is
+        deliberately here and not on the server: the server answers each poll
+        immediately, keeping the command socket free for everyone else.
         """
-        def _get_arr():
-            all_images = self._image_model.get('all_detector_images')
-            if not isinstance(all_images, dict):
+        def _measure():
+            try:
+                response = self._client.send_message(
+                    {"command": "get_beam_quality", "daq": daq, "lines": settle_lines})
+            except Exception as e:
+                log.debug("get_beam_quality failed: %s", e)
                 return None
-            img = all_images.get(daq)
-            if img is None and daq != 'default':
-                img = all_images.get('default')
-            if not isinstance(img, np.ndarray) or img.ndim < 2:
-                return None
-            arr = np.asarray(img, dtype=float)
-            return arr if arr.ndim == 2 else arr.reshape(arr.shape[0], -1)
+            return response.get("data") if response and response.get("status") else None
 
-        def _filled_rows(arr):
-            return np.where(np.any(arr != 0.0, axis=1))[0]
-
-        arr = _get_arr()
-        if arr is None:
+        first = _measure()
+        if first is None:
             return None
 
-        start_filled = int(len(_filled_rows(arr)))
-        nx = arr.shape[1]
+        start_filled = int(first.get("n_filled_rows", 0))
+        nx = int(self._scan.get('x_points', 0) or 0)
         dwell_ms = float(self._scan.get('dwell', 1.0) or 1.0)
-        # Generous ceiling: time to acquire settle_lines rows, ×3, floored at 5 s.
         timeout = max(5.0, (dwell_ms / 1000.0) * nx * settle_lines * 3.0)
         deadline = time.monotonic() + timeout
         scan_idle = False
+        latest = first
 
         while time.monotonic() < deadline:
-            arr = _get_arr()
-            if arr is None:
-                break
-            if int(len(_filled_rows(arr))) >= start_filled + settle_lines:
+            if int(latest.get("n_filled_rows", 0)) >= start_filled + settle_lines:
                 break
             try:
                 status = self._client.get_status()
@@ -1900,25 +1896,14 @@ class ToolSet:
             except Exception:
                 pass
             time.sleep(0.3)
+            measured = _measure()
+            if measured is None:
+                break
+            latest = measured
 
-        arr = _get_arr()
-        if arr is None:
-            return None
-        rows = _filled_rows(arr)
-        if len(rows) == 0:
-            return None
-        window = arr[rows[-settle_lines:], :]
-        intensity = float(np.mean(window))
-        noise_rms = float(np.std(window))
-        snr = round(intensity / noise_rms, 4) if noise_rms > 1e-12 else 0.0
-        return {
-            "intensity": round(intensity, 4),
-            "noise_rms": round(noise_rms, 4),
-            "snr": snr,
-            "n_filled_rows": int(len(rows)),
-            "lines_measured": int(min(settle_lines, len(rows))),
-            "scan_complete": bool(scan_idle),
-        }
+        latest = dict(latest)
+        latest["scan_complete"] = bool(scan_idle)
+        return latest
 
     @tool(mutates_hardware=True)
     def start_tuning_session(self, energy: float | None = None) -> str:
@@ -2017,7 +2002,7 @@ class ToolSet:
             ),
         }, indent=2)
 
-    @tool(requires=('frames',))
+    @tool()
     def read_beam_quality(self, daq: str = "default", settle_lines: int = 5) -> str:
         """Measure live beam intensity, noise RMS, and SNR from the running tuning scan.
 
@@ -2033,7 +2018,7 @@ class ToolSet:
         """
         result = self._beam_quality_window(daq, max(1, int(settle_lines)))
         if result is None:
-            return ("No live scan image yet — start the tuning scan first, or wait for the "
+            return ("No scan data yet — start the tuning scan first, or wait for the "
                     "first lines to acquire.")
         if self._tuning is not None:
             result["positions"] = {
@@ -3331,9 +3316,7 @@ class ToolSet:
         run: a headless ToolSet has no frames, so it does not offer find_particles at
         all rather than offering it and failing at call time.
         """
-        caps = []
-        if frames_available(self._image_model):
-            caps.append("frames")
+        caps = list(frame_capabilities(self._image_model))
         if self._logbook_model is not None:
             caps.append("logbook")
         if self._confirm_fn.interactive:

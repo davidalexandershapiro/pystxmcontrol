@@ -216,6 +216,20 @@ class stxmServer:
                     dwell=message.get("dwell"),
                     shutter=message.get("shutter"),
                 )
+            elif message["command"] == "get_beam_quality":
+                # Answered from the in-progress scan data, and answered IMMEDIATELY:
+                # the caller polls n_filled_rows to decide when enough fresh lines have
+                # arrived, so waiting here would hold the command socket (and therefore
+                # every other client's commands) for the length of a scan line.
+                stats = self.controller.dataHandler.beam_quality(
+                    daq=message.get("daq", "default"),
+                    lines=int(message.get("lines", 5) or 5))
+                message["status"] = stats is not None
+                message["data"] = stats
+                message["mode"] = "scanning" if scanning else "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+
             elif message["command"] == "getMotorPositions":
                 message["status"] = True
                 self.controller.getMotorPositions()

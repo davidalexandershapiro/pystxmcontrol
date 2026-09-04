@@ -846,6 +846,50 @@ class dataHandler:
         self.data.DAQdwell = scanInfo['DAQDwell']
         self.data.motdwell = scanInfo['motorDwell']
 
+    def beam_quality(self, daq: str = "default", lines: int = 5) -> dict | None:
+        """Intensity, noise RMS and SNR over the most recently filled scan lines.
+
+        Computed here, on the server, because this is where the data already is. The
+        beamline-tuning search needs these numbers while the scan runs, and an
+        out-of-process agent has no assembled image to measure — shipping live frames
+        to it just so it could compute a mean and a standard deviation would be a great
+        deal of machinery for three numbers.
+
+        Returns None when there is no scan data yet. Never blocks: the caller polls
+        n_filled_rows to decide when enough fresh lines have arrived, so a slow scan
+        cannot tie up the command socket.
+        """
+        data = getattr(self, "data", None)
+        counts = getattr(data, "interp_counts", None) if data is not None else None
+        if not counts:
+            return None
+        images = counts.get(daq) or counts.get("default")
+        if images is None or len(images) == 0:
+            return None
+
+        arr = np.asarray(images[-1], dtype=float)      # the region being acquired
+        if arr.ndim == 3:
+            # (energy, y, x): measure the energy slice with the most data in it, which
+            # is the one currently filling.
+            filled = [int(np.count_nonzero(np.any(a != 0.0, axis=1))) for a in arr]
+            arr = arr[int(np.argmax(filled))] if filled else None
+        if arr is None or arr.ndim != 2:
+            return None
+
+        rows = np.where(np.any(arr != 0.0, axis=1))[0]
+        if len(rows) == 0:
+            return None
+        window = arr[rows[-max(1, int(lines)):], :]
+        intensity = float(np.mean(window))
+        noise_rms = float(np.std(window))
+        return {
+            "intensity": round(intensity, 4),
+            "noise_rms": round(noise_rms, 4),
+            "snr": round(intensity / noise_rms, 4) if noise_rms > 1e-12 else 0.0,
+            "n_filled_rows": int(len(rows)),
+            "lines_measured": int(min(max(1, int(lines)), len(rows))),
+        }
+
     def record_event(self, event_type: str, **kwargs) -> None:
         """Record a semantic event to the intelligence event recorder if enabled."""
         intel = getattr(self, 'intelligence', None)
