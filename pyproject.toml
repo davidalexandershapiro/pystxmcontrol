@@ -7,7 +7,7 @@ name = "pystxmcontrol"
 version = "1.0"
 description = "Basic GUI for ALS STXM Control"
 readme = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.10"
 license = "BSD-3-Clause"
 license-files = ["LICENSE.txt"]
 authors = [
@@ -19,10 +19,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
 ]
 
@@ -80,7 +80,7 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 "Bug Tracker" = "https://github.com/davidalexandershapiro/pystxmcontrol/issues"
 
 [project.scripts]
-stxmcontrol = "pystxmcontrol.gui.main:main"
+stxmcontrol = "pystxmcontrol.gui.main_dashboard:main"
 stxmserver = "pystxmcontrol.controller.server:main"
 pystxmcontrol-mcp = "pystxmcontrol.mcp:main"
 

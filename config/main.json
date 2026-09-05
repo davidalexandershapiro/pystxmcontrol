@@ -32,7 +32,8 @@
     "source": {
         "type": "Synchrotron X-ray Source",
         "name": "Beamline X.X.X.X",
-        "probe": "x-ray"
+        "probe": "x-ray",
+        "beamline": "X.X.X.X"
     },
     "monitor": {
         "dwell": 100
