@@ -207,6 +207,33 @@ def _runtime_main_config():
     return {}
 
 
+def instrument_identity():
+    """``(instrument, beamline)`` for the window title and the header, from main.json.
+
+    Two different fields, deliberately: ``server.name`` is this instrument ("COSMIC
+    STXM") and is what mainwindow_mvc already titles its window with, while
+    ``source.name`` is the beamline it sits on ("7.0.1.2"). The header shows both.
+
+    An optional ``source.energy_range`` is appended to the beamline line when set, which
+    is what the placeholder text used to spell out. Missing values degrade to a bare
+    "STXM Control" rather than showing someone else's beamline.
+    """
+    cfg = _runtime_main_config()
+    instrument = ((cfg.get("server") or {}).get("name") or "").strip()
+    source = cfg.get("source") or {}
+    beamline = (source.get("name") or "").strip()
+    energy_range = (source.get("energy_range") or "").strip()
+    if beamline and energy_range:
+        beamline = f"{beamline} \u00b7 {energy_range}"
+    return instrument, beamline
+
+
+def window_title():
+    """Title for the acquisition window, naming the instrument when configured."""
+    instrument, _ = instrument_identity()
+    return f"STXM Control \u2014 {instrument}" if instrument else "STXM Control \u2014 Acquisition"
+
+
 def _find_last_scan_file():
     """Newest ``.stxm`` data file under the server's ``data_dir`` (walking the
     YYYY/MM/YYMMDD hierarchy, then a flat fallback), or None when none exists."""
@@ -1232,7 +1259,7 @@ class OverlayImageView(QWidget):
 class MainWindowDashboard(QMainWindow):
     def __init__(self, parent=None, live=True):
         super().__init__(parent)
-        self.setWindowTitle("STXM Control — Acquisition")
+        self.setWindowTitle(window_title())
         self.setStyleSheet(build_stylesheet())
         self.statusBar().setStyleSheet(
             f"QStatusBar{{background:{C['panel_footer']};color:{C['text_dim']};"
@@ -1779,9 +1806,13 @@ class MainWindowDashboard(QMainWindow):
         title_box.setSpacing(1)
         t = self._label("STXM Control")
         t.setFont(sans_font(11, QFont.DemiBold))
-        sub = self._label("7.0.1.2 COSMIC · 250–2500 eV", role="monoFaint")
         title_box.addWidget(t)
-        title_box.addWidget(sub)
+        # The beamline, from main.json. Only added when configured: an empty line here
+        # leaves a gap, and the placeholder this replaces named a specific beamline
+        # that any other instrument running this GUI is not on.
+        _, beamline = instrument_identity()
+        if beamline:
+            title_box.addWidget(self._label(beamline, role="monoFaint"))
         bl.addLayout(title_box)
         hl.addWidget(brand)
         hl.addWidget(self._vline())

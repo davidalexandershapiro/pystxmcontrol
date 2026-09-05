@@ -21,7 +21,7 @@ import argparse
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
-from pystxmcontrol.gui.mainwindow_dashboard import MainWindowDashboard
+from pystxmcontrol.gui.mainwindow_dashboard import MainWindowDashboard, window_title
 from pystxmcontrol.gui.splash import show_splash, finish_splash
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
@@ -35,7 +35,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(os.path.join(_ICONS_DIR, "pystxmcontrol_icon.png")))
-    app.setApplicationName("STXM Control — Acquisition")
+    app.setApplicationName(window_title())
 
     # Shown before the window is built: in live mode the constructor probes the
     # control server, which is exactly the delay the splash exists to cover.
