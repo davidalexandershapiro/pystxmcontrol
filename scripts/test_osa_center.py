@@ -36,7 +36,7 @@ from scipy.ndimage import gaussian_laplace
 
 from pystxmcontrol.utils.writeNX import stxm
 # The exact function small-mode uses, so the script tests the deployed calculation.
-from pystxmcontrol.controller.task_agent.tools import _focused_peak_center
+from pystxmcontrol.agent_tools.common import _focused_peak_center
 
 
 def extract_image(entry, daq, energy):

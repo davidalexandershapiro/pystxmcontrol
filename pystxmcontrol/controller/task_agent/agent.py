@@ -12,7 +12,7 @@ import threading
 from typing import Callable, Optional
 
 from pystxmcontrol.controller.tool_registry import openai_schemas
-from .tools import TOOL_SPECS, ToolSet
+from pystxmcontrol.agent_tools import TOOL_SPECS, ToolSet
 
 log = logging.getLogger(__name__)
 

@@ -87,7 +87,7 @@ Key methods:
 start but suppressed from the GUI trace to reduce noise.  All other tool calls and
 their truncated results are streamed to the GUI as status lines.
 
-### ToolSet (`controller/task_agent/tools.py`)
+### ToolSet (`agent_tools/`)
 
 All instrument-control logic lives here.  Each public method is one tool the LLM can
 call.  `ToolSet` holds shared session state: the current scan definition, cached motor
@@ -201,7 +201,7 @@ these aliases automatically when `update_scan(scan_type=...)` is called:
 | `"Ptychography Stack"` | `"Ptychography Image"` |
 | `"Ptycho Stack"` | `"Ptychography Image"` |
 
-Add new aliases to `_SCAN_TYPE_ALIASES` in `tools.py`.
+Add new aliases to `_SCAN_TYPE_ALIASES` in `agent_tools/common.py`.
 
 ---
 
@@ -301,8 +301,11 @@ produces spatially consistent results.
 
 ## Adding a new tool
 
-1. Add a method to `ToolSet` in `tools.py`.  The method must accept only plain Python
-   types and return a `str`.
+1. Add a method to the domain mixin it belongs to under `agent_tools/` — `scan.py`,
+   `motors.py`, `analysis.py`, `tuning.py`, `osa.py`, `focus.py`, `logbook.py`,
+   `beamline.py`, `rendering.py` or `core.py`.  The method must accept only plain
+   Python types and return a `str`.  `ToolSet` composes every mixin, so `self` is
+   the whole toolset and a new tool may call any other.
 
 2. Decorate it with `@tool(...)` from `controller/tool_registry.py`.  There is no schema
    to write: parameter names, JSON types and the required list are derived from the

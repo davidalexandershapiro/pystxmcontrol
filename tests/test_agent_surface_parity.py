@@ -27,7 +27,7 @@ from pystxmcontrol.controller import remote_frames as rf
 from pystxmcontrol.controller import scan_files as sfiles
 from pystxmcontrol.controller import tool_registry as tr
 from pystxmcontrol.controller import instrument_client as ic
-from pystxmcontrol.controller.task_agent import tools as agent_tools
+import pystxmcontrol.agent_tools as agent_tools
 
 # The MCP server imports fastmcp, which is an optional extra.  Skip only the classes that
 # actually need it — the shared-layer tests below must still run in an env without the
@@ -589,7 +589,12 @@ class TestOneClientPort:
         This is the test that actually keeps the port honest: it fails the moment a tool
         reaches for something only stxm_client has.
         """
-        source = pathlib.Path(agent_tools.__file__).read_text()
+        # Every domain module, not one file: after the split, scanning a single module
+        # would silently stop guarding most of the tools.
+        package = pathlib.Path(agent_tools.__file__).parent
+        modules = sorted(package.glob("*.py"))
+        assert len(modules) >= 10, "domain modules not found — did the layout change?"
+        source = "\n".join(m.read_text() for m in modules)
         used = set(re.findall(r"self\._client\.(\w+)", source))
         allowed = set(ic.CLIENT_METHODS) | set(ic.CLIENT_ATTRIBUTES)
         assert used <= allowed, f"tools.py uses non-port client members: {used - allowed}"

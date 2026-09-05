@@ -28,7 +28,7 @@ from mcp.server.fastmcp import FastMCP
 from pystxmcontrol.controller.instrument_client import ScripterClient
 from pystxmcontrol.controller.remote_frames import RemoteFrameSource
 from pystxmcontrol.controller.scripter import scripter
-from pystxmcontrol.controller.task_agent.tools import TOOL_SPECS, ToolSet
+from pystxmcontrol.agent_tools import TOOL_SPECS, ToolSet
 from pystxmcontrol.controller.tool_registry import register_mcp
 
 log = logging.getLogger(__name__)
