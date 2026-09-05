@@ -5,6 +5,7 @@ ToolSet and these methods may use any of its state or call any other tool.
 """
 
 import logging
+import os
 
 import numpy as np
 
@@ -16,6 +17,40 @@ log = logging.getLogger(__name__)
 
 class RenderTools:
     """Turning arrays and figures into logbook snapshots."""
+
+    # Largest image file add_to_logbook(attach="file") will embed.  Every entry's snapshot
+    # is re-embedded when logbook.add_entry regenerates the PDF, so an oversized one is
+    # paid for again on every later entry, not just its own.
+    MAX_ATTACH_BYTES = 8 * 1024 * 1024
+
+    @classmethod
+    def _qimage_from_file(cls, path: str):
+        """Load an image file from disk into a QImage for a logbook snapshot.
+
+        Returns ``(qimage, error)``: on failure qimage is None and error says why in terms
+        the agent can act on.  Any format Qt's image plugins read is accepted (PNG, JPEG,
+        TIFF, ...) — the snapshot is re-encoded as PNG by logbook.add_entry either way.
+        """
+        try:
+            from PySide6.QtGui import QImage
+        except ImportError:
+            return None, "PySide6 is not installed, so an image file cannot be loaded"
+        if not (path or "").strip():
+            return None, "no image_path was given"
+        p = os.path.expanduser(os.path.expandvars(path.strip()))
+        if not os.path.isfile(p):
+            return None, f"no file at '{p}'"
+        try:
+            size = os.path.getsize(p)
+        except OSError as e:
+            return None, f"cannot read '{p}': {e}"
+        if size > cls.MAX_ATTACH_BYTES:
+            return None, (f"'{os.path.basename(p)}' is {size / 1e6:.1f} MB, over the "
+                          f"{cls.MAX_ATTACH_BYTES / 1e6:.0f} MB attachment limit")
+        qimg = QImage(p)
+        if qimg.isNull():
+            return None, f"'{os.path.basename(p)}' is not an image Qt can read"
+        return qimg, ""
 
     def _remember_computed_image(self, arr, label: str, meta: dict | None = None) -> None:
         """Cache an image produced by a calculation tool for later logbook attachment.

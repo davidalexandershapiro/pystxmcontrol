@@ -94,7 +94,8 @@ class MotorTools:
 
         Reads the server's motor-history database, so it answers "was the energy drifting
         overnight?" without a scan. Give a time range one of three ways; a date range wins
-        over a single date.
+        over a single date. To record the plot, pass the returned path to
+        add_to_logbook(attach="file", image_path=...).
 
         Args:
             axis: motor name, e.g. 'Energy'.

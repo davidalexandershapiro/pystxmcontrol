@@ -20,8 +20,8 @@ class LogbookTools:
     """Reading and writing the experiment logbook."""
 
     @tool(requires=('logbook',), hidden_params=("attach_last_scan",))
-    def add_to_logbook(self, text: str, attach: str = "scan",
-                       daq: str = "default", attach_last_scan: bool | None = None) -> str:
+    def add_to_logbook(self, text: str, attach: str = "scan", daq: str = "default",
+                       image_path: str = "", attach_last_scan: bool | None = None) -> str:
         """Add an entry to the active logbook on the user's behalf.
 
         Use this to record an observation, a result, or an intelligence recommendation —
@@ -39,8 +39,14 @@ class LogbookTools:
                              two-energy elemental/difference map from count_element_particles
                              or the NNMF cluster map + spectra figure from analyze_energy_stack.
                              Use this to save a computed result, not a raw scan;
+                "file"     — an image file from disk, named by image_path. Use this for a
+                             figure a tool saved, e.g. the PNG returned by
+                             plot_motor_positions; unlike "computed" it is not overwritten
+                             by a later calculation, so it works turns after the fact;
                 "none"     — text-only entry, no image.
             daq:    detector channel for the "scan" image (default 'default').
+            image_path: path to the image file for attach="file" (PNG, JPEG, TIFF, ...).
+                A bad path is refused outright rather than silently logged text-only.
             attach_last_scan: deprecated — True maps to attach="scan", False to attach="none".
             text: The entry body — the observation, result, or recommendation.
         """
@@ -57,8 +63,9 @@ class LogbookTools:
         if attach_last_scan is not None:
             attach = "scan" if attach_last_scan else "none"
         attach = (attach or "scan").lower()
-        if attach not in ("scan", "computed", "none"):
-            return (f"Unknown attach mode '{attach}'. Use 'scan', 'computed', or 'none'.")
+        if attach not in ("scan", "computed", "file", "none"):
+            return (f"Unknown attach mode '{attach}'. Use 'scan', 'computed', 'file', "
+                    "or 'none'.")
 
         # Best-effort metadata from the current scan context.
         meta = {}
@@ -104,6 +111,15 @@ class LogbookTools:
                              if fallback_reason else
                              " (no computed image was available to attach — run a "
                              "calculation such as count_element_particles first)")
+        elif attach == "file":
+            # The operator named a specific file, so a bad path is a mistake to report, not
+            # something to paper over with a text-only entry the way a missing scan frame is.
+            qimg, err = self._qimage_from_file(image_path)
+            if qimg is None:
+                return f"Did not add the entry — could not attach the image: {err}."
+            name = os.path.basename(os.path.expanduser(os.path.expandvars(image_path.strip())))
+            meta.setdefault('filename', name)   # add_entry stores this as the entry title
+            attach_desc = f" with {name}"
         elif attach == "scan":
             all_images = self._image_model.get('all_detector_images')
             image = all_images.get(daq) if isinstance(all_images, dict) else None

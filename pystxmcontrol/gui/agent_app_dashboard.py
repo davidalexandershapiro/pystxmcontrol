@@ -40,9 +40,10 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
 from PySide6.QtCore import Qt, Signal, QUrl, QEvent, QTimer, QProcess, QMimeData
-from PySide6.QtGui import QFont, QImage, QTextDocument
+from PySide6.QtGui import QFont, QImage
 
 from pystxmcontrol.gui.dashboard_theme import C, build_stylesheet, mono_font, sans_font
+from pystxmcontrol.gui.logbook_snaps import snap_display_width, snap_resource
 from pystxmcontrol.gui.markdown_render import md_to_html, TABLE_STYLESHEET
 
 
@@ -295,7 +296,8 @@ class DashboardLogbookPanel(QWidget):
         if snap:
             path = os.path.join(snaps_dir, snap)
             if os.path.isfile(path):
-                url = self._snap_resource(path, eid, self._snap_display_width(path))
+                url = snap_resource(self._browser, path, eid,
+                                    snap_display_width(self._browser, path, pad=28))
                 if url:
                     parts.append(f'<div><img src="{url}"></div>')
 
@@ -334,44 +336,6 @@ class DashboardLogbookPanel(QWidget):
                 return ("\n".join(lines[:idx]).rstrip("\n"),
                         "\n".join(lines[idx + 1:]).strip("\n"))
         return detail, ""
-
-    def _snap_display_width(self, path: str, base: int = 360) -> int:
-        """Card display width for a snapshot: wide figures get up to 2× base, capped
-        to the viewport so they never force a horizontal scrollbar."""
-        img = QImage(path)
-        if img.isNull() or img.height() == 0:
-            return base
-        if img.width() / img.height() < 1.6:
-            return base
-        avail = self._browser.viewport().width() - 28
-        return max(base, min(base * 2, avail)) if avail > base else base
-
-    def _snap_resource(self, path: str, eid: str, width: int = 360):
-        """Register a snapshot as a document image resource, scaled for display.
-
-        Scan snapshots are stored at their native pixel resolution, so showing them
-        means UPSCALING to the card width.  Use nearest-neighbour, snapped to an
-        integer pixel factor, so the discrete scan pixels stay crisp and uniform —
-        no interpolation / blur.  Wider-than-the-card figures are instead DOWNSCALED
-        with a smooth transform, which keeps their fine axis text and lines legible
-        (and avoids aliasing).  The document is handed a 1:1, dpr-tagged image either
-        way, so its own nearest-neighbour width scaling never re-touches it.
-        """
-        img = QImage(path)
-        if img.isNull():
-            return None
-        dpr = self._browser.devicePixelRatioF() or 1.0
-        target_px = max(1, round(width * dpr))
-        src_w = img.width()
-        if target_px > src_w:                       # upscale → crisp, uniform pixels
-            factor = max(1, target_px // src_w)     # floor: never exceed the card width
-            img = img.scaledToWidth(src_w * factor, Qt.FastTransformation)
-        elif target_px < src_w:                     # downscale → keep figures legible
-            img = img.scaledToWidth(target_px, Qt.SmoothTransformation)
-        img.setDevicePixelRatio(dpr)
-        url = QUrl(f"snap://{eid or os.path.basename(path)}")
-        self._browser.document().addResource(QTextDocument.ImageResource, url, img)
-        return url.toString()
 
     # ── interaction ───────────────────────────────────────────────────────────
     def _set_filter(self, key):

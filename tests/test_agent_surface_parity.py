@@ -1197,6 +1197,93 @@ class TestOneScanBuilder:
                 r["yCenter"], r["yRange"], pts_y, ndigits=4)
 
 
+class _FakeLogbook:
+    """Minimal stand-in for LogbookModel: records what add() was handed."""
+
+    def __init__(self, folder="/tmp/logbook"):
+        self.folder = folder
+        self.entries = []
+        self.added = []
+
+    def add(self, snap_qimage=None, meta=None, text="", author="human"):
+        self.added.append({"qimage": snap_qimage, "meta": meta or {}, "text": text})
+        return len(self.added)
+
+
+@needs_gui
+class TestLogbookImageAttachment:
+    """attach="file" is how a PNG a tool wrote to disk (plot_motor_positions') reaches the
+    logbook. The computed-image cache cannot serve that: it is last-one-wins, so a later
+    calculation silently replaces the plot with no error the agent can see.
+    """
+
+    def _toolset(self):
+        book = _FakeLogbook()
+        return agent_tools.ToolSet(_FakeClient(), logbook_model=book), book
+
+    def _png(self, tmp_path, name="Energy_position_plot.png"):
+        from PySide6.QtGui import QImage
+        img = QImage(4, 3, QImage.Format_RGB32)
+        img.fill(0x336699)
+        path = tmp_path / name
+        assert img.save(str(path), "PNG")
+        return path
+
+    def test_a_saved_png_is_attached_and_titles_the_entry(self, tmp_path):
+        ts, book = self._toolset()
+        png = self._png(tmp_path)
+        out = ts.add_to_logbook("Energy drifted overnight.", attach="file",
+                                image_path=str(png))
+        assert "#1" in out and png.name in out
+        entry = book.added[0]
+        assert entry["qimage"] is not None and not entry["qimage"].isNull()
+        # add_entry copies meta['filename'] to image_file, which is the entry title
+        # search_logbook and logbook_index display.
+        assert entry["meta"]["filename"] == png.name
+
+    def test_a_missing_file_adds_nothing(self):
+        """Unlike an absent scan frame, a named file that is not there is a mistake to
+        report: posting the text anyway leaves an entry the operator must clean up."""
+        ts, book = self._toolset()
+        out = ts.add_to_logbook("note", attach="file", image_path="/nope/missing.png")
+        assert "Did not add" in out and book.added == []
+
+    def test_a_non_image_is_refused_on_content_not_extension(self, tmp_path):
+        junk = tmp_path / "not_really.png"
+        junk.write_text("this is not a PNG")
+        ts, book = self._toolset()
+        out = ts.add_to_logbook("note", attach="file", image_path=str(junk))
+        assert "not an image" in out and book.added == []
+
+    def test_an_oversized_file_is_refused(self, tmp_path, monkeypatch):
+        """Every entry's snapshot is re-embedded each time the PDF is regenerated, so one
+        huge attachment is paid for again on every later entry."""
+        png = self._png(tmp_path)
+        monkeypatch.setattr(agent_tools.ToolSet, "MAX_ATTACH_BYTES", 1)
+        ts, book = self._toolset()
+        out = ts.add_to_logbook("note", attach="file", image_path=str(png))
+        assert "attachment limit" in out and book.added == []
+
+    def test_a_home_relative_path_is_expanded(self, tmp_path, monkeypatch):
+        png = self._png(tmp_path)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        ts, book = self._toolset()
+        assert "#1" in ts.add_to_logbook("note", attach="file",
+                                         image_path="~/" + png.name)
+
+    def test_an_unknown_mode_names_the_modes_that_exist(self):
+        ts, book = self._toolset()
+        out = ts.add_to_logbook("note", attach="attachment")
+        assert "'file'" in out and book.added == []
+
+    def test_the_mode_is_advertised_to_the_model(self):
+        """A mode the docstring does not mention is a mode no agent will ever use."""
+        spec = next(s for s in agent_tools.TOOL_SPECS if s.name == "add_to_logbook")
+        props = tr.parameters_schema(spec)["properties"]
+        assert "image_path" in props
+        assert "file" in props["attach"]["description"]
+
+
 class _FakeSock:
     """Minimal stand-in for scripter's REQ socket: replies from a queued list."""
 
