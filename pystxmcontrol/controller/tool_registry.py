@@ -89,16 +89,36 @@ def tool(*, requires: typing.Sequence[str] = (), mutates_hardware: bool = False,
 
 
 def specs_for(cls) -> list[ToolSpec]:
-    """Every ``@tool``-decorated method on *cls*, in definition order.
+    """Every ``@tool``-decorated method reachable on *cls*, including inherited ones.
 
-    Definition order is the advertised order, so moving a method moves it in the
-    schema list — keep that in mind when splitting this file by domain.
+    Walks the MRO so a ToolSet composed of per-domain mixins registers all of them.
+    ``vars()`` alone sees only a class's OWN dict, which would silently drop every
+    inherited tool — no error, just a smaller advertised surface.
+
+    Resolution follows the MRO exactly, so what is registered is what ``getattr``
+    would actually call. Two ways a naive walk gets that wrong:
+
+    * An OVERRIDDEN tool appears once per defining class. Only the first (the one
+      ``getattr`` resolves to) may be registered; a later one is a phantom whose
+      schema need not describe what runs.
+    * A subclass may deliberately retire a tool by redefining it WITHOUT ``@tool``.
+      That name must then not be registered at all, even though a decorated version
+      still exists further up the MRO.
+
+    Both follow from tracking every name seen, not just the decorated ones.
+
+    Order is MRO order, so tools group by the class that defines them; within a class
+    it is definition order.
     """
-    specs = []
-    for name, member in vars(cls).items():
-        meta = getattr(member, _SPEC_ATTR, None)
-        if meta is not None:
-            specs.append(ToolSpec(name=name, fn=member, **meta))
+    specs, seen = [], set()
+    for klass in cls.__mro__:
+        for name, member in vars(klass).items():
+            if name in seen:
+                continue
+            seen.add(name)                       # even undecorated: it shadows
+            meta = getattr(member, _SPEC_ATTR, None)
+            if meta is not None:
+                specs.append(ToolSpec(name=name, fn=member, **meta))
     return specs
 
 

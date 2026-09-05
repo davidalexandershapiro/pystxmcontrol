@@ -49,7 +49,29 @@ except ImportError:                                  # pragma: no cover - env-de
 needs_gui = pytest.mark.skipif(not _HAS_GUI, reason="PySide6 not installed")
 
 
-ALL_CAPABILITIES = ("frames", "logbook", "approval")
+# The complete advertised tool surface. Spelled out rather than counted so a split, a
+# refactor or a bad edit cannot quietly change it: this file has itself lost two whole
+# test classes to a range-based edit that nothing but a name check would have caught.
+EXPECTED_TOOLS = {
+    'add_to_logbook', 'analyze_energy_stack', 'apply_focus_calibration',
+    'cancel_scan', 'check_scan_limits', 'configure_focus_scan',
+    'configure_osa_scan', 'count_element_particles', 'define_scan_from_file',
+    'finalize_tuning', 'find_particles', 'get_config',
+    'get_image_center_of_mass', 'get_intelligence_recommendations',
+    'get_last_scan_params', 'get_last_scan_stats', 'get_logbook_entry',
+    'get_motor_position', 'get_osa_beam_center', 'get_safety_instructions',
+    'get_scan_status', 'get_toolset_debug', 'list_buffered_scans',
+    'list_energy_presets', 'move_motor', 'plot_motor_positions',
+    'read_beam_quality', 'read_daq', 'reanchor_tuning_limit',
+    'request_confirmation', 'save_beamline_entry', 'search_logbook',
+    'set_beamline_from_database', 'start_multiregion_scan', 'start_scan',
+    'start_tuning_session', 'step_tuning_parameter', 'update_scan',
+    'wait_for_scan', 'zero_osa_position',
+}
+
+# Everything a full GUI session serves. "recommendations" is separate from
+# "frames": the two arrive by different routes and a surface can have either.
+ALL_CAPABILITIES = ("frames", "recommendations", "logbook", "approval")
 ALL_FEATURES = ("logbook_context",)
 
 
@@ -539,6 +561,266 @@ class _FillingClient:
 
     def getMotorPositions(self):
         return self.positions
+
+
+class TestOneClientPort:
+    """One client surface beneath both agent surfaces.
+
+    ToolSet was written against the GUI's stxm_client but uses only nine of its members.
+    instrument_client names those nine so the same tools can also run out of process over
+    scripter. These tests fail if a tool starts depending on a tenth member, or if the two
+    clients drift apart on the nine.
+    """
+
+    def test_port_module_is_headless(self):
+        """It must not drag in Qt — the MCP server has no display and no PySide6."""
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; import pystxmcontrol.controller.instrument_client; "
+             "assert 'PySide6' not in sys.modules; print('clean')"],
+            capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert "clean" in r.stdout
+
+    def test_tools_use_only_the_port(self):
+        """Every self._client.<x> in tools.py must be a member of the port.
+
+        This is the test that actually keeps the port honest: it fails the moment a tool
+        reaches for something only stxm_client has.
+        """
+        source = pathlib.Path(agent_tools.__file__).read_text()
+        used = set(re.findall(r"self\._client\.(\w+)", source))
+        allowed = set(ic.CLIENT_METHODS) | set(ic.CLIENT_ATTRIBUTES)
+        assert used <= allowed, f"tools.py uses non-port client members: {used - allowed}"
+
+    def test_scripter_client_satisfies_the_port(self):
+        client = ic.ScripterClient(_FakeScripter())
+        assert ic.missing_members(client) == []
+        assert isinstance(client, ic.InstrumentClient)      # methods only
+
+    @needs_gui
+    def test_stxm_client_satisfies_the_port(self):
+        from pystxmcontrol.controller.client import stxm_client
+        assert ic.missing_members(stxm_client) == []        # class: methods only
+
+    @needs_gui
+    def test_stxm_client_get_config_populates_the_attributes(self, tmp_path, monkeypatch):
+        """The four data attributes are set by get_config(), not __init__, so check the
+        method actually assigns all of them."""
+        from pystxmcontrol.controller import client as client_mod
+
+        cfg = tmp_path / "main.json"
+        cfg.write_text('{"server": {}}')
+        monkeypatch.setattr(client_mod, "MAINCONFIGFILE", str(cfg))
+
+        c = client_mod.stxm_client.__new__(client_mod.stxm_client)   # no server needed
+        c.send_message = lambda msg: {"data": ({"SampleX": {}}, {"Image": {}},
+                                               {"SampleX": 1.0}, {"default": {}},
+                                               {"lastScan": {}})}
+        c.get_config()
+        assert ic.missing_members(c) == []
+        assert c.motorInfo == {"SampleX": {}}
+        assert c.scanConfig == {"Image": {}}
+        assert c.currentMotorPositions == {"SampleX": 1.0}
+        assert c.main_config == {"lastScan": {}}
+
+    def test_adapter_maps_the_same_server_tuple(self):
+        """scripter and stxm_client unpack the SAME five-tuple; the adapter renames it."""
+        client = ic.ScripterClient(_FakeScripter())
+        client.get_config()
+        assert client.motorInfo == {"SampleX": {}}
+        assert client.scanConfig == {"Image": {}}
+        assert client.currentMotorPositions == {"SampleX": 1.0}
+        assert client.main_config == {"lastScan": {}}
+
+    def test_adapter_adopts_an_already_connected_scripter(self):
+        """The MCP server's _ensure_connected already called get_config; don't re-fetch."""
+        s = _FakeScripter()
+        s.MOTORS, s.SCANS, s.POSITIONS, s.DAQS, s.CONFIG = s._config_tuple()
+        client = ic.ScripterClient(s)
+        assert client.motorInfo == {"SampleX": {}}
+        assert s.get_config_calls == 0
+
+    def test_adapter_wire_messages(self):
+        s = _FakeScripter()
+        client = ic.ScripterClient(s)
+
+        s.sock.replies = [{"status": True, "mode": "idle"}]
+        assert client.get_status()["mode"] == "idle"
+        assert s.sock.sent[-1] == {"command": "getStatus"}
+
+        s.sock.replies = [{"status": True, "data": {"SampleX": 4.2}}]
+        assert client.getMotorPositions() == {"SampleX": 4.2}
+        assert s.sock.sent[-1] == {"command": "getMotorPositions"}
+
+        s.sock.replies = [{"status": True}]
+        client.change_motor_config("ZonePlateZ", "offset", 1.5)
+        assert s.sock.sent[-1] == {
+            "command": "changeMotorConfig",
+            "data": {"motor": "ZonePlateZ", "config": "offset", "value": 1.5}}
+        assert s.get_config_calls == 1          # re-reads after the write
+
+    def test_toolset_constructs_over_the_adapter(self):
+        """The point of Stage 1: the GUI's ToolSet runs on a scripter connection."""
+        s = _FakeScripter()
+        s.CONFIG = {"lastScan": {}}
+        s.MOTORS, s.SCANS, s.POSITIONS, s.DAQS = ({"SampleX": {}}, {"Image": {}},
+                                                  {"SampleX": 1.0}, {"default": {}})
+        ts = agent_tools.ToolSet(ic.ScripterClient(s))
+
+        s.sock.replies = [{"status": True, "mode": "idle"}]
+        assert "idle" in ts.get_scan_status()
+
+        s.sock.replies = [{"status": True}]
+        assert "Successfully moved" in ts.move_motor("SampleX", 2.0)
+        assert s.sock.sent[-1] == {"command": "moveMotor", "axis": "SampleX", "pos": 2.0}
+
+
+class _FakeScripter:
+    """Minimal stand-in for a connected scripter: a socket plus the config five-tuple."""
+
+    MOTORS = None
+
+    def __init__(self):
+        self.sock = _FakeSock([])
+        self.get_config_calls = 0
+
+    @staticmethod
+    def _config_tuple():
+        return ({"SampleX": {}}, {"Image": {}}, {"SampleX": 1.0},
+                {"default": {}}, {"lastScan": {}})
+
+    def get_config(self):
+        self.get_config_calls += 1
+        return self._config_tuple()
+
+
+class TestOneToolRegistry:
+    """One decorated function per tool; every surface's advertisement is derived.
+
+    The hand-written TOOL_SCHEMAS block this replaced is gone; these assert the
+    invariants it used to be checked against. Parameter names, JSON types and required
+    lists are DERIVED from the signature, so they cannot drift from the function.
+    Prose comes from the docstring and is not asserted here — but it must not be empty,
+    because a tool with no description is one the model cannot choose correctly.
+    """
+
+    def _generated(self):
+        return agent_schemas()
+
+    def test_the_exact_tool_surface_is_registered(self):
+        """The full set, not just the count.
+
+        A @tool-less method is invisible to every surface with no error, and so is an
+        inherited one if specs_for stops walking the MRO. A count alone would pass a
+        change that dropped one tool and added another — precisely what a by-domain
+        split can do, and precisely what happened to this file's own test classes.
+        Update this list deliberately when adding a tool.
+        """
+        assert {s.name for s in agent_tools.TOOL_SPECS} == EXPECTED_TOOLS
+
+    def test_registration_survives_inheritance(self):
+        """ToolSet is a composition of per-domain classes; vars() alone would silently
+        drop every inherited tool."""
+        class Domain:
+            @tr.tool()
+            def domain_tool(self):
+                "A tool defined in a domain class."
+
+        class Composed(Domain):
+            @tr.tool()
+            def own_tool(self):
+                "A tool defined on the composed class."
+
+        assert {s.name for s in tr.specs_for(Composed)} == {"domain_tool", "own_tool"}
+
+    def test_an_override_is_registered_once_as_the_resolved_version(self):
+        """Registering the shadowed copy too would advertise a schema that need not
+        describe what getattr actually calls."""
+        class Base:
+            @tr.tool()
+            def shared(self):
+                "base"
+
+        class Sub(Base):
+            @tr.tool(mutates_hardware=True)
+            def shared(self):
+                "overridden"
+
+        specs = tr.specs_for(Sub)
+        assert [s.name for s in specs] == ["shared"]
+        assert specs[0].mutates_hardware is True
+
+    def test_a_tool_can_be_retired_by_overriding_it_undecorated(self):
+        class Base:
+            @tr.tool()
+            def shared(self):
+                "base"
+
+        class Retires(Base):
+            def shared(self):
+                "no longer a tool"
+
+        assert tr.specs_for(Retires) == []
+
+    def test_no_tool_is_advertised_without_a_description(self):
+        for entry in self._generated():
+            assert entry["function"]["description"].strip(), entry["function"]["name"]
+
+    def test_advertised_parameters_are_real_parameters(self):
+        """A schema promising an argument the function does not accept fails only when
+        an agent tries it. Derivation makes that impossible; this proves it."""
+        for spec in agent_tools.TOOL_SPECS:
+            advertised = set(tr.parameters_schema(spec)["properties"])
+            accepted = set(inspect.signature(spec.fn).parameters) - {"self"}
+            if any(p.kind is inspect.Parameter.VAR_KEYWORD
+                   for p in inspect.signature(spec.fn).parameters.values()):
+                continue                      # **kwargs tool: its override is the contract
+            assert advertised <= accepted, spec.name
+
+    def test_hidden_params_are_accepted_but_not_advertised(self):
+        """add_to_logbook keeps a deprecated argument working without inviting its use."""
+        spec = next(s for s in agent_tools.TOOL_SPECS if s.name == "add_to_logbook")
+        assert "attach_last_scan" in inspect.signature(spec.fn).parameters
+        assert "attach_last_scan" not in tr.parameters_schema(spec)["properties"]
+
+    def test_update_scan_override_fields_are_scan_model_fields(self):
+        """The **kwargs override is the contract, so it must still describe real fields."""
+        documented = set(agent_tools._UPDATE_SCAN_SCHEMA["properties"])
+        documented.discard("energy_preset")           # resolved into energy_regions
+        assert documented <= set(ScanModel.model_fields)
+
+    def test_capability_gating_selects_the_tier(self):
+        """A surface advertises only what its capabilities can satisfy."""
+        client_only = {s["function"]["name"] for s in tr.openai_schemas(agent_tools.TOOL_SPECS)}
+        assert "move_motor" in client_only            # needs only the client
+        assert "read_beam_quality" in client_only     # measured server-side since 5c
+        assert "find_particles" not in client_only    # needs frames
+        assert "add_to_logbook" not in client_only    # needs a logbook
+        assert "request_confirmation" not in client_only
+        assert "get_intelligence_recommendations" not in client_only
+
+        with_frames = {s["function"]["name"]
+                       for s in tr.openai_schemas(agent_tools.TOOL_SPECS, have=("frames",))}
+        assert "find_particles" in with_frames
+
+    def test_feature_gating_hides_the_logbook_context_tools(self):
+        """They are off by default so they cost no tokens (agent.py's current rule)."""
+        without = {s["function"]["name"] for s in tr.openai_schemas(
+            agent_tools.TOOL_SPECS, have=ALL_CAPABILITIES)}
+        assert "search_logbook" not in without
+        assert "add_to_logbook" in without            # writing is always available
+        assert len(without) == len(EXPECTED_TOOLS) - 2   # minus the two ctx tools
+
+    def test_hardware_tools_are_declared(self):
+        """mutates_hardware drives read-only mode, so the set must be exact."""
+        mutating = {s.name for s in agent_tools.TOOL_SPECS if s.mutates_hardware}
+        assert mutating == {
+            "move_motor", "start_scan", "cancel_scan", "start_multiregion_scan",
+            "start_tuning_session", "step_tuning_parameter", "finalize_tuning",
+            "set_beamline_from_database", "zero_osa_position",
+            "apply_focus_calibration", "read_daq"}
 
 
 class TestCollaboratorPorts:
