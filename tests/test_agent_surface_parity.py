@@ -12,6 +12,8 @@ should break a test here rather than surface at the beamline.
 
 import inspect
 import json
+import os
+from copy import deepcopy
 import pathlib
 import re
 import sys
@@ -368,6 +370,21 @@ class TestScanDataFromTheServer:
     has the same limitation.
     """
 
+    def test_scans_are_found_in_the_day_directory_layout(self, tmp_path):
+        """dataHandler saves to <data_dir>/<yyyy>/<mm>/<yymmdd>/, so a listing that
+        walked one level down found nothing at all on a real rig."""
+        day = tmp_path / "2026" / "09" / "260905"
+        day.mkdir(parents=True)
+        (day / "MEGA_260905000.stxm").write_bytes(b"")
+        (tmp_path / "loose.stxm").write_bytes(b"")
+        # CCD frames of a ptychography scan are frames, not scans, and would bury them.
+        frames = day / "MEGA_260905000"
+        frames.mkdir()
+        (frames / "MEGA_260905000_ccdframes_0_0.stxm").write_bytes(b"")
+
+        found = [os.path.basename(path) for path, _mtime in sfiles._iter_scan_files(str(tmp_path))]
+        assert sorted(found) == ["MEGA_260905000.stxm", "loose.stxm"]
+
     def test_frame_selection(self):
         assert sfiles._frame_indices(None, 5) is None          # full dataset default
         assert sfiles._frame_indices(2, 5) == [3, 4]           # the LAST N
@@ -377,11 +394,21 @@ class TestScanDataFromTheServer:
 
     def test_buffer_records_match_the_gui_shape(self):
         """The analysis tools must not be able to tell a server-read scan from one the
-        GUI buffered live."""
+        GUI buffered live. 'path' is the one addition: a GUI record keeps the full path
+        in its scan_id, and these keep the basename there."""
         feed = rf.RemoteFrameSource(client=_ScanServer())
         record = feed.get("scan_buffer")[-1]
-        assert set(record) == {"stxm", "scan_id", "energies", "scan_type", "timestamp"}
+        assert set(record) == {"stxm", "scan_id", "energies", "scan_type", "timestamp",
+                               "path"}
         assert record["scan_id"] == "b.stxm"
+        assert record["path"] == "/d/b.stxm"
+
+    def test_positions_are_indexed_per_region_like_a_live_scan(self):
+        """The tools read xPos[region] beside interp_counts[daq][region]; a flat list
+        would hand them one coordinate where a whole axis belongs."""
+        scan = rf._LazyScan(_ScanServer(), "/d/b.stxm")
+        assert len(scan.xPos) == 1 and len(scan.xPos[0]) == 8
+        assert len(scan.yPos) == 1 and len(scan.yPos[0]) == 6
 
     def test_buffer_is_ordered_oldest_first(self):
         """The tools read the buffer with [-1] for 'most recent', so the server's
@@ -463,12 +490,29 @@ class _ScanServer:
         if msg["command"] == "get_scan_data":
             frames = msg.get("frames")
             array = self.STACK[-frames:] if isinstance(frames, int) else self.STACK
+            ny, nx = self.STACK.shape[1:]
             return {"status": True, "data": {
-                "scan_id": "b.stxm", "images": {"default": array},
-                "x_positions": list(np.linspace(-2.0, 2.0, 8)),
-                "y_positions": list(np.linspace(-1.5, 1.5, 6)),
+                "scan_id": "b.stxm", "path": "/d/b.stxm",
+                "images": {"default": array},
+                "x_positions": list(np.linspace(-2.0, 2.0, nx)),
+                "y_positions": list(np.linspace(-1.5, 1.5, ny)),
                 "energies": [700.0, 710.0], "scan_type": "Image"}}
         return {"status": True, "data": "ok"}
+
+
+class _ParticleScanServer(_ScanServer):
+    """A server holding a scan with one absorbing particle in the middle of the field."""
+
+    STACK = np.ones((2, 32, 32), dtype=float)
+    STACK[:, 12:20, 12:20] = 0.1
+
+
+class _ElementScanServer(_ScanServer):
+    """One particle that absorbs far more on the edge frame than below it."""
+
+    STACK = np.ones((2, 32, 32), dtype=float)
+    STACK[0, 12:20, 12:20] = 0.3
+    STACK[1, 12:20, 12:20] = 0.05
 
 
 class _FailingScanServer(_ScanServer):
@@ -478,6 +522,149 @@ class _FailingScanServer(_ScanServer):
         response = super().send_message(msg)
         if msg["command"] == "get_scan_data":
             return {"status": False, "data": "unreadable"}
+        return response
+
+
+class TestAnalysingASavedScanFile:
+    """"Load up the last scan and find the particles."
+
+    The scan record names the file the data was saved to, and every image tool takes
+    that path, so analysing a completed scan needs neither a live frame nor a question
+    to the operator about where the data landed.
+    """
+
+    def test_the_scan_record_names_the_saved_file(self):
+        client = _ScanRecordClient(file_name="/d/b.stxm")
+        ts = agent_tools.ToolSet(client)
+        params = json.loads(ts.get_last_scan_params().split("\n", 1)[1])
+        assert params["data_file"] == "/d/b.stxm"
+
+    def test_a_record_without_a_path_falls_back_to_the_newest_scan(self):
+        """A server that predates recording the path still leaves the agent able to name
+        a file — but only one whose scan type matches, since naming the wrong file is
+        worse than naming none."""
+        client = _ScanRecordClient(file_name=None)
+        assert json.loads(agent_tools.ToolSet(client).get_last_scan_params()
+                          .split("\n", 1)[1])["data_file"] == "/d/b.stxm"
+
+        client = _ScanRecordClient(file_name=None, listed_type="Focus")
+        assert "data_file" not in json.loads(
+            agent_tools.ToolSet(client).get_last_scan_params().split("\n", 1)[1])
+
+    def test_a_multiregion_record_reports_the_regions_that_ran(self):
+        """The data_file belongs to the multiregion scan, so the geometry beside it must
+        too — echoing the working definition would pair a new file with the geometry of
+        the scan before it, which is what a follow-up then gets planned from."""
+        client = _ScanRecordClient(file_name="/d/b.stxm", regions=3)
+        ts = agent_tools.ToolSet(client)
+        baseline = dict(ts._scan)
+
+        result = ts.get_last_scan_params()
+        assert "MULTIREGION" in result
+        report = json.loads(result.split("\n", 1)[1])
+        assert report["data_file"] == "/d/b.stxm"
+        assert [r["region"] for r in report["regions"]] == ["Region1", "Region2", "Region3"]
+        assert report["regions"][0]["pixel_size_nm"] == 25.0
+        # The working definition is reported as itself, and left alone: ScanModel holds
+        # one region, so adopting Region1 would make a per-particle box the new baseline.
+        assert report["working_scan"] == baseline
+        assert ts._scan == baseline
+
+    def test_particles_are_found_in_a_file_the_server_reads(self):
+        """No live frames, no filesystem: the regions still come back in µm."""
+        client = _ParticleScanServer()
+        ts = agent_tools.ToolSet(client)
+        result = json.loads(ts.find_particles(file="/d/b.stxm", save_map=False))
+        assert result["particles_found"] == 1
+        assert result["source"] == "b.stxm"
+        assert result["overview_scan_um"] == {"x_range": 4.0, "y_range": 3.0,
+                                              "x_center": 0.0, "y_center": 0.0}
+        request = next(m for m in client.sent if m["command"] == "get_scan_data")
+        assert request["path"] == "/d/b.stxm" and request["frames"] == 1
+
+    def test_stats_and_centre_of_mass_read_the_same_file(self):
+        ts = agent_tools.ToolSet(_ScanServer())
+        stats = json.loads(ts.get_last_scan_stats(file="/d/b.stxm"))
+        assert stats["source"] == "b.stxm" and stats["image_shape_px"] == [6, 8]
+        com = json.loads(ts.get_image_center_of_mass(file="/d/b.stxm"))
+        assert com["source"] == "b.stxm"
+
+    def test_element_mapping_reads_the_whole_stack_from_a_file(self):
+        """Regions come back in µm, placed by the positions the file records, so
+        start_multiregion_scan() can image them without any further conversion."""
+        client = _ElementScanServer()
+        ts = agent_tools.ToolSet(client)
+        result = json.loads(ts.count_element_particles(file="/d/b.stxm", save_map=False))
+        assert result["pre_energy_eV"] == 700.0 and result["edge_energy_eV"] == 710.0
+        assert result["total_particles"] == 1 and result["element_particles"] == 1
+        region = result["element_regions"][0]
+        assert abs(region["xCenter"]) < 0.5 and abs(region["yCenter"]) < 0.5
+        assert 1.0 < region["xRange"] < 2.5          # 8 of 32 px across 4 µm, padded
+        # Both energies are needed, so this one does NOT ask for a single frame.
+        request = next(m for m in client.sent if m["command"] == "get_scan_data")
+        assert request["frames"] is None
+
+    def test_a_file_the_server_cannot_read_says_so(self):
+        ts = agent_tools.ToolSet(_FailingScanServer())
+        result = ts.find_particles(file="/d/missing.stxm")
+        assert "/d/missing.stxm" in result and "list_buffered_scans" in result
+
+    def test_the_listing_names_a_path_for_every_scan(self):
+        """What list_buffered_scans shows has to be what file= takes."""
+        ts = agent_tools.ToolSet(_FakeClient(),
+                                 image_model=rf.RemoteFrameSource(client=_ScanServer()))
+        listed = json.loads(ts.list_buffered_scans())
+        assert [s["path"] for s in listed["buffered_scans"]] == ["/d/a.stxm", "/d/b.stxm"]
+
+    def test_a_local_file_is_read_without_the_server(self, tmp_path, monkeypatch):
+        """A GUI on the server's own host still works when the server is an older build
+        that has no get_scan_data command."""
+        recorded = {}
+
+        def fake_read_scan(path, frames=None, detector="default", region=0):
+            recorded.update(path=path, frames=frames)
+            return {"scan_id": "local.stxm", "images": {"default": _ScanServer.STACK},
+                    "x_positions": list(np.linspace(-2.0, 2.0, 8)),
+                    "y_positions": list(np.linspace(-1.5, 1.5, 6)),
+                    "energies": [700.0, 710.0]}
+
+        monkeypatch.setattr(sfiles, "read_scan", fake_read_scan)
+        local = tmp_path / "local.stxm"
+        local.write_bytes(b"")
+        ts = agent_tools.ToolSet(_FailingScanServer())
+        stats = json.loads(ts.get_last_scan_stats(file=str(local)))
+        assert stats["source"] == "local.stxm"
+        assert recorded["path"] == str(local) and recorded["frames"] == 1
+
+
+class _ScanRecordClient(_ScanServer):
+    """A server whose lastScan record may or may not name the file it saved."""
+
+    def __init__(self, file_name=None, listed_type="Image", regions=1):
+        super().__init__()
+        self._listed_type = listed_type
+        scan = deepcopy(_SERVER_SCAN)
+        if file_name:
+            scan["file_name"] = file_name
+        if regions > 1:
+            # What start_multiregion_scan submits: one small box per particle.
+            scan["scan_regions"] = {
+                f"Region{i + 1}": {"xCenter": float(i), "yCenter": -float(i),
+                                   "zCenter": 0.0, "xRange": 1.0, "yRange": 1.0,
+                                   "zRange": 0.0, "xPoints": 40, "yPoints": 40,
+                                   "zPoints": 1}
+                for i in range(regions)}
+        self.main_config = {"lastScan": {"Image": scan}}
+        self.motorInfo, self.scanConfig, self.currentMotorPositions = {}, {}, {}
+
+    def get_config(self):
+        return None
+
+    def send_message(self, msg):
+        response = super().send_message(msg)
+        if msg["command"] == "list_scans":
+            for record in response["data"]:
+                record["scan_type"] = self._listed_type
         return response
 
 

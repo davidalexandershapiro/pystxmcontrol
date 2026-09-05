@@ -7,6 +7,7 @@ of the mixins means a domain module can be read without holding ToolSet in mind.
 import json
 import logging
 import math
+import os
 
 import numpy as np
 
@@ -184,6 +185,146 @@ def _decimate(img: np.ndarray, max_particles: int | None = None) -> list[dict]:
     if max_particles is not None:
         boxes = boxes[:max_particles]
     return boxes
+
+
+def _read_saved_scan(client, path: str, frames=None, detector: str = "default",
+                     region: int = 0):
+    """Read a saved .stxm scan.  Returns ``(record, error)``.
+
+    *record* is what :func:`scan_files.read_scan` produces — images keyed by detector,
+    the energies they belong to, and the per-pixel positions — so an analysis tool can
+    work from a file exactly as it works from a live or buffered scan.
+
+    The control server is asked first because it always has the data directory and the
+    caller may not: an agent beside a chat client, a GUI on another host.  A local read
+    is the fallback, for a client whose server predates the get_scan_data command.
+
+    *frames* selects along the energy axis: None for the whole stack, an int for the
+    last N frames, or an explicit list of indices; *region* picks one region out of a
+    multi-region file, and the record holds that one alone.
+    """
+    server_error = ""
+    try:
+        response = client.send_message({"command": "get_scan_data", "path": path,
+                                        "frames": frames, "detector": detector,
+                                        "region": region})
+    except Exception as e:
+        response = None
+        server_error = str(e)
+    if response and response.get("status") and isinstance(response.get("data"), dict):
+        return response["data"], ""
+    if response is not None and not server_error:
+        server_error = str(response.get("data") or "the server returned no data")
+
+    # The path is the SERVER's, so only a client that shares its filesystem can do this;
+    # ~ is expanded here and not in the message for the same reason.
+    local = os.path.expanduser(path)
+    if os.path.isfile(local):
+        from pystxmcontrol.controller.scan_files import read_scan
+        try:
+            record = read_scan(local, frames=frames, detector=detector, region=region)
+        except Exception as e:
+            return None, f"Could not read {os.path.basename(path)}: {e}"
+        if record is not None:
+            return record, ""
+    return None, (f"Could not read scan data from {path}: {server_error}. Check the path "
+                  "— list_buffered_scans() names the scans the server holds.")
+
+
+def _pick_detector(images: dict, daq: str):
+    """``(image, daq)`` for the requested detector, or the nearest thing available.
+
+    Falls back to 'default' and then to whatever single channel the source holds, so a
+    caller that names a detector a file or frame does not carry still gets an answer,
+    and gets told which channel it actually got.
+    """
+    for name in (daq, "default"):
+        if images.get(name) is not None:
+            return images[name], name
+    for name, image in images.items():
+        if image is not None:
+            return image, name
+    return None, daq
+
+
+def _positions_geometry(record: dict):
+    """``(x_center, y_center, x_range, y_range)`` in µm from a read scan's positions.
+
+    Centre-to-centre extent, which is the convention the pixel→µm conversions use, so a
+    region measured off a file can be handed straight back to a scan.  None when the
+    file carries no per-pixel positions (only v3 files record them).
+    """
+    xpos = np.asarray(record.get("x_positions") or [], dtype=float)
+    ypos = np.asarray(record.get("y_positions") or [], dtype=float)
+    if xpos.size < 2 or ypos.size < 2:
+        return None
+    return (float((xpos.min() + xpos.max()) / 2.0), float((ypos.min() + ypos.max()) / 2.0),
+            float(xpos.max() - xpos.min()), float(ypos.max() - ypos.min()))
+
+
+def _saved_scan_record(client, path: str, detector: str = "default", region: int = 0):
+    """A saved scan file as a buffered-scan record.  Returns ``(record, error)``.
+
+    Same keys the GUI buffers from a live scan, so the analysis tools cannot tell a
+    file apart from a scan that is still in memory.
+    """
+    payload, error = _read_saved_scan(client, path, detector=detector, region=region)
+    if payload is None:
+        return None, error
+    return {"stxm": _SavedScan(payload),
+            "scan_id": payload.get("scan_id") or os.path.basename(path),
+            "path": payload.get("path") or path,
+            "energies": payload.get("energies") or [],
+            "scan_type": payload.get("scan_type", ""),
+            "timestamp": payload.get("timestamp", 0.0)}, ""
+
+
+class _SavedScan:
+    """A read scan file in the shape the analysis tools read off a live scan object.
+
+    ``interp_counts``/``xPos``/``yPos`` are indexed per region — one region per file, so
+    each is a single-entry list — which is how a live ``stxm`` object holds them.
+    """
+
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    @property
+    def interp_counts(self) -> dict:
+        return {daq: [arr] for daq, arr in (self._payload.get("images") or {}).items()}
+
+    @property
+    def xPos(self) -> list:
+        return [self._payload.get("x_positions") or []]
+
+    @property
+    def yPos(self) -> list:
+        return [self._payload.get("y_positions") or []]
+
+    @property
+    def energies(self) -> list:
+        return self._payload.get("energies") or []
+
+
+def _latest_saved_scan(client, scan_type: str = "") -> str:
+    """Path of the newest scan file the server holds, or "" if it cannot say.
+
+    The fallback for a scan record that carries no file path — one written before the
+    server recorded where it saved the data.  A mismatched scan type is rejected rather
+    than returned, since naming the wrong file is worse than naming none.
+    """
+    try:
+        response = client.send_message({"command": "list_scans", "limit": 1})
+    except Exception as e:
+        log.debug("list_scans failed: %s", e)
+        return ""
+    records = (response or {}).get("data") if (response or {}).get("status") else None
+    if not isinstance(records, list) or not records:
+        return ""
+    newest = records[0]
+    if scan_type and newest.get("scan_type") and newest["scan_type"] != scan_type:
+        return ""
+    return newest.get("path") or ""
 
 
 _SCAN_TYPE_ALIASES: dict[str, str] = {

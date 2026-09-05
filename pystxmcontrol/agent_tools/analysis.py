@@ -7,6 +7,7 @@ ToolSet and these methods may use any of its state or call any other tool.
 import json
 import logging
 import os
+from typing import NamedTuple
 
 import numpy as np
 
@@ -15,16 +16,78 @@ from pystxmcontrol.controller.agent_ports import (
 )
 from pystxmcontrol.controller.tool_registry import tool
 
-from .common import _decimate
+from .common import (
+    _decimate, _pick_detector, _positions_geometry, _read_saved_scan, _saved_scan_record,
+)
 
 log = logging.getLogger(__name__)
+
+
+class _ResolvedImage(NamedTuple):
+    """What an image tool needs to analyse one frame, or why it cannot.
+
+    Geometry defaults to the same unit extent :func:`frame_geometry` falls back to, so
+    the fields are safe to read even on the error path.
+    """
+
+    image: "np.ndarray | None" = None
+    geometry: tuple = (0.0, 0.0, 1.0, 1.0)
+    daq: str = "default"
+    available: list | None = None
+    source: str = ""
+    error: str = ""
 
 
 class AnalysisTools:
     """Measuring and interpreting completed scans."""
 
+    def _resolve_image(self, file: str | None, daq: str) -> "_ResolvedImage":
+        """The image a tool should analyse — from a saved file, or from the live frames.
+
+        Every image tool resolves its input here, so "analyse the file the last scan
+        saved" and "analyse the frame on screen" differ by one argument rather than by a
+        code path.  A failure comes back as ``error`` text for the tool to return, since
+        every one of them answers the operator in prose.
+        """
+        if file:
+            return self._image_from_file(file, daq)
+        if not frames_available(self._image_model):
+            return _ResolvedImage(error="Image model not available.")
+        all_images = self._image_model.get('all_detector_images')
+        if not isinstance(all_images, dict):
+            return _ResolvedImage(error="No scan image available — run a scan first, or pass "
+                                        "file=<path> to analyse a saved scan.")
+        image, daq = _pick_detector(all_images, daq)
+        if not isinstance(image, np.ndarray) or image.ndim < 2:
+            return _ResolvedImage(error=f"No valid image data for DAQ '{daq}'.")
+        return _ResolvedImage(image=image, geometry=frame_geometry(self._image_model),
+                              daq=daq, available=list(all_images), source="live scan frames")
+
+    def _image_from_file(self, path: str, daq: str) -> "_ResolvedImage":
+        """One image from a saved scan file, with the geometry the file records.
+
+        The frame is the one the scan ended on — the same frame the live tools see —
+        and only that frame is moved, not the whole energy stack.
+        """
+        record, error = _read_saved_scan(self._client, path, frames=1, detector=daq)
+        if record is None:
+            return _ResolvedImage(error=error)
+        source = os.path.basename(path)
+        raw, daq = _pick_detector(record.get("images") or {}, daq)
+        image = None if raw is None else np.asarray(raw, dtype=float)
+        if image is not None and image.ndim == 3:
+            image = image[-1]
+        if image is None or image.ndim < 2:
+            return _ResolvedImage(error=f"No image data for DAQ '{daq}' in {source}.")
+        geometry = _positions_geometry(record)
+        if geometry is None:
+            return _ResolvedImage(error=f"{source} records no per-pixel positions, so its "
+                                        "pixels cannot be placed in µm.")
+        return _ResolvedImage(image=image, geometry=geometry, daq=daq,
+                              available=list(record.get("images") or {}), source=source)
+
     @tool(requires=('frames',))
-    def get_last_scan_stats(self, daq: str = "default") -> str:
+    def get_last_scan_stats(self, daq: str = "default", file: str | None = None) -> str:
         """Return statistics and spatial analysis of the most recently completed scan image.
 
         Computes mean, std, contrast, and the physical coordinates (µm) of the
@@ -33,24 +96,17 @@ class AnalysisTools:
         Args:
             daq: DAQ channel to analyse (e.g. 'default', 'xrf', 'tey'). Falls back to
                 'default' if the requested channel is absent.
+            file: analyse a saved .stxm file by path instead of the live frames — pass
+                the 'data_file' from get_last_scan_params() to measure the scan that
+                just finished. The server reads the file, so no filesystem access to
+                the data directory is needed here.
         """
-        if not frames_available(self._image_model):
-            return "Image model not available."
+        got = self._resolve_image(file, daq)
+        if got.error:
+            return got.error
 
-        all_images = self._image_model.get('all_detector_images')
-        if not isinstance(all_images, dict):
-            return "No scan image available yet — run a scan first."
-
-        # Fall back to 'default' if the requested DAQ is absent
-        image = all_images.get(daq)
-        if image is None and daq != 'default':
-            image = all_images.get('default')
-            daq = 'default'
-        if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
-            return f"No valid image data for DAQ '{daq}'."
-
-        ny, nx = image.shape[:2]
-        flat = image.astype(float)
+        ny, nx = got.image.shape[:2]
+        flat = got.image.astype(float)
 
         mean_val  = float(np.mean(flat))
         std_val   = float(np.std(flat))
@@ -58,8 +114,7 @@ class AnalysisTools:
         max_val   = float(np.max(flat))
         contrast  = round(std_val / mean_val, 4) if mean_val > 0 else 0.0
 
-        # Physical geometry from the model
-        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
+        x_center, y_center, x_range, y_range = got.geometry
 
         def px_to_um(col, row):
             x = x_center + (col / max(nx - 1, 1) - 0.5) * x_range
@@ -86,11 +141,10 @@ class AnalysisTools:
             float(np.mean(dark_cols)), float(np.mean(dark_rows))
         )
 
-        available_daqs = list(all_images.keys())
-
         result = {
-            "daq": daq,
-            "available_daqs": available_daqs,
+            "daq": got.daq,
+            "source": got.source,
+            "available_daqs": got.available,
             "image_shape_px": [ny, nx],
             "scan_area_um": {"x_range": x_range, "y_range": y_range,
                              "x_center": x_center, "y_center": y_center},
@@ -128,7 +182,7 @@ class AnalysisTools:
 
     @tool(requires=('frames',))
     def find_particles(self, max_particles: int | None = None, daq: str = "default",
-                       save_map: bool = True) -> str:
+                       save_map: bool = True, file: str | None = None) -> str:
         """Locate absorbing particles in a single transmission image and return scan regions.
 
         Uses Otsu thresholding on the inverted image plus connected-component analysis — this
@@ -143,23 +197,19 @@ class AnalysisTools:
             save_map: when True (default), render an overview image with a numbered box
                 around each found region and save it to the open logbook (and cache it as the
                 computed image for add_to_logbook(attach='computed')). Set False to skip.
+            file: find particles in a saved .stxm file by path instead of the live frames —
+                pass the 'data_file' from get_last_scan_params() to work on the overview
+                that just finished. The server reads the file, so this needs no filesystem
+                access to the data directory. The regions come back in µm either way, so
+                start_multiregion_scan() follows exactly as it does on a live overview.
         """
-        if not frames_available(self._image_model):
-            return "Image model not available."
-
-        all_images = self._image_model.get('all_detector_images')
-        if not isinstance(all_images, dict):
-            return "No scan image available — run an overview scan first."
-
-        image = all_images.get(daq)
-        if image is None and daq != 'default':
-            image = all_images.get('default')
-            daq = 'default'
-        if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
-            return f"No valid image for DAQ '{daq}'."
+        got = self._resolve_image(file, daq)
+        if got.error:
+            return got.error
+        image, daq = got.image, got.daq
 
         ny, nx = image.shape[:2]
-        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
+        x_center, y_center, x_range, y_range = got.geometry
         px_x = x_range / nx   # µm per pixel in x
         px_y = y_range / ny   # µm per pixel in y
 
@@ -215,6 +265,7 @@ class AnalysisTools:
         overview_pixel_nm = round(px_x * 1000, 1)
         result = {
             "particles_found": len(regions),
+            "source": got.source,
             "overview_pixel_size_nm": overview_pixel_nm,
             "overview_scan_um": {"x_range": x_range, "y_range": y_range,
                                   "x_center": x_center, "y_center": y_center},
@@ -299,7 +350,8 @@ class AnalysisTools:
         The GUI retains the last several completed scans (full multi-energy stacks) so
         the agent can analyse a prior scan without re-running it — e.g. count_element_particles()
         on a two-energy scan that is no longer the most recent.  Each entry's 'index' can be
-        passed to count_element_particles(scan_index=...).
+        passed to count_element_particles(scan_index=...), and its 'path' to any tool that
+        takes file=... .
         """
         records = self._get_scan_buffer()
         if not records:
@@ -308,9 +360,15 @@ class AnalysisTools:
         out = []
         for i, rec in enumerate(records):
             energies = rec.get('energies') or []
+            # The full path when the record has one — that is what the analysis tools'
+            # file= argument takes. A GUI record carries it as the scan_id; a record the
+            # server read keeps the basename there and the path beside it.
+            scan_id = rec.get('scan_id') or ''
+            path = rec.get('path') or (scan_id if os.path.isabs(scan_id) else '')
             out.append({
                 "index": i,
-                "scan_id": os.path.basename(rec.get('scan_id') or '') or None,
+                "scan_id": os.path.basename(scan_id) or None,
+                "path": path or None,
                 "scan_type": rec.get('scan_type') or None,
                 "n_energies": len(energies),
                 "energy_range_eV": ([round(float(min(energies)), 2),
@@ -325,7 +383,8 @@ class AnalysisTools:
                                 scan_id: str | None = None,
                                 scan_index: int | None = None,
                                 max_particles: int | None = None,
-                                save_map: bool = True) -> str:
+                                save_map: bool = True,
+                                file: str | None = None) -> str:
         """Count particles and how many contain an element, from a buffered two-energy scan.
 
         Builds the two-energy elemental map (the same OD-difference the Analysis tab's Map
@@ -357,14 +416,29 @@ class AnalysisTools:
             save_map: when True (default), render the elemental map with a numbered box around
                 each element-containing region and save it to the open logbook (and cache it as
                 the computed image for add_to_logbook(attach='computed')). Set False to skip.
+            file: analyse a saved .stxm file by path rather than a buffered scan — pass the
+                'data_file' from get_last_scan_params() to map the two-energy scan that just
+                finished. The server reads the file, so no filesystem access to the data
+                directory is needed here.
         """
         from pystxmcontrol.utils.image import (two_energy_map, otsu_absorption_mask,
                                                find_feature_boxes)
 
-        rec = self._get_buffered_scan(scan_id=scan_id, index=scan_index, min_energies=2)
-        if rec is None:
-            return ("No buffered two-energy scan found. Run a two-energy scan (pre-edge + edge), "
-                    "or call list_buffered_scans() to see what is available.")
+        if file:
+            rec, error = _saved_scan_record(self._client, file, detector=daq, region=region)
+            if rec is None:
+                return error
+            if len(rec.get('energies') or []) < 2:
+                return (f"{os.path.basename(file)} holds fewer than two energies — element "
+                        "mapping needs a pre-edge and an edge frame.")
+            # The record holds the region that was asked for, and only that one.
+            region = 0
+        else:
+            rec = self._get_buffered_scan(scan_id=scan_id, index=scan_index, min_energies=2)
+            if rec is None:
+                return ("No buffered two-energy scan found. Run a two-energy scan (pre-edge + "
+                        "edge), pass file=<path> to analyse a saved scan, or call "
+                        "list_buffered_scans() to see what is available.")
 
         stx = rec.get('stxm')
         energies = np.asarray(rec.get('energies') or [], dtype=float)
@@ -526,8 +600,11 @@ class AnalysisTools:
 
         Args:
             file:         analyse a saved stack file (.stxm/.hdr/.cxi) by path; omit to use a
-                          buffered in-memory scan.
-            daq:          detector channel (buffered scans only; default 'default').
+                          buffered in-memory scan. A path this process cannot open is read
+                          by the server instead, so a saved stack is analysable with no
+                          filesystem access to the data directory.
+            daq:          detector channel (default 'default'); ignored for a stack file
+                          opened locally, which carries its own channel.
             region:       scan-region index for multi-region scans/files (default 0).
             scan_id:      analyse a specific buffered scan by id substring (buffered only).
             scan_index:   analyse a specific buffered scan by index (see list_buffered_scans);
@@ -544,18 +621,29 @@ class AnalysisTools:
         # ---- resolve the stack: saved file, or in-memory buffered scan --------------
         if file:
             path = os.path.expanduser(file)
-            if not os.path.isfile(path):
-                return f"Stack file not found: {file}"
-            if not path.lower().endswith(('.stxm', '.hdr', '.cxi')):
-                return "Unsupported stack file — expected a .stxm, .hdr, or .cxi file."
-            try:
-                stk = stack(fileName=path, iRegion=region)
-            except Exception as e:
-                return f"Failed to open stack file {os.path.basename(path)}: {e}"
             source = os.path.basename(path)
-            if getattr(stk, 'processedFrames', None) is None or len(stk.energies) < 3:
-                return (f"Stack '{source}' has fewer than 3 energies — NMF needs a multi-energy "
-                        "stack. Use count_element_particles for a two-energy scan.")
+            if os.path.isfile(path):
+                if not path.lower().endswith(('.stxm', '.hdr', '.cxi')):
+                    return "Unsupported stack file — expected a .stxm, .hdr, or .cxi file."
+                try:
+                    stk = stack(fileName=path, iRegion=region)
+                except Exception as e:
+                    return f"Failed to open stack file {source}: {e}"
+                if getattr(stk, 'processedFrames', None) is None or len(stk.energies) < 3:
+                    return (f"Stack '{source}' has fewer than 3 energies — NMF needs a "
+                            "multi-energy stack. Use count_element_particles for a "
+                            "two-energy scan.")
+            else:
+                # Not a path this process can open — the file is on the server's
+                # filesystem, so the server reads it and sends the arrays. The same
+                # stack by another route: everything below works on ndarrays.
+                rec, error = _saved_scan_record(self._client, file, detector=daq, region=region)
+                if rec is None:
+                    return error
+                stk, err = self._stack_from_buffered_scan(rec, daq=daq, region=0,
+                                                          label=f"'{source}'")
+                if stk is None:
+                    return err
         else:
             rec = self._get_buffered_scan(scan_id=scan_id, index=scan_index, min_energies=3)
             if rec is None:
@@ -647,7 +735,7 @@ class AnalysisTools:
         return json.dumps(result, indent=2)
 
     @tool(requires=('frames',))
-    def get_image_center_of_mass(self, daq: str = "default") -> str:
+    def get_image_center_of_mass(self, daq: str = "default", file: str | None = None) -> str:
         """Return the center of mass of the Otsu-thresholded absorption mask.
 
         Inverts the transmission image so absorbing particles are bright, applies
@@ -660,24 +748,18 @@ class AnalysisTools:
 
         Args:
             daq: detector channel to use (default 'default').
+            file: use a saved .stxm file by path instead of the live frames — pass the
+                'data_file' from get_last_scan_params() to re-centre on the scan that
+                just finished.
         """
         from pystxmcontrol.utils.image import image_com, otsu_absorption_mask
 
-        if not frames_available(self._image_model):
-            return "Image model not available."
+        got = self._resolve_image(file, daq)
+        if got.error:
+            return got.error
+        image, daq = got.image, got.daq
 
-        all_images = self._image_model.get('all_detector_images')
-        if not isinstance(all_images, dict):
-            return "No scan image available — run a scan first."
-
-        image = all_images.get(daq)
-        if image is None and daq != 'default':
-            image = all_images.get('default')
-            daq = 'default'
-        if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
-            return f"No valid image data for DAQ '{daq}'."
-
-        x_center, y_center, x_range, y_range = frame_geometry(self._image_model)
+        x_center, y_center, x_range, y_range = got.geometry
 
         result = image_com(image, x_center, y_center, x_range, y_range)
         if result is None:
@@ -687,6 +769,7 @@ class AnalysisTools:
         masked_pixels = int(otsu_absorption_mask(image).sum())
         return json.dumps({
             "daq": daq,
+            "source": got.source,
             "masked_pixels": masked_pixels,
             "center_of_mass_um": {"x": round(com_x, 3), "y": round(com_y, 3)},
             "scan_center_um":    {"x": x_center, "y": y_center},
@@ -739,31 +822,36 @@ class AnalysisTools:
         }
         return diff, meta
 
-    def _stack_from_buffered_scan(self, rec: dict, daq: str = "default", region: int = 0):
+    def _stack_from_buffered_scan(self, rec: dict, daq: str = "default", region: int = 0,
+                                  label: str = "Buffered scan"):
         """Build a bare stack object from a buffered scan's in-memory transmission cube.
 
         Returns (stack, "") on success or (None, error_message).  The returned stack has
         processedFrames / energies populated so the autoProcess + NMF stack methods run
         headless exactly as they would on a file-loaded stack (they operate on ndarrays,
-        not on the rawFrames image objects that file loading builds)."""
+        not on the rawFrames image objects that file loading builds).
+
+        *label* names the source in those messages: the same record shape also comes from
+        a scan file the server read, and calling that "the buffered scan" would send the
+        operator looking in the wrong place."""
         from pystxmcontrol.utils.stack import stack
         stx = rec.get('stxm')
         energies = np.asarray(rec.get('energies') or [], dtype=float)
         if stx is None or energies.size < 3:
-            return None, "Buffered scan has fewer than three energies — NMF needs a stack."
+            return None, f"{label} has fewer than three energies — NMF needs a stack."
         interp = getattr(stx, 'interp_counts', None)
         if not isinstance(interp, dict):
-            return None, "Buffered scan has no image data."
+            return None, f"{label} has no image data."
         if daq not in interp and 'default' in interp:
             daq = 'default'
         if daq not in interp:
-            return None, f"No detector channel '{daq}' in buffered scan."
+            return None, f"No detector channel '{daq}' in {label.lower()}."
         try:
             cube = np.asarray(interp[daq][region], dtype=float)
         except (IndexError, TypeError):
-            return None, f"Region {region} not available in buffered scan."
+            return None, f"Region {region} not available in {label.lower()}."
         if cube.ndim != 3 or cube.shape[0] < 3:
-            return None, "Buffered scan region is not a multi-energy stack."
+            return None, f"{label} region is not a multi-energy stack."
         stk = stack()
         stk.processedFrames = cube.copy()
         stk.energies = energies

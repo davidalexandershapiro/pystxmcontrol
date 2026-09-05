@@ -97,6 +97,14 @@ limited to the most recent scan. list_buffered_scans() shows what is available; 
 index to count_element_particles(scan_index=...) or analyze_energy_stack(scan_index=...) to
 analyse an earlier scan (e.g. to compare or to revisit a stack after running others).
 
+ANALYSING A SAVED SCAN FILE:
+get_last_scan_params() reports 'data_file' — where that scan was saved. Pass it as file=... to
+find_particles, count_element_particles, get_last_scan_stats, get_image_center_of_mass or
+analyze_energy_stack to analyse that scan ("load up the last scan and find the particles").
+The SERVER reads the file, so this works with no filesystem access to the data directory.
+Never ask the user where the data lives before checking data_file, and never search the
+filesystem for it; list_buffered_scans() also names a path per entry.
+
 SCAN LIMITS (before starting any scan):
 Call check_scan_limits() before start_scan(). If it reports needs_decision=True, the scan
 range exceeds the fine/piezo travel — do NOT just start it. Ask the user whether to run it as

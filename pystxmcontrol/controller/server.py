@@ -244,7 +244,8 @@ class stxmServer:
                         path = listing[0]["path"] if listing else None
                     result = scan_files.read_scan(
                         path, frames=message.get("frames"),
-                        detector=message.get("detector", "default")) if path else None
+                        detector=message.get("detector", "default"),
+                        region=int(message.get("region") or 0)) if path else None
                     message["status"] = result is not None
                     message["data"] = result if result is not None else \
                         f"No scan data available for {path!r}"

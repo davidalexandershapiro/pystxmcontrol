@@ -17,10 +17,32 @@ from pystxmcontrol.controller.tool_registry import tool
 
 from .common import (
     _ENERGY_MATCH_TOL_EV, _UPDATE_SCAN_SCHEMA, _build_scan_dict, _convert_scan,
-    _resolve_scan_type,
+    _latest_saved_scan, _resolve_scan_type,
 )
 
 log = logging.getLogger(__name__)
+
+
+def _region_summary(regions: dict) -> list[dict]:
+    """The per-region geometry of a multiregion scan, in region order.
+
+    Reported rather than converted: ScanModel holds ONE region, so these numbers can only
+    be shown, not adopted as the working scan.
+    """
+    def _index(item):
+        digits = "".join(c for c in str(item[0]) if c.isdigit())
+        return int(digits) if digits else 0
+
+    out = []
+    for name, r in sorted(regions.items(), key=_index):
+        entry = {"region": name}
+        entry.update({k: r.get(k) for k in ("xCenter", "yCenter", "xRange", "yRange",
+                                            "xPoints", "yPoints")})
+        x_range, x_points = r.get("xRange"), r.get("xPoints")
+        if x_range and x_points:
+            entry["pixel_size_nm"] = round(float(x_range) / float(x_points) * 1000.0, 1)
+        out.append(entry)
+    return out
 
 
 class ScanTools:
@@ -436,6 +458,16 @@ class ScanTools:
         after the session started.  Also updates the working scan definition so
         that subsequent update_scan() / start_scan() calls build on the latest state.
 
+        'data_file' in the result is where that scan was saved.  Pass it to the analysis
+        tools — find_particles(file=...), count_element_particles(file=...),
+        analyze_energy_stack(file=...) — to analyse the last scan without asking the
+        operator where the data landed.  It is absent only if the server did not record
+        one.
+
+        After a MULTIREGION scan the result reports the regions that actually ran plus
+        the unchanged single-region working definition ('working_scan'), because the two
+        are different scans and only the latter is what start_scan() would repeat.
+
         Args:
             scan_type: scan type to retrieve (e.g. 'Image', 'Image Stack').
                        Defaults to the current working scan type if omitted.
@@ -453,13 +485,52 @@ class ScanTools:
             return (f"No last scan recorded for type '{target_type}'. "
                     f"Types with recorded scans: {available}")
 
-        if not self._last_was_multiregion:
+        # A multiregion scan's geometry is per region and does not fit the single-region
+        # working definition, so it is not adopted — see set_baseline_from_server_scan.
+        # Read that off the RECORD, not only off this session's flag: the multiregion scan
+        # may have been launched from the GUI or by another client.
+        regions = server_scan.get("scan_regions") or {}
+        multiregion = len(regions) > 1 or self._last_was_multiregion
+
+        if not multiregion:
             try:
                 self._scan = ScanModel(**_convert_scan(server_scan)).model_dump()
             except Exception as e:
                 log.warning("[ToolSet] get_last_scan_params: _convert_scan failed: %s", e)
 
-        return f"Last '{target_type}' scan parameters:\n" + json.dumps(self._scan, indent=2)
+        # The file path is not a ScanModel field (it describes the RESULT, not the
+        # request), so it rides alongside the parameters rather than inside them.
+        data_file = server_scan.get("file_name") or _latest_saved_scan(self._client, target_type)
+
+        if not multiregion:
+            params = dict(self._scan)
+            if data_file:
+                params["data_file"] = data_file
+            return f"Last '{target_type}' scan parameters:\n" + json.dumps(params, indent=2)
+
+        # Report what actually ran. Echoing the working definition here would pair the new
+        # scan's data_file with the geometry of the scan BEFORE it — two different scans in
+        # one answer, which is what an agent then plans its follow-up from.
+        try:
+            flat = _convert_scan(server_scan)
+        except Exception as e:
+            log.warning("[ToolSet] get_last_scan_params: _convert_scan failed: %s", e)
+            flat = {}
+        report = {
+            "scan_type": target_type,
+            "regions": _region_summary(regions),
+            "energy": {k: flat[k] for k in ("energy_start", "energy_stop", "energy_points",
+                                            "energy_list", "dwell") if k in flat},
+            "working_scan": dict(self._scan),
+        }
+        if data_file:
+            report["data_file"] = data_file
+        return (f"Last '{target_type}' scan was a MULTIREGION scan of {len(regions)} regions; "
+                "'regions' below is what ran and 'data_file' is its data. The single-region "
+                "working definition cannot hold that geometry, so it still carries the "
+                "baseline shown as 'working_scan' — set x_center/y_center/x_range/y_range "
+                "explicitly with update_scan() before starting a follow-up scan.\n"
+                + json.dumps(report, indent=2))
 
     @tool()
     def define_scan_from_file(self, file_path: str) -> str:
@@ -547,6 +618,8 @@ class ScanTools:
             self._last_was_multiregion = True
             self._was_scanning = True
             self._clear_scan_alarms()   # fresh alarm slate for this scan
-            return f"Multi-region scan started: {n} particle region(s)."
+            return (f"Multi-region scan started: {n} particle region(s). The working scan "
+                    "definition still holds the single-region geometry it had before — a "
+                    "follow-up scan needs its geometry set explicitly with update_scan().")
         data = response.get('data', 'no details') if response else 'no response'
         return f"Multi-region scan failed to start: {data}"

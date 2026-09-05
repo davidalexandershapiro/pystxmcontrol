@@ -20,18 +20,23 @@ import time
 # Scan files carry this extension; the browser's day-directory layout is followed.
 _SCAN_SUFFIX = ".stxm"
 
+# dataHandler.getScanName saves to <data_dir>/<yyyy>/<mm>/<yymmdd>/, so the day directory
+# is three levels down.  Bounded rather than unlimited so a data_dir that also holds
+# analysis output or an archive is not walked end to end.
+_MAX_DEPTH = 3
+
+# A ptychography scan writes its CCD frames as <scan name>_ccdframes_<e>_<r>.stxm inside a
+# directory beside the scan.  They are frames of a scan, not scans, and listing them would
+# bury the scans themselves.
+_FRAME_MARKER = "_ccdframes_"
+
 
 def _iter_scan_files(data_dir: str):
-    """Yield (path, mtime) for every scan file under *data_dir*, newest first.
-
-    Scans live in day directories, so this walks one level down as well as the root.
-    """
+    """Yield (path, mtime) for every scan file under *data_dir*, newest first."""
     found = []
-    for root in (data_dir, *(
-            os.path.join(data_dir, d) for d in _safe_listdir(data_dir)
-            if os.path.isdir(os.path.join(data_dir, d)))):
+    for root in _scan_dirs(data_dir):
         for name in _safe_listdir(root):
-            if not name.endswith(_SCAN_SUFFIX):
+            if not name.endswith(_SCAN_SUFFIX) or _FRAME_MARKER in name:
                 continue
             path = os.path.join(root, name)
             try:
@@ -40,6 +45,19 @@ def _iter_scan_files(data_dir: str):
                 continue
     found.sort(key=lambda item: item[1], reverse=True)
     return found
+
+
+def _scan_dirs(data_dir: str):
+    """*data_dir* and every directory beneath it, down to :data:`_MAX_DEPTH`."""
+    level = [data_dir]
+    for _ in range(_MAX_DEPTH + 1):
+        if not level:
+            return
+        yield from level
+        level = [os.path.join(parent, name)
+                 for parent in level
+                 for name in _safe_listdir(parent)
+                 if not name.startswith(".") and os.path.isdir(os.path.join(parent, name))]
 
 
 def _safe_listdir(path: str):
@@ -77,7 +95,8 @@ def list_scans(data_dir: str, limit: int = 20) -> list[dict]:
     return out
 
 
-def read_scan(path: str, frames=None, detector: str = "default") -> dict | None:
+def read_scan(path: str, frames=None, detector: str = "default",
+              region: int = 0) -> dict | None:
     """Read one scan file into the shape the agent tools expect.
 
     ``images`` maps detector -> a single (energy, y, x) array, which is exactly the
@@ -87,13 +106,17 @@ def read_scan(path: str, frames=None, detector: str = "default") -> dict | None:
     *frames* selects along the energy axis: None for the whole dataset (the default),
     an int for the last N frames, or an explicit list of indices. ``energies`` is
     filtered to match, so index i of the array is always energies[i].
+
+    *region* picks one scan region out of a multi-region file; the returned record holds
+    that one, so a caller indexes it as region 0.
     """
     from pystxm_core.io.stxm_reader import read_stxm_stack
 
     if not os.path.isfile(path):
         return None
-    stack = read_stxm_stack(path, detector=detector)
-    array = stack.as_array
+    stack = read_stxm_stack(path, region=int(region), detector=detector)
+    # as_array is a METHOD on Stack, unlike the shape/nenergies properties beside it.
+    array = stack.as_array()
     energies = [float(e) for e in stack.energies]
 
     indices = _frame_indices(frames, len(energies))
@@ -105,6 +128,7 @@ def read_scan(path: str, frames=None, detector: str = "default") -> dict | None:
     return {
         "scan_id": os.path.basename(path),
         "path": path,
+        "region": int(region),
         "scan_type": metadata.get("scan_type", ""),
         "energies": energies,
         "x_positions": [float(x) for x in (metadata.get("x_positions") or [])],

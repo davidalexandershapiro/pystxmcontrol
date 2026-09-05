@@ -127,6 +127,10 @@ class RemoteFrameSource:
             # only when a tool actually reads them.
             return [{"stxm": _LazyScan(self._client, rec.get("path")),
                      "scan_id": rec.get("scan_id", ""),
+                     # The file this record came from, which the analysis tools' file=
+                     # argument takes. A GUI record has the path in its scan_id; here the
+                     # scan_id is the basename, so the path rides alongside.
+                     "path": rec.get("path", ""),
                      "energies": rec.get("energies") or [],
                      "scan_type": rec.get("scan_type", ""),
                      "timestamp": rec.get("timestamp", 0.0)}
@@ -232,7 +236,8 @@ def _geometry(scan: "_LazyScan", key: str):
     The GUI gets these from the live scan's metadata; here they are derived from the
     positions the server returned, which is the same information by another route.
     """
-    positions = scan.xPos if key.startswith("x") else scan.yPos
+    per_region = scan.xPos if key.startswith("x") else scan.yPos
+    positions = per_region[0] if per_region else None
     if positions is None or len(positions) == 0:
         return None
     low, high = float(min(positions)), float(max(positions))
@@ -297,14 +302,19 @@ class _LazyScan:
         return (self._payload or {}).get("images") or {}
 
     @property
-    def xPos(self):
+    def xPos(self) -> list:
+        """Per-region, as a live scan holds it — one region per file, so a single entry.
+
+        The tools index these as ``xPos[region]`` alongside ``interp_counts[daq][region]``;
+        handing back a flat list would leave them reading one coordinate as a whole axis.
+        """
         self._fetch()
-        return (self._payload or {}).get("x_positions")
+        return [(self._payload or {}).get("x_positions") or []]
 
     @property
-    def yPos(self):
+    def yPos(self) -> list:
         self._fetch()
-        return (self._payload or {}).get("y_positions")
+        return [(self._payload or {}).get("y_positions") or []]
 
     @property
     def energies(self):

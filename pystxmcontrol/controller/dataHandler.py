@@ -468,6 +468,12 @@ class dataHandler:
         # (e.g. synch_event is added only afterwards), so it is safe to publish.
         last = (self.main_config.get("lastScan", {}) or {}).get(self._current_scan_type)
         if last is not None:
+            # The record clients read back is the deepcopy controller.scan() made before
+            # the file existed, so the path this scan is being saved to is written onto it
+            # here.  Without it an agent that just ran a scan has no way to name the file
+            # for get_scan_data, and would have to ask the operator where the data landed.
+            last["file_name"] = self.currentScanID
+            self.controller.write_config()
             self.zmq_publisher.publish_stxm_data({
                 "type": "scan_config_update",
                 "scan_type": self._current_scan_type,
