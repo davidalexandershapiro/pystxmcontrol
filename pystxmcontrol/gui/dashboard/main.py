@@ -3,14 +3,14 @@
 
 Run with:
 
-    python pystxmcontrol/gui/main_dashboard.py            # connect to server if present
-    python pystxmcontrol/gui/main_dashboard.py --offline  # force placeholder mode
+    python -m pystxmcontrol.gui.dashboard.main            # connect to server if present
+    python -m pystxmcontrol.gui.dashboard.main --offline  # force placeholder mode
 
 By default the window tries to connect to the live server (via MainController)
 and subscribe to its signals; if no server answers on the command port it falls
 back automatically to placeholder mode.  ``--offline`` skips the probe entirely.
 
-The window carries its own stylesheet (dashboard_theme.build_stylesheet), so it
+The window carries its own stylesheet (theme.build_stylesheet), so it
 does NOT load qdarktheme — the design is a bespoke dark palette.
 """
 
@@ -21,11 +21,11 @@ import argparse
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
-from pystxmcontrol.gui.mainwindow_dashboard import MainWindowDashboard
-from pystxmcontrol.gui.dashboard_scan_files import window_title
+from pystxmcontrol.gui.dashboard.mainwindow import MainWindowDashboard
+from pystxmcontrol.gui.dashboard.scan_files import window_title
 from pystxmcontrol.gui.splash import show_splash, finish_splash
 
-_ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "icons")
 
 
 def main():

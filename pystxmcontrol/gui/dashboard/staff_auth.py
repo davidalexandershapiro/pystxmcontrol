@@ -1,6 +1,6 @@
 """The staff-mode password: where it is stored, and how it is checked.
 
-Split out of ``mainwindow_dashboard``.  Staff mode unhides motors that users
+Split out of ``mainwindow``.  Staff mode unhides motors that users
 should not drive by accident and lets the beamline parameter database be
 edited, so the check is worth keeping in one place with tests around it rather
 than inline among the dialogs that prompt for it.

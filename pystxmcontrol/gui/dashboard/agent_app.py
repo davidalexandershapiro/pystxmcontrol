@@ -3,7 +3,7 @@ Agent App (dashboard style) — a standalone task-agent console for the dashboar
 Agent tab.
 
 Ports the working agent chat from ``intelligence_widget.py`` onto the dashboard's
-bespoke dark theme (``dashboard_theme``): a live conversation of message bubbles
+bespoke dark theme (``theme``): a live conversation of message bubbles
 (operator / task agent / intelligence agent), streamed tool-activity traces, a
 composer, intelligence anomaly/recommendation cards with action links, a
 forward-looking plan-approval card, and a dashboard-themed logbook column wired
@@ -23,10 +23,10 @@ Two classes:
     the right.  Works both connected (``controller`` drives the task agent, the
     intelligence stream, and logbook writes) and standalone (``controller`` is
     ``None`` — the composer is disabled, but the logbook column still renders from
-    a supplied/opened ``LogbookModel``), mirroring ``motor_panel_dashboard``.
+    a supplied/opened ``LogbookModel``), mirroring ``motor_panel``.
 
 The widget carries its own stylesheet so it works as a top-level window too; when
-embedded in ``mainwindow_dashboard`` the window's stylesheet already applies, so
+embedded in ``mainwindow`` the window's stylesheet already applies, so
 the re-set is a harmless no-op.
 """
 
@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QUrl, QEvent, QTimer, QProcess, QMimeData
 from PySide6.QtGui import QFont, QImage
 
-from pystxmcontrol.gui.dashboard_theme import C, build_stylesheet, mono_font, sans_font
+from pystxmcontrol.gui.dashboard.theme import C, build_stylesheet, mono_font, sans_font
 from pystxmcontrol.gui.logbook_snaps import snap_display_width, snap_resource
 from pystxmcontrol.gui.markdown_render import md_to_html, TABLE_STYLESHEET
 
@@ -107,7 +107,7 @@ def _mk_card(title):
 
     Body has no padding; callers add their own content.  ``card._header_layout``
     is exposed so extra header controls can be inserted, mirroring the helpers in
-    ``mainwindow_dashboard`` / ``motor_panel_dashboard``.
+    ``mainwindow`` / ``motor_panel``.
     """
     card = QFrame()
     card.setObjectName("card")

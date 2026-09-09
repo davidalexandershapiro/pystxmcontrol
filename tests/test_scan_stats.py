@@ -9,7 +9,7 @@ how long a scan will take.
 
 import pytest
 
-from pystxmcontrol.gui import dashboard_scan_stats as st
+from pystxmcontrol.gui.dashboard import scan_stats as st
 
 
 def scan_region(xp=10, yp=10, zp=1, xstep=1.0):

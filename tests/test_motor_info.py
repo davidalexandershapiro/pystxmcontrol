@@ -12,7 +12,7 @@ window code.
 
 import pytest
 
-from pystxmcontrol.gui import dashboard_motor_info as mi
+from pystxmcontrol.gui.dashboard import motor_info as mi
 
 
 def motor(index=0, group="sample", display=True, driver="mclMotor",

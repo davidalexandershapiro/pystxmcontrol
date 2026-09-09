@@ -2,9 +2,9 @@
 Analysis App (dashboard style) — the standalone stack-analysis widget for the
 dashboard's Analysis tab.
 
-Like ``browser_app_dashboard`` reskins the classic browser, this reskins the
+Like ``browser_app`` reskins the classic browser, this reskins the
 proven ``Analysis2Widget`` onto the dashboard's dark palette
-(``dashboard_theme``): the mock's three-column "Tools / Viewer / Info" layout,
+(``theme``): the mock's three-column "Tools / Viewer / Info" layout,
 driven by the *same* analysis engine instead of a mock's procedural fields.
 
 The heavy lifting — stack loading/processing (``stackViewerWidget``), ROI
@@ -28,7 +28,7 @@ Two pieces:
 
 ``AnalysisApp``
     The whole tab.  Works standalone (carries its own stylesheet) and embedded
-    in ``mainwindow_dashboard`` alike, accepts a ``controller`` (for live data)
+    in ``mainwindow`` alike, accepts a ``controller`` (for live data)
     and a ``logbook_model`` (for Add-to-Log), and exposes ``load_file`` so the
     Browser's "Send to Analysis" can open a stack here.
 """
@@ -50,15 +50,15 @@ from pyqtgraph import PlotWidget, ImageView
 
 from pystxmcontrol.gui.analysis_widget import Analysis2Widget
 from pystxmcontrol.gui.stackviewerwidget import stackViewerWidget
-from pystxmcontrol.gui.dashboard_theme import (
+from pystxmcontrol.gui.dashboard.theme import (
     C, build_stylesheet, mono_font, sans_font,
 )
 
-_ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "icons")
 
 # The classic analysis logic was written against pyqtgraph's *default*
 # (col-major) image axis order — it hands the ImageView arrays already
-# transposed to (n_energies, nx, ny).  ``mainwindow_dashboard`` flips the global
+# transposed to (n_energies, nx, ny).  ``mainwindow`` flips the global
 # order to row-major (the acquisition/browser views need it), which would
 # transpose every analysis frame when embedded.  We fix this *locally* by
 # pinning the analysis ImageView's ImageItem to col-major (see

@@ -1,6 +1,6 @@
 """The Live-detector panel: one tab per configured detector.
 
-Split out of ``mainwindow_dashboard``.  Point and spectrum detectors get a
+Split out of ``mainwindow``.  Point and spectrum detectors get a
 trace plot; image detectors get a 2-D viewer with an interactive contrast
 control.  Which detectors exist, and in what order, comes entirely from the DAQ
 config, so this panel adapts to whatever server the window connected to.
@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QStackedWidget, QSizePolicy,
 )
 
-from pystxmcontrol.gui import dashboard_widgets as dw
-from pystxmcontrol.gui.dashboard_theme import C, make_lut, mono_font
-from pystxmcontrol.gui.dashboard_image_area import SciAxis, exp_str
+from pystxmcontrol.gui.dashboard import widgets as dw
+from pystxmcontrol.gui.dashboard.theme import C, make_lut, mono_font
+from pystxmcontrol.gui.dashboard.image_area import SciAxis, exp_str
 
 
 def _diffraction(n=256, seed=2):

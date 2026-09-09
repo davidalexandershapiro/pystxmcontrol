@@ -8,11 +8,11 @@ styling change lands everywhere at once.
 
 Plain functions, not methods: none of them read or write window state, and the
 widget they return is the only thing the caller needs.  Import them namespaced
-(``from pystxmcontrol.gui import dashboard_widgets as dw``) so ``dw.label`` and
+(``from pystxmcontrol.gui.dashboard import widgets as dw``) so ``dw.label`` and
 ``dw.card`` can't be shadowed by the local variables of the same name that the
 callers use freely.
 
-The actual look lives in ``dashboard_theme.build_stylesheet``, which selects on
+The actual look lives in ``theme.build_stylesheet``, which selects on
 the ``role`` property and the object names set here.
 """
 
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from pystxmcontrol.gui.dashboard_theme import C
+from pystxmcontrol.gui.dashboard.theme import C
 
 
 def label(text, role=None, font=None, color=None):

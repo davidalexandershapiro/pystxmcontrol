@@ -1,7 +1,7 @@
 """How long a scan will take, how many points it measures, and how fast the
 stage has to move.
 
-Split out of ``mainwindow_dashboard``.  The window shows these three numbers
+Split out of ``mainwindow``.  The window shows these three numbers
 before the user presses Begin, and they have to agree with what the server will
 actually do — the arithmetic mirrors ``ScanModel.calculate_estimated_time`` and
 ``ScanModel.get_scan_velocity``, so a duplicated constant drifting is a real

@@ -1,6 +1,6 @@
 """The acquisition dashboard's main image viewer and its scientific axis.
 
-Split out of ``mainwindow_dashboard``.  ``ImageArea`` owns the pyqtgraph
+Split out of ``mainwindow``.  ``ImageArea`` owns the pyqtgraph
 ViewBox/ImageItem, the interactive scan-region and focus-line ROIs, the overlay
 metadata bar and scale bar, and the plot mode used by 1-D scans.  It reports
 user interaction through signals and holds no scan-definition state of its own,
@@ -18,12 +18,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtCore import Qt, QRectF, Signal
 
-from pystxmcontrol.gui.dashboard_theme import C, make_lut, mono_font, roi_colors
+from pystxmcontrol.gui.dashboard.theme import C, make_lut, mono_font, roi_colors
 
-_ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "icons")
 
 # The dashboard image display convention is row-major (matches
-# mainwindow_dashboard, which sets this at import).  Set it here too so the
+# mainwindow, which sets this at import).  Set it here too so the
 # widget renders identically standalone.
 pg.setConfigOptions(antialias=True, imageAxisOrder="row-major",
                     background=C["plot_ground"])

@@ -1,6 +1,6 @@
 """Startup splash screen, shared by both GUI entry points.
 
-``main.py`` (the MVC main window) and ``main_dashboard.py`` (the acquisition
+``main.py`` (the MVC main window) and ``dashboard/main.py`` (the acquisition
 dashboard) both show the same splash while their main window is built — window
 construction probes the control server, so there is a visible delay to cover.
 """

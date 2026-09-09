@@ -10,7 +10,7 @@ but only pin it against change, whereas these say what it should be.
 
 import pytest
 
-from pystxmcontrol.gui.dashboard_scan_definition import (
+from pystxmcontrol.gui.dashboard.scan_definition import (
     ScanDefinition, energy_n, line_endpoints, motor_scan_region,
     region_scan_dict, resolve_daq_list,
 )

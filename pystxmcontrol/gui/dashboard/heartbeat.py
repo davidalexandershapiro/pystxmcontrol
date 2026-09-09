@@ -1,6 +1,6 @@
 """Server-reachability heartbeat for the acquisition dashboard.
 
-Split out of ``mainwindow_dashboard`` — it talks to the control server over its
+Split out of ``mainwindow`` — it talks to the control server over its
 own socket and knows nothing about the window, so it lives on its own.
 """
 

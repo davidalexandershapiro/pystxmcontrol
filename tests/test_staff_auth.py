@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from pystxmcontrol.gui import dashboard_staff_auth as auth
+from pystxmcontrol.gui.dashboard import staff_auth as auth
 
 
 @pytest.fixture

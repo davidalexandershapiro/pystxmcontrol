@@ -1,6 +1,6 @@
 """The energy-region "favorites" bar and the wrapping layout it uses.
 
-Split out of ``mainwindow_dashboard``: a self-contained drop target that emits
+Split out of ``mainwindow``: a self-contained drop target that emits
 a path and lets the window decide what to do with it.
 """
 

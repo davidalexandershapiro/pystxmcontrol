@@ -4,7 +4,7 @@ These are *golden-output* tests, written to protect a refactor rather than to
 specify new behaviour: they drive ``MainWindowDashboard`` through each supported
 scan type and snapshot the scan dictionary it compiles into the scan model.  The
 recorded dictionaries in ``tests/data/dashboard_scans/`` are exactly what the
-dashboard produced before ``mainwindow_dashboard.py`` was split up, so any phase
+dashboard produced before ``dashboard/mainwindow.py`` was split up, so any phase
 of that split which changes what the server would be asked to run shows up here
 as a diff instead of as a surprise on the beamline.
 
@@ -37,7 +37,7 @@ pytest.importorskip("pyqtgraph", reason="the dashboard image area needs pyqtgrap
 from PySide6.QtCore import QObject, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from pystxmcontrol.gui import mainwindow_dashboard as mwd  # noqa: E402
+from pystxmcontrol.gui.dashboard import mainwindow as mwd  # noqa: E402
 from pystxmcontrol.gui.models.image_model import ImageModel  # noqa: E402
 from pystxmcontrol.gui.models.motor_model import MotorModel  # noqa: E402
 from pystxmcontrol.gui.models.scan_model import ScanModel  # noqa: E402
@@ -162,7 +162,7 @@ def dashboard(qapp, monkeypatch):
     * ``find_last_scan_file`` — ``_show_last_scan_image`` seeds ``Region1``
       (and, through it, the focus/line geometry) from the most recent ``.stxm``
       file in the data directory, so a developer's last scan would leak into the
-      compiled dict.  Patched on ``mainwindow_dashboard``, where it is looked
+      compiled dict.  Patched on ``dashboard.mainwindow``, where it is looked
       up, rather than on the module that now defines it.
 
     The controller is then attached through the same steps ``_go_live`` uses, so

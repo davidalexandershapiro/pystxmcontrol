@@ -1,6 +1,6 @@
 """Reading motor.json: which motors exist, how they group, and what to show.
 
-Split out of ``mainwindow_dashboard``.  These are plain queries over the motor
+Split out of ``mainwindow``.  These are plain queries over the motor
 config dictionary the server hands out (or the on-disk copy in placeholder
 mode) — no Qt, no window state — so the rules about what appears where can be
 checked directly.
@@ -34,7 +34,7 @@ def load_motor_info():
     copy.  When connected, the live config from the controller is preferred."""
     candidates = [
         os.path.join(sys.prefix, "pystxmcontrol_cfg", "motor.json"),
-        os.path.join(os.path.dirname(__file__), "..", "..", "config", "motor.json"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "config", "motor.json"),
     ]
     for path in candidates:
         try:

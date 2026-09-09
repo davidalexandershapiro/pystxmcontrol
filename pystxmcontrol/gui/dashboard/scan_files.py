@@ -1,7 +1,7 @@
 """Reading the instrument's identity and its most recent scan file, for the
 acquisition dashboard's startup image and window title.
 
-Split out of ``mainwindow_dashboard``: these are plain filesystem/HDF5 readers
+Split out of ``mainwindow``: these are plain filesystem/HDF5 readers
 with no Qt and no window state.  Server-side scan-file access lives separately
 in ``pystxmcontrol.controller.scan_files`` — that one serves the client/agent
 over the wire, while these read the same files directly for the local GUI.
@@ -19,7 +19,7 @@ def runtime_main_config():
     """The server's runtime main.json (sys.prefix copy first, repo copy as a
     fallback) — the same file the server and _maybe_connect_controller read."""
     for path in (os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json"),
-                 os.path.join(os.path.dirname(__file__), "..", "..", "config",
+                 os.path.join(os.path.dirname(__file__), "..", "..", "..", "config",
                               "main.json")):
         try:
             with open(path, encoding="utf-8") as f:

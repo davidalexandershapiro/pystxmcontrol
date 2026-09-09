@@ -1,10 +1,10 @@
 """
 Motor Panel (dashboard style) — a floating utility window for inspecting and
-jogging any motor, styled to match ``mainwindow_dashboard``.
+jogging any motor, styled to match ``mainwindow``.
 
 Ports the feature set of ``motor_panel.MotorPanelWindow`` (motor selector,
 move-to-position, jog, Live/History plots, read-only config) onto the dashboard's
-bespoke dark theme (``dashboard_theme``): card frames, segmented pill controls,
+bespoke dark theme (``theme``): card frames, segmented pill controls,
 mono/sans type tokens, and pyqtgraph plots on the dashboard plot ground.
 
 Works both connected (full move/jog/history via ``MainController``) and in
@@ -24,8 +24,8 @@ from PySide6.QtCore import Qt, QDate
 
 import pyqtgraph as pg
 
-from pystxmcontrol.gui.dashboard_theme import C, build_stylesheet, mono_font
-from pystxmcontrol.gui import dashboard_widgets as dw
+from pystxmcontrol.gui.dashboard.theme import C, build_stylesheet, mono_font
+from pystxmcontrol.gui.dashboard import widgets as dw
 
 pg.setConfigOptions(antialias=True, background=C["plot_ground"])
 

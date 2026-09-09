@@ -1,10 +1,10 @@
 """
 Beamline Panel (dashboard style) — a floating staff view/edit window for the
-beamline parameter database, styled to match ``mainwindow_dashboard``.
+beamline parameter database, styled to match ``mainwindow``.
 
 Ports the feature set of ``beamline_panel.BeamlinePanelWindow`` (energy selector,
 current/new-value parameter grid, notes, add/save/delete) onto the dashboard's
-bespoke dark theme (``dashboard_theme``): card frames, mono/sans type tokens,
+bespoke dark theme (``theme``): card frames, mono/sans type tokens,
 and the segmented-well aesthetic.
 
 The database object (``db``) is a ``BeamlineDatabase`` or ``BeamlineDatabaseClient``
@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from pystxmcontrol.controller.beamline_database import COLUMNS
-from pystxmcontrol.gui.dashboard_theme import build_stylesheet, mono_font
-from pystxmcontrol.gui import dashboard_widgets as dw
+from pystxmcontrol.gui.dashboard.theme import build_stylesheet, mono_font
+from pystxmcontrol.gui.dashboard import widgets as dw
 
 
 class BeamlinePanelWindow(QDialog):

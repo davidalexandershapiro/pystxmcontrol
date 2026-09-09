@@ -7,7 +7,7 @@ placeholder content only — no controller/hardware wiring yet.  All numbers and
 plots are dummy data so the layout can be evaluated in real Qt.  Later phases
 subscribe this view to ``MainController`` signals (see the reuse map / README).
 
-Run standalone via ``main_dashboard.py``.
+Run standalone via ``main.py``.
 """
 
 import os
@@ -28,23 +28,23 @@ from PySide6.QtCore import Qt, QTimer
 
 import pyqtgraph as pg
 
-from pystxmcontrol.gui.dashboard_theme import (
+from pystxmcontrol.gui.dashboard.theme import (
     C, build_stylesheet,
     mono_font, sans_font, TravelBar, ProgressBar, EnergyRegionStrip,
 )
-from pystxmcontrol.gui import dashboard_widgets as dw
-from pystxmcontrol.gui import dashboard_motor_info as mi
-from pystxmcontrol.gui import dashboard_scan_stats as stats
-from pystxmcontrol.gui import dashboard_staff_auth as auth
-from pystxmcontrol.gui.dashboard_scan_definition import (
+from pystxmcontrol.gui.dashboard import widgets as dw
+from pystxmcontrol.gui.dashboard import motor_info as mi
+from pystxmcontrol.gui.dashboard import scan_stats as stats
+from pystxmcontrol.gui.dashboard import staff_auth as auth
+from pystxmcontrol.gui.dashboard.scan_definition import (
     ScanDefinition, energy_n, motor_scan_region, region_scan_dict,
     resolve_daq_list,
 )
-from pystxmcontrol.gui.dashboard_detector_panel import DetectorPanel
-from pystxmcontrol.gui.dashboard_heartbeat import ServerHeartbeat
-from pystxmcontrol.gui.dashboard_image_area import ImageArea
-from pystxmcontrol.gui.dashboard_favorites_bar import EnergyFavoritesBar
-from pystxmcontrol.gui.dashboard_scan_files import (
+from pystxmcontrol.gui.dashboard.detector_panel import DetectorPanel
+from pystxmcontrol.gui.dashboard.heartbeat import ServerHeartbeat
+from pystxmcontrol.gui.dashboard.image_area import ImageArea
+from pystxmcontrol.gui.dashboard.favorites_bar import EnergyFavoritesBar
+from pystxmcontrol.gui.dashboard.scan_files import (
     instrument_identity, window_title, find_last_scan_file, load_last_scan,
     read_scan_file, runtime_main_config,
 )
@@ -52,7 +52,7 @@ from pystxmcontrol.gui.dashboard_scan_files import (
 # live, shared with the task agent and the MCP server so all three agree.
 from pystxmcontrol.controller import energy_presets
 
-_ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "icons")
 
 pg.setConfigOptions(antialias=True, imageAxisOrder="row-major", background=C["plot_ground"])
 
@@ -187,7 +187,7 @@ class MainWindowDashboard(QMainWindow):
 
     # ── scan definition ─────────────────────────────────────────────────
     # The editable scan geometry lives in self.scan_def (see
-    # dashboard_scan_definition); these properties keep the window's existing
+    # scan_definition); these properties keep the window's existing
     # attribute names pointing at it, so the panels that edit regions read and
     # write one shared model rather than several parallel lists.
     @property
@@ -259,7 +259,7 @@ class MainWindowDashboard(QMainWindow):
         When connected the live client.daqConfig is preferred instead."""
         candidates = [
             os.path.join(sys.prefix, "pystxmcontrol_cfg", "daq.json"),
-            os.path.join(os.path.dirname(__file__), "..", "..", "config", "daq.json"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "config", "daq.json"),
         ]
         for path in candidates:
             try:
@@ -1898,7 +1898,7 @@ class MainWindowDashboard(QMainWindow):
         utility for inspecting/jogging any motor with Live/History plots."""
         panel = getattr(self, "_motor_panel", None)
         if panel is None or not panel.isVisible():
-            from pystxmcontrol.gui.motor_panel_dashboard import MotorPanelWindow
+            from pystxmcontrol.gui.dashboard.motor_panel import MotorPanelWindow
             self._motor_panel = MotorPanelWindow(
                 controller=self.controller, motor_info=self._motor_info,
                 parent=self)
@@ -1918,7 +1918,7 @@ class MainWindowDashboard(QMainWindow):
                 self.statusBar().showMessage(
                     "Beamline database unavailable (no server connection).", 5000)
                 return
-            from pystxmcontrol.gui.beamline_panel_dashboard import BeamlinePanelWindow
+            from pystxmcontrol.gui.dashboard.beamline_panel import BeamlinePanelWindow
             from pystxmcontrol.controller.beamline_database import BeamlineDatabaseClient
             self._beamline_panel = BeamlinePanelWindow(
                 db=BeamlineDatabaseClient(client),
@@ -1945,8 +1945,8 @@ class MainWindowDashboard(QMainWindow):
     def _build_browser_view(self):
         """The Browser tab: the standalone ``BrowserApp`` data browser, wired so
         Send to Analysis / Acquisition drive this window's views (see
-        ``browser_app_dashboard``)."""
-        from pystxmcontrol.gui.browser_app_dashboard import BrowserApp
+        ``browser_app``)."""
+        from pystxmcontrol.gui.dashboard.browser_app import BrowserApp
         self.browser_app = BrowserApp(
             controller=self.controller,
             logbook_model=getattr(self.controller, "logbook_model", None),
@@ -1975,8 +1975,8 @@ class MainWindowDashboard(QMainWindow):
     def _build_analysis_view(self):
         """The Analysis tab: the standalone ``AnalysisApp`` stack-analysis
         widget, wired to the live controller (live data) and sharing the
-        window's logbook.  See ``analysis_app_dashboard``."""
-        from pystxmcontrol.gui.analysis_app_dashboard import AnalysisApp
+        window's logbook.  See ``analysis_app``."""
+        from pystxmcontrol.gui.dashboard.analysis_app import AnalysisApp
         self.analysis_app = AnalysisApp(
             controller=self.controller,
             logbook_model=getattr(self.controller, "logbook_model", None),
@@ -1989,8 +1989,8 @@ class MainWindowDashboard(QMainWindow):
     def _build_agent_view(self):
         """The Agent tab: the standalone ``AgentApp`` console (conversation +
         logbook), wired to the live controller when connected and degrading to a
-        read-only placeholder otherwise.  See ``agent_app_dashboard``."""
-        from pystxmcontrol.gui.agent_app_dashboard import AgentApp
+        read-only placeholder otherwise.  See ``agent_app``."""
+        from pystxmcontrol.gui.dashboard.agent_app import AgentApp
         self._agent_app = AgentApp(
             controller=self.controller,
             logbook_model=getattr(self.controller, "logbook_model", None),

@@ -3,7 +3,7 @@ Browser App (dashboard style) — a standalone data-file browser for the
 dashboard's Browser tab.
 
 Ports the working data browser from ``data_browser_widget.py`` onto the
-dashboard's bespoke dark theme (``dashboard_theme``): the three-column
+dashboard's bespoke dark theme (``theme``): the three-column
 "Session files / Viewer / Details" layout the acquisition dashboard mock uses,
 wired to real ``.stxm`` files instead of the mock's procedural placeholder
 fields.
@@ -28,7 +28,7 @@ Two classes:
     details column (scan Parameters + Actions).  Right-clicking tiles marks them
     for ROI mapping; "Map Selected" then overlays their scan footprints as
     numbered boxes on the displayed overview image.  Works standalone (carries its
-    own stylesheet) and embedded in ``mainwindow_dashboard`` alike, and — like
+    own stylesheet) and embedded in ``mainwindow`` alike, and — like
     ``DataBrowserWidget`` — emits ``file_selected`` / ``send_to_analysis`` /
     ``send_to_acquisition`` and accepts a ``logbook_model`` for "Add to log".
 """
@@ -50,7 +50,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QDate, QTimer, QRectF
 from PySide6.QtGui import QFont, QImage, QPixmap, QColor
 
-from pystxmcontrol.gui.dashboard_theme import (
+from pystxmcontrol.gui.dashboard.theme import (
     C, build_stylesheet, mono_font, sans_font, make_lut,
 )
 # Reuse the proven data path from the classic browser: the background thumbnail
@@ -67,11 +67,11 @@ from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache
 _MAP_COLORS = ["#ff6b5e", "#ffc45e", "#8ee06a", "#5fd4d6", "#c08cf0",
                "#ff9a58", "#b6f06a", "#6ac7f0"]
 
-_ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
+_ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "icons")
 _ALS_LOGO = os.path.join(_ICONS_DIR, "als-logo.png")
 
 # The dashboard image display convention is row-major (matches
-# mainwindow_dashboard, which sets this at import).  Set it here too so the
+# mainwindow, which sets this at import).  Set it here too so the
 # widget renders identically standalone.  _oriented() below keeps us correct
 # even if some other importer flipped it.
 pg.setConfigOptions(imageAxisOrder="row-major")
@@ -89,9 +89,9 @@ def _oriented(arr2d):
 def _default_data_dir():
     """The server's ``data_dir`` from the runtime main.json (sys.prefix copy
     first, repo copy as a fallback), or ``~`` if unavailable — the same file the
-    server and mainwindow_dashboard read."""
+    server and mainwindow read."""
     for path in (os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json"),
-                 os.path.join(os.path.dirname(__file__), "..", "..", "config",
+                 os.path.join(os.path.dirname(__file__), "..", "..", "..", "config",
                               "main.json")):
         try:
             with open(path, encoding="utf-8") as f:

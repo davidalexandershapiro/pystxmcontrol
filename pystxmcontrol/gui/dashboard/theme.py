@@ -1,5 +1,5 @@
 """Design tokens, stylesheet, and small custom-painted widgets for the
-acquisition dashboard main window (``mainwindow_dashboard.py``).
+acquisition dashboard main window (``mainwindow.py``).
 
 The palette and typography here transcribe the design handoff in
 ``design_handoff_stxm_main_window/README.md`` verbatim.  Numbers are always

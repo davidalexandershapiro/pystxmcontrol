@@ -80,7 +80,7 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 "Bug Tracker" = "https://github.com/davidalexandershapiro/pystxmcontrol/issues"
 
 [project.scripts]
-stxmcontrol = "pystxmcontrol.gui.main_dashboard:main"
+stxmcontrol = "pystxmcontrol.gui.dashboard.main:main"
 stxmserver = "pystxmcontrol.controller.server:main"
 pystxmcontrol-mcp = "pystxmcontrol.mcp:main"
 
