@@ -3615,7 +3615,6 @@ class MainWindowDashboard(QMainWindow):
         menu.exec(self.mode_btn.mapToGlobal(pos))
 
     # ── staff password (mirrors mainwindow_mvc: PBKDF2 hash in main.json) ──────
-    @staticmethod
     def _check_staff_password(self):
         """Prompt for the staff password.  Returns True if authenticated.  When
         no password has been set yet, offer to create one (matching the classic
