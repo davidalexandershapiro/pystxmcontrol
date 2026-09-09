@@ -13,13 +13,14 @@ exposing ``get_desired_energies`` / ``get_entry`` / ``upsert_entry`` /
 """
 
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
+    QDialog, QLabel, QPushButton, QComboBox, QLineEdit,
     QVBoxLayout, QHBoxLayout, QGridLayout, QInputDialog, QMessageBox,
 )
 from PySide6.QtCore import Qt
 
 from pystxmcontrol.controller.beamline_database import COLUMNS
-from pystxmcontrol.gui.dashboard_theme import C, build_stylesheet, mono_font
+from pystxmcontrol.gui.dashboard_theme import build_stylesheet, mono_font
+from pystxmcontrol.gui import dashboard_widgets as dw
 
 
 class BeamlinePanelWindow(QDialog):
@@ -52,46 +53,6 @@ class BeamlinePanelWindow(QDialog):
         self._build_ui()
         self._populate_combo()
 
-    # ── small styled builders (mirror mainwindow_dashboard helpers) ─────────
-    def _label(self, text, role=None, font=None):
-        lbl = QLabel(text)
-        if role:
-            lbl.setProperty("role", role)
-        if font:
-            lbl.setFont(font)
-        return lbl
-
-    def _card(self, title):
-        """A titled card; returns (card frame, body layout with padding)."""
-        card = QFrame()
-        card.setObjectName("card")
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
-        header = QFrame()
-        header.setObjectName("cardHeader")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(14, 10, 14, 10)
-        h = self._label(title.upper())
-        h.setObjectName("panelHeading")
-        hl.addWidget(h)
-        hl.addStretch(1)
-        cl.addWidget(header)
-        card._header_layout = hl
-        body = QVBoxLayout()
-        body.setContentsMargins(14, 12, 14, 14)
-        body.setSpacing(10)
-        cl.addLayout(body)
-        return card, body
-
-    def _field(self, value="", read_only=False):
-        e = QLineEdit(value)
-        e.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        if read_only:
-            e.setReadOnly(True)
-            e.setProperty("derived", "true")
-        return e
-
     # ── UI construction ─────────────────────────────────────────────────────
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -99,7 +60,7 @@ class BeamlinePanelWindow(QDialog):
         root.setSpacing(10)
 
         # ── Energy selector ────────────────────────────────────────────────
-        sel_card, sel_body = self._card("Desired energy")
+        sel_card, sel_body = dw.card("Desired energy", padded=True)
         sel_row = QHBoxLayout()
         sel_row.setSpacing(10)
         self._energy_combo = QComboBox()
@@ -117,7 +78,7 @@ class BeamlinePanelWindow(QDialog):
         root.addWidget(sel_card)
 
         # ── Parameter grid ─────────────────────────────────────────────────
-        grid_card, grid_body = self._card("Parameters")
+        grid_card, grid_body = dw.card("Parameters", padded=True)
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
@@ -126,20 +87,20 @@ class BeamlinePanelWindow(QDialog):
         grid.setColumnStretch(2, 0)
 
         # Header
-        grid.addWidget(self._label("PARAMETER", role="fieldLabel"), 0, 0)
-        cur_hdr = self._label("CURRENT", role="fieldLabel")
+        grid.addWidget(dw.label("PARAMETER", role="fieldLabel"), 0, 0)
+        cur_hdr = dw.label("CURRENT", role="fieldLabel")
         cur_hdr.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         grid.addWidget(cur_hdr, 0, 1)
         if self._is_staff:
-            grid.addWidget(self._label("NEW VALUE", role="fieldLabel"), 0, 2)
+            grid.addWidget(dw.label("NEW VALUE", role="fieldLabel"), 0, 2)
 
         self._current_labels: dict[str, QLabel] = {}
         self._edit_fields: dict[str, QLineEdit] = {}
 
         for row_idx, (col, label, _dtype) in enumerate(COLUMNS, start=1):
-            grid.addWidget(self._label(label, role="mono"), row_idx, 0)
+            grid.addWidget(dw.label(label, role="mono"), row_idx, 0)
 
-            current_lbl = self._label("—", role="value")
+            current_lbl = dw.label("—", role="value")
             current_lbl.setFont(mono_font(12))
             current_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             current_lbl.setMinimumWidth(110)
@@ -147,7 +108,7 @@ class BeamlinePanelWindow(QDialog):
             self._current_labels[col] = current_lbl
 
             if self._is_staff:
-                edit = self._field()
+                edit = dw.field()
                 edit.setPlaceholderText("unchanged")
                 edit.setFixedWidth(130)
                 grid.addWidget(edit, row_idx, 2)
@@ -157,16 +118,16 @@ class BeamlinePanelWindow(QDialog):
         root.addWidget(grid_card)
 
         # ── Notes ──────────────────────────────────────────────────────────
-        notes_card, notes_body = self._card("Notes")
+        notes_card, notes_body = dw.card("Notes", padded=True)
         if self._is_staff:
-            self._notes_edit = self._field()
+            self._notes_edit = dw.field()
             self._notes_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self._notes_edit.setPlaceholderText("optional notes")
             notes_body.addWidget(self._notes_edit)
-        self._notes_label = self._label("—", role="monoFaint")
+        self._notes_label = dw.label("—", role="monoFaint")
         self._notes_label.setWordWrap(True)
         notes_body.addWidget(self._notes_label)
-        self._modified_label = self._label("", role="monoFaint")
+        self._modified_label = dw.label("", role="monoFaint")
         notes_body.addWidget(self._modified_label)
         root.addWidget(notes_card)
 

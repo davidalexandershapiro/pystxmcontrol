@@ -16,8 +16,8 @@ import time
 from datetime import datetime, timedelta
 
 from PySide6.QtWidgets import (
-    QDialog, QWidget, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
-    QVBoxLayout, QHBoxLayout, QButtonGroup, QStackedWidget,
+    QDialog, QWidget, QPushButton, QComboBox,
+    QVBoxLayout, QHBoxLayout, QStackedWidget,
     QPlainTextEdit, QDateEdit, QMessageBox, QApplication,
 )
 from PySide6.QtCore import Qt, QDate
@@ -25,6 +25,7 @@ from PySide6.QtCore import Qt, QDate
 import pyqtgraph as pg
 
 from pystxmcontrol.gui.dashboard_theme import C, build_stylesheet, mono_font
+from pystxmcontrol.gui import dashboard_widgets as dw
 
 pg.setConfigOptions(antialias=True, background=C["plot_ground"])
 
@@ -64,70 +65,6 @@ class MotorPanelWindow(QDialog):
         self._populate_motors()
         self._connect_signals()
 
-    # ── small styled builders (mirror mainwindow_dashboard helpers) ─────────
-    def _label(self, text, role=None, font=None):
-        lbl = QLabel(text)
-        if role:
-            lbl.setProperty("role", role)
-        if font:
-            lbl.setFont(font)
-        return lbl
-
-    def _card(self, title):
-        """A titled card; returns (card frame, body layout with padding)."""
-        card = QFrame()
-        card.setObjectName("card")
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
-        header = QFrame()
-        header.setObjectName("cardHeader")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(14, 10, 14, 10)
-        h = self._label(title.upper())
-        h.setObjectName("panelHeading")
-        hl.addWidget(h)
-        hl.addStretch(1)
-        cl.addWidget(header)
-        card._header_layout = hl
-        body = QVBoxLayout()
-        body.setContentsMargins(14, 12, 14, 14)
-        body.setSpacing(10)
-        cl.addLayout(body)
-        return card, body
-
-    def _segmented(self, items, checked=0):
-        """Segmented pill control in a well; returns (well, group, [buttons])."""
-        well = QFrame()
-        well.setProperty("role", "pillWell")
-        wl = QHBoxLayout(well)
-        wl.setContentsMargins(2, 2, 2, 2)
-        wl.setSpacing(2)
-        grp = QButtonGroup(well)
-        grp.setExclusive(True)
-        btns = []
-        for i, name in enumerate(items):
-            b = QPushButton(name)
-            b.setProperty("role", "pill")
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            if i == checked:
-                b.setChecked(True)
-            grp.addButton(b, i)
-            wl.addWidget(b)
-            btns.append(b)
-        return well, grp, btns
-
-    def _field(self, value="", width=None, read_only=False):
-        e = QLineEdit(value)
-        e.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        if read_only:
-            e.setReadOnly(True)
-            e.setProperty("derived", "true")
-        if width:
-            e.setFixedWidth(width)
-        return e
-
     @staticmethod
     def _style_plot(pw):
         pw.setBackground(C["plot_ground"])
@@ -149,27 +86,28 @@ class MotorPanelWindow(QDialog):
         root.setSpacing(10)
 
         # ── Motor selector + readback ──────────────────────────────────────
-        sel_card, sel_body = self._card("Motor")
+        sel_card, sel_body = dw.card("Motor", padded=True)
         sel_row = QHBoxLayout()
         sel_row.setSpacing(10)
         self.motorCombo = QComboBox()
         self.motorCombo.setCursor(Qt.PointingHandCursor)
         sel_row.addWidget(self.motorCombo, 1)
-        sel_row.addWidget(self._label("POSITION", role="fieldLabel"))
-        self.posReadback = self._field(width=120, read_only=True)
+        sel_row.addWidget(dw.label("POSITION", role="fieldLabel"))
+        self.posReadback = dw.field(derived=True)
+        self.posReadback.setFixedWidth(120)
         sel_row.addWidget(self.posReadback)
-        self.posUnit = self._label("", role="monoFaint")
+        self.posUnit = dw.label("", role="monoFaint")
         sel_row.addWidget(self.posUnit)
         sel_body.addLayout(sel_row)
         root.addWidget(sel_card)
 
         # ── Move / Jog controls ────────────────────────────────────────────
-        ctl_card, ctl_body = self._card("Control")
+        ctl_card, ctl_body = dw.card("Control", padded=True)
         # Move-to-position row
         move_row = QHBoxLayout()
         move_row.setSpacing(8)
-        move_row.addWidget(self._label("MOVE TO", role="fieldLabel"))
-        self.positionEdit = self._field()
+        move_row.addWidget(dw.label("MOVE TO", role="fieldLabel"))
+        self.positionEdit = dw.field()
         self.positionEdit.setPlaceholderText("target")
         move_row.addWidget(self.positionEdit, 1)
         self.moveButton = QPushButton("Move")
@@ -181,8 +119,8 @@ class MotorPanelWindow(QDialog):
         # Jog row
         jog_row = QHBoxLayout()
         jog_row.setSpacing(8)
-        jog_row.addWidget(self._label("JOG STEP", role="fieldLabel"))
-        self.stepEdit = self._field("1.0")
+        jog_row.addWidget(dw.label("JOG STEP", role="fieldLabel"))
+        self.stepEdit = dw.field("1.0")
         jog_row.addWidget(self.stepEdit, 1)
         self.minusButton = QPushButton("−")
         self.plusButton = QPushButton("+")
@@ -196,10 +134,11 @@ class MotorPanelWindow(QDialog):
         root.addWidget(ctl_card)
 
         # ── Plots (Live / History) ─────────────────────────────────────────
-        plot_card, plot_body = self._card("Trace")
-        tab_well, self._tab_grp, _ = self._segmented(["Live", "History"], 0)
-        plot_card._header_layout.insertWidget(1, tab_well)
-        plot_card._header_layout.insertSpacing(2, 10)
+        plot_card, plot_body = dw.card("Trace", padded=True)
+        tab_well, _ = dw.segmented(["Live", "History"], 0)
+        self._tab_grp = tab_well.group
+        plot_card.header_layout.insertWidget(1, tab_well)
+        plot_card.header_layout.insertSpacing(2, 10)
 
         self.plotStack = QStackedWidget()
         self.plotStack.addWidget(self._build_live_tab())
@@ -209,7 +148,7 @@ class MotorPanelWindow(QDialog):
         root.addWidget(plot_card, 1)
 
         # ── Read-only config ───────────────────────────────────────────────
-        cfg_card, cfg_body = self._card("Motor config")
+        cfg_card, cfg_body = dw.card("Motor config", padded=True)
         self.configText = QPlainTextEdit()
         self.configText.setReadOnly(True)
         self.configText.setFixedHeight(150)
@@ -241,7 +180,7 @@ class MotorPanelWindow(QDialog):
 
         date_row = QHBoxLayout()
         date_row.setSpacing(8)
-        date_row.addWidget(self._label("DATE", role="fieldLabel"))
+        date_row.addWidget(dw.label("DATE", role="fieldLabel"))
         self.datePicker = QDateEdit()
         self.datePicker.setDate(QDate.currentDate())
         self.datePicker.setCalendarPopup(True)
@@ -252,7 +191,7 @@ class MotorPanelWindow(QDialog):
         self.loadHistButton.setCursor(Qt.PointingHandCursor)
         date_row.addWidget(self.loadHistButton)
         date_row.addStretch(1)
-        self.histStatus = self._label("", role="monoFaint")
+        self.histStatus = dw.label("", role="monoFaint")
         date_row.addWidget(self.histStatus)
         v.addLayout(date_row)
 
@@ -294,8 +233,9 @@ class MotorPanelWindow(QDialog):
         vb = plot_widget.getViewBox()
         row = QHBoxLayout()
         row.setSpacing(8)
-        row.addWidget(self._label("ZOOM", role="fieldLabel"))
-        well, grp, btns = self._segmented(["XY", "X", "Y"], 0)
+        row.addWidget(dw.label("ZOOM", role="fieldLabel"))
+        well, btns = dw.segmented(["XY", "X", "Y"], 0)
+        grp = well.group
         modes = ((True, True), (True, False), (False, True))
         for i, b in enumerate(btns):
             b.clicked.connect(lambda _=False, m=modes[i]: vb.setMouseEnabled(*m))

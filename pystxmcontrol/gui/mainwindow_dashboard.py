@@ -29,8 +29,8 @@ import pyqtgraph as pg
 from pystxmcontrol.gui.dashboard_theme import (
     C, build_stylesheet, make_lut,
     mono_font, sans_font, TravelBar, ProgressBar, EnergyRegionStrip,
-    HistColorBar,
 )
+from pystxmcontrol.gui import dashboard_widgets as dw
 from pystxmcontrol.gui.dashboard_heartbeat import ServerHeartbeat
 from pystxmcontrol.gui.dashboard_image_area import ImageArea, SciAxis, exp_str
 from pystxmcontrol.gui.dashboard_favorites_bar import EnergyFavoritesBar
@@ -185,13 +185,6 @@ class MainWindowDashboard(QMainWindow):
             except Exception:
                 pass
         super().closeEvent(event)
-
-    # ── generic builders ────────────────────────────────────────────────
-    def _vline(self):
-        f = QFrame()
-        f.setFixedWidth(1)
-        f.setStyleSheet(f"background:{C['border']};border:none;")
-        return f
 
     # ── motor config ────────────────────────────────────────────────────
     _DRIVER_KIND = {
@@ -487,114 +480,6 @@ class MainWindowDashboard(QMainWindow):
             rows.append((name, kind, f"{val:.2f}", d.get("unit", ""), frac, False))
         return rows
 
-    def _label(self, text, role=None, font=None, color=None):
-        lbl = QLabel(text)
-        if role:
-            lbl.setProperty("role", role)
-        if font:
-            lbl.setFont(font)
-        if color:
-            lbl.setStyleSheet(f"color:{color};background:transparent;")
-        return lbl
-
-    def _card(self, title, note=None):
-        """Return (card QFrame, body QVBoxLayout). Body has no padding — callers
-        add their own content widgets/layouts."""
-        card = QFrame()
-        card.setObjectName("card")
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
-
-        header = QFrame()
-        header.setObjectName("cardHeader")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(14, 11, 14, 11)
-        h = self._label(title.upper())
-        h.setObjectName("panelHeading")
-        hl.addWidget(h)
-        hl.addStretch(1)
-        if note is not None:
-            self._note_lbl = self._label(note)
-            self._note_lbl.setObjectName("panelNote")
-            hl.addWidget(self._note_lbl)
-        cl.addWidget(header)
-        card._header_layout = hl        # expose for extra header controls
-        return card, cl
-
-    def _field(self, value="", derived=False, mono=True, align_right=True):
-        e = QLineEdit(value)
-        if derived:
-            e.setProperty("derived", "true")
-            e.setReadOnly(True)
-        if align_right:
-            e.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        return e
-
-    def _labeled_field(self, label, value="", derived=False, micro=False):
-        w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(4)
-        lbl = self._label(label, role="microLabel" if micro else "fieldLabel")
-        v.addWidget(lbl)
-        e = self._field(value, derived=derived)
-        v.addWidget(e)
-        return w, e
-
-    def _segmented(self, items, checked=0, role="pill"):
-        """Segmented pill control inside a well. Returns (frame, [buttons])."""
-        well = QFrame()
-        well.setProperty("role", "pillWell")
-        wl = QHBoxLayout(well)
-        wl.setContentsMargins(2, 2, 2, 2)
-        wl.setSpacing(2)
-        grp = QButtonGroup(well)
-        grp.setExclusive(True)
-        btns = []
-        for i, name in enumerate(items):
-            b = QPushButton(name)
-            b.setProperty("role", role)
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            if i == checked:
-                b.setChecked(True)
-            grp.addButton(b, i)
-            wl.addWidget(b)
-            btns.append(b)
-        well._group = grp
-        return well, btns
-
-    def _group_box(self, title, note=None, sep=True):
-        """A group in a scrolling controls panel: title row + body layout."""
-        w = QFrame()
-        if sep:
-            w.setObjectName("rowSep")
-        v = QVBoxLayout(w)
-        v.setContentsMargins(14, 12, 14, 12)
-        v.setSpacing(9)
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.addWidget(self._label(title.upper(), role="fieldLabel"))
-        top.addStretch(1)
-        if note:
-            top.addWidget(self._label(note, role="monoFaint"))
-        v.addLayout(top)
-        return w, v
-
-    def _grid4(self, specs):
-        """4-column labeled-field grid. specs = [(label, value, derived), ...]."""
-        g = QGridLayout()
-        g.setContentsMargins(0, 0, 0, 0)
-        g.setHorizontalSpacing(6)
-        g.setVerticalSpacing(4)
-        edits = []
-        for col, (lbl, val, derived) in enumerate(specs):
-            g.addWidget(self._label(lbl, role="microLabel"), 0, col)
-            e = self._field(val, derived=derived)
-            g.addWidget(e, 1, col)
-            edits.append(e)
-        return g, edits
 
     # ── header ───────────────────────────────────────────────────────────
     def _build_header(self):
@@ -617,7 +502,7 @@ class MainWindowDashboard(QMainWindow):
         bl.addWidget(logo)
         title_box = QVBoxLayout()
         title_box.setSpacing(1)
-        t = self._label("STXM Control")
+        t = dw.label("STXM Control")
         t.setFont(sans_font(11, QFont.DemiBold))
         title_box.addWidget(t)
         # The beamline, from main.json. Only added when configured: an empty line here
@@ -625,10 +510,10 @@ class MainWindowDashboard(QMainWindow):
         # that any other instrument running this GUI is not on.
         _, beamline = instrument_identity()
         if beamline:
-            title_box.addWidget(self._label(beamline, role="monoFaint"))
+            title_box.addWidget(dw.label(beamline, role="monoFaint"))
         bl.addLayout(title_box)
         hl.addWidget(brand)
-        hl.addWidget(self._vline())
+        hl.addWidget(dw.vline())
 
         # app nav tabs
         nav = QWidget()
@@ -657,8 +542,8 @@ class MainWindowDashboard(QMainWindow):
             v.setContentsMargins(22, 0, 22, 0)
             v.setSpacing(2)
             v.addStretch(1)
-            lab = self._label(label.upper(), role="fieldLabel")
-            val = self._label(value, role=role)
+            lab = dw.label(label.upper(), role="fieldLabel")
+            val = dw.label(value, role=role)
             val.setFont(mono_font(12, QFont.Medium))
             v.addWidget(lab)
             v.addWidget(val)
@@ -666,13 +551,13 @@ class MainWindowDashboard(QMainWindow):
             return w, val
 
         rc, self.beam_val = readout("Beam current", "499.6 mA")
-        hl.addWidget(self._vline()); hl.addWidget(rc)
+        hl.addWidget(dw.vline()); hl.addWidget(rc)
         pe, self.energy_val = readout("Photon energy", "705.0 eV", role="accent")
-        hl.addWidget(self._vline()); hl.addWidget(pe)
-        hl.addWidget(self._vline()); hl.addWidget(self._build_shutter_control())
+        hl.addWidget(dw.vline()); hl.addWidget(pe)
+        hl.addWidget(dw.vline()); hl.addWidget(self._build_shutter_control())
 
         # server status
-        hl.addWidget(self._vline())
+        hl.addWidget(dw.vline())
         srv = QWidget()
         sv = QHBoxLayout(srv)
         sv.setContentsMargins(20, 0, 20, 0)
@@ -686,13 +571,13 @@ class MainWindowDashboard(QMainWindow):
         sbox.setSpacing(1)
         addr, port = self._server_endpoint()
         endpoint = f"{addr}:{port}" if addr and port else "not configured"
-        sbox.addWidget(self._label("stxmserver", font=sans_font(10, QFont.Medium)))
-        sbox.addWidget(self._label(endpoint, role="monoFaint"))
+        sbox.addWidget(dw.label("stxmserver", font=sans_font(10, QFont.Medium)))
+        sbox.addWidget(dw.label(endpoint, role="monoFaint"))
         sv.addLayout(sbox)
         hl.addWidget(srv)
 
         # mode toggle
-        hl.addWidget(self._vline())
+        hl.addWidget(dw.vline())
         modew = QWidget()
         mv = QHBoxLayout(modew)
         mv.setContentsMargins(20, 0, 20, 0)
@@ -726,7 +611,7 @@ class MainWindowDashboard(QMainWindow):
         h.setSpacing(9)
         self.shutter_led = QLabel("●")
         h.addWidget(self.shutter_led)
-        h.addWidget(self._label("SHUTTER", role="fieldLabel"))
+        h.addWidget(dw.label("SHUTTER", role="fieldLabel"))
         self.shutter_combo = QComboBox()
         self.shutter_combo.addItems(["Auto", "Open", "Closed"])
         self.shutter_combo.setCursor(Qt.PointingHandCursor)
@@ -789,7 +674,7 @@ class MainWindowDashboard(QMainWindow):
         return col
 
     def _build_scan_def(self):
-        card, body = self._card("Scan definition", "scan.json")
+        card, body = dw.card("Scan definition", "scan.json")
         card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         content = QWidget()
@@ -801,7 +686,7 @@ class MainWindowDashboard(QMainWindow):
         row = QGridLayout()
         row.setHorizontalSpacing(10)
         row.setVerticalSpacing(5)
-        row.addWidget(self._label("SCAN TYPE", role="fieldLabel"), 0, 0)
+        row.addWidget(dw.label("SCAN TYPE", role="fieldLabel"), 0, 0)
         self.scan_type = QComboBox()
         # When connected, the scan types must be the real scan.json keys (so
         # client.scanConfig[scan_type] resolves at compile time); otherwise use
@@ -820,7 +705,7 @@ class MainWindowDashboard(QMainWindow):
         self.scan_type.setCursor(Qt.PointingHandCursor)
         self.scan_type.currentTextChanged.connect(self._on_scan_type)
         row.addWidget(self.scan_type, 1, 0)
-        row.addWidget(self._label("MODE", role="fieldLabel"), 0, 1)
+        row.addWidget(dw.label("MODE", role="fieldLabel"), 0, 1)
         self.mode_field = QLineEdit("continuousLine")
         self.mode_field.setReadOnly(True)
         self.mode_field.setProperty("derived", "true")
@@ -870,8 +755,8 @@ class MainWindowDashboard(QMainWindow):
                          ("Points", "14 400")):
             box = QVBoxLayout()
             box.setSpacing(2)
-            box.addWidget(self._label(lbl.upper(), role="fieldLabel"))
-            v_ = self._label(val, role="valueBig")
+            box.addWidget(dw.label(lbl.upper(), role="fieldLabel"))
+            v_ = dw.label(val, role="valueBig")
             box.addWidget(v_)
             self._stat_labels[lbl] = v_
             stats.addLayout(box)
@@ -903,7 +788,7 @@ class MainWindowDashboard(QMainWindow):
         g.setHorizontalSpacing(6)
         g.setVerticalSpacing(6)
         for col, h in enumerate(("", "Center", "Range", "N pts", "Step")):
-            lbl = self._label(h, role="microLabel")
+            lbl = dw.label(h, role="microLabel")
             lbl.setAlignment(Qt.AlignCenter)
             g.addWidget(lbl, 0, col)
         rows = [("SampleX", "-315.000", "12.000", "120", "0.100"),
@@ -911,9 +796,9 @@ class MainWindowDashboard(QMainWindow):
         # Field refs keyed by motor, used by _compile_scan to build the region.
         self._spatial_fields = {}
         for r, (name, c, rng, n, step) in enumerate(rows, start=1):
-            g.addWidget(self._label(name, role="mono"), r, 0)
-            e_c = self._field(c); e_rng = self._field(rng)
-            e_n = self._field(n); e_step = self._field(step, derived=True)
+            g.addWidget(dw.label(name, role="mono"), r, 0)
+            e_c = dw.field(c); e_rng = dw.field(rng)
+            e_n = dw.field(n); e_step = dw.field(step, derived=True)
             g.addWidget(e_c, r, 1)
             g.addWidget(e_rng, r, 2)
             g.addWidget(e_n, r, 3)
@@ -1009,8 +894,8 @@ class MainWindowDashboard(QMainWindow):
         self._energy_fields = {}
         keys = ["start", "stop", "step", "n", "dwell"]
         for col, (lbl, val, derived) in enumerate(specs):
-            g.addWidget(self._label(lbl, role="microLabel"), 0, col)
-            e = self._field(val, derived=derived)
+            g.addWidget(dw.label(lbl, role="microLabel"), 0, col)
+            e = dw.field(val, derived=derived)
             g.addWidget(e, 1, col)
             g.setColumnStretch(col, 1)
             self._energy_fields[keys[col]] = e
@@ -1037,9 +922,9 @@ class MainWindowDashboard(QMainWindow):
         wv.setContentsMargins(12, 10, 12, 6)
         wv.setSpacing(6)
         top = QHBoxLayout()
-        top.addWidget(self._label("ENERGY REGIONS", role="fieldLabel"))
+        top.addWidget(dw.label("ENERGY REGIONS", role="fieldLabel"))
         top.addStretch(1)
-        self._energy_summary_lbl = self._label("", role="accent")
+        self._energy_summary_lbl = dw.label("", role="accent")
         top.addWidget(self._energy_summary_lbl)
         wv.addLayout(top)
         self._energy_strip = EnergyRegionStrip([])
@@ -1048,7 +933,7 @@ class MainWindowDashboard(QMainWindow):
         self._energy_axis = QHBoxLayout()
         self._energy_axis_lbls = []
         for i in range(4):
-            lbl = self._label("", role="monoFaint")
+            lbl = dw.label("", role="monoFaint")
             self._energy_axis_lbls.append(lbl)
             self._energy_axis.addWidget(lbl)
             if i < 3:
@@ -1098,9 +983,9 @@ class MainWindowDashboard(QMainWindow):
             r, c = divmod(i, 2)
             box = QVBoxLayout()
             box.setSpacing(4)
-            box.addWidget(self._label(lbl, role="microLabel"))
+            box.addWidget(dw.label(lbl, role="microLabel"))
             if editable:
-                e = self._field(val)
+                e = dw.field(val)
                 if lbl.startswith("Exposure"):
                     self._exposure_field = e
                 box.addWidget(e)
@@ -1121,7 +1006,7 @@ class MainWindowDashboard(QMainWindow):
         return page
 
     def _build_acq_controls(self):
-        card, body = self._card("Acquisition controls", "continuousLine")
+        card, body = dw.card("Acquisition controls", "continuousLine")
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1132,9 +1017,9 @@ class MainWindowDashboard(QMainWindow):
         iv.setSpacing(0)
 
         # Focus Z
-        w, gv = self._group_box("Focus Z", "ZonePlateZ · Focus, Image Stack")
+        w, gv = dw.group_box("Focus Z", "ZonePlateZ · Focus, Image Stack")
         self._focus_group = w
-        grid, fz_edits = self._grid4([("Center", "0.000", False), ("Range", "100.000", False),
+        grid, fz_edits = dw.grid4([("Center", "0.000", False), ("Range", "100.000", False),
                                ("Points", "50", False), ("Step µm", "2.000", True)])
         self._focus_fields = {"center": fz_edits[0], "range": fz_edits[1],
                               "points": fz_edits[2], "step": fz_edits[3]}
@@ -1156,11 +1041,11 @@ class MainWindowDashboard(QMainWindow):
         zp = QGridLayout()
         zp.setHorizontalSpacing(6)
         zp.setVerticalSpacing(4)
-        zp.addWidget(self._label("Zone Plate A0", role="microLabel"), 0, 0)
-        self._a0_field = self._field(f"{float(energy.get('A0', 0.0)):.4f}")
+        zp.addWidget(dw.label("Zone Plate A0", role="microLabel"), 0, 0)
+        self._a0_field = dw.field(f"{float(energy.get('A0', 0.0)):.4f}")
         zp.addWidget(self._a0_field, 1, 0)
-        a1_lbl = self._label("Zone Plate A1 · staff", role="microLabel")
-        a1_edit = self._field(f"{float(energy.get('A1', 0.0)):.4f}")
+        a1_lbl = dw.label("Zone Plate A1 · staff", role="microLabel")
+        a1_edit = dw.field(f"{float(energy.get('A1', 0.0)):.4f}")
         zp.addWidget(a1_lbl, 0, 1)
         zp.addWidget(a1_edit, 1, 1)
         zp.setColumnStretch(0, 1)
@@ -1170,9 +1055,9 @@ class MainWindowDashboard(QMainWindow):
         iv.addWidget(w)
 
         # Line
-        w, gv = self._group_box("Line", "Focus, Line Spectrum")
+        w, gv = dw.group_box("Line", "Focus, Line Spectrum")
         self._line_group = w
-        grid, ln_edits = self._grid4([("Length µm", "10.000", False), ("Angle °", "0.0", False),
+        grid, ln_edits = dw.grid4([("Length µm", "10.000", False), ("Angle °", "0.0", False),
                                ("Points", "50", False), ("Step µm", "0.200", True)])
         self._line_fields = {"length": ln_edits[0], "angle": ln_edits[1],
                              "points": ln_edits[2], "step": ln_edits[3]}
@@ -1183,7 +1068,7 @@ class MainWindowDashboard(QMainWindow):
         b = QPushButton("Draw line on image"); b.setProperty("role", "small")
         b.clicked.connect(self._refresh_focus_line)
         r.addWidget(b)
-        self._line_endpoints_lbl = self._label("", role="monoFaint")
+        self._line_endpoints_lbl = dw.label("", role="monoFaint")
         r.addWidget(self._line_endpoints_lbl)
         r.addStretch(1)
         gv.addLayout(r)
@@ -1193,7 +1078,7 @@ class MainWindowDashboard(QMainWindow):
         # any double_motor_scan family).  Each axis is a motor dropdown + a
         # Center / Range / Points / Step grid (mirrors the Loop sequence widget).
         # The dropdowns pre-select from the scan config's x_motor / y_motor.
-        w, gv = self._group_box("Motor scan", "Single / Double Motor")
+        w, gv = dw.group_box("Motor scan", "Single / Double Motor")
         self._motor_group = w
         self._motor_axis_widgets = []
         for axis in range(2):
@@ -1201,7 +1086,7 @@ class MainWindowDashboard(QMainWindow):
             bl = QVBoxLayout(block)
             bl.setContentsMargins(0, 0, 0, 0)
             bl.setSpacing(6)
-            lbl = self._label("X MOTOR" if axis == 0 else "Y MOTOR",
+            lbl = dw.label("X MOTOR" if axis == 0 else "Y MOTOR",
                               role="microLabel")
             bl.addWidget(lbl)
             combo = QComboBox()
@@ -1210,7 +1095,7 @@ class MainWindowDashboard(QMainWindow):
             combo.currentIndexChanged.connect(
                 lambda _i, a=axis: self._on_motor_selected(a))
             bl.addWidget(combo)
-            grid, edits = self._grid4([("Center", "0.000", False),
+            grid, edits = dw.grid4([("Center", "0.000", False),
                                        ("Range", "10.000", False),
                                        ("Points", "50", False),
                                        ("Step", "0.200", True)])
@@ -1224,15 +1109,15 @@ class MainWindowDashboard(QMainWindow):
         iv.addWidget(w)
 
         # Loop sequence
-        w, gv = self._group_box("Loop sequence", "outer motor loop")
-        lbl = self._label("MOTOR", role="microLabel")
+        w, gv = dw.group_box("Loop sequence", "outer motor loop")
+        lbl = dw.label("MOTOR", role="microLabel")
         gv.addWidget(lbl)
         combo = QComboBox()
         combo.addItems([name for name, _ in self._visible_motors()])
         combo.setCursor(Qt.PointingHandCursor)
         gv.addWidget(combo)
         self._loop_motor_combo = combo
-        grid, loop_edits = self._grid4(
+        grid, loop_edits = dw.grid4(
             [("Center", "-118.400", False), ("Range", "20.000", False),
              ("Points", "11", False), ("Step", "2.000", True)])
         gv.addLayout(grid)
@@ -1247,7 +1132,7 @@ class MainWindowDashboard(QMainWindow):
 
         # Favorites — energy presets, added by dropping a .json here (see
         # _on_favorite_dropped) and applied with a left-click.
-        w, gv = self._group_box("Favorites", "energy presets · drag .json here")
+        w, gv = dw.group_box("Favorites", "energy presets · drag .json here")
         self._favorites_bar = EnergyFavoritesBar()
         self._favorites_bar.file_dropped.connect(self._on_favorite_dropped)
         gv.addWidget(self._favorites_bar)
@@ -1257,13 +1142,13 @@ class MainWindowDashboard(QMainWindow):
 
         # Output — Sample and Comment are stored in the scan file (see the
         # sm.set('sample'/'comment') calls in the scan compiler).
-        w, gv = self._group_box("Output", sep=False)
-        gv.addWidget(self._label("Sample", role="microLabel"))
+        w, gv = dw.group_box("Output", sep=False)
+        gv.addWidget(dw.label("Sample", role="microLabel"))
         sample = QLineEdit("particle collection, Fe screening")
         sample.setFont(sans_font(10))
         self._sample_field = sample
         gv.addWidget(sample)
-        gv.addWidget(self._label("Comment", role="microLabel"))
+        gv.addWidget(dw.label("Comment", role="microLabel"))
         comment = QLineEdit("")
         comment.setFont(sans_font(10))
         self._comment_field = comment
@@ -1281,7 +1166,7 @@ class MainWindowDashboard(QMainWindow):
         fv.setContentsMargins(14, 10, 14, 10)
         pbox = QVBoxLayout()
         pbox.setSpacing(3)
-        pbox.addWidget(self._label("Proposal", font=sans_font(10), color=C["text_dim"]))
+        pbox.addWidget(dw.label("Proposal", font=sans_font(10), color=C["text_dim"]))
         combo = QComboBox()
         combo.setCursor(Qt.PointingHandCursor)
         combo.setMinimumWidth(200)
@@ -1318,15 +1203,15 @@ class MainWindowDashboard(QMainWindow):
         tl = QHBoxLayout(tb)
         tl.setContentsMargins(14, 10, 14, 10)
         tl.setSpacing(16)
-        fn = self._label("NS_260806042.stxm", role="value")
+        fn = dw.label("NS_260806042.stxm", role="value")
         fn.setFont(mono_font(16, QFont.DemiBold))
         self._image_title_lbl = fn
         tl.addWidget(fn)
-        self._image_subline_lbl = self._label("—",
+        self._image_subline_lbl = dw.label("—",
                                               font=sans_font(10), color=C["text_dim"])
         tl.addWidget(self._image_subline_lbl)
         tl.addStretch(1)
-        cmap_well, self.cmap_btns = self._segmented(["gray", "viridis", "inferno"], 0)
+        cmap_well, self.cmap_btns = dw.segmented(["gray", "viridis", "inferno"], 0)
         for i, b in enumerate(self.cmap_btns):
             b.clicked.connect(lambda _=False, n=("gray", "viridis", "inferno")[i]:
                               self._set_cmap(n))
@@ -1397,8 +1282,8 @@ class MainWindowDashboard(QMainWindow):
         for lbl, val in (("X", "—"), ("Y", "—"), ("I", "—"), ("OD", "—")):
             cur = QHBoxLayout()
             cur.setSpacing(6)
-            k = self._label(lbl, font=mono_font(11), color=C["text_dim"])
-            val_l = self._label(val, font=mono_font(11), color=C["text"])
+            k = dw.label(lbl, font=mono_font(11), color=C["text_dim"])
+            val_l = dw.label(val, font=mono_font(11), color=C["text"])
             cur.addWidget(k); cur.addWidget(val_l)
             fv.addLayout(cur)
             self._cursor_readout[lbl] = val_l
@@ -1426,41 +1311,44 @@ class MainWindowDashboard(QMainWindow):
 
         # Profile: ROI spectrum OR live cursor line-outs, switched by a pill group
         # in the card header (spectrum isn't always the relevant readout).
-        prof_card, prof_body = self._card("Profile")
-        prof_well, _ = self._segmented(["Spectrum", "Line-outs"], 1)
-        prof_card._header_layout.insertWidget(1, prof_well)
-        prof_card._header_layout.insertSpacing(2, 10)
+        prof_card, prof_body = dw.card("Profile")
+        prof_well, _ = dw.segmented(["Spectrum", "Line-outs"], 1)
+        prof_card.header_layout.insertWidget(1, prof_well)
+        prof_card.header_layout.insertSpacing(2, 10)
         # Right side of the header: the spectrum note OR the X/Y line-cut pill,
         # whichever the active tab needs (they share the slot; only one shows).
-        self._profile_note = self._label("mean signal · ROI vs eV", role="accent")
-        prof_card._header_layout.addWidget(self._profile_note)
-        self._lineout_axis_well, _ = self._segmented(["X", "Y"], 0)
-        prof_card._header_layout.addWidget(self._lineout_axis_well)
+        self._profile_note = dw.label("mean signal · ROI vs eV", role="accent")
+        prof_card.header_layout.addWidget(self._profile_note)
+        self._lineout_axis_well, _ = dw.segmented(["X", "Y"], 0)
+        prof_card.header_layout.addWidget(self._lineout_axis_well)
 
         self._profile_stack = QStackedWidget()
         self._profile_stack.addWidget(self._spectrum_panel())
         self._profile_stack.addWidget(self._lineout_panel())
         prof_body.addWidget(self._profile_stack, 1)
-        self._profile_grp = prof_well._group
-        prof_well._group.idClicked.connect(self._switch_profile)
-        self._lineout_axis_well._group.idClicked.connect(self._set_lineout_axis)
+        self._profile_grp = prof_well.group
+        prof_well.group.idClicked.connect(self._switch_profile)
+        self._lineout_axis_well.group.idClicked.connect(self._set_lineout_axis)
         # Default to the Line-outs tab (matches the checked pill above).
         self._switch_profile(1)
         sl.addWidget(prof_card, 135)
 
         # scan progress
-        prog_card, prog_body = self._card("Scan progress", "12:47 / 18:24")
-        self.progress_time_lbl = self._note_lbl      # header "elapsed / est"
+        prog_card, prog_body = dw.card("Scan progress", "12:47 / 18:24")
+        # This card's own note is the header "elapsed / est" readout.  It used to
+        # be picked up from a self._note_lbl that every card with a note
+        # overwrote, so it was only ever correct because of build order.
+        self.progress_time_lbl = prog_card.note_label
         content = QWidget()
         pv = QVBoxLayout(content)
         pv.setContentsMargins(14, 14, 14, 14)
         pv.setSpacing(12)
         top = QHBoxLayout()
-        self.progress_caption = self._label("—",
+        self.progress_caption = dw.label("—",
                                              font=sans_font(10), color=C["text_dim"])
         top.addWidget(self.progress_caption)
         top.addStretch(1)
-        self.pct_lbl = self._label("0%", role="value")
+        self.pct_lbl = dw.label("0%", role="value")
         top.addWidget(self.pct_lbl)
         pv.addLayout(top)
         self.progress = ProgressBar(0.0)
@@ -1475,8 +1363,8 @@ class MainWindowDashboard(QMainWindow):
             r, c = divmod(i, 2)
             box = QVBoxLayout()
             box.setSpacing(2)
-            box.addWidget(self._label(lbl.upper(), role="fieldLabel"))
-            v_ = self._label(val, role=role)
+            box.addWidget(dw.label(lbl.upper(), role="fieldLabel"))
+            v_ = dw.label(val, role=role)
             v_.setFont(mono_font(14))
             box.addWidget(v_)
             grid.addLayout(box, r, c)
@@ -1486,21 +1374,12 @@ class MainWindowDashboard(QMainWindow):
         sl.addWidget(prog_card, 100)
         return strip
 
-    @staticmethod
-    def _style_plot(pw):
-        pw.setBackground(C["plot_ground"])
-        pw.showGrid(x=True, y=True, alpha=0.15)
-        for ax in ("bottom", "left"):
-            pw.getAxis(ax).setPen(C["border"])
-            pw.getAxis(ax).setTextPen(C["text_faint"])
-        return pw
-
     def _spectrum_panel(self):
         """ROI spectrum: the mean signal inside the Spectrum ROI as a function of
         energy, computed live from the scan's energy stack (see
         _update_roi_spectrum).  Empty for single-energy scans — there is no
         spectrum to show — and until at least one energy has finished imaging."""
-        pw = self._style_plot(pg.PlotWidget())
+        pw = dw.style_plot(pg.PlotWidget())
         # No units= here: pyqtgraph's auto SI-prefix would rescale hundreds of eV
         # to "0.7 k" — show the raw eV value on the axis instead.
         pw.setLabel("bottom", "energy (eV)")
@@ -1622,7 +1501,7 @@ class MainWindowDashboard(QMainWindow):
         horizontal (X, red) or vertical (Y, cyan) cut, toggled by the X/Y pill in
         the card header.  The two cuts live on very different position axes, so
         only one shows at a time.  Fed live by ImageArea.cursor_changed."""
-        pw = self._style_plot(pg.PlotWidget())
+        pw = dw.style_plot(pg.PlotWidget())
         pw.setLabel("bottom", "x", units="µm")
         self._lineout_plot = pw
         self._lineout_h = pw.plot([], [], pen=pg.mkPen("#ff3b30", width=1.6))
@@ -1825,15 +1704,15 @@ class MainWindowDashboard(QMainWindow):
         return col
 
     def _build_detector(self):
-        card, body = self._card("Live detector")
+        card, body = dw.card("Live detector")
         card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         # Live status + pulse dot live in the header, right-aligned.
         self.live_dot = QLabel("●")
         self.live_dot.setStyleSheet(f"color:{C['alert']};background:transparent;font-size:10px;")
-        card._header_layout.addWidget(self.live_dot)
-        self.det_status = self._label("", role="mono")
+        card.header_layout.addWidget(self.live_dot)
+        self.det_status = dw.label("", role="mono")
         self.det_status.setFont(mono_font(10))
-        card._header_layout.addWidget(self.det_status)
+        card.header_layout.addWidget(self.det_status)
 
         # One tab + one page per configured detector.  Point/spectrum detectors
         # get a trace/spectrum plot; image detectors get a 2-D viewer with an
@@ -1849,7 +1728,7 @@ class MainWindowDashboard(QMainWindow):
         wl.setContentsMargins(14, 14, 14, 14)
         wl.setSpacing(10)
 
-        det_well, self.det_btns = self._segmented(names or ["—"], default_idx)
+        det_well, self.det_btns = dw.segmented(names or ["—"], default_idx)
         wl.addWidget(det_well)
 
         self.det_stack = QStackedWidget()
@@ -1862,7 +1741,7 @@ class MainWindowDashboard(QMainWindow):
         wl.addWidget(self.det_stack, 1)
         body.addWidget(wrap)
 
-        det_well._group.idClicked.connect(self._switch_detector)
+        det_well.group.idClicked.connect(self._switch_detector)
         if self._det_keys:
             self.det_stack.setCurrentIndex(default_idx)
             self._update_det_status(default_idx)
@@ -1884,19 +1763,6 @@ class MainWindowDashboard(QMainWindow):
         """DAQ config key of the currently displayed detector tab, or None."""
         i = self.det_stack.currentIndex() if hasattr(self, "det_stack") else -1
         return self._det_keys[i] if 0 <= i < len(self._det_keys) else None
-
-    def _chip(self, label, value, ok=False):
-        chip = QFrame()
-        chip.setStyleSheet(f"background:{C['well']};border:1px solid {C['border']};"
-                           "border-radius:5px;")
-        cv = QVBoxLayout(chip)
-        cv.setContentsMargins(9, 7, 9, 7)
-        cv.setSpacing(2)
-        cv.addWidget(self._label(label.upper(), role="microLabel"))
-        v = self._label(value, role="ok" if ok else "value")
-        v.setFont(mono_font(12))
-        cv.addWidget(v)
-        return chip
 
     def _image_detector_page(self, key, cfg):
         """A 2-D viewer for an image-type detector: pyqtgraph image on the left,
@@ -1921,8 +1787,8 @@ class MainWindowDashboard(QMainWindow):
         vb.autoRange(padding=0)
         left.addWidget(glw, 1)
         cap = QHBoxLayout()
-        dims_lbl = self._label("256² · log", role="monoFaint")
-        sum_lbl = self._label("Σ 1.9e6", role="monoFaint")
+        dims_lbl = dw.label("256² · log", role="monoFaint")
+        sum_lbl = dw.label("Σ 1.9e6", role="monoFaint")
         cap.addWidget(dims_lbl)
         cap.addStretch(1)
         cap.addWidget(sum_lbl)
@@ -1966,9 +1832,9 @@ class MainWindowDashboard(QMainWindow):
         v.setSpacing(9)
         top = QHBoxLayout()
         title = f"{name} monitor" + (f" · {driver}" if driver else "")
-        top.addWidget(self._label(title, role="fieldLabel"))
+        top.addWidget(dw.label(title, role="fieldLabel"))
         top.addStretch(1)
-        value_lbl = self._label("—", role="ok")
+        value_lbl = dw.label("—", role="ok")
         value_lbl.setFont(mono_font(11))
         top.addWidget(value_lbl)
         v.addLayout(top)
@@ -1977,7 +1843,7 @@ class MainWindowDashboard(QMainWindow):
         # labels stay a compact one-decimal mantissa instead of full magnitudes.
         exp_row = QHBoxLayout()
         exp_row.setContentsMargins(0, 0, 0, 0)
-        exp_lbl = self._label("", role="monoFaint")
+        exp_lbl = dw.label("", role="monoFaint")
         exp_row.addWidget(exp_lbl)
         exp_row.addStretch(1)
         v.addLayout(exp_row)
@@ -2018,14 +1884,14 @@ class MainWindowDashboard(QMainWindow):
         return page
 
     def _build_motors(self):
-        card, body = self._card("Motors")
+        card, body = dw.card("Motors")
         # Tabs are data-driven: one per distinct motor `group` in motor.json.
         self._motor_group_names = self._motor_groups()
         labels = [g.title() for g in self._motor_group_names] or ["Motors"]
         if self._motor_group_index >= len(self._motor_group_names):
             self._motor_group_index = 0
-        grp_well, _ = self._segmented(labels, self._motor_group_index)
-        card._header_layout.addWidget(grp_well)
+        grp_well, _ = dw.segmented(labels, self._motor_group_index)
+        card.header_layout.addWidget(grp_well)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -2043,7 +1909,7 @@ class MainWindowDashboard(QMainWindow):
         def show_group(i):
             self._motor_group_index = i
             self._repopulate_motors()
-        grp_well._group.idClicked.connect(show_group)
+        grp_well.group.idClicked.connect(show_group)
 
         footer = QFrame()
         footer.setObjectName("cardFooter")
@@ -2080,9 +1946,9 @@ class MainWindowDashboard(QMainWindow):
         lv = QVBoxLayout(self.cmd_log)
         lv.setContentsMargins(0, 8, 0, 0)
         lv.setSpacing(3)
-        lv.addWidget(self._label("14:22:07  move Energy → 709.0 eV  [ok]",
+        lv.addWidget(dw.label("14:22:07  move Energy → 709.0 eV  [ok]",
                                  font=mono_font(9), color=C["text_dim"]))
-        lv.addWidget(self._label("14:22:09  scan line 82/120  frames 9840",
+        lv.addWidget(dw.label("14:22:09  scan line 82/120  frames 9840",
                                  font=mono_font(9), color=C["text_faint"]))
         fv.addWidget(self.cmd_log)
         body.addWidget(footer)
@@ -2109,8 +1975,8 @@ class MainWindowDashboard(QMainWindow):
             # name + kind
             nb = QVBoxLayout()
             nb.setSpacing(1)
-            nb.addWidget(self._label(name, role="mono"))
-            nb.addWidget(self._label(kind, role="microLabel"))
+            nb.addWidget(dw.label(name, role="mono"))
+            nb.addWidget(dw.label(kind, role="microLabel"))
             # Wider name column (motor names were truncating); the value column is
             # the flexible one (columnStretch below), so this space comes straight
             # out of it — shrinking the value column by roughly a third.
@@ -2121,11 +1987,11 @@ class MainWindowDashboard(QMainWindow):
             vb.setSpacing(3)
             vrow = QHBoxLayout()
             vrow.setSpacing(6)
-            val = self._label(pos, role="motion" if moving else "value")
+            val = dw.label(pos, role="motion" if moving else "value")
             val.setFont(mono_font(13, QFont.Medium))
             vrow.addWidget(val)
             if unit:
-                vrow.addWidget(self._label(unit, role="monoFaint"))
+                vrow.addWidget(dw.label(unit, role="monoFaint"))
             vrow.addStretch(1)
             vb.addLayout(vrow)
             bar = TravelBar(frac, moving)
@@ -2166,7 +2032,7 @@ class MainWindowDashboard(QMainWindow):
                         fill = str(int(round(float(fill))))
                     except (TypeError, ValueError):
                         pass
-                tgt = self._field(fill, align_right=True)
+                tgt = dw.field(fill, align_right=True)
                 tgt.setFixedWidth(84)
                 tgt.setStyleSheet("font-size:11px;padding:5px 7px;")
                 if is_int:
@@ -2255,75 +2121,12 @@ class MainWindowDashboard(QMainWindow):
     # ════════════════════════════════════════════════════════════════════
     #  Shared helpers for the Browser / Analysis / Agent views
     # ════════════════════════════════════════════════════════════════════
-    def _filter_pills(self, items, checked=0):
-        """A wrapping row of exclusive filter pills (README: same styling as the
-        colormap segmented control).  Returns (button group, [buttons])."""
-        grp = QButtonGroup(self)
-        grp.setExclusive(True)
-        btns = []
-        for i, name in enumerate(items):
-            b = QPushButton(name)
-            b.setProperty("role", "pill")
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            if i == checked:
-                b.setChecked(True)
-            grp.addButton(b, i)
-            btns.append(b)
-        return grp, btns
-
-    def _cmap_pills(self, on_change, checked=0):
-        """Colormap segmented control (gray/viridis/inferno) wired to on_change."""
-        well, btns = self._segmented(["gray", "viridis", "inferno"], checked)
-        names = ("gray", "viridis", "inferno")
-        for i, b in enumerate(btns):
-            b.clicked.connect(lambda _=False, n=names[i]: on_change(n))
-        return well
-
-    def _viewer_rail(self, cmap, top="6 214", bottom="0"):
-        """Right rail: top/bottom value labels + histogram/colorbar (HistColorBar)."""
-        rail = QFrame()
-        rail.setObjectName("viewerRail")
-        rail.setFixedWidth(96)
-        rail.setStyleSheet(f"QFrame#viewerRail {{background:{C['panel_footer']};"
-                           f"border:none;border-left:1px solid {C['border']};}}")
-        rv = QVBoxLayout(rail)
-        rv.setContentsMargins(10, 12, 10, 12)
-        rv.setSpacing(6)
-        t = self._label(top, role="monoFaint"); t.setAlignment(Qt.AlignRight)
-        rv.addWidget(t)
-        hb = HistColorBar(cmap)
-        rv.addWidget(hb, 1)
-        b = self._label(bottom, role="monoFaint"); b.setAlignment(Qt.AlignRight)
-        rv.addWidget(b)
-        return rail, hb
-
     def _go_view(self, index):
         """Programmatically switch the top-level view and sync its nav tab."""
         b = self.nav_grp.button(index)
         if b is not None:
             b.setChecked(True)
         self._switch_view(index)
-
-    def _viewer_toolbar(self, filename, subline, cmap_cb, buttons):
-        """Shared viewer toolbar: filename + subline, colormap pills, buttons.
-        Returns (toolbar frame, filename label, subline label)."""
-        tb = QFrame()
-        tb.setObjectName("cardHeader")
-        tl = QHBoxLayout(tb)
-        tl.setContentsMargins(14, 10, 14, 10)
-        tl.setSpacing(16)
-        fn = self._label(filename, role="value")
-        fn.setFont(mono_font(16, QFont.DemiBold))
-        tl.addWidget(fn)
-        sub = self._label(subline, font=sans_font(10), color=C["text_dim"])
-        tl.addWidget(sub)
-        tl.addStretch(1)
-        tl.addWidget(self._cmap_pills(cmap_cb))
-        for name in buttons:
-            b = QPushButton(name); b.setProperty("role", "small")
-            tl.addWidget(b)
-        return tb, fn, sub
 
     # ════════════════════════════════════════════════════════════════════
     #  Browser view
@@ -3975,7 +3778,7 @@ class MainWindowDashboard(QMainWindow):
             if wdg is not None:
                 wdg.deleteLater()
         if not self._favorites:
-            row.addWidget(self._label("Drag an energy preset (.json) here",
+            row.addWidget(dw.label("Drag an energy preset (.json) here",
                                       role="monoFaint"))
             return
         for i, fav in enumerate(self._favorites):
