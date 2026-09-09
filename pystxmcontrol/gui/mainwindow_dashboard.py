@@ -18,10 +18,10 @@ import numpy as np
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QFrame, QLabel, QPushButton, QComboBox, QLineEdit,
     QCheckBox, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
-    QStackedWidget, QButtonGroup, QSizePolicy, QGraphicsOpacityEffect,
+    QStackedWidget, QButtonGroup, QSizePolicy,
     QMessageBox, QFileDialog, QInputDialog, QMenu, QLayout,
 )
-from PySide6.QtGui import QPixmap, QImage, QColor, QFont, QIntValidator, QCursor
+from PySide6.QtGui import QPixmap, QColor, QFont, QIntValidator, QCursor
 from PySide6.QtCore import Qt, QTimer, QRectF, QRect, QPoint, QSize, Signal, QThread
 
 import zmq
@@ -110,23 +110,6 @@ class ServerHeartbeat(QThread):
 
 
 # ── dummy data (placeholders for real client/dataHandler signals) ───────────
-def _absorption_field(n=120, seed=1):
-    """Procedural absorption map — mirrors the mock's makeField()."""
-    rng = np.random.default_rng(seed)
-    blobs = [(.46, .42, .13, 1), (.52, .5, .07, .85), (.38, .55, .05, .7),
-             (.63, .36, .045, .6), (.3, .3, .03, .45), (.7, .62, .035, .5),
-             (.24, .62, .022, .4), (.58, .7, .025, .35)]
-    y, x = np.mgrid[0:n, 0:n] / n
-    r = np.hypot(x - .5, y - .5)
-    a = np.where(r < .44, .06, 0.0)
-    for bx, by, br, amp in blobs:
-        d2 = (x - bx) ** 2 + (y - by) ** 2
-        a += amp * np.exp(-d2 / (2 * br * br))
-    a += .05 * np.sin(x * 46) * np.sin(y * 38) * (r < .44)
-    a += (rng.random((n, n)) - .5) * .035
-    return np.clip(a, 0, 1)
-
-
 def _diffraction(n=256, seed=2):
     """Log-scaled speckle with a central beamstop and centre-column gap."""
     rng = np.random.default_rng(seed)
@@ -146,42 +129,6 @@ def _spectrum():
     od += 0.9 * np.exp(-((e - 709) ** 2) / 1.5)     # L3
     od += 0.4 * np.exp(-((e - 722) ** 2) / 2.0)     # L2
     return e, od
-
-
-def _thumb_field(seed, kind="Spiral Image", n=48):
-    """Procedural absorption thumbnail — ports the mock's makeThumbField().
-    'Focus' renders the vertical through-focus streak; everything else a
-    circular-aperture particle field."""
-    rng = np.random.default_rng(seed)
-    y, x = np.mgrid[0:n, 0:n] / n
-    if kind == "Focus":
-        a = 0.5 + 0.45 * np.cos((x - .5) * np.pi * 2.2) * np.exp(-((x - .5) / .16) ** 2)
-        a *= 0.7 + 0.3 * np.sin(y * 7 + seed)
-        a += (rng.random((n, n)) - .5) * .06
-        return np.clip(a, 0, 1)
-    r = np.hypot(x - .5, y - .5)
-    a = np.where(r < .47, .06, 0.0)
-    nb = 4 + int(rng.random() * 10)
-    for _ in range(nb):
-        bx, by = .15 + rng.random() * .7, .15 + rng.random() * .7
-        br, amp = .02 + rng.random() * .06, .3 + rng.random() * .7
-        a += amp * np.exp(-((x - bx) ** 2 + (y - by) ** 2) / (2 * br * br))
-    a += (rng.random((n, n)) - .5) * .05
-    a = np.where(r < .47, a, 0.0)
-    return np.clip(a, 0, 1)
-
-
-def _field_pixmap(field, cmap_name, size):
-    """Render an absorption field to a colour-mapped, pixelated QPixmap.
-    Display value is ``1 - field`` (absorption → brightness), matching the
-    ImageItem convention used elsewhere in this window."""
-    lut = make_lut(cmap_name)                       # (256, 3) uint8
-    idx = (np.clip(1.0 - field, 0, 1) * 255).astype(np.uint8)
-    rgb = np.ascontiguousarray(lut[idx])            # (n, n, 3)
-    h, w = rgb.shape[:2]
-    qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
-    return QPixmap.fromImage(qimg).scaled(
-        size, size, Qt.IgnoreAspectRatio, Qt.FastTransformation)
 
 
 _SUP = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
@@ -1180,79 +1127,6 @@ class ImageArea(QWidget):
         self.meta_bar.setGeometry(0, self.height() - h, self.width(), h)
         self.meta_bar.raise_()
         self._update_scalebar()
-        super().resizeEvent(e)
-
-
-class OverlayImageView(QWidget):
-    """A pyqtgraph image viewer with absolutely-positioned overlay labels
-    (scale bar + metadata) and optional circular ROI overlays — the shared
-    viewer body for the Browser and Analysis views.  Simpler than ``ImageArea``
-    (no interactive scan-line/rect-ROI); the field is swapped as state changes."""
-
-    def __init__(self, field, cmap="gray", meta_text="", scale_text="2 µm",
-                 parent=None):
-        super().__init__(parent)
-        self.setStyleSheet(f"background:{C['plot_ground']};")
-        self.glw = pg.GraphicsLayoutWidget(parent=self)
-        self.glw.setBackground(C["plot_ground"])
-        self.vb = self.glw.addViewBox()
-        self.vb.setAspectLocked(True)
-        self.vb.invertY(True)
-        self.img = pg.ImageItem()
-        self.img.setImage(1 - field)
-        self.img.setLookupTable(make_lut(cmap))
-        self.vb.addItem(self.img)
-        self.vb.autoRange(padding=0)
-        self._rois = []
-
-        self.scalebar = QFrame(self)
-        self.scalebar.setStyleSheet("background:#ffffff;border:none;")
-        self.scalebar.setFixedSize(120, 3)
-        self.scalebar_lbl = QLabel(scale_text, self)
-        self.scalebar_lbl.setFont(mono_font(9))
-        self.scalebar_lbl.setStyleSheet("color:#fff;background:transparent;")
-        self.meta = QLabel(meta_text, self)
-        self.meta.setFont(mono_font(8))
-        self.meta.setAlignment(Qt.AlignRight | Qt.AlignTop)
-        self.meta.setStyleSheet("color:rgba(255,255,255,.72);background:transparent;")
-
-    def add_circle_roi(self, cx, cy, r, color, label):
-        """Non-interactive circular ROI overlay + label chip (Analysis view).
-        A plain ellipse item — no drag handles — with a cosmetic (pixel-width) pen."""
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-        ell = QGraphicsEllipseItem(cx - r, cy - r, 2 * r, 2 * r)
-        pen = pg.mkPen(color, width=2)
-        pen.setCosmetic(True)
-        ell.setPen(pen)
-        self.vb.addItem(ell)
-        t = pg.TextItem(label, color=color, anchor=(0, 1))
-        t.setFont(mono_font(8))
-        t.setPos(cx - r, cy - r)
-        self.vb.addItem(t)
-        self._rois.append((ell, t))
-
-    def set_field(self, field, autolevels=False):
-        self.img.setImage(1 - field, autoLevels=autolevels)
-
-    def set_cmap(self, name):
-        self.img.setLookupTable(make_lut(name))
-
-    def set_meta(self, text):
-        self.meta.setText(text)
-        self._reposition()
-
-    def _reposition(self):
-        m = 16
-        self.scalebar.move(m, self.height() - m - 20)
-        self.scalebar_lbl.move(m, self.height() - m - 16)
-        self.meta.adjustSize()
-        self.meta.move(self.width() - self.meta.width() - m, m)
-        for w in (self.scalebar, self.scalebar_lbl, self.meta):
-            w.raise_()
-
-    def resizeEvent(self, e):
-        self.glw.setGeometry(0, 0, self.width(), self.height())
-        self._reposition()
         super().resizeEvent(e)
 
 
