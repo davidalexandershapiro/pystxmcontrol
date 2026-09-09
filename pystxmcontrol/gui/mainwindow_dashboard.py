@@ -32,6 +32,8 @@ from pystxmcontrol.gui.dashboard_theme import (
 )
 from pystxmcontrol.gui import dashboard_widgets as dw
 from pystxmcontrol.gui import dashboard_motor_info as mi
+from pystxmcontrol.gui import dashboard_scan_stats as stats
+from pystxmcontrol.gui import dashboard_staff_auth as auth
 from pystxmcontrol.gui.dashboard_scan_definition import (
     ScanDefinition, energy_n, motor_scan_region, region_scan_dict,
     resolve_daq_list,
@@ -2612,18 +2614,10 @@ class MainWindowDashboard(QMainWindow):
         self._set_scan_stats(est, pts, vel)
 
     def _total_scan_points(self, sm):
-        """Total acquisition points in a compiled scan model: every spatial point
-        (summed over scan regions) measured at every energy.  Focus counts the
-        ZonePlateZ sweep as its slow axis; Image/Ptychography count yPoints."""
-        scan_regions = sm.get('scan_regions', {}) or {}
-        energy_regions = sm.get('energy_regions', {}) or {}
-        n_energies = sum(int(r.get('n_energies', 1))
-                         for r in energy_regions.values()) or 1
-        spatial = 0
-        for r in scan_regions.values():
-            rows = int(r['zPoints']) if self._focus_mode else int(r['yPoints'])
-            spatial += int(r['xPoints']) * rows
-        return spatial * n_energies
+        """Total acquisition points in a compiled scan model."""
+        return stats.total_scan_points(sm.get('scan_regions', {}) or {},
+                                       sm.get('energy_regions', {}) or {},
+                                       is_focus=self._focus_mode)
 
     def _scan_stats_from_view(self):
         """(est_seconds, points, velocity_mm_s) computed from the current view.
@@ -2661,37 +2655,14 @@ class MainWindowDashboard(QMainWindow):
         else:
             eff = eregs
 
-        # ── points / lines (ScanModel.calculate_estimated_time) ──────────────
-        point_overhead = 0.1 if is_ptycho else 0.0001
-        line_overhead, energy_overhead = 0.02, 5.0
-        n_points = n_lines = 0
-        for rd in regions:
-            rows = int(rd["zPoints"]) if is_focus else int(rd["yPoints"])
-            n_points += int(rd["xPoints"]) * rows
-            n_lines += rows
-        time_per_point = 0.0
-        n_energies = 0
-        for er in eff:
-            energies = int(er.get("n", 1))
-            time_per_point += (er.get("dwell", 1.0) / 1000.0 + point_overhead) * energies
-            n_energies += energies
-        est = (n_points * time_per_point
-               + n_lines * n_energies * line_overhead
-               + max(0, n_energies - 1) * energy_overhead)
+        est, pts, _n_energies = stats.estimate(
+            regions, eff, is_focus=is_focus, is_ptycho=is_ptycho)
 
-        # ── velocity (ScanModel.get_scan_velocity): max xStep/dwell over regions
-        #     using the first energy region's dwell ───────────────────────────
-        d_first = (eff[0]["dwell"] if eff else 1.0) or 1.0
-        # Point-mode scans step to each point (no continuous stage sweep), so a
-        # scan velocity is meaningless — report 0 rather than a false red alarm.
-        if is_motor and (self._scan_cfg(scan_type) or {}).get("mode") == "point":
-            vel = 0.0
-        else:
-            vel = max((rd.get("xStep", 0.0) / d_first for rd in regions), default=0.0)
-
-        # Total acquisition points: every spatial point (summed over regions)
-        # measured at every energy.
-        pts = n_points * n_energies
+        # Point-mode scans step to each point rather than sweeping the stage.
+        point_mode = bool(
+            is_motor and (self._scan_cfg(scan_type) or {}).get("mode") == "point")
+        vel = stats.scan_velocity(regions, eff[0]["dwell"] if eff else 1.0,
+                                  point_mode=point_mode)
         return est, pts, vel
 
     def _recompute_step(self, range_e, npts_e, step_e):
@@ -3580,36 +3551,12 @@ class MainWindowDashboard(QMainWindow):
 
     # ── staff password (mirrors mainwindow_mvc: PBKDF2 hash in main.json) ──────
     @staticmethod
-    def _staff_config_path():
-        return os.path.join(sys.prefix, "pystxmcontrol_cfg", "main.json")
-
-    def _read_main_json(self):
-        try:
-            with open(self._staff_config_path()) as f:
-                return json.load(f)
-        except Exception:
-            return {}
-
-    def _write_main_json(self, data):
-        try:
-            with open(self._staff_config_path(), "w") as f:
-                json.dump(data, f, indent=4)
-        except Exception as e:
-            self._on_error(f"Could not save config: {e}")
-
-    @staticmethod
-    def _hash_password(password, salt):
-        import hashlib
-        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260000).hex()
-
     def _check_staff_password(self):
         """Prompt for the staff password.  Returns True if authenticated.  When
         no password has been set yet, offer to create one (matching the classic
         window)."""
-        cfg = self._read_main_json()
-        stored_hash = cfg.get("staff_password_hash")
-        stored_salt = cfg.get("staff_password_salt")
-        if not (stored_hash and stored_salt):
+        cfg = auth.read_config()
+        if not auth.has_password(cfg):
             reply = QMessageBox.question(
                 self, "Staff Password",
                 "No staff password is set. Set one now?",
@@ -3617,16 +3564,14 @@ class MainWindowDashboard(QMainWindow):
             if reply != QMessageBox.Yes:
                 return False
             self.set_staff_password()
-            cfg = self._read_main_json()
-            stored_hash = cfg.get("staff_password_hash")
-            stored_salt = cfg.get("staff_password_salt")
-            if not (stored_hash and stored_salt):
+            cfg = auth.read_config()
+            if not auth.has_password(cfg):
                 return False
         password, ok = QInputDialog.getText(
             self, "Staff Access", "Enter staff password:", QLineEdit.Password)
-        if not ok or not password:
+        if not ok:
             return False
-        return self._hash_password(password, bytes.fromhex(stored_salt)) == stored_hash
+        return auth.verify_password(password, cfg)
 
     def set_staff_password(self):
         """Prompt for and store a new staff password (PBKDF2 hash + salt) in
@@ -3642,11 +3587,11 @@ class MainWindowDashboard(QMainWindow):
         if not ok or confirm != password:
             QMessageBox.warning(self, "Staff Password", "Passwords do not match.")
             return
-        salt = os.urandom(32)
-        cfg = self._read_main_json()
-        cfg["staff_password_hash"] = self._hash_password(password, salt)
-        cfg["staff_password_salt"] = salt.hex()
-        self._write_main_json(cfg)
+        try:
+            auth.write_config(auth.set_password(auth.read_config(), password))
+        except Exception as e:
+            self._on_error(f"Could not save config: {e}")
+            return
         QMessageBox.information(self, "Staff Password", "Staff password updated.")
 
     def _proposal_selected(self):
@@ -4087,8 +4032,7 @@ class MainWindowDashboard(QMainWindow):
 
     @staticmethod
     def _fmt_mmss(seconds):
-        seconds = max(0, int(seconds))
-        return f"{seconds // 60:d}:{seconds % 60:02d}"
+        return stats.format_mmss(seconds)
 
     def _refresh_scan_progress(self):
         """Update the whole-scan progress from elapsed/remaining time (the server
