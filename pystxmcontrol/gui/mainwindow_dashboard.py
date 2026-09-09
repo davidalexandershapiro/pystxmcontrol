@@ -13,6 +13,8 @@ Run standalone via ``main_dashboard.py``.
 import os
 import sys
 import json
+from collections import deque
+from datetime import datetime
 import numpy as np
 
 from PySide6.QtWidgets import (
@@ -66,6 +68,9 @@ class MainWindowDashboard(QMainWindow):
         # The scan geometry the panels edit.  Built before any view, because the
         # region/energy properties below read through it from build time on.
         self.scan_def = ScanDefinition()
+        # Recent activity shown in the motor rail's footer.  Filled before
+        # the rail exists (startup), so it is created here.
+        self._cmd_log_entries = deque(maxlen=self._CMD_LOG_LINES)
         self._scanning = False
         self._move_mode = True          # True = absolute Move, False = relative Jog
         self._motor_group_index = 0     # index into the data-driven motor groups
@@ -85,6 +90,12 @@ class MainWindowDashboard(QMainWindow):
         # probe the command port first and only build the controller if a server
         # actually answers — otherwise we run in placeholder mode (dev / no server).
         self.controller = self._maybe_connect_controller(live)
+        # Seed the activity log with something true rather than leaving the
+        # footer blank: whether we actually reached a server.
+        self._log_activity(
+            "connected to server" if self.controller is not None
+            else "no server — placeholder mode",
+            level="ok" if self.controller is not None else "info")
 
         # Motor config: prefer the server's (authoritative, live positions),
         # fall back to the on-disk file for placeholder mode.
@@ -342,6 +353,7 @@ class MainWindowDashboard(QMainWindow):
         self._show_last_scan_image()
         self._refresh_image_meta()
 
+        self._log_activity("server appeared — live mode", level="ok")
         print("[dashboard] server appeared — switched to live mode")
         self.statusBar().showMessage("Connected to server — live mode", 5000)
 
@@ -1699,18 +1711,59 @@ class MainWindowDashboard(QMainWindow):
         btns.addWidget(jm, 1); btns.addWidget(mp, 1); btns.addWidget(bp, 1)
         btns.addWidget(stop)
         fv.addLayout(btns)
+        # Recent activity: what this window last asked the instrument to do, and
+        # what came back.  A fixed number of rows so the footer never resizes;
+        # the oldest line is the dimmest.
         self.cmd_log = QFrame()
         self.cmd_log.setStyleSheet(f"border-top:1px solid {C['border']};")
         lv = QVBoxLayout(self.cmd_log)
         lv.setContentsMargins(0, 8, 0, 0)
         lv.setSpacing(3)
-        lv.addWidget(dw.label("14:22:07  move Energy → 709.0 eV  [ok]",
-                                 font=mono_font(9), color=C["text_dim"]))
-        lv.addWidget(dw.label("14:22:09  scan line 82/120  frames 9840",
-                                 font=mono_font(9), color=C["text_faint"]))
+        self._cmd_log_labels = []
+        for _ in range(self._CMD_LOG_LINES):
+            lbl = dw.label("", font=mono_font(9), color=C["text_faint"])
+            lv.addWidget(lbl)
+            self._cmd_log_labels.append(lbl)
+        self._render_cmd_log()
         fv.addWidget(self.cmd_log)
         body.addWidget(footer)
         return card
+
+    # Rows in the motor-rail activity log.  Fixed, so the footer never resizes.
+    _CMD_LOG_LINES = 2
+
+    def _log_activity(self, text, level="info"):
+        """Add a line to the motor rail's activity log.
+
+        ``level`` is "info" for something we asked for, "ok" for a confirmed
+        result and "error" for a failure — it only picks the colour.  Safe to
+        call before the rail exists (startup, placeholder mode): the entry is
+        kept and painted once the widget is built.
+        """
+        entry = (datetime.now().strftime("%H:%M:%S"), text, level)
+        self._cmd_log_entries.append(entry)
+        self._render_cmd_log()
+
+    def _render_cmd_log(self):
+        """Paint the newest entries into the fixed rows, oldest at the top and
+        dimmest.  Rows with no entry yet are blank rather than absent, so the
+        footer keeps its height from the first paint."""
+        labels = getattr(self, "_cmd_log_labels", None)
+        if not labels:
+            return
+        entries = list(self._cmd_log_entries)[-len(labels):]
+        pad = [None] * (len(labels) - len(entries))
+        for lbl, entry in zip(labels, pad + entries):
+            if entry is None:
+                lbl.setText("")
+                continue
+            stamp, text, level = entry
+            colour = {"error": C["alert"], "ok": C["ok"]}.get(level, C["text_dim"])
+            # Older lines are dimmer: only the last row gets the full colour.
+            if entry is not entries[-1]:
+                colour = C["text_faint"]
+            lbl.setText(f"{stamp}  {text}")
+            lbl.setStyleSheet(f"color:{colour};background:transparent;")
 
     def _populate_motors(self, motors):
         # clear existing rows (keep trailing stretch) and drop stale widget refs
@@ -1968,6 +2021,8 @@ class MainWindowDashboard(QMainWindow):
             pos = float(self._target_text(wd["target"]))
         except (TypeError, ValueError):
             return
+        unit = self._motor_info.get(name, {}).get("unit", "")
+        self._log_activity(f"move {name} → {pos:g}{(' ' + unit) if unit else ''}")
         self.controller.move_motor(name, pos)
 
     def _jog_motor(self, name, direction):
@@ -1983,6 +2038,10 @@ class MainWindowDashboard(QMainWindow):
         except (TypeError, ValueError):
             self.controller.error_occurred.emit(f"Invalid jog step for {name}")
             return
+        unit = self._motor_info.get(name, {}).get("unit", "")
+        sign = "+" if direction >= 0 else "−"
+        self._log_activity(
+            f"jog {name} {sign}{abs(step):g}{(' ' + unit) if unit else ''}")
         self.controller.jog_motor(name, step, direction)
 
     def _toggle_move_mode(self):
@@ -3395,6 +3454,7 @@ class MainWindowDashboard(QMainWindow):
         # up (see _show_scan_error) — the controller and _compile_scan both report
         # scan-definition problems through error_occurred.
         self._last_error = msg
+        self._log_activity(msg, level="error")
         print(f"[dashboard] ERROR: {msg}")
         self.statusBar().showMessage(f"⚠  {msg}", 8000)
 
@@ -3413,6 +3473,11 @@ class MainWindowDashboard(QMainWindow):
     def _set_scanning(self, scanning):
         was_scanning = self._scanning
         self._scanning = bool(scanning)
+        if self._scanning != was_scanning:
+            self._log_activity(
+                f"scan {self.scan_type.currentText()} started" if self._scanning
+                else "scan finished",
+                level="info" if self._scanning else "ok")
         if self._scanning and not was_scanning:
             # Fresh scan: clear stale progress until the first time/frame arrives.
             self._elapsed_seconds = 0.0
@@ -4020,6 +4085,7 @@ class MainWindowDashboard(QMainWindow):
         (and per loop iteration); reflect it in the image header title."""
         if name:
             self._set_image_header(filename=os.path.basename(name))
+            self._log_activity(f"writing {os.path.basename(name)}")
 
     def _on_est_time(self, seconds):
         # The controller emits *remaining* time; total = elapsed + remaining.
