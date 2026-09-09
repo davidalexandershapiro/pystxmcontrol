@@ -1,0 +1,66 @@
+{
+  "autofocus": true,
+  "coarse_only": false,
+  "comment": "golden comment",
+  "daq_list": [
+    "default"
+  ],
+  "defocus": false,
+  "doubleExposure": true,
+  "double_exposure": false,
+  "driver": "double_motor_scan",
+  "dwell": 1.0,
+  "energy_list": null,
+  "energy_motor": "Energy",
+  "energy_regions": {
+    "EnergyRegion1": {
+      "dwell": 1.0,
+      "n_energies": 1,
+      "start": 280.0,
+      "step": 0.0,
+      "stop": 280.0
+    }
+  },
+  "experimenters": "Test Experimenter",
+  "loop_points": 1,
+  "loop_scan": false,
+  "mode": "point",
+  "multi_frame": false,
+  "n_repeats": 1,
+  "nx_file_version": "",
+  "oversampling_factor": 1,
+  "proposal": "TEST-0000",
+  "refocus": false,
+  "retract": true,
+  "sample": "golden sample",
+  "scan_regions": {
+    "Region1": {
+      "xCenter": 0.0,
+      "xPoints": 21,
+      "xRange": 2.0,
+      "xStart": -0.9523809523809523,
+      "xStep": 0.09523809523809523,
+      "xStop": 0.9523809523809523,
+      "yCenter": 0.0,
+      "yPoints": 11,
+      "yRange": 1.0,
+      "yStart": -0.45454545454545453,
+      "yStep": 0.09090909090909091,
+      "yStop": 0.45454545454545453,
+      "zCenter": 0,
+      "zPoints": 1,
+      "zRange": 0,
+      "zStart": 0,
+      "zStep": 0,
+      "zStop": 0
+    }
+  },
+  "scan_type": "Double Motor",
+  "scanning": false,
+  "single_energy": true,
+  "spiral": false,
+  "tiled": false,
+  "x_motor": "ZonePlateZ",
+  "y_motor": "ZonePlateZ",
+  "z_motor": "ZonePlateZ"
+}

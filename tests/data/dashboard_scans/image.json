@@ -1,0 +1,66 @@
+{
+  "autofocus": true,
+  "coarse_only": false,
+  "comment": "golden comment",
+  "daq_list": [
+    "default"
+  ],
+  "defocus": false,
+  "doubleExposure": true,
+  "double_exposure": false,
+  "driver": "linear_image",
+  "dwell": 1.0,
+  "energy_list": null,
+  "energy_motor": "Energy",
+  "energy_regions": {
+    "EnergyRegion1": {
+      "dwell": 2.0,
+      "n_energies": 21,
+      "start": 280.0,
+      "step": 0.5,
+      "stop": 290.0
+    }
+  },
+  "experimenters": "Test Experimenter",
+  "loop_points": 1,
+  "loop_scan": false,
+  "mode": "continuousLine",
+  "multi_frame": false,
+  "n_repeats": 1,
+  "nx_file_version": "",
+  "oversampling_factor": 1,
+  "proposal": "TEST-0000",
+  "refocus": false,
+  "retract": true,
+  "sample": "golden sample",
+  "scan_regions": {
+    "Region1": {
+      "xCenter": 1.0,
+      "xPoints": 40,
+      "xRange": 10.0,
+      "xStart": -3.875,
+      "xStep": 0.25,
+      "xStop": 5.875,
+      "yCenter": -2.0,
+      "yPoints": 32,
+      "yRange": 8.0,
+      "yStart": -5.875,
+      "yStep": 0.25,
+      "yStop": 1.875,
+      "zCenter": 0,
+      "zPoints": 1,
+      "zRange": 0,
+      "zStart": 0,
+      "zStep": 0,
+      "zStop": 0
+    }
+  },
+  "scan_type": "Image",
+  "scanning": false,
+  "single_energy": false,
+  "spiral": false,
+  "tiled": false,
+  "x_motor": "SampleX",
+  "y_motor": "SampleY",
+  "z_motor": "ZonePlateZ"
+}
