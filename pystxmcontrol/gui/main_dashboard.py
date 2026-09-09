@@ -21,7 +21,8 @@ import argparse
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
-from pystxmcontrol.gui.mainwindow_dashboard import MainWindowDashboard, window_title
+from pystxmcontrol.gui.mainwindow_dashboard import MainWindowDashboard
+from pystxmcontrol.gui.dashboard_scan_files import window_title
 from pystxmcontrol.gui.splash import show_splash, finish_splash
 
 _ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")

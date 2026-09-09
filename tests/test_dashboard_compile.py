@@ -159,10 +159,11 @@ def dashboard(qapp, monkeypatch):
     * ``_maybe_connect_controller`` / ``_server_endpoint`` — otherwise a window
       built where the real control server *is* running connects to it, and
       starts a heartbeat thread that keeps trying.
-    * ``_find_last_scan_file`` — ``_show_last_scan_image`` seeds ``Region1``
+    * ``find_last_scan_file`` — ``_show_last_scan_image`` seeds ``Region1``
       (and, through it, the focus/line geometry) from the most recent ``.stxm``
       file in the data directory, so a developer's last scan would leak into the
-      compiled dict.
+      compiled dict.  Patched on ``mainwindow_dashboard``, where it is looked
+      up, rather than on the module that now defines it.
 
     The controller is then attached through the same steps ``_go_live`` uses, so
     the view is built from the stub's config exactly as a live one would be.
@@ -171,7 +172,7 @@ def dashboard(qapp, monkeypatch):
                         lambda self, live: None)
     monkeypatch.setattr(mwd.MainWindowDashboard, "_server_endpoint",
                         lambda self: (None, None))
-    monkeypatch.setattr(mwd, "_find_last_scan_file", lambda: None)
+    monkeypatch.setattr(mwd, "find_last_scan_file", lambda: None)
 
     with open(CONFIG_DIR / "scan.json") as f:
         scan_config = json.load(f)
