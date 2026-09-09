@@ -31,6 +31,10 @@ from pystxmcontrol.gui.dashboard_theme import (
     mono_font, sans_font, TravelBar, ProgressBar, EnergyRegionStrip,
 )
 from pystxmcontrol.gui import dashboard_widgets as dw
+from pystxmcontrol.gui.dashboard_scan_definition import (
+    ScanDefinition, energy_n, motor_scan_region, region_scan_dict,
+    resolve_daq_list,
+)
 from pystxmcontrol.gui.dashboard_heartbeat import ServerHeartbeat
 from pystxmcontrol.gui.dashboard_image_area import ImageArea, SciAxis, exp_str
 from pystxmcontrol.gui.dashboard_favorites_bar import EnergyFavoritesBar
@@ -77,6 +81,9 @@ class MainWindowDashboard(QMainWindow):
         self.statusBar().setStyleSheet(
             f"QStatusBar{{background:{C['panel_footer']};color:{C['text_dim']};"
             f"border-top:1px solid {C['border']};}}")
+        # The scan geometry the panels edit.  Built before any view, because the
+        # region/energy properties below read through it from build time on.
+        self.scan_def = ScanDefinition()
         self._scanning = False
         self._move_mode = True          # True = absolute Move, False = relative Jog
         self._motor_group_index = 0     # index into the data-driven motor groups
@@ -185,6 +192,59 @@ class MainWindowDashboard(QMainWindow):
             except Exception:
                 pass
         super().closeEvent(event)
+
+    # ── scan definition ─────────────────────────────────────────────────
+    # The editable scan geometry lives in self.scan_def (see
+    # dashboard_scan_definition); these properties keep the window's existing
+    # attribute names pointing at it, so the panels that edit regions read and
+    # write one shared model rather than several parallel lists.
+    @property
+    def _scan_regions(self):
+        return self.scan_def.scan_regions
+
+    @_scan_regions.setter
+    def _scan_regions(self, value):
+        self.scan_def.scan_regions = value
+
+    @property
+    def _active_region(self):
+        return self.scan_def.active_region
+
+    @_active_region.setter
+    def _active_region(self, value):
+        self.scan_def.active_region = value
+
+    @property
+    def _spectrum_region(self):
+        return self.scan_def.spectrum_region
+
+    @_spectrum_region.setter
+    def _spectrum_region(self, value):
+        self.scan_def.spectrum_region = value
+
+    @property
+    def _energy_regions(self):
+        return self.scan_def.energy_regions
+
+    @_energy_regions.setter
+    def _energy_regions(self, value):
+        self.scan_def.energy_regions = value
+
+    @property
+    def _active_energy_region(self):
+        return self.scan_def.active_energy_region
+
+    @_active_energy_region.setter
+    def _active_energy_region(self, value):
+        self.scan_def.active_energy_region = value
+
+    @property
+    def _focus_region(self):
+        return self.scan_def.focus_region
+
+    @_focus_region.setter
+    def _focus_region(self, value):
+        self.scan_def.focus_region = value
 
     # ── motor config ────────────────────────────────────────────────────
     _DRIVER_KIND = {
@@ -2371,7 +2431,7 @@ class MainWindowDashboard(QMainWindow):
             sm.set('driver', driver)
             sm.set('mode', sc.get('mode', 'continuousLine'))
             self._compile_loop_scan(sm, preview=preview)
-            sm.set('daq_list', self._resolve_daq_list(client, sc))
+            sm.set('daq_list', resolve_daq_list(getattr(client, 'daqConfig', {}), sc))
 
             if self._focus_mode:
                 region = self._compile_focus(sm, sc)
@@ -2435,51 +2495,19 @@ class MainWindowDashboard(QMainWindow):
         ``preview=True`` emits only the first spatial region at a single energy
         (the start of the first energy region) — an abridged sanity check.  The
         view's region/energy lists are only read, never reassigned."""
-        # Spatial regions — flush the grid into the active region, then emit
-        # every image region.  The spectrum ROI is display-only (it selects the
-        # pixels the Profile spectrum averages) and is never an active region,
-        # so the Spatial fields never write to it and it is never emitted here.
+        # Flush the live field rows into the active regions.  The spectrum ROI is
+        # display-only (it selects the pixels the Profile spectrum averages), so
+        # the Spatial fields never write to it and it is never emitted.
         if isinstance(self._active_region, int):
-            self._scan_regions[self._active_region].update(
-                self._read_spatial_fields())
-
-        # Guard against a degenerate spatial grid: an image needs more than one
-        # point on each axis.  A stray Points=1 (X or Y) otherwise compiles a
-        # 1-pixel scan whose zero-width range yields a NaN motor target.
-        to_check = [self._scan_regions[0]] if preview else self._scan_regions
-        for i, r in enumerate(to_check):
-            xp, yp = int(r.get('xPoints', 1)), int(r.get('yPoints', 1))
-            if xp < 2 or yp < 2:
-                raise ValueError(
-                    f"Region {i + 1} spatial grid is {xp}×{yp} — an image scan "
-                    f"needs X and Y Points greater than 1.")
-
-        region = self._region_scan_dict(self._scan_regions[0])
-        if preview:
-            # First region only; no extra regions.
-            sm.add_scan_region('Region1', region)
-        else:
-            for i, r in enumerate(self._scan_regions):
-                sm.add_scan_region(f'Region{i + 1}', self._region_scan_dict(r))
-
-        # Energy regions — flush the field row into the active region first.
+            self.scan_def.update_active_region(self._read_spatial_fields())
         self._sync_active_energy_region()
+
+        self.scan_def.validate_image_grid(preview=preview)
+        region = self.scan_def.emit_image_regions(sm, preview=preview)
         if preview:
-            # Collapse to a single energy: the start of the first energy region.
-            e0 = self._energy_regions[0]
-            sm.add_energy_region('EnergyRegion1', {
-                'start': e0['start'], 'stop': e0['start'], 'step': 0.0,
-                'dwell': e0['dwell'], 'n_energies': 1})
-            sm.set('single_energy', True)
+            self.scan_def.emit_single_energy(sm)
         else:
-            total_n = 0
-            for i, r in enumerate(self._energy_regions):
-                total_n += r['n']
-                sm.add_energy_region(f'EnergyRegion{i + 1}', {
-                    'start': r['start'], 'stop': r['stop'], 'step': r['step'],
-                    'dwell': r['dwell'], 'n_energies': r['n']})
-            sm.set('single_energy', total_n <= 1)
-        sm.set('energy_list', None)
+            self.scan_def.emit_energy_regions(sm)
         return region
 
     def _compile_focus(self, sm, sc):
@@ -2489,8 +2517,7 @@ class MainWindowDashboard(QMainWindow):
         self._on_focus_edit()
         self._on_line_edit()
         if isinstance(self._active_region, int):
-            self._scan_regions[self._active_region].update(
-                self._read_spatial_fields())
+            self.scan_def.update_active_region(self._read_spatial_fields())
         sm.set('z_motor', sc.get('z_motor', 'ZonePlateZ'))
         sm.set('tiled', False)          # focus is a single line, never tiled
         sm.set('autofocus', bool(getattr(self, '_focus_move_to_best', None)
@@ -2498,15 +2525,9 @@ class MainWindowDashboard(QMainWindow):
         region = self._focus_region_scan_dict()
         sm.add_scan_region('Region1', region)
 
-        # Single energy: take the first energy region's start + dwell.
+        # Single energy: the first energy region's start, at its dwell.
         self._sync_active_energy_region()
-        e0 = self._energy_regions[0] if getattr(self, '_energy_regions', None) else \
-            {'start': 700.0, 'dwell': 2.0}
-        sm.add_energy_region('EnergyRegion1', {
-            'start': e0['start'], 'stop': e0['start'], 'step': 0.0,
-            'dwell': e0['dwell'], 'n_energies': 1})
-        sm.set('single_energy', True)
-        sm.set('energy_list', None)
+        e0 = self.scan_def.emit_single_energy(sm)
         sm.set('dwell', e0['dwell'])
         return region
 
@@ -2518,8 +2539,7 @@ class MainWindowDashboard(QMainWindow):
         # Flush live edits from the fields into the line model + R1 projection.
         self._on_line_edit()
         if isinstance(self._active_region, int):
-            self._scan_regions[self._active_region].update(
-                self._read_spatial_fields())
+            self.scan_def.update_active_region(self._read_spatial_fields())
         sm.set('tiled', False)          # a single line is never tiled
         region = self._line_spectrum_region_scan_dict()
         sm.add_scan_region('Region1', region)
@@ -2528,17 +2548,10 @@ class MainWindowDashboard(QMainWindow):
         return region
 
     def _emit_energy_regions(self, sm):
-        """Flush the active energy row and add every energy region to ``sm`` (the
-        full multi-region / multi-energy axis, as an Image scan uses)."""
+        """Flush the active energy row, then emit the full multi-region energy
+        axis (as an Image scan uses)."""
         self._sync_active_energy_region()
-        total_n = 0
-        for i, r in enumerate(self._energy_regions):
-            total_n += r['n']
-            sm.add_energy_region(f'EnergyRegion{i + 1}', {
-                'start': r['start'], 'stop': r['stop'], 'step': r['step'],
-                'dwell': r['dwell'], 'n_energies': r['n']})
-        sm.set('single_energy', total_n <= 1)
-        sm.set('energy_list', None)
+        self.scan_def.emit_energy_regions(sm)
 
     def _compile_motor_scan(self, sm, sc):
         """Populate ``sm`` for a single- or double-motor scan: one scan region
@@ -2567,9 +2580,8 @@ class MainWindowDashboard(QMainWindow):
         return region
 
     def _motor_region_scan_dict(self, axes):
-        """Scan-region dict for a motor scan, built from the Motor-scan group's
-        center/range/points fields (full-field half-pixel convention via
-        _region_scan_dict).  A single-motor scan has one row (yPoints=1)."""
+        """Read the Motor-scan group's center/range/points fields into a scan
+        region.  A single-motor scan has one row."""
         def read(ax):
             try:
                 c = float(ax['center'].text() or 0)
@@ -2578,51 +2590,15 @@ class MainWindowDashboard(QMainWindow):
             except ValueError:
                 c, r, n = 0.0, 0.0, 1
             return c, r, n
-        xc, xr, xp = read(self._motor_axis_widgets[0])
-        if axes >= 2:
-            yc, yr, yp = read(self._motor_axis_widgets[1])
-        else:
-            yc, yr, yp = 0.0, 0.0, 1
-        return self._region_scan_dict({
-            'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
-            'xPoints': xp, 'yPoints': yp})
+        x_axis = read(self._motor_axis_widgets[0])
+        y_axis = read(self._motor_axis_widgets[1]) if axes >= 2 else None
+        return motor_scan_region(x_axis, y_axis)
 
     def _line_spectrum_region_scan_dict(self):
-        """Single-line scan-region dict for a line spectrum: an angled line (the
-        fast axis, ``xPoints`` points) with a single slow-axis row (``yPoints`` =
-        1); energy is swept by the outer loop.  ``xRange`` carries the true
-        along-line length so the display's position axis is line distance, while
-        ``xStart/xStop/yStart/yStop`` carry the real angled endpoints."""
-        fr = self._ensure_focus_region()
-        xc, yc = self._line_center()
-        L = fr['length']
-        n = max(1, int(fr['points']))
-        ar = np.radians(fr['angle'])
-        ux, uy = np.cos(ar), np.sin(ar)
-        # Half-pixel inset along the line direction (matches the Image convention).
-        s0 = -(L / 2.0) + (L / (2.0 * n))
-        s1 = (L / 2.0) - (L / (2.0 * n))
-        return {
-            'xCenter': xc, 'yCenter': yc,
-            'xRange': L, 'yRange': abs(L * uy),
-            'xPoints': n, 'yPoints': 1,
-            'xStep': L / n, 'yStep': abs(L * uy),
-            'xStart': xc + s0 * ux, 'xStop': xc + s1 * ux,
-            'yStart': yc + s0 * uy, 'yStop': yc + s1 * uy,
-            'zCenter': 0, 'zRange': 0, 'zPoints': 1, 'zStep': 0,
-            'zStart': 0, 'zStop': 0,
-        }
+        return self.scan_def.line_spectrum_scan_region()
 
     def _ls_energy_span(self):
-        """(lo, hi, n) energy extent of the planned line-spectrum scan, from the
-        view's energy-region list — the horizontal axis of the streak display."""
-        regs = getattr(self, '_energy_regions', None) or []
-        if not regs:
-            return 700.0, 730.0, 1
-        lo = min(r['start'] for r in regs)
-        hi = max(r['stop'] for r in regs)
-        n = sum(int(r['n']) for r in regs) or 1
-        return lo, hi, n
+        return self.scan_def.energy_span()
 
     def _show_last_scan_image(self):
         """Paint the most recently recorded ``.stxm`` scan at its *own* fixed
@@ -2872,40 +2848,6 @@ class MainWindowDashboard(QMainWindow):
         except (ValueError, TypeError, KeyError) as ex:
             self._on_error(f"Could not pre-fill last scan: {ex}")
 
-    @staticmethod
-    def _region_scan_dict(r):
-        """Expand a region-model dict {xCenter,yCenter,xRange,yRange,xPoints,
-        yPoints} into a full Image scan-region dict (same shape/math as
-        MainController._extract_scan_region_data's Image branch)."""
-        xc, yc = r['xCenter'], r['yCenter']
-        xr, yr = r['xRange'], r['yRange']
-        xp = max(1, int(r['xPoints']))
-        yp = max(1, int(r['yPoints']))
-        xs = xr / xp if xp > 0 else 0.1
-        ys = yr / yp if yp > 0 else 0.1
-        return {
-            'xCenter': xc, 'yCenter': yc, 'xRange': xr, 'yRange': yr,
-            'xPoints': xp, 'yPoints': yp, 'xStep': xs, 'yStep': ys,
-            'xStart': xc - xr / 2.0 + xs / 2.0, 'xStop': xc + xr / 2.0 - xs / 2.0,
-            'yStart': yc - yr / 2.0 + ys / 2.0, 'yStop': yc + yr / 2.0 - ys / 2.0,
-            'zCenter': 0, 'zRange': 0, 'zPoints': 1, 'zStep': 0,
-            'zStart': 0, 'zStop': 0,
-        }
-
-    @staticmethod
-    def _resolve_daq_list(client, sc):
-        """DAQ channels from scan config, filtered to those present and
-        record=True in daqConfig (mirrors compile_scan_from_view)."""
-        requested = sc.get('daq_list', '')
-        if isinstance(requested, str):
-            requested = [t for t in requested.split(',') if t]
-        if not requested:
-            requested = list(getattr(client, 'daqConfig', {}).keys())
-        daq_cfg = getattr(client, 'daqConfig', {})
-        daq = [k for k in requested
-               if k in daq_cfg and daq_cfg[k].get('record', True)]
-        return daq or ['default']
-
     # Shown when no proposals come back from the ALS API (offline, or none
     # currently active for this beamline) — the combobox always has this entry.
     # Placeholder shown as the default combobox entry — nothing is selected until
@@ -2957,12 +2899,6 @@ class MainWindowDashboard(QMainWindow):
             return "", ""
         experimenters = ", ".join(self._esaf_participants.get(proposal, []))
         return proposal, experimenters
-
-    @staticmethod
-    def _energy_n(start, stop, step):
-        if step and abs(step) > 0:
-            return int(round(abs(stop - start) / abs(step))) + 1
-        return 1
 
     # Continuous-line stages must not be driven faster than this (mm/s); the
     # Velocity readout turns red past it so it is caught before Begin.
@@ -3034,7 +2970,7 @@ class MainWindowDashboard(QMainWindow):
         else:
             # Image regions only — the spectrum ROI is not scanned, so it adds
             # neither points nor time.
-            regions = [self._region_scan_dict(r) for r in self._scan_regions]
+            regions = [region_scan_dict(r) for r in self._scan_regions]
 
         # Energy regions.  Focus is always a single energy (compile forces it),
         # so use only the first region's dwell there.
@@ -3115,11 +3051,7 @@ class MainWindowDashboard(QMainWindow):
 
     def _active_region_dict(self):
         """The region dict the grid currently edits (image region or spectrum)."""
-        if self._active_region == 'spectrum':
-            return self._spectrum_region
-        if 0 <= self._active_region < len(self._scan_regions):
-            return self._scan_regions[self._active_region]
-        return None
+        return self.scan_def.active_region_dict()
 
     def _on_spatial_edit(self):
         """A grid field was typed: re-derive steps, push into the active region,
@@ -3372,22 +3304,13 @@ class MainWindowDashboard(QMainWindow):
         return float(v) if isinstance(v, (int, float)) else float(default)
 
     def _ensure_focus_region(self):
-        """Create the focus-scan model with sensible defaults the first time
-        (ZonePlateZ centre = current position, range 100 / 50 pts; line length =
-        Region 1 width, 50 pts, angle 0)."""
-        if self._focus_region is None:
-            r1 = self._scan_regions[0] if self._scan_regions else {}
-            self._focus_region = {
-                'length': float(r1.get('xRange', 10.0)) or 10.0,
-                'angle': 0.0, 'points': 50,
-                'zCenter': self._current_motor_pos('ZonePlateZ'),
-                'zRange': 100.0, 'zPoints': 50}
-        return self._focus_region
+        """The focus-scan model, created on first use centred on the zone
+        plate's current position."""
+        return self.scan_def.ensure_focus_region(
+            self._current_motor_pos('ZonePlateZ'))
 
     def _line_center(self):
-        """The focus line's centre = Region 1 centre (SampleX/SampleY)."""
-        r1 = self._scan_regions[0] if self._scan_regions else {}
-        return float(r1.get('xCenter', 0.0)), float(r1.get('yCenter', 0.0))
+        return self.scan_def.line_center()
 
     def _write_focus_fields(self):
         """Load the focus-Z model into the Focus Z + Line control fields."""
@@ -3513,34 +3436,8 @@ class MainWindowDashboard(QMainWindow):
         self._refresh_scan_stats()
 
     def _focus_region_scan_dict(self):
-        """Full focus scan-region dict: an angled line (endpoints encode the
-        rotation) crossed with a ZonePlateZ sweep.  ``xRange`` carries the true
-        along-line length so the display's horizontal axis is line distance,
-        while ``xStart/xStop/yStart/yStop`` carry the real angled endpoints the
-        driver actually moves along."""
-        fr = self._ensure_focus_region()
-        xc, yc = self._line_center()
-        L = fr['length']
-        n = max(1, int(fr['points']))
-        ar = np.radians(fr['angle'])
-        ux, uy = np.cos(ar), np.sin(ar)
-        # Half-pixel inset along the line direction (matches the Image convention).
-        s0 = -(L / 2.0) + (L / (2.0 * n))
-        s1 = (L / 2.0) - (L / (2.0 * n))
-        zc, zr = fr['zCenter'], fr['zRange']
-        zp = max(1, int(fr['zPoints']))
-        zs = zr / zp if zp > 0 else 0.0
-        return {
-            'xCenter': xc, 'yCenter': yc,
-            'xRange': L, 'yRange': abs(L * uy),
-            'xPoints': n, 'yPoints': n,
-            'xStep': L / n, 'yStep': abs(L * uy) / n if n else 0.0,
-            'xStart': xc + s0 * ux, 'xStop': xc + s1 * ux,
-            'yStart': yc + s0 * uy, 'yStop': yc + s1 * uy,
-            'zCenter': zc, 'zRange': zr, 'zPoints': zp, 'zStep': zs,
-            'zStart': zc - zr / 2.0 + zs / 2.0,
-            'zStop': zc + zr / 2.0 - zs / 2.0,
-        }
+        self._ensure_focus_region()          # seed Z from the live position
+        return self.scan_def.focus_scan_region()
 
     def _recompute_energy_n(self):
         """N = round(|stop-start| / |step|) + 1, from the current Start/Stop/Step."""
@@ -3548,7 +3445,7 @@ class MainWindowDashboard(QMainWindow):
             s = float(self._energy_fields['start'].text())
             e = float(self._energy_fields['stop'].text())
             st = float(self._energy_fields['step'].text() or 0)
-            self._energy_fields['n'].setText(str(self._energy_n(s, e, st)))
+            self._energy_fields['n'].setText(str(energy_n(s, e, st)))
         except ValueError:
             pass
         self._sync_active_energy_region()
@@ -3581,7 +3478,7 @@ class MainWindowDashboard(QMainWindow):
         step = f('step', 0.0)
         return {'start': start, 'stop': stop, 'step': step,
                 'dwell': f('dwell', 1.0),
-                'n': self._energy_n(start, stop, step)}
+                'n': energy_n(start, stop, step)}
 
     def _load_energy_region(self, idx):
         """Load region ``idx`` into the field row and make it active."""
@@ -3618,7 +3515,7 @@ class MainWindowDashboard(QMainWindow):
         stop = start + max(step, 1.0) * 10
         self._energy_regions.append({
             'start': start, 'stop': stop, 'step': step,
-            'dwell': last['dwell'], 'n': self._energy_n(start, stop, step)})
+            'dwell': last['dwell'], 'n': energy_n(start, stop, step)})
         self._load_energy_region(len(self._energy_regions) - 1)
 
     def _remove_energy_region(self):
