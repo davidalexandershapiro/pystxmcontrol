@@ -10,11 +10,15 @@ shipped undetected until someone pressed the button.
 The window fixture lives in ``conftest.py``.
 """
 
+import ast
 import inspect
+from pathlib import Path
 
 import pytest
 
-from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
+from PySide6.QtWidgets import (
+    QInputDialog, QLineEdit, QMainWindow, QMessageBox,
+)
 
 from pystxmcontrol.gui.dashboard import staff_auth as auth
 from pystxmcontrol.gui.dashboard.mainwindow import MainWindowDashboard
@@ -35,6 +39,65 @@ def test_no_staticmethod_takes_self():
         if params and params[0] == "self":
             offenders.append(name)
     assert offenders == []
+
+
+def _assigned_self_attrs(node):
+    """Every ``self.X`` the class ever assigns — including through tuple
+    unpacking, for-loop targets and ``with ... as``, all of which real code
+    here uses."""
+    found = set()
+
+    def target(t):
+        if isinstance(t, (ast.Tuple, ast.List)):
+            for e in t.elts:
+                target(e)
+        elif isinstance(t, ast.Starred):
+            target(t.value)
+        elif (isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
+                and t.value.id == "self"):
+            found.add(t.attr)
+
+    for n in ast.walk(node):
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                target(t)
+        elif isinstance(n, (ast.AugAssign, ast.AnnAssign)):
+            target(n.target)
+        elif isinstance(n, (ast.For, ast.AsyncFor)):
+            target(n.target)
+        elif isinstance(n, ast.withitem) and n.optional_vars is not None:
+            target(n.optional_vars)
+    return found
+
+
+def test_no_call_to_a_method_the_window_no_longer_has():
+    """Every ``self.X`` resolves to something the class defines, assigns, or
+    inherits.
+
+    Moving a method into a panel and missing one call site leaves an
+    AttributeError that only fires on the path that calls it — during a scan,
+    in the case that prompted this test.  Neither pyflakes nor an import check
+    sees it.
+    """
+    source = Path(inspect.getfile(MainWindowDashboard)).read_text()
+    cls = next(n for n in ast.parse(source).body
+               if isinstance(n, ast.ClassDef)
+               and n.name == "MainWindowDashboard")
+
+    defined = {n.name for n in cls.body
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    for n in cls.body:
+        if isinstance(n, ast.Assign):
+            defined |= {t.id for t in n.targets if isinstance(t, ast.Name)}
+    defined |= _assigned_self_attrs(cls)
+    defined |= set(dir(QMainWindow))          # inherited Qt API
+
+    missing = sorted({
+        n.attr for n in ast.walk(cls)
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+        and n.value.id == "self" and n.attr not in defined
+    })
+    assert missing == []
 
 
 def test_every_method_can_be_bound():

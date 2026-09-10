@@ -34,7 +34,7 @@ from pystxmcontrol.gui.dashboard.theme import (
 )
 from pystxmcontrol.gui.dashboard import widgets as dw
 from pystxmcontrol.gui.dashboard import motor_info as mi
-from pystxmcontrol.gui.dashboard import scan_stats as stats
+from pystxmcontrol.gui.dashboard import scan_stats
 from pystxmcontrol.gui.dashboard import staff_auth as auth
 from pystxmcontrol.gui.dashboard.scan_definition import (
     ScanDefinition, energy_n, motor_scan_region, region_scan_dict,
@@ -2674,7 +2674,7 @@ class MainWindowDashboard(QMainWindow):
 
     def _total_scan_points(self, sm):
         """Total acquisition points in a compiled scan model."""
-        return stats.total_scan_points(sm.get('scan_regions', {}) or {},
+        return scan_stats.total_scan_points(sm.get('scan_regions', {}) or {},
                                        sm.get('energy_regions', {}) or {},
                                        is_focus=self._focus_mode)
 
@@ -2714,13 +2714,13 @@ class MainWindowDashboard(QMainWindow):
         else:
             eff = eregs
 
-        est, pts, _n_energies = stats.estimate(
+        est, pts, _n_energies = scan_stats.estimate(
             regions, eff, is_focus=is_focus, is_ptycho=is_ptycho)
 
         # Point-mode scans step to each point rather than sweeping the stage.
         point_mode = bool(
             is_motor and (self._scan_cfg(scan_type) or {}).get("mode") == "point")
-        vel = stats.scan_velocity(regions, eff[0]["dwell"] if eff else 1.0,
+        vel = scan_stats.scan_velocity(regions, eff[0]["dwell"] if eff else 1.0,
                                   point_mode=point_mode)
         return est, pts, vel
 
@@ -4045,7 +4045,7 @@ class MainWindowDashboard(QMainWindow):
             pass
         # Each frame also refreshes the live-detector CCD panel from the per-detector
         # frames the controller stored on the image model.
-        self._refresh_ccd()
+        self.detector_panel.refresh_ccd()
         # …the ROI spectrum (mean signal in the Spectrum ROI vs energy)…
         self._update_roi_spectrum()
         # …and advances the per-image line counter (line_index just updated).
@@ -4097,7 +4097,7 @@ class MainWindowDashboard(QMainWindow):
 
     @staticmethod
     def _fmt_mmss(seconds):
-        return stats.format_mmss(seconds)
+        return scan_stats.format_mmss(seconds)
 
     def _refresh_scan_progress(self):
         """Update the whole-scan progress from elapsed/remaining time (the server
