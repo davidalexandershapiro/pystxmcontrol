@@ -4003,10 +4003,56 @@ class MainWindowDashboard(QMainWindow):
             self._focus_view_fitted = True
         return True
 
+    def _place_energy_motor_curve(self, im):
+        """Draw the live curve of a single-motor scan whose motor is Energy.
+
+        That scan measures one point per energy, and the server stores it at
+        ``[energyIndex, 0, 0]`` of the energy stack — so each frame it publishes
+        is one energy's slice with a single filled element.  The curve therefore
+        has to be read down the energy axis of the stack rather than across the
+        frame; using the frame alone can only ever show the first point.
+
+        Only energies already measured are drawn, so the trace grows as the scan
+        runs instead of trailing a flat line of zeros.
+        """
+        try:
+            live = getattr(self.controller, "_live_stxm", None)
+            channel = im.get('channel_key', 'default') or 'default'
+            region_key = str(im.get('scan_region_index', 'Region1'))
+            region_num = max(0, int(region_key.split('Region')[-1]) - 1)
+            interp = getattr(live, 'interp_counts', None)
+            cube = interp.get(channel) if isinstance(interp, dict) else None
+            if cube is None or region_num >= len(cube):
+                return False
+            stack = np.asarray(cube[region_num], dtype=float)
+            if stack.ndim != 3 or not stack.size:
+                return False
+            energies = np.asarray(
+                im.get('energy_list') or [], dtype=float).ravel()
+            if energies.size < 2:
+                return False
+            # The in-progress energy has been written by the time its frame is
+            # published, so include it; anything past it is still zero.
+            eidx = im.get('energy_index')
+            n = min(stack.shape[0], energies.size)
+            if isinstance(eidx, (int, float)):
+                n = min(n, int(eidx) + 1)
+            if n < 1:
+                return False
+            self.image_area.set_curve(energies[:n], stack[:n, 0, 0],
+                                      x_label="Energy (eV)", y_label="signal")
+            return True
+        except Exception:
+            return False
+
     def _place_single_motor_curve(self, image, im):
         """Draw a live single-motor frame as a 1-D signal-vs-position curve.  The
         server sends the frame as (1, xPoints); the x axis is the motor's position
         over the scan range.  Returns True on success."""
+        if self._motor_axis_is_energy(self.scan_type.currentText()):
+            # A different shape of scan entirely — see _place_energy_motor_curve.
+            if self._place_energy_motor_curve(im):
+                return True
         frame = np.asarray(image, dtype=float)
         y = frame.ravel() if frame.ndim == 1 else \
             (frame[0] if frame.ndim == 2 and frame.shape[0] else None)

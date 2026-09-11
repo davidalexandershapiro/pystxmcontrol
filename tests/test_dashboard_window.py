@@ -14,6 +14,7 @@ import ast
 import inspect
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from PySide6.QtWidgets import (
@@ -208,3 +209,97 @@ def test_the_password_dialog_masks_input(dashboard, stored_password, monkeypatch
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(capture))
     dashboard._toggle_expert()
     assert seen["echo"] == QLineEdit.Password
+
+
+# ── the live curve of a single-motor scan ───────────────────────────────────
+#
+# The server stores a single-motor scan at ``interp_counts[ch][region][m, 0, i]``
+# and publishes only the current energy's ``[m, :, :]`` slice.  A spatial scan
+# fills ``i`` across one slice, so the published frame is the whole curve.  An
+# Energy scan holds ``i`` at 0 and advances ``m``, so every frame carries a
+# single filled element — the curve only exists down the energy axis of the
+# stack, which is why it must be read from there.
+
+class FakeLive:
+    def __init__(self, n_energies, x_points):
+        self.interp_counts = {"default": [np.zeros((n_energies, 1, x_points))]}
+
+
+def setup_motor_scan(win, motor, center, rng, npts):
+    win.scan_type.setCurrentText("Single Motor")
+    ax = win._motor_axis_widgets[0]
+    ax["combo"].setCurrentText(motor)
+    ax["center"].setText(str(center))
+    ax["range"].setText(str(rng))
+    ax["npts"].setText(str(npts))
+    win._on_motor_edit()
+
+
+def run_energy_scan(win, energies):
+    """Feed frames exactly as _write_single_motor publishes them."""
+    live = FakeLive(len(energies), len(energies))
+    win.controller._live_stxm = live
+    im = win.controller.get_image_model()
+    im.set("energy_list", list(energies))
+    im.set("channel_key", "default")
+    im.set("scan_region_index", "Region1")
+    cube = live.interp_counts["default"][0]
+    for m, _e in enumerate(energies):
+        cube[m, 0, 0] = (m + 1) * 10.0
+        im.set("energy_index", m)
+        win._on_image(cube[m, :, :])
+        yield win.image_area.plot_curve.getData()
+
+
+def test_energy_motor_curve_grows_with_each_energy(dashboard):
+    """The reported bug: the plot froze after the first point while the energy
+    readout kept advancing."""
+    energies = [700.0, 705.0, 710.0, 715.0, 720.0]
+    setup_motor_scan(dashboard, "Energy", 710.0, 20.0, len(energies))
+    lengths = [len(x) for x, _y in run_energy_scan(dashboard, energies)]
+    assert lengths == [1, 2, 3, 4, 5]
+
+
+def test_energy_motor_curve_is_plotted_against_energy(dashboard):
+    energies = [700.0, 705.0, 710.0]
+    setup_motor_scan(dashboard, "Energy", 705.0, 10.0, len(energies))
+    x = y = None
+    for x, y in run_energy_scan(dashboard, energies):
+        pass
+    assert list(x) == energies
+    assert list(y) == [10.0, 20.0, 30.0]
+    assert dashboard.image_area.plot_item.getAxis("bottom").labelText == "Energy (eV)"
+
+
+def test_unmeasured_energies_are_not_drawn_as_zeros(dashboard):
+    """Drawing the whole stack would trail a flat line at zero ahead of the
+    scan and wreck the autoscale."""
+    energies = [700.0, 705.0, 710.0, 715.0]
+    setup_motor_scan(dashboard, "Energy", 707.5, 15.0, len(energies))
+    for i, (x, y) in enumerate(run_energy_scan(dashboard, energies)):
+        assert len(x) == i + 1
+        assert 0.0 not in list(y)
+
+
+def test_a_spatial_single_motor_curve_still_comes_from_the_frame(dashboard):
+    """The other branch is unchanged: one slice filled across, plotted against
+    the motor's position."""
+    setup_motor_scan(dashboard, "ZonePlateZ", 0.0, 2.0, 5)
+    im = dashboard.controller.get_image_model()
+    im.set("x_center", 0.0)
+    im.set("x_range", 2.0)
+    frame = np.zeros((1, 5))
+    frame[0, :3] = [1.0, 2.0, 3.0]
+    dashboard._on_image(frame)
+    x, y = dashboard.image_area.plot_curve.getData()
+    assert len(x) == 5
+    assert list(x) == pytest.approx([-1.0, -0.5, 0.0, 0.5, 1.0])
+    assert dashboard.image_area.plot_item.getAxis("bottom").labelText.startswith("ZonePlateZ")
+
+
+def test_the_energy_curve_survives_a_missing_live_stack(dashboard):
+    """Before the first frame arrives there is no stack; the placer must fall
+    back rather than raise inside _on_image, which swallows exceptions."""
+    setup_motor_scan(dashboard, "Energy", 710.0, 20.0, 5)
+    dashboard.controller._live_stxm = None
+    dashboard._on_image(np.zeros((1, 5)))      # must not raise
