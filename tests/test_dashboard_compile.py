@@ -174,3 +174,90 @@ def test_unsupported_scan_type_is_refused(dashboard):
     dashboard.scan_type.setCurrentText("OSA Focus")
     assert dashboard._compile_scan() is False
     assert dashboard.controller.errors
+
+
+# ── scanning the energy motor ───────────────────────────────────────────────
+#
+# ``single_motor_scan`` branches on ``x_motor == "Energy"``: it then takes one
+# point per entry in the energy list and never steps x_motor.  So for that scan
+# the Motor-scan Center/Range/Points must *become* the energy list.  Sending the
+# Energy tab's regions as well leaves two competing definitions of one axis, and
+# the server silently runs the wrong one.
+
+def setup_single_motor(win, motor, center, rng, npts):
+    win.scan_type.setCurrentText("Single Motor")
+    ax = win._motor_axis_widgets[0]
+    ax["combo"].setCurrentText(motor)
+    ax["center"].setText(str(center))
+    ax["range"].setText(str(rng))
+    ax["npts"].setText(str(npts))
+    win._on_motor_edit()
+    return ax
+
+
+def test_energy_motor_scan_takes_its_energies_from_the_motor_axis(dashboard):
+    set_energy(dashboard, start=700.0, stop=730.0, step=0.25, dwell=3.0)  # must be ignored
+    setup_single_motor(dashboard, "Energy", center=710.0, rng=20.0, npts=41)
+    d = compile_scan(dashboard)
+
+    assert len(d["energy_regions"]) == 1
+    e = d["energy_regions"]["EnergyRegion1"]
+    assert (e["start"], e["stop"]) == (700.0, 720.0)   # centre ± range/2
+    assert e["n_energies"] == 41                        # the motor axis's points
+    assert e["step"] == pytest.approx(0.5)              # inclusive endpoints
+
+
+def test_energy_motor_scan_keeps_the_dwell_from_the_energy_tab(dashboard):
+    """The Motor-scan group has no dwell field, so the Energy tab still supplies
+    it even though it no longer supplies the energies."""
+    set_energy(dashboard, start=700.0, stop=730.0, step=0.25, dwell=7.5)
+    setup_single_motor(dashboard, "Energy", center=710.0, rng=20.0, npts=41)
+    d = compile_scan(dashboard)
+    assert d["energy_regions"]["EnergyRegion1"]["dwell"] == 7.5
+    assert d["dwell"] == 7.5
+
+
+def test_energy_motor_scan_does_not_inherit_the_energy_tab_regions(dashboard):
+    """The reported bug: a multi-region Energy tab drove the scan instead of the
+    motor axis, so the typed range was ignored."""
+    set_energy(dashboard, start=700.0, stop=730.0, step=0.25, dwell=1.0)
+    dashboard._add_energy_region()
+    set_energy(dashboard, start=850.0, stop=860.0, step=0.5, dwell=1.0)
+    setup_single_motor(dashboard, "Energy", center=710.0, rng=20.0, npts=41)
+    d = compile_scan(dashboard)
+    assert len(d["energy_regions"]) == 1
+    assert d["energy_regions"]["EnergyRegion1"]["stop"] == 720.0
+
+
+def test_a_single_point_energy_motor_scan_is_marked_single_energy(dashboard):
+    set_energy(dashboard, start=700.0, stop=700.0, step=0.0, dwell=1.0)
+    setup_single_motor(dashboard, "Energy", center=705.0, rng=0.0, npts=1)
+    d = compile_scan(dashboard)
+    assert d["single_energy"] is True
+    assert d["energy_regions"]["EnergyRegion1"]["n_energies"] == 1
+
+
+def test_a_non_energy_motor_scan_still_uses_the_energy_tab(dashboard):
+    """The other branch must be untouched: an ordinary motor scan is crossed
+    with the Energy tab's axis, as an Image scan is."""
+    set_energy(dashboard, start=700.0, stop=702.0, step=1.0, dwell=2.0)
+    setup_single_motor(dashboard, "ZonePlateZ", center=0.0, rng=2.0, npts=21)
+    d = compile_scan(dashboard)
+    assert d["scan_regions"]["Region1"]["xPoints"] == 21
+    assert d["energy_regions"]["EnergyRegion1"]["n_energies"] == 3
+
+
+def test_energy_motor_scan_counts_one_point_per_energy(dashboard):
+    """The stats readout must not multiply the motor axis by the Energy tab —
+    the scan measures one point per energy, not points x energies."""
+    set_energy(dashboard, start=700.0, stop=730.0, step=0.25, dwell=2.0)
+    setup_single_motor(dashboard, "Energy", center=710.0, rng=20.0, npts=41)
+    _est, points, _vel = dashboard._scan_stats_from_view()
+    assert points == 41
+
+
+def test_a_double_motor_scan_is_never_treated_as_an_energy_scan(dashboard):
+    """Only the single-motor driver has the Energy branch."""
+    dashboard.scan_type.setCurrentText("Double Motor")
+    dashboard._motor_axis_widgets[0]["combo"].setCurrentText("Energy")
+    assert dashboard._motor_axis_is_energy("Double Motor") is False

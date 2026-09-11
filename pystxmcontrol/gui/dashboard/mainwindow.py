@@ -2317,8 +2317,37 @@ class MainWindowDashboard(QMainWindow):
         sm.set('tiled', False)
         region = self._motor_region_scan_dict(axes)
         sm.add_scan_region('Region1', region)
-        self._emit_energy_regions(sm)
+        # Scanning the energy motor is a different shape of scan: single_motor_scan
+        # takes one point per entry in the energy list and never steps x_motor, so
+        # the Motor-scan Center/Range/Points has to *become* that list.  Emitting
+        # the Energy tab's regions instead would leave two competing definitions of
+        # the same axis — the scan would run the Energy tab's energies and silently
+        # ignore the range the user typed.
+        if self._motor_axis_is_energy(scan_type):
+            self._emit_motor_axis_as_energy(sm, region)
+        else:
+            self._emit_energy_regions(sm)
         return region
+
+    def _emit_motor_axis_as_energy(self, sm, region):
+        """Turn the single-motor axis into the scan's energy list.
+
+        The dwell comes from the Energy tab (the Motor-scan group has no dwell
+        field of its own); everything else comes from the motor axis.
+        """
+        n = max(1, int(region['xPoints']))
+        start = region['xCenter'] - region['xRange'] / 2.0
+        stop = region['xCenter'] + region['xRange'] / 2.0
+        self._sync_active_energy_region()
+        dwell = self.scan_def.first_energy()['dwell']
+        sm.set('energy_regions', {})
+        sm.add_energy_region('EnergyRegion1', {
+            'start': start, 'stop': stop,
+            'step': (stop - start) / (n - 1) if n > 1 else 0.0,
+            'dwell': dwell, 'n_energies': n})
+        sm.set('single_energy', n <= 1)
+        sm.set('energy_list', None)
+        sm.set('dwell', dwell)
 
     def _motor_region_scan_dict(self, axes):
         """Read the Motor-scan group's center/range/points fields into a scan
@@ -2711,6 +2740,14 @@ class MainWindowDashboard(QMainWindow):
         if is_focus:
             d0 = eregs[0]["dwell"] if eregs else 2.0
             eff = [{"dwell": d0, "n": 1}]
+        elif self._motor_axis_is_energy(scan_type):
+            # The motor axis IS the energy list (see _compile_motor_scan), so the
+            # scan is one point per energy — counting the Energy tab's regions as
+            # well would multiply the estimate by an axis that is not scanned.
+            r0 = regions[0]
+            eff = [{"dwell": (eregs[0]["dwell"] if eregs else 1.0),
+                    "n": max(1, int(r0["xPoints"]))}]
+            regions = [dict(r0, xPoints=1, yPoints=1)]
         else:
             eff = eregs
 
@@ -3723,6 +3760,21 @@ class MainWindowDashboard(QMainWindow):
         if sc is not None:
             return sc.get("driver") in self._MOTOR_DRIVERS
         return text in ("Single Motor", "Double Motor", "OSA Image")
+
+    def _motor_axis_is_energy(self, text):
+        """True when this is a single-motor scan whose motor is the energy motor.
+
+        That scan is driven entirely by the energy list — the server's
+        single_motor_scan takes one point per energy and never steps x_motor —
+        so the Motor-scan Center/Range/Points defines the energies rather than a
+        motor trajectory."""
+        if not (self._scan_is_motor(text) and self._motor_axis_count(text) == 1):
+            return False
+        widgets = getattr(self, "_motor_axis_widgets", None)
+        if not widgets:
+            return False
+        energy_motor = (self._scan_cfg(text) or {}).get('energy_motor', 'Energy')
+        return widgets[0]['combo'].currentText() == energy_motor
 
     def _motor_axis_count(self, text):
         """1 for a single-motor scan, 2 for a double-motor scan."""
