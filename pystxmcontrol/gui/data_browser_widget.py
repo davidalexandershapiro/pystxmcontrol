@@ -191,6 +191,44 @@ def _get_version(f):
         return 0.0
 
 
+# Border artefact crop, in pixels per side, for reconstructions from the older
+# analysis code, which has no fingerprint in its root attributes.
+_LEGACY_PTYCHO_CROP = 400
+
+
+def _ptycho_crop(f):
+    """Return the per-side object crop, in pixels, for an open reconstruction file.
+
+    py4DSTXM stamps its name into the root attributes; those reconstructions are
+    cropped by half the probe width, which follows the analysis (a 512 px probe
+    gives the 256 px crop).  Anything without that fingerprint is from the older
+    code and keeps the fixed legacy crop.
+    """
+    fingerprinted = False
+    try:
+        for key, val in f.attrs.items():
+            if "py4dstxm" in str(key).lower() or "py4dstxm" in _h5str(val).lower():
+                fingerprinted = True
+                break
+    except Exception:
+        pass
+    if not fingerprinted:
+        return _LEGACY_PTYCHO_CROP
+
+    try:
+        probe_shape = f["probe"].shape          # (modes, H, W) or (H, W)
+        return int(probe_shape[-1]) // 2
+    except Exception:
+        return _LEGACY_PTYCHO_CROP
+
+
+def _crop_object(obj, crop):
+    """Crop ``crop`` pixels from each side of a 2-D object, if it is big enough."""
+    if obj.ndim == 2 and crop > 0 and obj.shape[0] > 2 * crop and obj.shape[1] > 2 * crop:
+        return obj[crop:-crop, crop:-crop]
+    return obj
+
+
 def _load_preview(filepath):
     """
     Open a .stxm file and return (arr_2d, scan_type, start_time, x_range_um).
@@ -288,10 +326,9 @@ def _load_preview(filepath):
         recon_matches = _glob.glob(base + "_ccdframes_*.h5")
         if recon_matches:
             try:
-                CROP = 400
                 with h5py.File(recon_matches[0], "r") as rf:
                     obj = rf["obj"][()]
-                obj_cropped = obj[CROP:-CROP, CROP:-CROP]
+                    obj_cropped = _crop_object(obj, _ptycho_crop(rf))
                 arr = np.abs(obj_cropped)
             except Exception:
                 pass  # fall back to stxm image if recon can't be read
@@ -1379,13 +1416,13 @@ class DataBrowserWidget(QtWidgets.QWidget):
 
     def _show_ptycho_detail(self, stxm_path, recon_path):
         """Display obj |amp|, obj phase, and probe |amp| from a reconstruction .h5."""
-        CROP = 400
         try:
             with h5py.File(recon_path, "r") as f:
                 obj         = f["obj"][()]         # complex64 (ny, nx)
                 probe       = f["probe"][()]       # complex64 (n_modes, 512, 512)
                 obj_basis   = f["obj_basis"][()]   # float32 (3, 2)
                 probe_basis = f["probe_basis"][()]
+                crop        = _ptycho_crop(f)
                 try:
                     wavelength_m = float(np.atleast_1d(f["wavelength"][()])[0])
                     energy_ev = (1239.8 / wavelength_m) * 1e-9
@@ -1401,7 +1438,7 @@ class DataBrowserWidget(QtWidgets.QWidget):
             probe_px_um = float(np.linalg.norm(probe_basis[:, 0])) * 1e6
 
             # crop border artefacts from the object
-            obj_cropped = obj[CROP:-CROP, CROP:-CROP]
+            obj_cropped = _crop_object(obj, crop)
 
             obj_amp   = np.abs(obj_cropped).T
             obj_phase = np.angle(obj_cropped)

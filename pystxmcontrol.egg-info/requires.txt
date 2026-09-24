@@ -18,6 +18,7 @@ opencv-python-headless
 scikit-learn
 PIPython
 reportlab
+markdown
 anthropic
 openai
 pydantic>=2.0
@@ -33,3 +34,7 @@ mypy>=1.0
 [docs]
 sphinx>=6.0
 sphinx-rtd-theme>=1.2
+
+[mcp]
+fastmcp
+mcp

@@ -59,6 +59,7 @@ from pystxmcontrol.gui.dashboard.theme import (
 # only invite drift.
 from pystxmcontrol.gui.data_browser_widget import (
     ThumbnailLoader, _MetadataOverlay, _h5str, _read_scan_footprint,
+    _ptycho_crop, _crop_object,
 )
 from pystxmcontrol.utils.thumbnail_cache import ThumbnailCache
 
@@ -1283,13 +1284,13 @@ class BrowserApp(QWidget):
         """Show a ptychography reconstruction: object |amplitude|, object phase
         (unwrapped) and probe |amplitude|, selectable via the toolbar combo.
         Ports ``DataBrowserWidget._show_ptycho_detail`` onto this viewer."""
-        CROP = 400
         try:
             with h5py.File(recon_path, "r") as f:
                 obj = f["obj"][()]                          # complex (ny, nx)
                 probe = f["probe"][()]                      # complex (modes, H, W)
                 obj_basis = f["obj_basis"][()] if "obj_basis" in f else None
                 probe_basis = f["probe_basis"][()] if "probe_basis" in f else None
+                crop = _ptycho_crop(f)
                 try:
                     wl_m = float(np.atleast_1d(f["wavelength"][()])[0])
                     energy_str = f"{(1239.8 / wl_m) * 1e-9:.1f} eV"
@@ -1304,10 +1305,7 @@ class BrowserApp(QWidget):
         probe_px = float(np.linalg.norm(probe_basis[:, 0]) * 1e6) if probe_basis is not None else 0.0
 
         # Crop object border artefacts when the array is large enough.
-        if obj.ndim == 2 and obj.shape[0] > 2 * CROP and obj.shape[1] > 2 * CROP:
-            obj_c = obj[CROP:-CROP, CROP:-CROP]
-        else:
-            obj_c = obj
+        obj_c = _crop_object(obj, crop)
         obj_amp = np.abs(obj_c)
         obj_phase = np.angle(obj_c)
         try:
