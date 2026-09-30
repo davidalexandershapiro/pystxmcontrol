@@ -167,6 +167,15 @@ class stxm_client(QtCore.QThread):
 
     serverMessage = QtCore.Signal(object)
 
+    # How long the connect-time handshake waits for the server's get_config
+    # reply before giving up.  ONLY the handshake is bounded: ordinary commands
+    # keep blocking forever, because the server replies to those only once it
+    # has done the work, and a move or a scan start can legitimately take
+    # minutes.  The handshake is different — the server answers it from memory,
+    # so anything beyond a few seconds means it is wedged or unreachable, and a
+    # GUI that waits on that hangs before its window is ever shown.
+    HANDSHAKE_TIMEOUT_MS = 15000
+
     def __init__(self):
         QtCore.QThread.__init__(self)
         self.scan = None
@@ -190,12 +199,21 @@ class stxm_client(QtCore.QThread):
             self.data_port = data_port
         try:
             self.command_sock = self.context.socket(zmq.REQ)
+            self.command_sock.setsockopt(zmq.LINGER, 0)
             self.command_sock.connect("tcp://%s:%s" % (address, command_port))
-            print("Connected to server")
-            self.get_config()
-            print("Got config from server")
+            # NOT "connected": a ZMQ connect() is asynchronous and succeeds even
+            # with nothing listening.  The handshake below is what proves a
+            # server is actually there.
+            print("Command socket open to tcp://%s:%s" % (address, command_port))
+            self.get_config(timeout_ms=self.HANDSHAKE_TIMEOUT_MS)
+            print("Connected to server — got config")
             self.start_monitors(address,data_port)
-        except:
+        except Exception as e:
+            # Say why.  Callers degrade to an offline/placeholder mode on False,
+            # so swallowing this silently is what makes "the GUI just came up
+            # empty" undiagnosable.
+            print("Could not connect to server at tcp://%s:%s: %s"
+                  % (address, command_port, e))
             return False
         else:
             return True
@@ -225,16 +243,47 @@ class stxm_client(QtCore.QThread):
         self.close_monitors()
         self.command_sock.close()
         
-    def send_message(self,message):
+    def _reset_command_socket(self):
+        """Discard the command socket and reconnect a fresh one.
+
+        A REQ socket is strictly send/recv lock-step: one that sent a request
+        and never received its reply is stuck in the wrong half of that cycle
+        and will raise on every subsequent send.  So a timed-out receive must
+        throw the socket away rather than reuse it (the "Lazy Pirate" pattern
+        the dashboard heartbeat follows for the same reason)."""
+        try:
+            self.command_sock.close(linger=0)
+        except Exception:
+            pass
+        self.command_sock = self.context.socket(zmq.REQ)
+        self.command_sock.setsockopt(zmq.LINGER, 0)
+        self.command_sock.connect("tcp://%s:%s"
+                                  % (self.server_address, self.command_port))
+
+    def send_message(self, message, timeout_ms=None):
+        """Send *message* and return the server's reply.
+
+        Blocks indefinitely by default — the server replies to most commands
+        only after performing them, so there is no safe general timeout.  Pass
+        ``timeout_ms`` for a call that must not be able to hang the caller (the
+        connect-time handshake); it raises ``TimeoutError`` and rebuilds the
+        socket instead of waiting forever."""
         with self.lock:
             self.command_sock.send_pyobj(message)
-            response = self.command_sock.recv_pyobj()
-            return response
+            if timeout_ms is None:
+                return self.command_sock.recv_pyobj()
+            if self.command_sock.poll(timeout_ms, zmq.POLLIN):
+                return self.command_sock.recv_pyobj()
+            self._reset_command_socket()
+            raise TimeoutError(
+                "no reply to '%s' from tcp://%s:%s after %.1fs"
+                % (message.get("command"), self.server_address,
+                   self.command_port, timeout_ms / 1000.0))
 
-    def get_config(self):
+    def get_config(self, timeout_ms=None):
         self.client_config = json.loads(open(MAINCONFIGFILE).read())
         message = {"command": "get_config"}
-        response = self.send_message(message)
+        response = self.send_message(message, timeout_ms=timeout_ms)
         self.motorInfo, self.scanConfig, self.currentMotorPositions, self.daqConfig, self.main_config = response['data']
 
     def getMotorPositions(self):

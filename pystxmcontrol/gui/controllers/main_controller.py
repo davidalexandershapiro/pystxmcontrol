@@ -226,8 +226,12 @@ class MainController(QObject):
             self.control_thread.start()
             self.control_thread.controlResponse.connect(self._handle_client_response)
             
-            # Get configuration
-            self.client.get_config()
+            # Get configuration.  Bounded: this runs while the GUI is still
+            # building its window, so an unreachable or wedged server must fail
+            # into the offline path below rather than hang before anything is
+            # shown.  (The client's own connect-time handshake is bounded the
+            # same way; this is the second attempt, on the same socket.)
+            self.client.get_config(timeout_ms=stxm_client.HANDSHAKE_TIMEOUT_MS)
             self.motor_model.set_motor_info(self.client.motorInfo)
 
             # Seed scan model with the daq_list for the default scan type
