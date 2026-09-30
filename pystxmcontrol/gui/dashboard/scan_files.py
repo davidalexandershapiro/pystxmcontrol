@@ -56,24 +56,75 @@ def window_title():
     return f"STXM Control \u2014 {instrument}" if instrument else "STXM Control \u2014 Acquisition"
 
 
+# How many day folders to look back through before giving up.  The loop below
+# only ever visits folders that exist, so this is a guard against a data root
+# full of empty day folders, not a real limit on how stale the last scan may be.
+_MAX_DAY_LOOKBACK = 400
+
+
+def _numeric_subdirs(parent):
+    """Immediate subdirectories of *parent* with all-digit names, newest first.
+
+    The data hierarchy is ``YYYY/MM/YYMMDD`` — zero-padded numbers at every
+    level — so sorting the names descending IS date order, and no ``stat`` is
+    needed to rank them.  Non-numeric siblings are skipped."""
+    try:
+        with os.scandir(parent) as it:
+            names = [e.name for e in it if e.name.isdigit() and e.is_dir()]
+    except OSError:
+        return []
+    return [os.path.join(parent, n) for n in sorted(names, reverse=True)]
+
+
+def _day_dirs_newest_first(data_dir):
+    """Day folders under ``data_dir/YYYY/MM/YYMMDD``, newest first (lazily)."""
+    seen = 0
+    for year in _numeric_subdirs(data_dir):
+        for month in _numeric_subdirs(year):
+            for day in _numeric_subdirs(month):
+                yield day
+                seen += 1
+                if seen >= _MAX_DAY_LOOKBACK:
+                    return
+
+
+def _newest_stxm_in(folder):
+    """Newest ``.stxm`` directly inside *folder* by mtime, or None.
+
+    One ``scandir`` plus a ``stat`` per data file in that one folder — the cost
+    is a session's worth of files, not the whole archive."""
+    try:
+        with os.scandir(folder) as it:
+            entries = [e for e in it if e.name.endswith(".stxm")
+                       and "ccdframes" not in e.name]
+    except OSError:
+        return None
+    if not entries:
+        return None
+    try:
+        return max(entries, key=lambda e: e.stat().st_mtime).path
+    except OSError:
+        return None
+
+
 def find_last_scan_file():
     """Newest ``.stxm`` data file under the server's ``data_dir`` (walking the
-    YYYY/MM/YYMMDD hierarchy, then a flat fallback), or None when none exists."""
-    import glob
+    YYYY/MM/YYMMDD hierarchy, then a flat fallback), or None when none exists.
+
+    Resolved by descending the date hierarchy newest-first and stopping at the
+    first day folder that holds a scan, rather than by ranking every file in the
+    archive: this runs at GUI startup, and on a data root of any size over NFS a
+    ``stat`` per file costs minutes.  The trade is that a file whose mtime
+    disagrees with the day folder it sits in (a late copy into an old session)
+    no longer wins — "the newest session's newest scan" is what we want here."""
     data_dir = (runtime_main_config().get("server") or {}).get("data_dir")
     if not data_dir or not os.path.isdir(data_dir):
         return None
-    files = [f for f in glob.glob(os.path.join(data_dir, "*", "*", "*", "*.stxm"))
-             if "ccdframes" not in os.path.basename(f)]
-    if not files:
-        files = [f for f in glob.glob(os.path.join(data_dir, "*.stxm"))
-                 if "ccdframes" not in os.path.basename(f)]
-    if not files:
-        return None
-    try:
-        return max(files, key=os.path.getmtime)
-    except OSError:
-        return None
+    for day_dir in _day_dirs_newest_first(data_dir):
+        newest = _newest_stxm_in(day_dir)
+        if newest is not None:
+            return newest
+    return _newest_stxm_in(data_dir)      # flat data_dir (no date hierarchy)
 
 
 def load_last_scan(path):

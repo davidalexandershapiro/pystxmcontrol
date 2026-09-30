@@ -142,13 +142,17 @@ class MainWindowDashboard(QMainWindow):
             self._seed_from_controller()
             self._prefill_from_last_scan()
 
+        # Sync per-scan-type panel visibility (Focus Z / Line groups hidden unless
+        # the initial scan type is Focus).  Runs after the controls exist.
+        self._on_scan_type(self.scan_type.currentText())
         # Startup image: paint the most recently recorded scan (read from disk),
         # falling back to the black canvas + ROI boxes when none is available.
-        self._show_last_scan_image()
-        # Sync per-scan-type panel visibility (Focus Z / Line groups hidden unless
-        # the initial scan type is Focus).  Runs after the image + controls exist.
-        self._on_scan_type(self.scan_type.currentText())
-        self._refresh_image_meta()
+        # Deferred to the first event-loop pass so the window is up before the
+        # disk read starts — it walks the server's data directory, which on a
+        # large or NFS-mounted data root takes long enough that doing it here
+        # leaves the operator staring at the splash.  browser_app defers its own
+        # folder load the same way.
+        QTimer.singleShot(0, self._paint_startup_image)
 
         # light "live" animation.  When connected, the counter trace is driven by
         # real monitor data, so only the live-detector dot keeps pulsing.
@@ -350,8 +354,7 @@ class MainWindowDashboard(QMainWindow):
         self._prefill_from_last_scan()
         # The rebuild reset the image widgets to a black canvas — repaint the
         # last recorded scan and its metadata overlay.
-        self._show_last_scan_image()
-        self._refresh_image_meta()
+        QTimer.singleShot(0, self._paint_startup_image)
 
         self._log_activity("server appeared — live mode", level="ok")
         print("[dashboard] server appeared — switched to live mode")
@@ -2369,6 +2372,14 @@ class MainWindowDashboard(QMainWindow):
 
     def _ls_energy_span(self):
         return self.scan_def.energy_span()
+
+    def _paint_startup_image(self):
+        """Paint the last recorded scan and refresh the image metadata overlay.
+
+        The startup and reconnect paths both defer this off the event loop, so
+        they share one method rather than each remembering the pair of calls."""
+        self._show_last_scan_image()
+        self._refresh_image_meta()
 
     def _show_last_scan_image(self):
         """Paint the most recently recorded ``.stxm`` scan at its *own* fixed
