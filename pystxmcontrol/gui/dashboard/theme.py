@@ -178,6 +178,14 @@ def build_stylesheet():
                                  font-size: 10px; }}
     QLabel[role="accent"]     {{ font-family: {MONO}; color: {C['accent']}; }}
     QLabel[role="ok"]         {{ font-family: {MONO}; color: {C['ok']}; }}
+    /* The live-detector current-value readout — the number the operator reads
+       from across the room.  Sized here rather than with setFont: a stylesheet
+       font-size overrides a widget's own QFont, so the base QWidget rule above
+       silently wins over any setFont call on a styled label. */
+    QLabel[role="detectorValue"] {{
+        font-family: {MONO}; color: {C['ok']};
+        font-size: 22px; font-weight: 500;
+    }}
     QLabel[role="motion"]     {{ font-family: {MONO}; color: {C['motion']}; }}
 
     /* ── inputs ───────────────────────────────────────────── */

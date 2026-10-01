@@ -14,7 +14,8 @@ import numpy as np
 import pyqtgraph as pg
 
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QStackedWidget, QSizePolicy,
+    QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QStackedWidget,
+    QSizePolicy,
 )
 
 from pystxmcontrol.gui.dashboard import widgets as dw
@@ -47,6 +48,24 @@ class DetectorPanel(QWidget):
     """The Live-detector card.  ``daq_info`` is the DAQ config; ``controller``
     may be None (placeholder mode) and is replaced by ``set_controller`` when
     the window goes live."""
+
+    _PLACEHOLDER_POINTS = 220      # dummy-trace window, placeholder mode only
+    # Representative counter level for the placeholder trace, so the readout
+    # offline sits in the same range a real detector reports.
+    _PLACEHOLDER_LEVEL = 1.0e6
+
+    @staticmethod
+    def _fmt_count(value):
+        """A detector reading as the panel shows it: a whole number of counts.
+
+        These run from a few hundred to ~1e8 and are always positive integers,
+        so the decimals the DAQ hands over are noise in a readout meant to be
+        legible at a glance.  Grouped in threes because the whole point of the
+        readout is telling 10 million from 100 million without counting digits."""
+        try:
+            return f"{float(value):,.0f}"
+        except (TypeError, ValueError):
+            return "—"
 
     def __init__(self, daq_info, controller=None, parent=None):
         super().__init__(parent)
@@ -83,10 +102,15 @@ class DetectorPanel(QWidget):
         mode only — with a controller, real monitor data drives the curve."""
         p = self._det_pages.get(self.active_key())
         if p and p.get("type") == "point" and p.get("trace") is not None:
-            p["trace"] = np.roll(p["trace"], -1)
-            p["trace"][-1] = 1 + (np.random.random() - .5) * .004
-            p["curve"].setData(p["trace"])
-            p["value"].setText(f"{p['trace'][-1]:.4f}")
+            tr = p["trace"]
+            # Grow until the window is full, then scroll — so a cleared trace
+            # fills back in rather than indexing into an empty buffer.
+            tr = (np.append(tr, 0.0) if tr.size < self._PLACEHOLDER_POINTS
+                  else np.roll(tr, -1))
+            tr[-1] = self._PLACEHOLDER_LEVEL * (1 + (np.random.random() - .5) * .004)
+            p["trace"] = tr
+            p["curve"].setData(tr)
+            p["value"].setText(self._fmt_count(tr[-1]))
 
     def _build(self):
         card, body = dw.card("Live detector")
@@ -215,9 +239,14 @@ class DetectorPanel(QWidget):
         title = f"{name} monitor" + (f" · {driver}" if driver else "")
         top.addWidget(dw.label(title, role="fieldLabel"))
         top.addStretch(1)
-        value_lbl = dw.label("—", role="ok")
-        value_lbl.setFont(mono_font(11))
+        value_lbl = dw.label("—", role="detectorValue")
         top.addWidget(value_lbl)
+        clear_btn = QPushButton("Clear")
+        clear_btn.setProperty("role", "small")
+        clear_btn.setToolTip("Discard this detector's monitor history and "
+                             "start the trace fresh")
+        clear_btn.clicked.connect(lambda _=False, k=key: self.clear_trace(k))
+        top.addWidget(clear_btn)
         v.addLayout(top)
 
         # Exponent shown once above the plot (SciAxis reports it) so the y tick
@@ -243,6 +272,16 @@ class DetectorPanel(QWidget):
         for ax in ("left", "bottom", "top", "right"):
             pi.getAxis(ax).setPen(C["border"])
             pi.getAxis(ax).setTextPen(C["text_faint"])
+        # showGrid(y=True) grids BOTH horizontal axes, so every grid line was
+        # drawn twice — once by the left axis, once by the right — compositing
+        # to about double the alpha asked for.  One is enough.
+        pi.getAxis("right").setGrid(False)
+        # pyqtgraph paints the ViewBox (and so the curve) at z=-100 but the axes
+        # at z=0.5, which put the grid *over* the trace.  Drop the gridded axis
+        # below the ViewBox so the lines stay a backdrop and never cross the
+        # data.  The ViewBox paints no background of its own, so they still show
+        # through; the ticks and labels sit outside it and are unaffected.
+        pi.getAxis("left").setZValue(pi.getViewBox().zValue() - 1)
 
         if dtype == "spectrum":
             e, od = _spectrum()
@@ -250,7 +289,8 @@ class DetectorPanel(QWidget):
             plot.setLabel("bottom", cfg.get("x label", "Energy (eV)"))
             trace = None
         else:
-            trace = 1 + (np.random.default_rng(4).random(220) - .5) * .004
+            trace = self._PLACEHOLDER_LEVEL * (1 + (np.random.default_rng(4).random(
+                self._PLACEHOLDER_POINTS) - .5) * .004)
             curve = plot.plot(trace, pen=pg.mkPen(C["ok"], width=1.4))
         v.addWidget(plot, 1)
 
@@ -258,6 +298,38 @@ class DetectorPanel(QWidget):
             "type": dtype, "name": name, "plot": plot, "curve": curve,
             "value": value_lbl, "exp_lbl": exp_lbl, "trace": trace}
         return page
+
+    def clear_trace(self, key):
+        """Discard one detector's monitor history and start its trace fresh.
+
+        The curve is redrawn from the image model's ``monitor_data`` on every
+        update, so blanking the curve alone would last until the next sample —
+        the stored series has to go too.  Only this detector's series: the other
+        tabs (and the classic window, which reads the same buffer) keep theirs.
+        """
+        p = self._det_pages.get(key)
+        if p is None or p.get("type") == "image":
+            return
+        if self.controller is not None:
+            try:
+                im = self.controller.get_image_model()
+                data = dict(im.get("monitor_data") or {})
+                # on_monitor_data looks the series up by key and falls back to
+                # the display name, so both spellings have to go.
+                for k in (key, p.get("name")):
+                    data.pop(k, None)
+                # Emits monitor_data_updated → on_monitor_data, which now finds
+                # nothing for this key and leaves the curve alone, so blank it
+                # afterwards rather than before.
+                im.set("monitor_data", data)
+            except Exception:
+                pass
+        if p.get("trace") is not None:
+            # Placeholder mode: an empty buffer refills from the left, the same
+            # way a live trace does after a clear.
+            p["trace"] = np.empty(0)
+        p["curve"].setData([], [])
+        p["value"].setText("—")
 
     def refresh_ccd(self):
         """Update every image-type detector page with its latest area-detector
@@ -299,7 +371,7 @@ class DetectorPanel(QWidget):
         p = self._det_pages.get(self.active_key()) if getattr(
             self, "_det_pages", None) else None
         if p and p.get("type") != "image" and p.get("value") is not None:
-            p["value"].setText(f"{value:.4f}")
+            p["value"].setText(self._fmt_count(value))
 
     def on_monitor_data(self):
         """Refresh every point/spectrum detector trace from the image model's
@@ -324,6 +396,6 @@ class DetectorPanel(QWidget):
                 continue
             p["curve"].setData(arr)
             if p.get("type") != "spectrum" and p.get("value") is not None:
-                p["value"].setText(f"{arr[-1]:.4f}")
+                p["value"].setText(self._fmt_count(arr[-1]))
         # Idle CCD frames also arrive on this signal (the trace keeps only the sum).
         self.refresh_ccd()
