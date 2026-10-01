@@ -124,12 +124,50 @@ def build_stylesheet():
     }}
     QFrame#rowSep {{ background: transparent; border: none;
                      border-bottom: 1px solid {C['separator']}; }}
+    /* A group in a scrolling controls panel.  The transparent 1px/3px borders
+       are placeholders for the scan-type highlight below: carrying them in the
+       base rule means turning the highlight on recolours the box instead of
+       growing one, so the group's contents never shift. */
+    QFrame#groupSep {{ background: transparent;
+                       border: 1px solid transparent;
+                       border-left: 3px solid transparent;
+                       border-bottom: 1px solid {C['separator']}; }}
+
+    /* ── scan-type highlight ──────────────────────────────────
+       Acquisition-control groups the selected scan type drives (Focus Z, Line,
+       Motor scan) wear a steady accent box; a group the latest scan-type change
+       just turned on flashes brighter for a moment first.  Border-only: every
+       child widget paints the base QWidget background, so a fill on the group
+       frame would show through in patches. */
+    QFrame#groupSep[highlight="on"] {{
+        border: 1px solid {C['accent_brdr']};
+        border-left: 3px solid {C['accent_brdr']};
+        border-radius: 6px;
+    }}
+    QFrame#groupSep[highlight="flash"] {{
+        border: 1px solid {C['accent']};
+        border-left: 3px solid {C['accent']};
+        border-radius: 6px;
+    }}
+    QFrame#groupSep[highlight="on"] QLabel[role="fieldLabel"],
+    QFrame#groupSep[highlight="on"] QLabel[role="axisLabel"] {{
+        color: {C['accent']};
+    }}
+    QFrame#groupSep[highlight="flash"] QLabel[role="fieldLabel"],
+    QFrame#groupSep[highlight="flash"] QLabel[role="axisLabel"] {{
+        color: #d6fbfc; font-weight: 600;
+    }}
 
     /* ── labels ───────────────────────────────────────────── */
     QLabel[role="fieldLabel"] {{
         color: {C['text_dim']}; font-size: 10px; letter-spacing: 1px;
     }}
     QLabel[role="microLabel"] {{
+        color: {C['text_dim']}; font-size: 9px; letter-spacing: 1px;
+    }}
+    /* Like microLabel, but names a control the scan type selects (the motor
+       scan's X/Y axes) — these take the accent when their group is highlighted. */
+    QLabel[role="axisLabel"] {{
         color: {C['text_dim']}; font-size: 9px; letter-spacing: 1px;
     }}
     QLabel[role="value"]      {{ font-family: {MONO}; color: {C['text']}; }}
@@ -158,6 +196,15 @@ def build_stylesheet():
         color: {C['text_muted']};
     }}
     QLineEdit[derived="true"]:focus {{ border: 1px solid {C['border']}; }}
+    /* A control the scan type has taken out of play — a motor pinned by the
+       scan config, an axis the driver parks.  Without this it paints exactly
+       like an editable field, since the rules above set colour unconditionally
+       and the disabled palette never gets a say. */
+    QLineEdit:disabled {{
+        background: {C['panel_footer']};
+        border: 1px solid {C['border']};
+        color: {C['text_faint']};
+    }}
 
     QComboBox {{
         background: {C['well']};
@@ -168,6 +215,11 @@ def build_stylesheet():
         font-weight: 500;
     }}
     QComboBox:focus {{ border: 1px solid {C['accent']}; }}
+    QComboBox:disabled {{
+        background: {C['panel_footer']};
+        border: 1px solid {C['border']};
+        color: {C['text_muted']};
+    }}
     QComboBox::drop-down {{ border: none; width: 18px; }}
     QComboBox QAbstractItemView {{
         background: {C['well']};
@@ -280,6 +332,11 @@ def build_stylesheet():
         border: 1px solid {C['border_strong']}; background: {C['well']}; }}
     QCheckBox::indicator:checked {{ background: {C['accent']};
         border: 1px solid {C['accent']}; }}
+    QCheckBox:disabled {{ color: {C['text_faint']}; }}
+    QCheckBox::indicator:disabled {{ border: 1px solid {C['border']};
+        background: {C['panel_footer']}; }}
+    QCheckBox::indicator:checked:disabled {{ background: {C['inactive_bar']};
+        border: 1px solid {C['inactive_bar']}; }}
 
     /* ── scrollbars ───────────────────────────────────────── */
     QScrollArea {{ border: none; background: transparent; }}

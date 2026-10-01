@@ -37,7 +37,8 @@ from pystxmcontrol.gui.dashboard import motor_info as mi
 from pystxmcontrol.gui.dashboard import scan_stats
 from pystxmcontrol.gui.dashboard import staff_auth as auth
 from pystxmcontrol.gui.dashboard.scan_definition import (
-    ScanDefinition, energy_n, motor_scan_region, region_scan_dict,
+    ScanDefinition, energy_n, motor_scan_region, osa_focus_scan_region,
+    region_scan_dict,
     resolve_daq_list,
 )
 from pystxmcontrol.gui.dashboard.detector_panel import DetectorPanel
@@ -249,13 +250,23 @@ class MainWindowDashboard(QMainWindow):
     _MOTOR_DRIVERS = {"single_motor_scan", "double_motor_scan",
                       "XRF_double_motor_scan"}
     _SINGLE_MOTOR_DRIVERS = {"single_motor_scan"}
+    # The OSA focus scan: a line along OSA_X at a fixed OSA_Y, repeated at every
+    # ZonePlateZ step.  Its own family — it shares the zone-plate sweep with the
+    # sample Focus scan and the pinned OSA motor axes with the OSA Image scan,
+    # but it is neither (no line on the sample image, no energy axis).
+    _OSA_FOCUS_DRIVERS = {"osa_focus_scan"}
+
+    # How long a control group the scan type just enabled stays in the brighter
+    # "flash" highlight before settling into the steady accent box.
+    _HIGHLIGHT_FLASH_MS = 1600
+    _scan_groups_lit = None           # group keys currently highlighted
 
     # Supported scan drivers.  Other scan types (spiral, tomography) report
     # "not yet supported" until their panels are wired.
     _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image",
                                "linear_focus", "linear_spectrum",
                                "single_motor_scan", "double_motor_scan",
-                               "XRF_double_motor_scan"}
+                               "XRF_double_motor_scan", "osa_focus_scan"}
 
     def _load_daq_info(self):
         """Load DAQ (detector) config from the runtime file the server also reads
@@ -352,6 +363,10 @@ class MainWindowDashboard(QMainWindow):
         self._connect_controller_signals()
         self._seed_from_controller()
         self._prefill_from_last_scan()
+        # Sync the rebuilt panel to the scan type, exactly as __init__ does after
+        # its own build: the fresh controls start with every per-family group
+        # (Focus Z / Line / Motor scan) shown and unhighlighted.
+        self._on_scan_type(self.scan_type.currentText())
         # The rebuild reset the image widgets to a black canvas — repaint the
         # last recorded scan and its metadata overlay.
         QTimer.singleShot(0, self._paint_startup_image)
@@ -788,6 +803,7 @@ class MainWindowDashboard(QMainWindow):
         # (built in _build_acq_controls).  Like the line scans they take over the
         # image display; unlike them they draw no ROI on the sample image.
         self._motor_scan_mode = False
+        self._osa_focus_mode = False
         self._focus_region = None
         # Saved image state captured on entering a single-line mode (Focus or Line
         # Spectrum), so leaving it can drop the (distant) streak and put the sample
@@ -959,6 +975,10 @@ class MainWindowDashboard(QMainWindow):
 
     def _build_acq_controls(self):
         card, body = dw.card("Acquisition controls", "continuousLine")
+        # These groups are built unhighlighted; the first _on_scan_type pass over
+        # a freshly built panel should settle them, not flash them (see
+        # _highlight_scan_groups).
+        self._scan_groups_lit = None
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -969,7 +989,7 @@ class MainWindowDashboard(QMainWindow):
         iv.setSpacing(0)
 
         # Focus Z
-        w, gv = dw.group_box("Focus Z", "ZonePlateZ · Focus, Image Stack")
+        w, gv = dw.group_box("Focus Z", "ZonePlateZ · Focus, OSA Focus")
         self._focus_group = w
         grid, fz_edits = dw.grid4([("Center", "0.000", False), ("Range", "100.000", False),
                                ("Points", "50", False), ("Step µm", "2.000", True)])
@@ -1030,7 +1050,7 @@ class MainWindowDashboard(QMainWindow):
         # any double_motor_scan family).  Each axis is a motor dropdown + a
         # Center / Range / Points / Step grid (mirrors the Loop sequence widget).
         # The dropdowns pre-select from the scan config's x_motor / y_motor.
-        w, gv = dw.group_box("Motor scan", "Single / Double Motor")
+        w, gv = dw.group_box("Motor scan", "Single / Double Motor, OSA")
         self._motor_group = w
         self._motor_axis_widgets = []
         for axis in range(2):
@@ -1039,7 +1059,7 @@ class MainWindowDashboard(QMainWindow):
             bl.setContentsMargins(0, 0, 0, 0)
             bl.setSpacing(6)
             lbl = dw.label("X MOTOR" if axis == 0 else "Y MOTOR",
-                              role="microLabel")
+                              role="axisLabel")
             bl.addWidget(lbl)
             combo = QComboBox()
             combo.addItems([name for name, _ in self._visible_motors()])
@@ -1384,6 +1404,7 @@ class MainWindowDashboard(QMainWindow):
                 or getattr(self, "_ls_mode", False)
                 or getattr(self, "_focus_mode", False)
                 or getattr(self, "_motor_scan_mode", False)
+                or getattr(self, "_osa_focus_mode", False)
                 or self._is_single_motor()):
             return [], []
         try:
@@ -1537,7 +1558,7 @@ class MainWindowDashboard(QMainWindow):
         if fbtn is not None:
             in_focus_streak = (getattr(self, "image_area", None) is not None
                                and self.image_area._focus_display
-                               and self._focus_mode)
+                               and self._is_focus_streak())
             fbtn.setEnabled(bool(in_focus_streak and payload is not None
                                  and self.controller is not None
                                  and not self._scanning))
@@ -2130,8 +2151,9 @@ class MainWindowDashboard(QMainWindow):
         widgets.  Returns True on success.
 
         Handles Image-family scans (SampleX/SampleY spatial grid + energy
-        regions) and single-line Focus scans (angled line × ZonePlateZ sweep,
-        single energy).  Other scan types report an error until wired.
+        regions), single-line Focus scans (angled line × ZonePlateZ sweep, single
+        energy), motor scans, and the OSA focus scan.  Other scan types report an
+        error until wired.
 
         ``preview=True`` compiles an abridged sanity-check scan — only the first
         spatial region at a single energy — into the scan model.  It never
@@ -2177,7 +2199,9 @@ class MainWindowDashboard(QMainWindow):
             self._compile_loop_scan(sm, preview=preview)
             sm.set('daq_list', resolve_daq_list(getattr(client, 'daqConfig', {}), sc))
 
-            if self._focus_mode:
+            if self._osa_focus_mode:
+                region = self._compile_osa_focus(sm, sc)
+            elif self._focus_mode:
                 region = self._compile_focus(sm, sc)
             elif self._ls_mode:
                 region = self._compile_line_spectrum(sm, sc)
@@ -2267,6 +2291,34 @@ class MainWindowDashboard(QMainWindow):
         sm.set('autofocus', bool(getattr(self, '_focus_move_to_best', None)
                                  and self._focus_move_to_best.isChecked()))
         region = self._focus_region_scan_dict()
+        sm.add_scan_region('Region1', region)
+
+        # Single energy: the first energy region's start, at its dwell.
+        self._sync_active_energy_region()
+        e0 = self.scan_def.emit_single_energy(sm)
+        sm.set('dwell', e0['dwell'])
+        return region
+
+    def _compile_osa_focus(self, sm, sc):
+        """Populate ``sm`` for an OSA focus scan: a line along OSA_X at a fixed
+        OSA_Y, repeated at every ZonePlateZ step, at a single energy.  Returns
+        the region dict.
+
+        The line comes from the Motor-scan group (the config pins its two
+        dropdowns to OSA_X / OSA_Y) and the Z sweep from the Focus Z group — the
+        same split the task agent's ``configure_focus_scan`` writes.  The scan
+        has no energy axis of its own: like a sample Focus scan it runs at a
+        single energy, so a multi-region Energy tab would silently multiply it.
+
+        ``autofocus`` is deliberately left as _compile_scan set it: the driver
+        never reads it (the zone plate is parked on the OSA, not the sample, and
+        the result defines the Z=0 calibration rather than consuming it).
+        """
+        self._on_focus_edit()    # flush the derived Z step into the focus model
+        self._on_motor_edit()    # flush the derived line step
+        sm.set('z_motor', sc.get('z_motor', 'ZonePlateZ'))
+        sm.set('tiled', False)   # a single line is never tiled
+        region = self._osa_focus_region_scan_dict()
         sm.add_scan_region('Region1', region)
 
         # Single energy: the first energy region's start, at its dwell.
@@ -2366,6 +2418,23 @@ class MainWindowDashboard(QMainWindow):
         x_axis = read(self._motor_axis_widgets[0])
         y_axis = read(self._motor_axis_widgets[1]) if axes >= 2 else None
         return motor_scan_region(x_axis, y_axis)
+
+    def _osa_focus_region_scan_dict(self):
+        """The OSA focus scan region: the Motor-scan group's X axis as the line,
+        its Y axis as the parked off-line position, and the Focus Z group as the
+        zone-plate sweep."""
+        fr = self._ensure_focus_region()
+        ax = self._motor_axis_widgets
+        def num(edit, default=0.0):
+            try:
+                return float(edit.text() or 0)
+            except ValueError:
+                return default
+        x_axis = (num(ax[0]['center']), abs(num(ax[0]['range'])),
+                  max(1, int(num(ax[0]['npts'], 1))))
+        return osa_focus_scan_region(
+            x_axis, num(ax[1]['center']),
+            (fr['zCenter'], fr['zRange'], fr['zPoints']))
 
     def _line_spectrum_region_scan_dict(self):
         return self.scan_def.line_spectrum_scan_region()
@@ -2716,7 +2785,7 @@ class MainWindowDashboard(QMainWindow):
         """Total acquisition points in a compiled scan model."""
         return scan_stats.total_scan_points(sm.get('scan_regions', {}) or {},
                                        sm.get('energy_regions', {}) or {},
-                                       is_focus=self._focus_mode)
+                                       is_focus=self._is_focus_streak())
 
     def _scan_stats_from_view(self):
         """(est_seconds, points, velocity_mm_s) computed from the current view.
@@ -2728,12 +2797,16 @@ class MainWindowDashboard(QMainWindow):
         so ``xStep / dwell`` is already mm/s."""
         scan_type = self.scan_type.currentText()
         is_ptycho = "Ptychography" in scan_type
-        is_focus = self._focus_mode
+        # Both focus families count their rows as ZonePlateZ steps and run at a
+        # single energy.
+        is_focus = self._is_focus_streak()
 
         is_motor = getattr(self, "_motor_scan_mode", False)
 
         # Region dicts from the already-flushed models.
-        if is_focus:
+        if getattr(self, "_osa_focus_mode", False):
+            regions = [self._osa_focus_region_scan_dict()]
+        elif is_focus:
             regions = [self._focus_region_scan_dict()]
         elif self._ls_mode:
             # Single line (yPoints=1) swept over the full multi-region energy axis.
@@ -2989,10 +3062,11 @@ class MainWindowDashboard(QMainWindow):
             if fit:
                 self._fit_fov()
             return
-        if getattr(self, '_motor_scan_mode', False):
-            # A motor scan lives in its own coordinate space — draw no ROI or line
-            # on the sample image; the result frame takes the display over at scan
-            # time (see _on_image / _toggle_scan).
+        if (getattr(self, '_motor_scan_mode', False)
+                or getattr(self, '_osa_focus_mode', False)):
+            # A motor scan (and the OSA focus scan) lives in its own coordinate
+            # space — draw no ROI or line on the sample image; the result frame
+            # takes the display over at scan time (see _on_image / _toggle_scan).
             self.image_area.sync_regions([])
             self.image_area.clear_line()
             return
@@ -3581,7 +3655,8 @@ class MainWindowDashboard(QMainWindow):
         self._set_scanning(True)
         if not (self._scan_is_focus(scan_type)
                 or self._scan_is_line_spectrum(scan_type)
-                or self._scan_is_motor(scan_type)):
+                or self._scan_is_motor(scan_type)
+                or self._scan_is_osa_focus(scan_type)):
             # Spatial region is driven live from the data stream
             # (_on_external_scan_geometry); take only the energy regions from the
             # cached config here so we don't overwrite the live spatial geometry.
@@ -3738,6 +3813,35 @@ class MainWindowDashboard(QMainWindow):
     def _scan_is_line_spectrum(text):
         return "Line Spectrum" in text
 
+    def _scan_is_osa_focus(self, text):
+        """True when ``text`` is driven by the OSA focus driver (config-driven;
+        falls back to the well-known name when offline)."""
+        sc = self._scan_cfg(text)
+        if sc is not None:
+            return sc.get("driver") in self._OSA_FOCUS_DRIVERS
+        return "OSA" in text and "Focus" in text
+
+    def _is_focus_streak(self):
+        """True for the families whose result frame is a ZonePlateZ streak — the
+        sample Focus scan and the OSA focus scan.  Both display Z up the y-axis,
+        count their rows as Z steps, and calibrate focus from a click on it."""
+        return (getattr(self, "_focus_mode", False)
+                or getattr(self, "_osa_focus_mode", False))
+
+    def _scan_uses_zoneplate(self, text):
+        """True when ``text`` steps the zone plate, and so is configured from the
+        Focus Z group.
+
+        Read from the scan config's ``z_motor`` rather than the scan's name (and
+        deliberately not from _scan_is_focus): the sample Focus scan and the OSA
+        Focus scan both step ZonePlateZ, but only the former draws its line on
+        the sample image and takes the display over.  Falls back to the name when
+        offline."""
+        sc = self._scan_cfg(text)
+        if sc is not None:
+            return bool(sc.get("z_motor"))
+        return "Focus" in text
+
     def _is_line_scan(self):
         """True for the single-line scan families (Focus or Line Spectrum): both
         draw one line ROI on the sample image and take the display over with a
@@ -3756,7 +3860,8 @@ class MainWindowDashboard(QMainWindow):
         ROI boxes with its own display (Focus / Line Spectrum streaks, or a
         motor scan in its own coordinate space) — the set that snapshots the
         sample display on entry and restores it on the way back to Image."""
-        return self._is_line_scan() or getattr(self, "_motor_scan_mode", False)
+        return (self._is_line_scan() or getattr(self, "_motor_scan_mode", False)
+                or getattr(self, "_osa_focus_mode", False))
 
     def _scan_cfg(self, text):
         """The scan.json entry for ``text`` from the connected client, or None
@@ -3811,11 +3916,44 @@ class MainWindowDashboard(QMainWindow):
             self._recompute_step(ax["range"], ax["npts"], ax["step"])
         self._refresh_scan_stats()
 
+    def _highlight_scan_groups(self, active):
+        """Mark the acquisition-control groups the selected scan type drives.
+
+        The groups already appear and disappear with the scan type, but in a
+        dense scrolling panel of near-identical Center/Range/Points grids that
+        change is easy to miss.  So every live group keeps a steady accent box
+        (with its title and axis labels in the accent), and any group the latest
+        scan-type change just turned *on* flashes brighter for a moment first —
+        picking "Double Motor" lights up the X MOTOR / Y MOTOR block it enabled.
+
+        ``active`` maps a group key (the ``_<key>_group`` attribute) to whether
+        this scan type uses it."""
+        was = self._scan_groups_lit
+        self._scan_groups_lit = {k for k, on in active.items() if on}
+        for key, on in active.items():
+            w = getattr(self, f"_{key}_group", None)
+            if w is None:
+                continue
+            # ``was is None`` is a freshly built panel (nothing was lit to change
+            # from), so it settles straight into the steady state.
+            flash = on and was is not None and key not in was
+            dw.set_highlight(w, "flash" if flash else ("on" if on else ""))
+            if flash:
+                # Bound to the group, so a rebuilt panel's dead widgets never get
+                # called back.  Re-reads the lit set: the scan type may have
+                # changed again while the flash was up.
+                QTimer.singleShot(
+                    self._HIGHLIGHT_FLASH_MS, w,
+                    lambda w=w, k=key: dw.set_highlight(
+                        w, "on" if k in (self._scan_groups_lit or ()) else ""))
+
     def _on_scan_type(self, text):
         ptycho = "Ptycho" in text
         focus = self._scan_is_focus(text)
         ls = self._scan_is_line_spectrum(text)
         motor = self._scan_is_motor(text)
+        osa_focus = self._scan_is_osa_focus(text)
+        zoneplate = self._scan_uses_zoneplate(text)
         # Mode readout: prefer the scan config's mode (point vs continuousLine),
         # falling back to the ptychography/continuous default when offline.
         sc = self._scan_cfg(text)
@@ -3825,17 +3963,25 @@ class MainWindowDashboard(QMainWindow):
         self._focus_mode = focus
         self._ls_mode = ls
         self._motor_scan_mode = motor
+        self._osa_focus_mode = osa_focus
         self._motor_axes = self._motor_axis_count(text) if motor else 0
         line = self._is_line_scan()
         takeover = self._takes_over_image()
-        # Per-family control groups: Focus Z (focus), Line (line scans), Motor
-        # scan (motor scans).
+        # Per-family control groups: Focus Z (anything that steps the zone
+        # plate), Line (line scans), Motor scan (motor scans).
         if getattr(self, "_focus_group", None):
-            self._focus_group.setVisible(focus)
+            self._focus_group.setVisible(zoneplate)
         if getattr(self, "_line_group", None):
             self._line_group.setVisible(line)
         if getattr(self, "_motor_group", None):
-            self._motor_group.setVisible(motor)
+            self._motor_group.setVisible(motor or osa_focus)
+        self._highlight_scan_groups(
+            {"focus": zoneplate, "line": line, "motor": motor or osa_focus})
+        # "move to best focus" belongs to the sample focus scan: the OSA driver
+        # never reads autofocus — its scan defines the Z=0 calibration rather
+        # than consuming it.
+        if getattr(self, "_focus_move_to_best", None):
+            self._focus_move_to_best.setEnabled(not osa_focus)
         # Single-line / motor scans are one region — no multi-region add/remove.
         if getattr(self, "_add_region_btn", None):
             self._add_region_btn.setEnabled(not takeover)
@@ -3846,7 +3992,8 @@ class MainWindowDashboard(QMainWindow):
         # draws energy along the x-axis (position-along-line stays the y-axis);
         # motor scans keep plain X/Y (their own motor coordinates).
         if getattr(self, "_cursor_readout_keys", None):
-            self._cursor_readout_keys["Y"].setText("Z" if focus else "Y")
+            self._cursor_readout_keys["Y"].setText(
+                "Z" if focus or osa_focus else "Y")
             self._cursor_readout_keys["X"].setText("E" if ls else "X")
         # Focus-to-cursor is re-enabled by a click on the streak (see _on_cursor).
         fbtn = getattr(self, "_cursor_action_btns", {}).get("Focus to cursor")
@@ -3872,13 +4019,13 @@ class MainWindowDashboard(QMainWindow):
                     [dict(r) for r in self._scan_regions],
                     self._active_region,
                     dict(self._spectrum_region) if self._spectrum_region else None)
-            if line:
+            if line or osa_focus:
                 self._ensure_focus_region()
-                if focus:
+                if focus or osa_focus:
                     # Live-refresh the Z centre to the current ZonePlateZ on entry.
                     self._focus_region['zCenter'] = self._current_motor_pos('ZonePlateZ')
                 self._write_focus_fields()
-            if motor:
+            if motor or osa_focus:
                 self._prefill_motor_axes(text)
             if hasattr(self, "image_area"):
                 self.image_area.set_focus_display(False)  # neutral sample view
@@ -3897,11 +4044,16 @@ class MainWindowDashboard(QMainWindow):
         OSA_X/OSA_Y) pins that dropdown — the scan is *defined* on those motors;
         a null/empty config motor leaves the dropdown user-selectable (Single /
         Double Motor).  Only the motor selector locks — the center/range/points
-        fields stay editable."""
+        fields stay editable.
+
+        The OSA focus scan is the exception: its second axis is parked, not
+        scanned (the driver holds OSA_Y at one position for the whole scan), so
+        that axis keeps an editable Center and loses Range/Points/Step."""
         if not getattr(self, "_motor_axis_widgets", None):
             return
         sc = self._scan_cfg(text) or {}
         axes = self._motor_axis_count(text)
+        parked_y = self._scan_is_osa_focus(text)
         defaults = [sc.get("x_motor"), sc.get("y_motor")]
         for i, ax in enumerate(self._motor_axis_widgets):
             ax["block"].setVisible(i < axes)
@@ -3921,6 +4073,9 @@ class MainWindowDashboard(QMainWindow):
             if name:
                 ax["center"].setText(f"{self._current_motor_pos(name):.3f}")
             self._recompute_step(ax["range"], ax["npts"], ax["step"])
+            scanned = not (parked_y and i == 1)
+            for key in ("range", "npts", "step"):
+                ax[key].setEnabled(scanned)
 
     def _restore_pre_focus_display(self):
         """Leave focus: remove the ZonePlateZ streak and restore the sample image
@@ -4136,7 +4291,8 @@ class MainWindowDashboard(QMainWindow):
                     placed = True
                     # Focus places its streak in ZonePlateZ space, far from the
                     # sample view — fit the view to that extent once.
-                    if self._focus_mode and not getattr(self, '_focus_view_fitted', False):
+                    if (self._is_focus_streak()
+                            and not getattr(self, '_focus_view_fitted', False)):
                         self.image_area.set_view(xc, yc, max(abs(xr), 1e-6) / 0.85,
                                                  max(abs(yr), 1e-6) / 0.85)
                         self._focus_view_fitted = True

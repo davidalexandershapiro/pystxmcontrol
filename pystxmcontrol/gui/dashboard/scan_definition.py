@@ -237,20 +237,47 @@ class ScanDefinition:
         fr = self.ensure_focus_region()
         n = max(1, int(fr['points']))
         region = self._line_scan_region(y_points=n)
-        zc, zr = fr['zCenter'], fr['zRange']
-        zp = max(1, int(fr['zPoints']))
-        zs = zr / zp if zp > 0 else 0.0
-        region.update({
-            'zCenter': zc, 'zRange': zr, 'zPoints': zp, 'zStep': zs,
-            'zStart': zc - zr / 2.0 + zs / 2.0,
-            'zStop': zc + zr / 2.0 - zs / 2.0,
-        })
+        region.update(z_sweep(fr['zCenter'], fr['zRange'], fr['zPoints']))
         return region
 
     def line_spectrum_scan_region(self):
         """The line-spectrum scan region: one angled line, energy as the outer
         loop, so a single slow-axis row."""
         return self._line_scan_region(y_points=1)
+
+
+def z_sweep(z_center, z_range, z_points):
+    """The ZonePlateZ keys of a scan region, from a centre/range/points triple.
+
+    Shared by both focus families — they differ in what the fast axis is, never
+    in how the zone plate is stepped — and uses the same full-field convention as
+    ``region_scan_dict``: step = range/points, endpoints inset half a step.
+    """
+    zp = max(1, int(z_points))
+    zs = z_range / zp if zp > 0 else 0.0
+    return {
+        'zCenter': z_center, 'zRange': z_range, 'zPoints': zp, 'zStep': zs,
+        'zStart': z_center - z_range / 2.0 + zs / 2.0,
+        'zStop': z_center + z_range / 2.0 - zs / 2.0,
+    }
+
+
+def osa_focus_scan_region(x_axis, y_center, z_axis):
+    """Scan region for an OSA focus scan: a line along the X motor at a fixed Y
+    position, repeated at every ZonePlateZ step.
+
+    ``x_axis`` and ``z_axis`` are ``(center, range, points)`` triples; the OSA_Y
+    motor takes only a position.  It is parked rather than scanned — the driver
+    holds it at ``yPos[0]`` for the whole scan — so the region carries one Y
+    point and no Y range, the same shape the task agent's
+    ``configure_focus_scan`` writes.
+    """
+    xc, xr, xp = x_axis
+    region = region_scan_dict({'xCenter': xc, 'yCenter': y_center,
+                               'xRange': xr, 'yRange': 0.0,
+                               'xPoints': xp, 'yPoints': 1})
+    region.update(z_sweep(*z_axis))
+    return region
 
 
 def motor_scan_region(x_axis, y_axis=None):

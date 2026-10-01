@@ -168,10 +168,67 @@ def test_preview_does_not_disturb_the_full_definition(dashboard):
     assert compile_scan(dashboard) == full_before
 
 
-def test_unsupported_scan_type_is_refused(dashboard):
-    """OSA Focus is in scan.json but its driver is not in the dashboard's
-    supported set — it must fail loudly rather than compile something wrong."""
+def test_osa_focus_scan(dashboard):
+    """A line along OSA_X at a parked OSA_Y, repeated at every ZonePlateZ step.
+
+    The line comes from the Motor-scan group and the Z sweep from the Focus Z
+    group; OSA_Y contributes only a position, so the region carries one Y point
+    and no Y range.
+    """
     dashboard.scan_type.setCurrentText("OSA Focus")
+    set_energy(dashboard, start=700.0, stop=700.0, step=0.0, dwell=0.5)
+    x_axis, y_axis = dashboard._motor_axis_widgets
+    x_axis["center"].setText("20.0")
+    x_axis["range"].setText("50.0")
+    x_axis["npts"].setText("100")
+    y_axis["center"].setText("0.0")
+    dashboard._on_motor_edit()
+    dashboard._focus_fields["center"].setText("1000.0")
+    dashboard._focus_fields["range"].setText("500.0")
+    dashboard._focus_fields["points"].setText("100")
+    dashboard._on_focus_edit()
+    assert_matches_golden("osa_focus", compile_scan(dashboard))
+
+
+def test_osa_focus_region_matches_the_server_side_builder(dashboard):
+    """The dashboard and the task agent must ask for the same geometry.
+
+    ``configure_focus_scan`` builds its region with
+    ``scan_conversion.build_scan_region``; an OSA focus scan compiled from the
+    dashboard has to land on the same numbers, or the two paths silently scan
+    different fields.
+    """
+    from pystxmcontrol.controller.scan_conversion import build_scan_region
+
+    dashboard.scan_type.setCurrentText("OSA Focus")
+    set_energy(dashboard, start=700.0, stop=700.0, step=0.0, dwell=0.5)
+    x_axis, y_axis = dashboard._motor_axis_widgets
+    x_axis["center"].setText("20.0")
+    x_axis["range"].setText("50.0")
+    x_axis["npts"].setText("100")
+    y_axis["center"].setText("0.0")
+    dashboard._on_motor_edit()
+    for key, val in (("center", "1000.0"), ("range", "500.0"), ("points", "100")):
+        dashboard._focus_fields[key].setText(val)
+    dashboard._on_focus_edit()
+
+    region = compile_scan(dashboard)["scan_regions"]["Region1"]
+    expected = build_scan_region(20.0, 50.0, 100,   # line along OSA_X
+                                 0.0, 0.0, 1,      # OSA_Y parked
+                                 1000.0, 500.0, 100)  # ZonePlateZ sweep
+    for key, want in expected.items():
+        assert region[key] == pytest.approx(want), key
+
+
+def test_unsupported_scan_type_is_refused(dashboard):
+    """A scan type whose driver the dashboard does not implement must fail
+    loudly rather than compile something wrong."""
+    dashboard.controller.client.scanConfig["Tomography"] = {
+        "driver": "tomography_scan", "mode": "continuousLine",
+        "x_motor": "SampleX", "y_motor": "SampleY",
+    }
+    dashboard.scan_type.addItem("Tomography")
+    dashboard.scan_type.setCurrentText("Tomography")
     assert dashboard._compile_scan() is False
     assert dashboard.controller.errors
 

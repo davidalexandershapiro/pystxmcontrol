@@ -132,7 +132,10 @@ def group_box(title, note=None, sep=True):
     """A group in a scrolling controls panel: title row + body layout."""
     w = QFrame()
     if sep:
-        w.setObjectName("rowSep")
+        # Its own object name, not the plain "rowSep" of the motor/parameter
+        # lists: a group carries the extra border the scan-type highlight paints
+        # into, and those lists must keep their original metrics.
+        w.setObjectName("groupSep")
     v = QVBoxLayout(w)
     v.setContentsMargins(14, 12, 14, 12)
     v.setSpacing(9)
@@ -144,6 +147,24 @@ def group_box(title, note=None, sep=True):
         top.addWidget(label(note, role="monoFaint"))
     v.addLayout(top)
     return w, v
+
+
+def set_highlight(widget, state):
+    """Set a group's scan-type highlight: ``""`` (off), ``"on"`` (steady box) or
+    ``"flash"`` (the brighter just-changed state).  See the ``[highlight=...]``
+    rules in ``theme.build_stylesheet``.
+
+    Qt does not restyle a live widget when a dynamic property changes, and the
+    rules that tint the group's labels select on the *group's* property — so the
+    labels have to be re-polished along with the frame itself.  Only the labels:
+    a blanket walk of the descendants reaches the item views inside combo-box
+    popups, whose ``update()`` means something else entirely.
+    """
+    widget.setProperty("highlight", state)
+    for w in [widget] + widget.findChildren(QLabel):
+        w.style().unpolish(w)
+        w.style().polish(w)
+        w.update()
 
 
 def grid4(specs):
