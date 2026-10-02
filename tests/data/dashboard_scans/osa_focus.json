@@ -6,7 +6,7 @@
     "default"
   ],
   "defocus": false,
-  "doubleExposure": true,
+  "doubleExposure": false,
   "double_exposure": false,
   "driver": "osa_focus_scan",
   "dwell": 0.5,

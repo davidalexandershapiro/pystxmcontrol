@@ -253,9 +253,9 @@ class MainWindowDashboard(QMainWindow):
 
     # The scan-definition Detector tab is placeholder content — every field on
     # it is hardcoded and none is wired to the server — so the tab is hidden
-    # until it is.  Set True to bring it back.  The page itself stays built and
-    # in the stack on purpose: _compile_scan reads its double-exposure field, so
-    # dropping it would quietly change what every scan asks for.
+    # until it is.  Set True to bring it back.  The page is still built and left
+    # in the stack, intact for whoever wires it up; nothing outside it reads its
+    # widgets now that double exposure has a checkbox of its own.
     _SHOW_DETECTOR_TAB = False
     # The OSA focus scan: a line along OSA_X at a fixed OSA_Y, repeated at every
     # ZonePlateZ step.  Its own family — it shares the zone-plate sweep with the
@@ -833,7 +833,8 @@ class MainWindowDashboard(QMainWindow):
         # Profile panel's Spectrum tab (see _switch_profile), which shows the ROI
         # while Spectrum is selected and hides it on Line-outs.
         for name, on in (("autofocus", True),
-                         ("show ROI", True), ("tiled", False), ("defocus", False)):
+                         ("show ROI", True), ("tiled", False), ("defocus", False),
+                         ("double exposure", False)):
             cb = QCheckBox(name)
             cb.setChecked(on)
             cb.setCursor(Qt.PointingHandCursor)
@@ -2198,8 +2199,8 @@ class MainWindowDashboard(QMainWindow):
             sm.set('coarse_only', False)   # validate_ranges may set True
             sm.set('defocus', self._scan_checks['defocus'].isChecked())
             sm.set('autofocus', self._scan_checks['autofocus'].isChecked())
-            de = self._double_exposure_ro
-            sm.set('doubleExposure', bool(de and 'enabled' in de.text().lower()))
+            sm.set('doubleExposure',
+                   self._scan_checks['double exposure'].isChecked())
             proposal, experimenters = self._proposal_parts()
             sm.set('proposal', proposal)
             sm.set('experimenters', experimenters)

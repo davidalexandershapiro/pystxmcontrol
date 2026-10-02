@@ -6,7 +6,7 @@
     "default"
   ],
   "defocus": false,
-  "doubleExposure": true,
+  "doubleExposure": false,
   "double_exposure": false,
   "driver": "single_motor_scan",
   "dwell": 1.0,
