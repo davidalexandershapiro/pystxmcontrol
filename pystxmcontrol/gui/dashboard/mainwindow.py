@@ -250,6 +250,13 @@ class MainWindowDashboard(QMainWindow):
     _MOTOR_DRIVERS = {"single_motor_scan", "double_motor_scan",
                       "XRF_double_motor_scan"}
     _SINGLE_MOTOR_DRIVERS = {"single_motor_scan"}
+
+    # The scan-definition Detector tab is placeholder content — every field on
+    # it is hardcoded and none is wired to the server — so the tab is hidden
+    # until it is.  Set True to bring it back.  The page itself stays built and
+    # in the stack on purpose: _compile_scan reads its double-exposure field, so
+    # dropping it would quietly change what every scan asks for.
+    _SHOW_DETECTOR_TAB = False
     # The OSA focus scan: a line along OSA_X at a fixed OSA_Y, repeated at every
     # ZonePlateZ step.  Its own family — it shares the zone-plate sweep with the
     # sample Focus scan and the pinned OSA motor axes with the OSA Image scan,
@@ -694,6 +701,12 @@ class MainWindowDashboard(QMainWindow):
                 b.setChecked(True)
             self.sub_grp.addButton(b, i)
             subbar.addWidget(b)
+            # Hidden rather than skipped, so the button ids keep lining up with
+            # the stack indices below and the tab is one flag away from coming
+            # back.  A hidden widget takes no space in the layout and can be
+            # neither clicked nor focused.
+            if name == "Detector" and not self._SHOW_DETECTOR_TAB:
+                b.setVisible(False)
         subbar.addStretch(1)
         subwrap = QFrame()
         subwrap.setStyleSheet(f"border-bottom:1px solid {C['border']};")
@@ -704,7 +717,7 @@ class MainWindowDashboard(QMainWindow):
         self.config_stack = QStackedWidget()
         self.config_stack.addWidget(self._spatial_page())
         self.config_stack.addWidget(self._energy_page())
-        self.config_stack.addWidget(self._detector_page())
+        self.config_stack.addWidget(self._detector_page())   # tab may be hidden
         self.sub_grp.idClicked.connect(self.config_stack.setCurrentIndex)
         cv.addWidget(self.config_stack)
 
