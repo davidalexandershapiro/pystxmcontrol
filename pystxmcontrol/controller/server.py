@@ -2,6 +2,7 @@ import threading, traceback, zmq
 from pystxmcontrol.controller.controller import controller
 from pystxmcontrol.utils.logger import logger
 from pystxmcontrol.controller import scan_files
+from pystxmcontrol.controller import orbit_database
 import time, os, datetime, sys
 import asyncio
 import atexit
@@ -561,6 +562,29 @@ class stxmServer:
                 self.controller.operation_logger.log_command(
                     command=command_name,
                     parameters={"action": action, "energy": message.get("energy")},
+                    status=message["status"],
+                    mode="idle",
+                    duration=time.time() - cmd_start_time,
+                )
+            elif message["command"] == "orbit_db":
+                # Rotation-orbit database, reached remotely like beamline_db. The action is
+                # an OrbitDatabase method from an allowlist; args are its keyword arguments.
+                action = message.get("action")
+                try:
+                    message["data"] = orbit_database.dispatch(
+                        self.controller.orbit_db, action, message.get("args"))
+                    message["status"] = True
+                except Exception as e:
+                    message["status"] = False
+                    message["data"] = None
+                    message["error"] = str(e)
+                message["mode"] = "scanning" if scanning else "idle"
+                message["time"] = str(datetime.datetime.now())
+                self.command_sock.send_pyobj(message)
+
+                self.controller.operation_logger.log_command(
+                    command=command_name,
+                    parameters={"action": action},
                     status=message["status"],
                     mode="idle",
                     duration=time.time() - cmd_start_time,

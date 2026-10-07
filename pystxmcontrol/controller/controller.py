@@ -8,6 +8,7 @@ from pystxmcontrol.controller.scans import *
 from pystxmcontrol.controller.operation_logger import OperationLogger
 from pystxmcontrol.controller.intelligence import IntelligenceModule, EventRecorder
 from pystxmcontrol.controller.beamline_database import BeamlineDatabase
+from pystxmcontrol.controller.orbit_database import OrbitDatabase
 import asyncio
 import atexit
 import numpy as np
@@ -58,6 +59,8 @@ class controller:
         # over the network (via the "beamline_db" command) instead of needing filesystem
         # access to the server machine.
         self.beamline_db = BeamlineDatabase(data_dir = self.main_config["server"]["data_dir"])
+        # Rotation-orbit history for non-eucentric tomography; same arrangement ("orbit_db").
+        self.orbit_db = OrbitDatabase(data_dir = self.main_config["server"]["data_dir"])
         intel_cfg = self.main_config.get("intelligence", {})
         self._event_recorder = EventRecorder(
             channels=intel_cfg.get("channels", None)
