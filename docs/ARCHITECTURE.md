@@ -220,6 +220,9 @@ flowchart TB
   - Motor moves
   - Scans
   - Commands
+- **SQLite Databases** (server-side, reached over ZMQ): beamline parameters
+  (`beamline_params.db`, `beamline_db` command) and rotation-orbit history
+  (`rotation_orbits.db`, `orbit_db` command; see [ROTATION_TOMOGRAPHY.md](ROTATION_TOMOGRAPHY.md))
 - **HDF5 Data Files**: Scientific data in NeXus format
 - **JSON Config Files**: Motor, scan, and DAQ configurations
 

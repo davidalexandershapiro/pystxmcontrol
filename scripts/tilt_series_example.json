@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "Tilt series for pystxmcontrol.controller.tilt_series_cli (plan | run).",
+    "Anchors are the 260620 Fe-edge measurements. Set each anchor's energy to the energy",
+    "it was focused at: the run energy is read from the Energy motor and ZonePlateZ is",
+    "moved by -A1 * (run - anchor), replacing the script's hand-applied -1890.5 offset.",
+    "Set tracker.debug true for a first dry run (motors only, no scans, no database)."
+  ],
+  "server": {"host": "131.243.73.81", "port": 9999},
+  "sample": {"label": "Al2O3-NiFe"},
+  "anchors": [
+    {"angle":   0.0, "coarse_y": 209.0, "sample_x": -85.0, "zone_plate_z":  -9730.0, "energy": 708.0},
+    {"angle": -10.0, "coarse_y": 201.0, "sample_x": -85.0, "zone_plate_z":  -9696.0, "energy": 708.0},
+    {"angle":  10.0, "coarse_y": 225.0, "sample_x": -85.0, "zone_plate_z":  -9756.0, "energy": 708.0},
+    {"angle":  20.0, "coarse_y": 244.0, "sample_x": -85.0, "zone_plate_z":  -9784.0, "energy": 708.0},
+    {"angle": -30.0, "coarse_y": 192.0, "sample_x": -85.0, "zone_plate_z":  -9642.0, "energy": 708.0},
+    {"angle": -50.0, "coarse_y": 205.0, "sample_x": -85.0, "zone_plate_z":  -9582.0, "energy": 708.0},
+    {"angle": -70.0, "coarse_y": 265.0, "sample_x": -85.0, "zone_plate_z":  -9482.0, "energy": 708.0},
+    {"angle": -80.0, "coarse_y": 362.0, "sample_x": -85.0, "zone_plate_z":  -9362.0, "energy": 708.0},
+    {"angle":  30.0, "coarse_y": 267.0, "sample_x": -85.0, "zone_plate_z":  -9823.0, "energy": 708.0},
+    {"angle":  50.0, "coarse_y": 354.0, "sample_x": -85.0, "zone_plate_z":  -9931.0, "energy": 708.0},
+    {"angle":  60.0, "coarse_y": 428.0, "sample_x": -85.0, "zone_plate_z": -10012.0, "energy": 708.0},
+    {"angle":  65.0, "coarse_y": 480.0, "sample_x": -85.0, "zone_plate_z": -10069.0, "energy": 708.0}
+  ],
+  "angles": [{"start": -80, "stop": 72, "step": 2}],
+  "tracker": {
+    "stxm_scan": {
+      "scan_type": "Spiral Image", "spiral": true, "dwell": 0.2, "defocus": false,
+      "energy_start": 835.5, "energy_stop": 835.5, "energy_points": 1,
+      "double_exposure": false, "daq_list": ["default"], "retract": true, "autofocus": false,
+      "proposal": "BLS-00715", "sample_description": "Al2O3-NiFe"
+    },
+    "ptycho_scan": {
+      "scan_type": "Ptychography Image", "dwell": 10, "spiral": false, "defocus": true,
+      "x_range": 4.1, "x_points": 41, "y_range": 2.5, "y_points": 25,
+      "energy_start": 835.5, "energy_stop": 835.5, "energy_points": 1,
+      "double_exposure": false, "daq_list": ["default", "CCD"], "retract": true,
+      "autofocus": false, "proposal": "BLS-00715", "sample_description": "Al2O3-NiFe"
+    },
+    "coarse_range": 20, "coarse_points": 100,
+    "fine_range": 15, "fine_points": 75,
+    "threshold": 0.3,
+    "ptycho_shift_x": 1.5, "ptycho_shift_y": 0.0,
+    "cc_tol": 0.6, "recenter_tol": 0.5,
+    "rotation_tol": 0.3, "y_tol": 1.0,
+    "xmcd": false,
+    "debug": false
+  },
+  "log_path": "tilt_series_log.jsonl"
+}
