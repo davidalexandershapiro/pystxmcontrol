@@ -347,12 +347,20 @@ class DetectorPanel(QWidget):
             allimg = im.get("all_detector_images") or {}
         except Exception:
             return
+        # The idle stash is only written while idle, so during a scan it holds the
+        # last pre-scan frame and must not shadow the live scan frames.
+        if getattr(self.controller, "scanning", False):
+            sources = (allimg, mon)
+        else:
+            sources = (mon, allimg)
         for key, p in self._det_pages.items():
             if p.get("type") != "image":
                 continue
-            frame = mon.get(key)
-            if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
-                frame = allimg.get(key)
+            frame = None
+            for src in sources:
+                frame = src.get(key)
+                if isinstance(frame, np.ndarray) and frame.ndim >= 2:
+                    break
             if not (isinstance(frame, np.ndarray) and frame.ndim >= 2):
                 continue
             # Log-scale for display (diffraction has huge dynamic range), as the
