@@ -70,7 +70,32 @@ class stxmServer:
         while self.running:
 
             message={"command":None}
-            message = await self.command_sock.recv_pyobj()
+            try:
+                message = await self.command_sock.recv_pyobj()
+            except zmq.Again:
+                # libzmq can flag POLLIN and then discard the frame (a malformed or
+                # half-sent message, e.g. a port scanner or a client dropping
+                # mid-send), so the non-blocking recv finds nothing.  The REP socket
+                # is still waiting for a request; just wait again.
+                self._logger.log("Spurious EAGAIN on command socket; ignoring", level="info")
+                continue
+            except Exception as e:
+                # A complete frame arrived but did not unpickle (garbage from a stray
+                # connection, or a client pickling a class the server can't import).
+                # The REP socket now owes a reply, so send an error before receiving
+                # again or every later recv would fail with EFSM.
+                self._logger.log(f"Undecodable message on command socket: {e!r}", level="error")
+                self.command_sock.send_pyobj({"command": None, "status": False,
+                                              "data": "Could not decode request.",
+                                              "time": str(datetime.datetime.now())})
+                continue
+            if not isinstance(message, dict):
+                # Unpickled fine but isn't a command dict; reply so REP stays in step.
+                self._logger.log(f"Non-dict message on command socket: {type(message).__name__}", level="error")
+                self.command_sock.send_pyobj({"command": None, "status": False,
+                                              "data": "Request must be a dict.",
+                                              "time": str(datetime.datetime.now())})
+                continue
 
             # Record start time for command logging
             cmd_start_time = time.time()
