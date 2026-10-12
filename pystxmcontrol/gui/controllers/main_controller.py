@@ -110,6 +110,11 @@ class MainController(QObject):
         self.exiting = False
         self._gate_mode = ""
         self._scan_paused = False
+        # time.monotonic() of a GUI cancel whose scan_complete hasn't arrived yet, else
+        # None.  The server keeps streaming the frames already in flight after a cancel;
+        # while this is set they must not be mistaken for an externally started scan
+        # (see _cancel_in_flight).
+        self._cancel_pending_since = None
         self._task_agent = None
         self._agent_thread = None
 
@@ -377,6 +382,7 @@ class MainController(QObject):
         # Handle scan completion
         if message == "scan_complete":
             self.scanning = False
+            self._cancel_pending_since = None
             self.reset_pause_state()
             self.status_updated.emit("Scan completed")
             # Force a final display update so the last partial image is always shown
@@ -654,6 +660,8 @@ class MainController(QObject):
                 # Detect scan that started externally (update_image_data has already written
                 # scan_type into image_model, so the view will read the correct type).
                 scan_type_str = message.get('type', '')
+                if self._cancel_in_flight():
+                    scan_type_str = ''
                 if not self.scanning and scan_type_str:
                     x_center = message.get('xCenter')
                     x_range  = message.get('xRange')
@@ -723,13 +731,33 @@ class MainController(QObject):
         Sets the controller scanning state and emits external_scan_started so
         the view can configure itself exactly as if the user had pressed Begin.
         """
-        if not self.scanning and scan_type:
+        if not self.scanning and scan_type and not self._cancel_in_flight():
             self.scanning = True
             self.image_model._data['motor_scan_x_data'] = []
             self.image_model._data['motor_scan_y_data'] = {}
             self.status_updated.emit(f"External scan detected: {scan_type}")
             self.external_scan_started.emit(scan_type)
-            
+
+    # A cancelled scan's server-side scan_complete normally lands within a line or
+    # two; past this the cancel is treated as settled so a genuinely new external
+    # scan is still picked up even if that message was lost.
+    _CANCEL_SETTLE_SECONDS = 30.0
+
+    def _cancel_in_flight(self) -> bool:
+        """True between a GUI cancel and the server's scan_complete for it.
+
+        The frames the server streams in that window belong to the cancelled scan.
+        Treating them as an external scan would re-enter scanning and make the view
+        re-prefill its energy regions from the cached ``lastScan`` — clobbering the
+        operator's multi-region energy definition on every cancel."""
+        t = self._cancel_pending_since
+        if t is None:
+            return False
+        if time.monotonic() - t > self._CANCEL_SETTLE_SECONDS:
+            self._cancel_pending_since = None
+            return False
+        return True
+
     def get_available_motors(self) -> list:
         """Get list of available motors for display."""
         motor_info = self.motor_model.get('motor_info', {})
@@ -1130,6 +1158,7 @@ class MainController(QObject):
                 except Exception as e:
                     log.debug("Could not push scan to TaskAgent: %s", e)
             self.scanning = True
+            self._cancel_pending_since = None
             # Reset motor scan data so a new Single Motor scan starts fresh
             self.image_model._data['motor_scan_x_data'] = []
             self.image_model._data['motor_scan_y_data'] = {}
@@ -1149,6 +1178,7 @@ class MainController(QObject):
             message = {"command": "cancel"}
             self.message_queue.put(message)
             self.scanning = False
+            self._cancel_pending_since = time.monotonic()
             self._scan_paused = False
             self.status_updated.emit("Scan cancelled")
             self.scan_state_changed.emit(False)  # Signal scan completed
