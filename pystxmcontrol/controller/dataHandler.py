@@ -458,6 +458,11 @@ class dataHandler:
             scan = self.tiled_scan(scan)
         scan["file_name"] = self.currentScanID
         scan["start_time"] = datetime.datetime.now().isoformat()
+        # No client puts A0 in the scan it submits, so stamp the live zone-plate
+        # calibration here (changeMotorConfig keeps it current) for writeNX to record.
+        energy = self.controller.motors.get("Energy")
+        if energy is not None and "A0" in energy["motor"].config:
+            scan["A0"] = float(energy["motor"].config["A0"])
         self._current_scan_type = scan.get("scan_type", "")
         # Push the just-submitted scan parameters so every subscribed client refreshes
         # its cached main_config["lastScan"] at scan START (not only at scan end, see
