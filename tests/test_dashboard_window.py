@@ -303,3 +303,47 @@ def test_the_energy_curve_survives_a_missing_live_stack(dashboard):
     setup_motor_scan(dashboard, "Energy", 710.0, 20.0, 5)
     dashboard.controller._live_stxm = None
     dashboard._on_image(np.zeros((1, 5)))      # must not raise
+
+
+# ── zone plate tab ──────────────────────────────────────────────────────────
+
+def zone_plate_changes(dashboard, monkeypatch):
+    sent = []
+    monkeypatch.setattr(dashboard.controller, "handle_motor_config_change",
+                        lambda *a: sent.append(a))
+    return sent
+
+
+def test_zone_plate_tab_shows_the_energy_motor_config(dashboard):
+    energy = dashboard._motor_info["Energy"]
+    assert dashboard._zp_current["A0"].text() == f"{float(energy['A0']):.4f}"
+    assert dashboard._a1_field.text() == f"{float(energy['A1']):.4f}"
+    assert dashboard._zp_derived["dr"].text() == f"{energy['dr'] * 1000:.1f} nm"
+
+
+def test_max_a0_follows_the_energy(dashboard):
+    dashboard._motor_info["Energy"]["diameter"] = 240.0
+    dashboard._on_motor_position("Energy", 700.0)
+    dr = dashboard._motor_info["Energy"]["dr"]
+    expected = 240.0 * dr * 700.0 / 1.239842 / 3.0
+    assert dashboard._zp_derived["max_a0"].text() == f"{expected:.1f} µm"
+
+
+def test_editing_a0_sends_it_to_the_server(dashboard, monkeypatch):
+    sent = zone_plate_changes(dashboard, monkeypatch)
+    dashboard._a0_field.setText("12.5")
+    dashboard._a0_field.returnPressed.emit()
+    assert sent == [("Energy", "A0", 12.5)]
+    assert dashboard._zp_current["A0"].text() == "12.5000"
+
+
+def test_a1_is_editable_only_in_staff_mode(dashboard, stored_password,
+                                           monkeypatch):
+    sent = zone_plate_changes(dashboard, monkeypatch)
+    assert not dashboard._a1_field.isEnabled()
+    answer_password(monkeypatch, "letmein")
+    dashboard._toggle_expert()
+    assert dashboard._a1_field.isEnabled()
+    dashboard._a1_field.setText("13.5")
+    dashboard._a1_field.returnPressed.emit()
+    assert sent == [("Energy", "A1", 13.5)]

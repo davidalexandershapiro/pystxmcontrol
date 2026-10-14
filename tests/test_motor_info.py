@@ -178,3 +178,24 @@ def test_jog_step_has_a_last_resort():
 ])
 def test_enumerated_values_render_compactly(value, expected):
     assert mi.format_enum(value) == expected
+
+
+# ── zone plate ──────────────────────────────────────────────────────────────
+
+def test_focal_length_is_diameter_times_zone_width_over_wavelength():
+    # 240 µm, 45 nm zone plate at 700 eV: λ = 1.239842/700 µm.
+    f = mi.zone_plate_focal_length(700.0, 0.045, 240.0)
+    assert f == pytest.approx(240.0 * 0.045 / (1.239842 / 700.0))
+
+
+def test_max_a0_is_a_third_of_the_focal_length():
+    f = mi.zone_plate_focal_length(500.0, 0.045, 240.0)
+    assert mi.max_a0(500.0, 0.045, 240.0) == pytest.approx(f / 3.0)
+
+
+@pytest.mark.parametrize("args", [(None, 0.045, 240.0), (700.0, None, 240.0),
+                                  (700.0, 0.045, None), (0.0, 0.045, 240.0),
+                                  ("x", 0.045, 240.0)])
+def test_focal_length_needs_every_parameter(args):
+    assert mi.zone_plate_focal_length(*args) is None
+    assert mi.max_a0(*args) is None

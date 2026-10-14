@@ -139,3 +139,27 @@ def format_enum(v):
         return str(int(f)) if f == int(f) else f"{f:g}"
     except (TypeError, ValueError):
         return str(v)
+
+
+# h·c in eV·µm: the wavelength in µm is HC_EV_UM / energy in eV.
+HC_EV_UM = 1.239842
+
+
+def zone_plate_focal_length(energy_ev, dr_um, diameter_um):
+    """Zone-plate focal length in µm, f = D·dr/λ, at *energy_ev*.  The zone
+    widths come from the Energy entry of motor.json in µm (``dr`` 0.045 is
+    45 nm), the same unit as ZonePlateZ.  None when any input is missing or not
+    a positive number."""
+    try:
+        e, dr, d = float(energy_ev), float(dr_um), float(diameter_um)
+    except (TypeError, ValueError):
+        return None
+    if e <= 0 or dr <= 0 or d <= 0:
+        return None
+    return d * dr * e / HC_EV_UM
+
+
+def max_a0(energy_ev, dr_um, diameter_um):
+    """The largest allowed A0 in µm: a third of the focal length at *energy_ev*."""
+    f = zone_plate_focal_length(energy_ev, dr_um, diameter_um)
+    return None if f is None else f / 3.0

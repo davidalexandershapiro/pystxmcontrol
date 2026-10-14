@@ -692,7 +692,7 @@ class MainWindowDashboard(QMainWindow):
         subbar.setSpacing(2)
         self.sub_grp = QButtonGroup(self)
         self.sub_grp.setExclusive(True)
-        for i, name in enumerate(("Spatial", "Energy", "Detector")):
+        for i, name in enumerate(("Spatial", "Energy", "Zone Plate", "Detector")):
             b = QPushButton(name)
             b.setProperty("role", "subtab")
             b.setCheckable(True)
@@ -717,6 +717,7 @@ class MainWindowDashboard(QMainWindow):
         self.config_stack = QStackedWidget()
         self.config_stack.addWidget(self._spatial_page())
         self.config_stack.addWidget(self._energy_page())
+        self.config_stack.addWidget(self._zone_plate_page())
         self.config_stack.addWidget(self._detector_page())   # tab may be hidden
         self.sub_grp.idClicked.connect(self.config_stack.setCurrentIndex)
         cv.addWidget(self.config_stack)
@@ -947,6 +948,127 @@ class MainWindowDashboard(QMainWindow):
         self._refresh_energy_strip()
         return page
 
+    def _zone_plate_page(self):
+        """Zone-plate calibration (the Energy motor's ZonePlateZ = A0 − A1·E) and
+        optics.  A0 and A1 are edited here and sent to the server, which saves
+        them to motor.json; A1 is staff-only.  The rest is read from the Energy
+        entry of motor.json, plus the focal length and the largest allowed A0
+        (a third of it) at the current energy."""
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
+
+        v.addWidget(dw.label("CALIBRATION · ZonePlateZ = A0 − A1·E",
+                             role="fieldLabel"))
+        g = QGridLayout()
+        g.setHorizontalSpacing(10)
+        g.setVerticalSpacing(6)
+        for col, h in enumerate(("", "Current", "New")):
+            g.addWidget(dw.label(h, role="microLabel"), 0, col)
+        self._zp_current = {}
+        for r, (key, name) in enumerate((("A0", "A0 µm"),
+                                         ("A1", "A1 µm/eV · staff")), start=1):
+            g.addWidget(dw.label(name, role="mono"), r, 0)
+            cur = dw.label("", role="mono")
+            g.addWidget(cur, r, 1)
+            self._zp_current[key] = cur
+            e = dw.field("")
+            g.addWidget(e, r, 2)
+            if key == "A0":
+                self._a0_field = e
+                e.returnPressed.connect(self._on_a0_edit)
+            else:
+                self._a1_field = e
+                e.returnPressed.connect(self._on_a1_edit)
+        g.setColumnStretch(1, 1)
+        g.setColumnStretch(2, 1)
+        v.addLayout(g)
+        # _apply_mode keeps this in step afterwards; a rebuilt view starts here.
+        self._a1_field.setEnabled(self._expert)
+
+        v.addWidget(dw.label("ZONE PLATE", role="fieldLabel"))
+        g = QGridLayout()
+        g.setHorizontalSpacing(10)
+        g.setVerticalSpacing(6)
+        self._zp_derived = {}
+        for i, (key, name) in enumerate((("dr", "Outermost zone width"),
+                                         ("diameter", "Diameter"),
+                                         ("energy", "Energy"),
+                                         ("focal", "Focal length"),
+                                         ("max_a0", "Max A0 (f/3)"))):
+            r, c = divmod(i, 2)
+            box = QVBoxLayout()
+            box.setSpacing(4)
+            box.addWidget(dw.label(name, role="microLabel"))
+            e = dw.field("", derived=True)
+            box.addWidget(e)
+            self._zp_derived[key] = e
+            g.addLayout(box, r, c)
+        g.setColumnStretch(0, 1)
+        g.setColumnStretch(1, 1)
+        v.addLayout(g)
+        v.addStretch(1)
+
+        self._refresh_zone_plate()
+        return page
+
+    def _refresh_zone_plate(self):
+        """Repaint the Zone Plate tab from the Energy entry of the motor config."""
+        if getattr(self, "_zp_derived", None) is None:
+            return
+        energy = self._motor_info.get("Energy", {})
+
+        def num(key):
+            try:
+                return float(energy[key])
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        def show(val, fmt):
+            return "—" if val is None else fmt.format(val)
+
+        for key, field in (("A0", self._a0_field), ("A1", self._a1_field)):
+            val = num(key)
+            self._zp_current[key].setText(show(val, "{:.4f}"))
+            if not field.hasFocus():      # an energy update mid-edit keeps the text
+                field.setText("" if val is None else f"{val:.4f}")
+        dr, diameter, ev = num("dr"), num("diameter"), num("last value")
+        focal = mi.zone_plate_focal_length(ev, dr, diameter)
+        d = self._zp_derived
+        d["dr"].setText(show(None if dr is None else dr * 1000.0, "{:.1f} nm"))
+        d["diameter"].setText(show(diameter, "{:.1f} µm"))
+        d["energy"].setText(show(ev, "{:.2f} eV"))
+        d["focal"].setText(show(focal, "{:.1f} µm"))
+        d["max_a0"].setText(show(None if focal is None else focal / 3.0,
+                                 "{:.1f} µm"))
+
+    def _on_a0_edit(self):
+        self._set_zone_plate_coeff("A0", self._a0_field)
+
+    def _on_a1_edit(self):
+        if self._expert:
+            self._set_zone_plate_coeff("A1", self._a1_field)
+
+    def _set_zone_plate_coeff(self, key, field):
+        """Send an edited A0/A1 to the server, which applies it to the Energy
+        motor and saves it to motor.json."""
+        c = self.controller
+        if c is None:
+            self.statusBar().showMessage(
+                f"Not connected to a server — {key} not changed", 5000)
+            self._refresh_zone_plate()
+            return
+        try:
+            value = float(field.text())
+        except ValueError:
+            c.error_occurred.emit(f"Invalid {key} value: {field.text()!r}")
+            self._refresh_zone_plate()
+            return
+        c.handle_motor_config_change("Energy", key, value)
+        self._motor_info.setdefault("Energy", {})[key] = value
+        self._refresh_zone_plate()
+
     def _detector_page(self):
         page = QWidget()
         g = QGridLayout(page)
@@ -1021,23 +1143,6 @@ class MainWindowDashboard(QMainWindow):
         self._focus_move_to_best = cb
         r.addWidget(cb); r.addStretch(1)
         gv.addLayout(r)
-        # Zone-plate focus calibration (from the Energy motor's A0/A1). A0 sets the
-        # focus offset (shown to all); A1 is the slope coefficient (staff-only).
-        energy = self._motor_info.get("Energy", {})
-        zp = QGridLayout()
-        zp.setHorizontalSpacing(6)
-        zp.setVerticalSpacing(4)
-        zp.addWidget(dw.label("Zone Plate A0", role="microLabel"), 0, 0)
-        self._a0_field = dw.field(f"{float(energy.get('A0', 0.0)):.4f}")
-        zp.addWidget(self._a0_field, 1, 0)
-        a1_lbl = dw.label("Zone Plate A1 · staff", role="microLabel")
-        a1_edit = dw.field(f"{float(energy.get('A1', 0.0)):.4f}")
-        zp.addWidget(a1_lbl, 0, 1)
-        zp.addWidget(a1_edit, 1, 1)
-        zp.setColumnStretch(0, 1)
-        zp.setColumnStretch(1, 1)
-        gv.addLayout(zp)
-        self._staff_widgets += [a1_lbl, a1_edit]
         iv.addWidget(w)
 
         # Line
@@ -1652,8 +1757,8 @@ class MainWindowDashboard(QMainWindow):
                 new_sample_z_off = sample_z_off + (new_a0 - sample_z)
                 c.handle_motor_config_change("SampleZ", "offset", new_sample_z_off)
                 c.handle_motor_config_change("Energy", "A0", new_a0)
-                if getattr(self, "_a0_field", None):
-                    self._a0_field.setText(f"{new_a0:.4f}")
+                self._motor_info.setdefault("Energy", {})["A0"] = new_a0
+                self._refresh_zone_plate()
                 c.status_updated.emit(
                     f"A0 → {new_a0:.3f}, SampleZ offset → {new_sample_z_off:.3f}")
 
@@ -3741,6 +3846,8 @@ class MainWindowDashboard(QMainWindow):
             self.cmd_log.setVisible(staff)
         for wdg in self._staff_widgets:
             wdg.setVisible(staff)
+        if getattr(self, "_a1_field", None) is not None:
+            self._a1_field.setEnabled(staff)
         # Refilter the motor panel: User mode hides display:false motors.
         if hasattr(self, "motor_layout"):
             self._repopulate_motors()
@@ -4149,6 +4256,7 @@ class MainWindowDashboard(QMainWindow):
         if name == "Energy":
             self.energy_val.setText(f"{pos:.1f} eV")
             self._refresh_image_meta()
+            self._refresh_zone_plate()
 
     def _on_motor_status(self, name, moving):
         wd = self._motor_widgets.get(name)
