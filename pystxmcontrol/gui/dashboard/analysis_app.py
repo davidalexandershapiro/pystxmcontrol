@@ -275,7 +275,7 @@ class _DashboardAnalysisUI:
         sbody.addWidget(self.a2_spectrumPlot)
         v.addWidget(scard)
 
-        # Tools card: Open Stack + Region in the header, workflow tabs, footer.
+        # Tools card: Open Stack + Region + Detector in the header, workflow tabs, footer.
         tcard, tbody = _mk_card("Tools")
         self.a2_openStackButton = _small_btn("Open Stack")
         tcard._header_layout.addWidget(self.a2_openStackButton)
@@ -284,6 +284,11 @@ class _DashboardAnalysisUI:
         self.a2_regionCombo.setFixedWidth(110)
         self.a2_regionCombo.setEnabled(False)
         tcard._header_layout.addWidget(self.a2_regionCombo)
+        tcard._header_layout.addWidget(_mk_label("Detector", role="fieldLabel"))
+        self.a2_detectorCombo = _combo(["default"])
+        self.a2_detectorCombo.setFixedWidth(110)
+        self.a2_detectorCombo.setEnabled(False)
+        tcard._header_layout.addWidget(self.a2_detectorCombo)
 
         self.a2_workflowTabs = QTabWidget()
         self.a2_workflowTabs.setObjectName("a2_workflowTabs")

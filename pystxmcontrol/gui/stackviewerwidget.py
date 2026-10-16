@@ -125,6 +125,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.pointPens = []
         self.roiPens = []
         self.iRegion = 0
+        self.daq = "default"
         self.mainPlotPen = pg.mkPen('w',width=self.plotLineWidth, style = QtCore.Qt.SolidLine)
         self.penStyles = [QtCore.Qt.SolidLine, QtCore.Qt.DashLine]
         self.ui.specPlot.showGrid(x = True, y = True)
@@ -173,12 +174,20 @@ class stackViewerWidget(QtWidgets.QWidget):
     def changeRegion(self):
         self.reset()
         print(self.ui.regionSelect.currentIndex())
-        self.stack = stack(fileName = self.stack_file, iRegion = self.ui.regionSelect.currentIndex())
+        self.stack = stack(fileName = self.stack_file, iRegion = self.ui.regionSelect.currentIndex(), daq = self.daq)
         self.iRegion = self.ui.regionSelect.currentIndex()
+        self.daq = self.stack.daq
         self.haveStack = True
         self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
         self.updateMainImage()
         self._populate_metadata()
+
+    def changeDetector(self, daq):
+        """Reload the current region of the open .stxm file from detector ``daq``."""
+        if not self.haveStack or not self.stack_file or daq == self.daq:
+            return
+        self.daq = daq
+        self.changeRegion()
 
     def toggleTrackMouse(self):
         if self.haveStack:
@@ -584,6 +593,7 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.initializeGUI()
         self.stack_file = fileName
         self.stack = stack(fileName = self.stack_file)
+        self.daq = self.stack.daq
         self.haveStack = True
         self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
         self.ui.frameEnergy.setText("Energy = %s eV" %str(self.stack.energies[self.ui.verticalSlider.value()]))
@@ -634,6 +644,7 @@ class stackViewerWidget(QtWidgets.QWidget):
                 self._update_stack(nxdata)
             else:
                 self.stack_from_nx(nxdata)
+                self.daq = "default"
                 self.stack_file = scanInfo["scanID"]
                 self.haveStack = True
             self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)

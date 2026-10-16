@@ -135,6 +135,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         ui = self.ui
         ui.a2_openStackButton.clicked.connect(ui.a2_stack_viewer.getFileName)
         ui.a2_regionCombo.currentIndexChanged.connect(self._on_a2_region_changed)
+        ui.a2_detectorCombo.currentTextChanged.connect(self._on_a2_detector_changed)
         ui.a2_saveDataButton.clicked.connect(self._on_a2_save_data)
         ui.a2_addToLogButton.clicked.connect(self._on_a2_add_to_log)
         ui.a2_savePngButton.clicked.connect(self._on_a2_save_png)
@@ -331,6 +332,14 @@ class Analysis2Widget(QtWidgets.QWidget):
         # old value but regionSelect is already at the new index.
         combo.setCurrentIndex(sv.ui.regionSelect.currentIndex())
         combo.setEnabled(n > 1)
+        combo.blockSignals(False)
+        combo = self.ui.a2_detectorCombo
+        combo.blockSignals(True)
+        combo.clear()
+        daqs = getattr(sv.stack, 'daq_list', None) or ["default"]
+        combo.addItems(daqs)
+        combo.setCurrentText(sv.daq)
+        combo.setEnabled(len(daqs) > 1)
         combo.blockSignals(False)
         self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))  # → (n_e, nx, ny) for pg slider
         # Seek to the energy index that the stack viewer already has (e.g. from live data)
@@ -1171,6 +1180,20 @@ class Analysis2Widget(QtWidgets.QWidget):
         sv.blockSignals(False)
         self._on_a2_stack_loaded()  # sync a2_imageView now that sv.stack is correct
 
+    def _on_a2_detector_changed(self, daq: str):
+        """Reload the current region from another detector in the file.
+
+        Same signal-blocking pattern as _on_a2_region_changed: changeDetector() goes
+        through reset(), which emits stack_loaded before the new data is in sv.stack.
+        """
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack or not daq:
+            return
+        sv.blockSignals(True)
+        sv.changeDetector(daq)
+        sv.blockSignals(False)
+        self._on_a2_stack_loaded()
+
     def _on_a2_map(self):
         """Dispatch to dual-energy or ROI-RGB map depending on energy count."""
         sv = self.ui.a2_stack_viewer
@@ -1687,7 +1710,8 @@ class Analysis2Widget(QtWidgets.QWidget):
             if sv.haveStack:
                 filepath = getattr(sv.stack, 'fileName', None) or getattr(sv.stack, 'nxFile', '')
                 region   = getattr(sv.stack, 'iRegion', 0)
-                self._recorder.record("load_stack", filepath=filepath, region=region)
+                daq      = getattr(sv.stack, 'daq', 'default')
+                self._recorder.record("load_stack", filepath=filepath, region=region, daq=daq)
             self.ui.a2_recordButton.setText("Stop")
             self.ui.a2_recordButton.setStyleSheet("color: red; font-weight: bold;")
 

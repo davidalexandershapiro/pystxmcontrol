@@ -105,7 +105,9 @@ class ScriptRecorder:
 # ── Per-action renderers ──────────────────────────────────────────────────────
 
 def _r_load_stack(kw):
-    return [f"s = StxmStack({kw.get('filepath', '')!r}, iRegion={kw.get('region', 0)})"]
+    daq = kw.get('daq', 'default')
+    daq_arg = f", daq={daq!r}" if daq != 'default' else ""
+    return [f"s = StxmStack({kw.get('filepath', '')!r}, iRegion={kw.get('region', 0)}{daq_arg})"]
 
 def _r_delete_frame(kw):
     return [f"s.deleteFrameInPlace({kw.get('energy', 0.0):.4f})"]

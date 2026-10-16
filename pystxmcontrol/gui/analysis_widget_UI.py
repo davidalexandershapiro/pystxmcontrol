@@ -88,6 +88,17 @@ class Ui_Analysis2Widget(object):
         self.a2_regionCombo.setEnabled(False)
         self.a2_main_buttons_layout.addWidget(self.a2_regionCombo)
 
+        self.a2_detectorLabel = QLabel(self.a2_tab_main)
+        self.a2_detectorLabel.setObjectName(u"a2_detectorLabel")
+        self.a2_detectorLabel.setText(u"Detector:")
+        self.a2_main_buttons_layout.addWidget(self.a2_detectorLabel)
+
+        self.a2_detectorCombo = QComboBox(self.a2_tab_main)
+        self.a2_detectorCombo.setObjectName(u"a2_detectorCombo")
+        self.a2_detectorCombo.setMinimumWidth(80)
+        self.a2_detectorCombo.setEnabled(False)
+        self.a2_main_buttons_layout.addWidget(self.a2_detectorCombo)
+
         self.a2_saveDataButton = QPushButton(self.a2_tab_main)
         self.a2_saveDataButton.setObjectName(u"a2_saveDataButton")
 

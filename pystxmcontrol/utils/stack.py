@@ -21,7 +21,7 @@ from sklearn.decomposition import NMF
 
 class stack():
 
-    def __init__(self, fileName = None, iRegion = 0):
+    def __init__(self, fileName = None, iRegion = 0, daq = "default"):
 
         """
         This is the main analysis class for ALS STXM data.  It can be initialized by giving fileName
@@ -42,6 +42,7 @@ class stack():
         references: list of 1D numpy arrays (E,I) used as reference spectra
         eCalibration: float value to subtract from energies for a calibration shift
         imageChannel: default channel loaded from the HDR file
+        daq: detector loaded from a .stxm (NXstxm) file; daq_list holds the detectors available
         """
 
         # set up the form class as a `ui` attribute
@@ -62,6 +63,8 @@ class stack():
         self.intercept = 0.
         self.pcaImages = None
         self.iRegion = iRegion
+        self.daq = daq
+        self.daq_list = ["default"]
         self.darkField = 0.
         self.dataIsNormalized = False
         self.filteredImages = None
@@ -447,9 +450,17 @@ class stack():
         entryStr = "entry" + str(self.iRegion)
         self.energies = self.nx.data[entryStr]["energy"]
         self.rawFrames = []
-        sh = self.nx.data["entry" + str(self.iRegion)]["counts"]["default"].shape
+        counts = self.nx.data[entryStr]["counts"]
+        # Only detectors that recorded a full (energy, y, x) image stack can be loaded.
+        self.daq_list = [d for d in counts if np.ndim(counts[d]) == 3]
+        if "default" in self.daq_list:
+            self.daq_list.remove("default")
+            self.daq_list.insert(0, "default")
+        if self.daq not in self.daq_list:
+            self.daq = "default"
+        sh = counts[self.daq].shape
         for i in range(sh[0]):
-            im = image(data = self.nx.data[entryStr]["counts"]["default"][i])
+            im = image(data = counts[self.daq][i])
             im.energy = self.nx.data[entryStr]["energy"][i]
             im.xpixelsize = self.nx.data[entryStr]["xstepsize"]
             im.ypixelsize = self.nx.data[entryStr]["ystepsize"]
