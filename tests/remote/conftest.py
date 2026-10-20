@@ -12,28 +12,60 @@ class _StubMsg:
 class StubNats:
     """Duck-types the nats-py client surface LightfallClient uses."""
 
+    _inbox_prefix = bytearray(b"_INBOX.stub")
+
     def __init__(self):
         self.handlers = {}       # exact subject -> callable(payload dict) -> dict
         self.subscriptions = {}  # subject -> cb
         self.requests = []       # (subject, payload) log
+        self.private = []        # (subject, reply) sent via private_request
+        self.connect_kwargs = None
+        self._inboxes = {}       # reply subject -> _StubSub
 
-    async def request(self, subject, data, timeout=None):
-        payload = json.loads(data.decode())
-        self.requests.append((subject, payload))
+    def _answer(self, subject, payload):
         for pat, handler in self.handlers.items():
             if subject == pat or (pat.endswith(".*") and subject.startswith(pat[:-1])):
                 return _StubMsg(json.dumps(handler(subject, payload)).encode())
         raise TimeoutError(f"no stub handler for {subject}")
 
-    async def subscribe(self, subject, cb=None):
+    async def request(self, subject, data, timeout=None):
+        payload = json.loads(data.decode())
+        self.requests.append((subject, payload))
+        return self._answer(subject, payload)
+
+    async def subscribe(self, subject, cb=None, max_msgs=0):
+        if cb is None:  # private_request's one-shot reply inbox
+            sub = _StubSub()
+            self._inboxes[subject] = sub
+            return sub
         self.subscriptions[subject] = cb
+
+    async def publish(self, subject, data, reply=""):
+        payload = json.loads(data.decode())
+        self.requests.append((subject, payload))
+        self.private.append((subject, reply))
+        self._inboxes[reply].queue.append(self._answer(subject, payload))
 
     async def drain(self):
         pass
 
 
+class _StubSub:
+    def __init__(self):
+        self.queue = []
+
+    async def next_msg(self, timeout=None):
+        if not self.queue:
+            raise TimeoutError("no stub reply")
+        return self.queue.pop(0)
+
+    async def unsubscribe(self):
+        pass
+
+
 async def stub_connect_factory(stub):
-    async def _connect(url):
+    async def _connect(url, **kwargs):
+        stub.connect_kwargs = kwargs
         return stub
     return _connect
 
@@ -440,12 +472,15 @@ def lightfall_service(stxm_fleet, lightfall_nats_url, qapp_session):
                 "tiled_url": tiled_url,
                 "tiled_token": tiled_api_key,
             }
-            resp["session_token"] = ipc.mint_session_channel(app_name)
+            token = ipc.mint_session_channel(app_name)
+            resp["session_token"] = token
+            resp["session_subject"] = f"{ipc.priv_root}.session.{token}"
             ipc.reply(reply, resp)
         else:
             ipc.reply(reply, {"status": "denied", "contract_version": 1})
 
-    ipc.register_action("auth.request", handle_auth, main_thread=False)
+    # Private handshake: served on {priv_root}.auth.request, as Lightfall does.
+    ipc.register_action("auth.request", handle_auth, main_thread=False, private=True)
 
     remote = RemoteControlService(ipc, engine=engine, catalog=catalog)
     remote.start()

@@ -7,6 +7,15 @@ Flow:
     reply = await client.call("commands.plan.list", {})
     await client.subscribe_event("runs.new", cb)
     await client.close()
+
+bcgnats (auth callout): the client connects with one per-client connection
+capability (``nats_capability.new_capability().connect_kwargs()``: connect token
+plus ``inbox_prefix``), runs the private handshake (``meta.actions`` ->
+``priv_root`` -> ``{priv_root}.auth.request``) and sends every capability-channel
+call to ``{session_subject}.<suffix>`` via ``private_request`` (an unguessable
+reply subject, so no other connection can forge the reply). See Lightfall's
+developer guide, "NATS Use Model". ``nats_capability.py`` is a byte-for-byte copy
+of ``lightfall_utils/ipc/capability.py``; never edit it here.
 """
 
 from __future__ import annotations
@@ -16,6 +25,12 @@ from collections.abc import Callable
 from typing import Any
 
 import nats
+
+from pystxmcontrol.remote.nats_capability import (
+    new_capability,
+    private_auth_request,
+    private_request,
+)
 
 CONTRACT_VERSION = 1
 
@@ -40,41 +55,48 @@ class LightfallClient:
         self._app_version = app_version
         self._nc: nats.NATS | None = None
         self.session_token: str | None = None
+        self.session_subject: str | None = None
         self.tiled_url: str | None = None
         self.tiled_token: str | None = None
         self._nats_connect = _nats_connect
         self._tiled = None
+        # One capability per client, reused across reconnects.
+        self._capability = new_capability()
 
     async def connect(self) -> None:
         connect = self._nats_connect or nats.connect
-        self._nc = await connect(self._nats_url)
+        self._nc = await connect(self._nats_url, **self._capability.connect_kwargs())
 
     async def authenticate(self, timeout: float = 90.0) -> dict:
-        """Run the auth.request handshake; store session_token on approval.
+        """Run the private auth.request handshake; store the session on approval.
 
+        ``meta.actions`` -> ``priv_root`` -> ``{priv_root}.auth.request``. Raises
+        ``PrivateRootUnavailable`` if the instance predates the private handshake.
         The 90 s default outlives Lightfall's 60 s trust-dialog timeout.
         """
-        msg = await self._nc.request(
-            f"{self._prefix}.auth.request",
-            json.dumps({"app_name": self._app_name, "app_version": self._app_version}).encode(),
+        reply = await private_auth_request(
+            self._nc,
+            self._prefix,
+            {"app_name": self._app_name, "app_version": self._app_version},
             timeout=timeout,
         )
-        reply = json.loads(msg.data.decode())
         if reply.get("status") == "approved":
             self.session_token = reply["session_token"]
+            self.session_subject = reply["session_subject"]
             self.tiled_url = reply.get("tiled_url")
             self.tiled_token = reply.get("tiled_token")
         return reply
 
     async def call(self, suffix: str, payload: dict | None = None, timeout: float = 5.0) -> dict:
         """Request/reply on the capability channel; raise RemoteError on errors."""
-        if self.session_token is None:
+        if self.session_subject is None:
             raise RuntimeError("Not authenticated — call authenticate() first")
-        subject = f"{self._prefix}.session.{self.session_token}.{suffix}"
+        subject = f"{self.session_subject}.{suffix}"
         body = dict(payload or {})
         body.setdefault("contract_version", CONTRACT_VERSION)
-        msg = await self._nc.request(subject, json.dumps(body).encode(), timeout=timeout)
-        reply = json.loads(msg.data.decode())
+        # Never nc.request() here: its reply subjects are predictable, so another
+        # connection could forge the reply by allow_responses reflection.
+        reply = await private_request(self._nc, subject, body, timeout=timeout)
         if reply.get("status") == "error":
             raise RemoteError(reply.get("code", "unknown"), reply.get("message", ""))
         return reply
