@@ -64,7 +64,7 @@ docs = [
     "sphinx-rtd-theme>=1.2",
 ]
 remote = [
-    "nats-py",
+    "nats-py>=2.1",
     "tiled",
     "caproto>=1.1",
     "netifaces",
