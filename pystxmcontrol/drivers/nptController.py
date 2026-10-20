@@ -5,6 +5,18 @@ import time
 import struct
 import numpy as np
 
+
+class nptCommError(Exception):
+    """The nPoint controller returned an unreadable response.
+
+    Raised for an empty or truncated USB read that cannot be decoded into a
+    32-bit value -- e.g. the controller is unpowered/disconnected, or a
+    fragmented FTDI transfer never completed within the read timeout. A
+    dedicated type lets IOC callers catch a comms hiccup and recover instead
+    of eating a bare ValueError from int(..., 16).
+    """
+
+
 class nptController(hardwareController):
 
     def __init__(self, address = '7340010', port = None, simulation = False):
@@ -57,6 +69,10 @@ class nptController(hardwareController):
         self.axesList = ["x","y"]
         self._stageRange = 100.
         self._countsPerMicron = 2**20 / self._stageRange
+        # Max seconds to spend reassembling one device response before giving
+        # up (see _readResponse). Bounds the old `while datar == b''` spin so
+        # an absent controller raises nptCommError instead of hanging.
+        self._read_timeout = 1.0
 
     def initialize(self, simulation = False):
         self.simulation = simulation
@@ -181,7 +197,11 @@ class nptController(hardwareController):
         return addr
 
     def hexToSignedInt(self, h): #converts hex numbers to signed int
-        hInt = int(h[2:],16)
+        digits = h[2:] if h[:2] == "0x" else h
+        if not digits:
+            raise nptCommError(
+                f"cannot decode empty device response {h!r} as an integer")
+        hInt = int(digits, 16)
         if hInt <= 0x7FFFFFFF:
             return hInt
         else:
@@ -201,6 +221,31 @@ class nptController(hardwareController):
     def hexToFloat64(self, h):
         return struct.unpack('<d', struct.pack('<Q', int(h, 16)))[0]
 
+    def _readResponse(self, request_len, response_len):
+        """Read one full device response, reassembling short/fragmented reads.
+
+        pylibftdi's Device.read(n) returns *up to* n bytes, so a single read
+        can come back empty or truncated -- especially the first read after
+        opening the FTDI device. Accumulate until we have the full expected
+        frame, bounded by self._read_timeout so an unresponsive controller
+        raises nptCommError rather than spinning forever (the old
+        `while datar == b''` loop) or decoding a truncated buffer (which made
+        the value slice empty and blew up int('', 16)).
+        """
+        buf = bytearray()
+        deadline = time.monotonic() + self._read_timeout
+        while len(buf) < response_len:
+            chunk = self.dev.read(request_len)
+            if chunk:
+                buf.extend(chunk)
+                continue
+            if time.monotonic() > deadline:
+                raise nptCommError(
+                    f"nPoint controller {self.devID} returned "
+                    f"{len(buf)}/{response_len} bytes within "
+                    f"{self._read_timeout}s (device not responding?)")
+        return buf[:response_len]
+
     def readFromDev4B(self, addr): # to read 32bit values, e.g. position or servo state
         # format: [readCom] [address] [0x55] for a total of 6 bytes
         readTX = 0x55 * 16**10 + addr * 16**2 + self.readCom
@@ -208,15 +253,17 @@ class nptController(hardwareController):
         readTX.reverse()
         dataw = self.dev.write(bytes(readTX))
         if dataw != 6:
-            print("dataw =", dataw)
-            raise("reading value: writing to \"read address\" on device failed")
-        datar = self.dev.read(10)
-        while datar == b'':
-            datar = self.dev.read(10)
-        datar = bytearray(datar)
+            raise nptCommError(
+                f"read command to {hex(addr)} short-wrote {dataw}/6 bytes")
+        # The controller echoes the command's addr back ahead of the value, so
+        # the response is a 10-byte frame: [readCom][addr b0 b1 b2 b3][value b0
+        # b1 b2 b3][0x55]. Reading only 6 bytes (the prior port's mistake) left
+        # datar[1:5] on the ADDRESS -- e.g. a bogus ~0x1183xxxx ~27777 um that
+        # tripped getPos()'s outlier guard. Read the full frame; after reverse,
+        # [1:5] is the little-endian value (matches the legacy driver).
+        datar = self._readResponse(10, 10)
         datar.reverse()
-        val = datar[1:5]
-        val = '0x' + val.hex()
+        val = '0x' + datar[1:5].hex()
         return self.hexToSignedInt(val)
 
     def readArray(self, numBytes, addr): # e.g. to read PID parameters as 64bit float, use numBytes=2
@@ -226,12 +273,14 @@ class nptController(hardwareController):
         readTX.reverse()
         dataw = self.dev.write(bytes(readTX))
         if dataw != 10:
-            print("dataw =", dataw)
-            raise("reading value: writing to \"read address\" on device failed")
-        datar = self.dev.read(6 + 4*numBytes)
-        while datar == b'':
-            datar = self.dev.read(6 + 4*numBytes)
-        datar = bytearray(datar)
+            raise nptCommError(
+                f"readArray command to {hex(addr)} short-wrote {dataw}/10 bytes")
+        # Like readFromDev4B, the frame carries the echoed cmd+addr prefix:
+        # [readArrayCom][addr 4 bytes][value 4*numBytes bytes][0x55], i.e.
+        # 6 + 4*numBytes bytes total. Read the whole frame; after reverse,
+        # [1:1+4*numBytes] is the value (matches the legacy driver).
+        response_len = 6 + 4 * numBytes
+        datar = self._readResponse(response_len, response_len)
         datar.reverse()
         val = datar[1:1+4*numBytes]
         retVal = '0x' + val.hex()
@@ -770,8 +819,13 @@ class nptController(hardwareController):
         self.writeNext(self.timeToCounts(0.0))#dwell/1000.))
 
         #enable position trigger pulse
-        #if trigger_position is not None:
-        #    self.setPositionTrigger(trigger_position, trigger_axis, mode = 'on')
+        #A continuous fly line is gated by a SINGLE position-trigger pulse
+        #emitted as the stage crosses the line-start coordinate; the counter
+        #(armed via INIT:IMM with TRIG:SOUR EXT) then free-runs its N samples.
+        #Without this the line moves but no gate pulse ever reaches the counter,
+        #so getLine()'s FETC? blocks forever and the fly IOC wedges in FLYING.
+        if trigger_position is not None:
+            self.setPositionTrigger(pos = trigger_position, axis = trigger_axis, mode = 'on')
 
         #Start the trajectory
         self.writeToDev4B(0x11829048,1)
@@ -787,9 +841,11 @@ class nptController(hardwareController):
 
         #Stop the trajectory, just to be certain?
         self.writeToDev4B(0x1182904C,1)
-        
-        #Turn OFF position trigger pulses
-        #self.setPositionTrigger() #turns OFF by default
+
+        #Turn OFF position trigger pulses (mode='off' by default) so the pixel
+        #pulse pins don't keep firing after the line completes.
+        if trigger_position is not None:
+            self.setPositionTrigger(axis = trigger_axis, mode = 'off')
 
     def compile_FlyPos(self):
         # some parameters to generate the Flyscan positions, could be obtained from the Flyscan dictionary

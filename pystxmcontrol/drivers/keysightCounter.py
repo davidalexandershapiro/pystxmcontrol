@@ -32,6 +32,14 @@ class counter:
         self.session.write(f"TRIG:SLOP POS")
         self.session.write(f"OUTP:STAT {output}") #output the gate signal for shutter timing
         self.session.write(f"TRIG:SOUR {trigger}")
+        # Bound blocking reads: with external gating a missing trigger would
+        # otherwise leave getLine()'s FETC? blocking forever. Give the read a
+        # generous ceiling (nominal line time x4 + 5 s slack) so a stalled line
+        # surfaces as a read timeout the IOC can turn into ERROR.
+        try:
+            self.session.timeout = max(5.0, (dwell / 1000.0) * count * samples * 4.0 + 5.0)
+        except Exception:
+            pass
         self.session.ask("CONF?") #this is needed.  Blocks until config is complete I think
         # print("[Keysight config]-----------------------------------------------------------")
         # print(f"CONF:TOT:TIM {dwell/1000.}, (@{channel})")
@@ -55,7 +63,13 @@ class counter:
         self.session.write("INIT:IMM")
 
     async def getLine(self):
-        data = self.session.ask("FETC?")
+        # FETC? blocks until the armed measurement (INIT:IMM, done by the
+        # caller before the motor line starts) has collected all its samples.
+        # Run it in a worker thread so a slow/absent line can't stall the IOC
+        # event loop -- the old inline session.ask froze every PV (and every
+        # abort check) until it returned.
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(None, self.session.ask, "FETC?")
         return array(data.split(',')).astype('float')
 
     def getPointLoop(self, dwell):

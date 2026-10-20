@@ -1,0 +1,20 @@
+{
+    "SampleX": {
+        "index": 0, "type": "primary", "axis": "x", "driver": "E712Motor",
+        "controllerID": "192.168.1.201", "port": 5000, "controller": "E712Controller",
+        "max velocity": 1000.0, "minValue": -100.0, "maxValue": 100.0,
+        "offset": 0.0, "units": 1.0, "display": true, "simulation": 1
+    },
+    "SampleY": {
+        "index": 1, "type": "primary", "axis": "y", "driver": "E712Motor",
+        "controllerID": "192.168.1.201", "port": 5000, "controller": "E712Controller",
+        "max velocity": 1000.0, "minValue": -100.0, "maxValue": 100.0,
+        "offset": 0.0, "units": 1.0, "display": true, "simulation": 1
+    },
+    "energy": {
+        "index": 2, "type": "primary", "axis": "x", "driver": "xpsMotor",
+        "controllerID": "192.168.1.254", "port": 0, "controller": "xpsController",
+        "max velocity": 1000.0, "minValue": 250.0, "maxValue": 2500.0,
+        "offset": 0.0, "units": 1.0, "display": true, "simulation": 1
+    }
+}

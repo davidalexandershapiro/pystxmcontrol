@@ -5,3 +5,8 @@
 __pycache__
 .idea
 build
+*.egg-info/
+
+# superpowers specs/plans/scratch: never commit
+.superpowers/
+docs/superpowers/

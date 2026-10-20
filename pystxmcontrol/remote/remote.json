@@ -1,0 +1,5 @@
+{
+    "nats_url": "nats://127.0.0.1:4222",
+    "prefix": "als.stxm",
+    "app_name": "pystxmcontrol-remote"
+}

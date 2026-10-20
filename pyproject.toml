@@ -7,7 +7,7 @@ name = "pystxmcontrol"
 version = "1.0"
 description = "Basic GUI for ALS STXM Control"
 readme = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.9"
 license = "BSD-3-Clause"
 license-files = ["LICENSE.txt"]
 authors = [
@@ -50,6 +50,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+iocs = ["caproto>=1.1"]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
@@ -62,6 +63,12 @@ docs = [
     "sphinx>=6.0",
     "sphinx-rtd-theme>=1.2",
 ]
+remote = [
+    "nats-py>=2.1",
+    "tiled",
+    "caproto>=1.1",
+    "netifaces",
+]
 
 [project.urls]
 Homepage = "https://github.com/davidalexandershapiro/pystxmcontrol"
@@ -72,6 +79,8 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 [project.scripts]
 stxmcontrol = "pystxmcontrol.gui.main:main"
 stxmserver = "pystxmcontrol.controller.server:main"
+stxmcontrol-remote = "pystxmcontrol.remote.app:main"
+stxm-iocs = "pystxmcontrol.iocs.supervisor:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -104,3 +113,6 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

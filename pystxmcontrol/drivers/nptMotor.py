@@ -48,7 +48,11 @@ class nptMotor(motor):
             self.controller.setupStages()
             self._axis = self.controller.getAxis(self.axis)
             self.pid = self.controller.pidRead(axis = self._axis)
-            self.position = self.controller.getPos(axis = self._axis)
+            # Latch the initial position through the bounds-checked getPos(),
+            # not the raw controller read: a garbled first read (e.g. a link
+            # still settling) would otherwise be stored as self.position and
+            # then returned forever as the outlier fallback.
+            self.position = self.getPos()
 
     def checkLimits(self, pos):
         return self.config["minValue"] <= pos <= self.config["maxValue"]
@@ -84,45 +88,64 @@ class nptMotor(motor):
         if not(self.simulation):
             self.controller.setPositionTrigger()
 
-    def update_trajectory(self, direction = "forward"):
-        #FIXME commented out tuple values for caproto use
-        x_range = abs(self.trajectory_start[0] - self.trajectory_stop[0])
-        y_range = abs(self.trajectory_start[1] - self.trajectory_stop[1])
-        #x_range = abs(self.trajectory_start - self.trajectory_stop)
-        #y_range = abs(self.trajectory_start - self.trajectory_stop)
-        self.velocity = np.sqrt(x_range**2 + y_range**2) / (self.trajectory_pixel_count * self.trajectory_pixel_dwell)
+    def _scale2controller(self, value):
+        """Scale a GUI-space coordinate to controller units (matches
+        derivedPiezo.scale2controller; identity when offset=0/units=1)."""
+        return (value - self.config["offset"]) / self.config["units"]
 
-        self._xVelocity = x_range / (self.trajectory_pixel_count * self.trajectory_pixel_dwell)
-        self._yVelocity = y_range / (self.trajectory_pixel_count * self.trajectory_pixel_dwell)
+    def update_trajectory(self, direction = "forward", include_return = False):
+        """Pre-load a continuous fly-line trajectory on the controller.
 
-        self.xpad = 0.5 * self._xVelocity**2 / self.acceleration
-        self.ypad = 0.5 * self._yVelocity**2 / self.acceleration
-        self.xpad = min(self.xpad,self._padMaximum)
-        self.ypad = min(self.ypad,self._padMaximum)
-        self.xpad = max(self.xpad,self._padMinimum)
-        self.ypad = max(self.ypad,self._padMinimum) 
+        Mirrors the proven legacy path (derivedPiezo.update_trajectory +
+        nptController.setup_trajectory): compute a single acceleration pad
+        projected along the line direction, pick the trigger axis, pre-load the
+        trajectory via ``controller.setup_trajectory``, and record the
+        (unpadded) line-start crossing as ``trajectory_trigger``. The motion and
+        the line-start gate pulse are issued later in ``moveLine`` via
+        ``controller.acquire_xy`` -- NOT the older ``linear_trajectory`` path,
+        which never emitted the position trigger and so wedged the counter.
+        """
+        x0, y0 = self.trajectory_start
+        x1, y1 = self.trajectory_stop
+        distance = np.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
+        if distance > 0:
+            self.velocity = distance / (self.trajectory_pixel_count * self.trajectory_pixel_dwell)
+
+        self.pad = 0.5 * self.velocity ** 2 / self.acceleration
+        self.pad = min(self.pad, self._padMaximum)
+        self.pad = max(self.pad, self._padMinimum)
+        self.direction = np.array([x1 - x0, y1 - y0]) / np.linalg.norm([x1 - x0, y1 - y0])
+        self.xpad = self.pad * self.direction[0]
+        self.ypad = self.pad * self.direction[1]
+        x_range = abs(x0 - x1) + 2 * abs(self.xpad)
+        y_range = abs(y0 - y1) + 2 * abs(self.ypad)
 
         #select the trigger axis based on which dimension travels further.  This accounts for 1D trajectories
         #2D trajectories could trigger off of either axis
         if x_range < y_range:
             self.trigger_axis = 2
-            self.xpad = 0
         else:
             self.trigger_axis = 1
-            self.ypad = 0
-            
-        x0,y0 = self.trajectory_start
-        x1,y1 = self.trajectory_stop
+
         if direction == "forward":
             self.start = x0 - self.xpad, y0 - self.ypad
             self.stop = x1 + self.xpad, y1 + self.ypad
-            #start = x0, y0
-            #stop = x1, y1
-            self.trajectory_trigger = x0,y0
+            self.trajectory_trigger = x0, y0
         elif direction == "backward":
             self.start = x1 + self.xpad, y1 + self.ypad
             self.stop = x0 - self.xpad, y0 - self.ypad
-            self.trajectory_trigger = x1,y1
+            self.trajectory_trigger = x1, y1
+
+        self.start = self._scale2controller(self.start[0]), self._scale2controller(self.start[1])
+        self.stop = self._scale2controller(self.stop[0]), self._scale2controller(self.stop[1])
+        if not (self.simulation):
+            self.controller.setup_trajectory(self.trigger_axis, self.start, self.stop,
+                                             self.trajectory_pixel_dwell,
+                                             self.trajectory_pixel_count,
+                                             mode="line", pad=(self.xpad, self.ypad))
+            self.npositions = self.controller.npositions
+        else:
+            self.npositions = self.trajectory_pixel_count
 
     def moveTo(self, pos = None):
         if self.checkLimits(pos):
@@ -150,12 +173,31 @@ class nptMotor(motor):
             else:
                 pass
         elif self.lineMode == 'continuous':
-            self.update_trajectory(direction = direction)
+            # Trajectory must already be pre-loaded by update_trajectory() (the
+            # fly IOC calls it just before moveLine, mirroring the legacy scan
+            # sequence -- so we do NOT call it again here).
             if not (self.simulation):
-                self.controller.linear_trajectory(self.start, self.stop, trigger_axis = self.trigger_axis, \
-                                    trigger_position = self.trajectory_trigger[self.trigger_axis-1], \
-                                    velocity = (self._xVelocity,self._yVelocity), dwell = 10.)
-                self.positions = np.zeros((self.trajectory_pixel_count))
+                # Arm the single line-start position-trigger pulse, run the
+                # pre-loaded trajectory (the controller emits the gate pulse as
+                # the stage crosses trajectory_trigger, gating the counter),
+                # then disarm. This is the proven derivedPiezo +
+                # scan_utils.doFlyscanLine flow.
+                self.setPositionTriggerOn(pos = self.trajectory_trigger[self.trigger_axis - 1])
+                try:
+                    positions = self.controller.acquire_xy(axes = [self.trigger_axis])
+                finally:
+                    self.setPositionTriggerOff()
+                # Report the fast/trigger-axis pixel positions (controller ->
+                # GUI units) so the fly IOC's :POS waveform gets real line
+                # coordinates.
+                fast = np.asarray(positions[self.trigger_axis - 1], dtype=float)
+                self.positions = fast * self.config["units"] + self.config["offset"]
+            else:
+                (x0, y0), (x1, y1) = self.trajectory_start, self.trajectory_stop
+                if self.trigger_axis == 2:  # y is the fast (triggering) axis
+                    self.positions = np.linspace(y0, y1, self.trajectory_pixel_count)
+                else:
+                    self.positions = np.linspace(x0, x1, self.trajectory_pixel_count)
 
     def getPos(self):
         if not(self.simulation):
@@ -164,15 +206,20 @@ class nptMotor(motor):
             travel_range = max_val - min_val
             lower_bound = min_val - travel_range
             upper_bound = max_val + travel_range
+            last_converted = None
             for attempt in range(5):
                 pos = self.controller.getPos(axis=self._axis)
                 converted = pos * self.config["units"] + self.config["offset"]
+                last_converted = converted
                 if lower_bound <= converted <= upper_bound:
                     self.position = converted
                     return self.position
                 if attempt < 4:
                     time.sleep(0.02)
-            print(f"[nptMotor] getPos: encoder outlier on axis {self.axis} after 5 attempts, returning last known position {self.position:.3f}")
+            print(f"[nptMotor] getPos: encoder outlier on axis {self.axis} after "
+                  f"5 attempts (last read {last_converted:.3f} um, outside "
+                  f"[{lower_bound:.1f}, {upper_bound:.1f}]), returning last known "
+                  f"position {self.position:.3f}")
             return self.position
         else:
             return self.position
