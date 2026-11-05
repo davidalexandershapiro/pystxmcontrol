@@ -43,6 +43,7 @@ pystxmcontrol/controller/instrument_client.py
 pystxmcontrol/controller/intelligence.py
 pystxmcontrol/controller/motor.py
 pystxmcontrol/controller/operation_logger.py
+pystxmcontrol/controller/orbit_database.py
 pystxmcontrol/controller/remote_frames.py
 pystxmcontrol/controller/scan_conversion.py
 pystxmcontrol/controller/scan_files.py
@@ -50,6 +51,8 @@ pystxmcontrol/controller/scan_model.py
 pystxmcontrol/controller/scripter.py
 pystxmcontrol/controller/server.py
 pystxmcontrol/controller/spiral.py
+pystxmcontrol/controller/tilt_series.py
+pystxmcontrol/controller/tilt_series_cli.py
 pystxmcontrol/controller/tool_registry.py
 pystxmcontrol/controller/zmq_publisher.py
 pystxmcontrol/controller/scans/XRF_double_motor_scan.py
@@ -208,13 +211,19 @@ pystxmcontrol/utils/thumbnail_cache.py
 pystxmcontrol/utils/writeNX.py
 pystxmcontrol/utils/data/material_A.csv
 pystxmcontrol/utils/data/material_B.csv
+pystxmcontrol/utils/rotation/__init__.py
+pystxmcontrol/utils/rotation/imaging.py
+pystxmcontrol/utils/rotation/orbit.py
 tests/test_agent_surface_parity.py
 tests/test_dashboard_compile.py
+tests/test_dashboard_window.py
 tests/test_energy_presets.py
 tests/test_motor_info.py
+tests/test_rotation.py
 tests/test_scan_definition.py
 tests/test_scan_stats.py
 tests/test_scripter.py
 tests/test_server.py
 tests/test_staff_auth.py
+tests/test_tilt_series.py
 tests/test_utilities.py

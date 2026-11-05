@@ -82,6 +82,8 @@ Repository = "https://github.com/davidalexandershapiro/pystxmcontrol.git"
 [project.scripts]
 stxmcontrol = "pystxmcontrol.gui.dashboard.main:main"
 stxmserver = "pystxmcontrol.controller.server:main"
+stxmanalysis = "pystxmcontrol.gui.dashboard.analysis_app:main"
+stxmbrowser = "pystxmcontrol.gui.dashboard.browser_app:main"
 pystxmcontrol-mcp = "pystxmcontrol.mcp:main"
 
 [tool.setuptools.packages.find]
