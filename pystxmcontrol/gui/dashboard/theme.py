@@ -31,9 +31,9 @@ C = {
     "separator":    "#191e24",  # list rows
     "text":         "#e6ebef",  # values, headings
     "text_2":       "#cbd5dd",  # button labels
-    "text_muted":   "#8b97a3",  # panel headings, inactive tabs
-    "text_dim":     "#7c8894",  # field labels
-    "text_faint":   "#5f6b77",  # metadata, log
+    "text_muted":   "#a8b3bd",  # panel headings, inactive tabs
+    "text_dim":     "#9aa6b1",  # field labels
+    "text_faint":   "#76828e",  # metadata, log
     "accent":       "#5fd4d6",  # active state, ROI, progress, spectrum
     "accent_fill":  "#144e50",  # begin-scan fill
     "accent_brdr":  "#2b7b7d",  # begin-scan border

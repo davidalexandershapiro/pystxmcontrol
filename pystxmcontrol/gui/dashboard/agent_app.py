@@ -829,7 +829,7 @@ class AgentApp(QWidget):
 
     # ── message bubble ────────────────────────────────────────────────────────
     def _bubble(self, speaker, html, meta, extra=None):
-        avatar = {"OP": ("#1d2833", "#8b97a3"), "TA": ("#0f2a2b", C["accent"]),
+        avatar = {"OP": ("#1d2833", C["text_muted"]), "TA": ("#0f2a2b", C["accent"]),
                   "IA": ("#2a2113", C["motion"])}[speaker]
         frame = {"OP": ("#161b21", "#2c3a48", C["text"]),
                  "TA": ("#101820", "#22303c", C["text_2"]),
