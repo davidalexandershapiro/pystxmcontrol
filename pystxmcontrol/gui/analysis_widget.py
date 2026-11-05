@@ -180,6 +180,27 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_nmfAddToLogButton = QtWidgets.QPushButton("Add to Log")
         ui.a2_nmf_calc_layout.insertWidget(1, self._a2_nmfAddToLogButton)
         self._a2_nmfAddToLogButton.clicked.connect(self._on_a2_nmf_add_to_log)
+
+        # Undo for the OD corrections (pre-edge subtraction / detrend), and the
+        # stale-result notes on the PCA/NMF tabs — created here, like the Add to Log
+        # buttons, when the UI class doesn't provide them.
+        if not hasattr(ui, 'a2_undoODCorrectionButton'):
+            ui.a2_undoODCorrectionButton = QtWidgets.QPushButton("Undo")
+            layout = ui.a2_process_buttons_layout
+            layout.insertWidget(layout.indexOf(ui.a2_detrendButton) + 1,
+                                ui.a2_undoODCorrectionButton)
+        ui.a2_undoODCorrectionButton.setEnabled(False)
+        ui.a2_undoODCorrectionButton.setToolTip(
+            "Remove the last pre-edge subtraction / detrend from the optical density")
+        ui.a2_undoODCorrectionButton.clicked.connect(self._on_a2_undo_od_correction)
+        for attr, layout_attr in (('a2_pcaStatusLabel', 'a2_tab_clustering_layout'),
+                                  ('a2_nmfStatusLabel', 'a2_tab_nnmf_layout')):
+            if not hasattr(ui, attr):
+                label = QtWidgets.QLabel()
+                label.setWordWrap(True)
+                getattr(ui, layout_attr).insertWidget(0, label)
+                setattr(ui, attr, label)
+            getattr(ui, attr).setVisible(False)
         ui.a2_workflowTabs.currentChanged.connect(self._on_a2_workflow_tab_changed)
 
         ui.a2_regStartButton.clicked.connect(self._on_a2_reg_start)
@@ -192,6 +213,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         ui.a2_despikeButton.clicked.connect(self._on_a2_despike)
 
         ui.a2_stack_viewer.stack_loaded.connect(self._on_a2_stack_loaded)
+        ui.a2_stack_viewer.frames_changed.connect(self._a2_on_frames_changed)
         ui.a2_stack_viewer.auto_process_done.connect(self._on_a2_auto_process_done)
         ui.a2_stack_viewer.progress_updated.connect(ui.a2_progressBar.setValue)
         ui.a2_imageView.scene.sigMouseMoved.connect(self._on_a2_mouse_moved)
@@ -242,6 +264,164 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_crop_roi = None             # pg.RectROI used for the Crop tool
         self._recorder = ScriptRecorder()
         self._initialize_ls_tab()
+        self._initialize_reg_shift_plot()
+
+    # ── Registration shift / confidence plot ─────────────────────────────────
+
+    _A2_SHIFT_COLORS = {'dx': '#37d7ff', 'dy': '#ffc45e', 'conf': '#8ee06a', 'rejected': '#ff6b5e'}
+
+    def _initialize_reg_shift_plot(self):
+        """Twin-axis plot of the last registration: per-frame shifts (left, px) and
+        NCC confidence (right, sigma above the noise floor).  Only built when the UI
+        provides ``a2_regShiftPlot``."""
+        self._a2_shift_curves = None
+        if not hasattr(self.ui, 'a2_regShiftPlot'):
+            return
+        plot = self.ui.a2_regShiftPlot
+        pi = plot.getPlotItem()
+        pi.setLabel('left', 'Shift', units='px')
+        pi.setLabel('bottom', 'Energy', units='eV')
+        pi.setLabel('right', 'Confidence (σ)')
+        pi.showGrid(x=True, y=True, alpha=0.2)
+        pi.setMouseEnabled(x=False, y=False)
+        pi.hideButtons()
+        legend = pi.addLegend(offset=(8, 4), colCount=3)
+
+        # Confidence lives in its own ViewBox, x-linked to the main one and kept
+        # the same size, so it can have an independent right-hand axis.
+        conf_vb = pg.ViewBox()
+        conf_vb.setMouseEnabled(x=False, y=False)
+        pi.showAxis('right')
+        pi.scene().addItem(conf_vb)
+        pi.getAxis('right').linkToView(conf_vb)
+        conf_vb.setXLink(pi)
+
+        def _sync_views():
+            conf_vb.setGeometry(pi.vb.sceneBoundingRect())
+            conf_vb.linkedViewChanged(pi.vb, conf_vb.XAxis)
+        pi.vb.sigResized.connect(_sync_views)
+
+        def _curve(key, symbol, style=QtCore.Qt.SolidLine):
+            color = self._A2_SHIFT_COLORS[key]
+            return pg.PlotDataItem(pen=pg.mkPen(color, width=1.5, style=style),
+                                   symbol=symbol, symbolSize=6, symbolBrush=color,
+                                   symbolPen=None, connect='finite')
+        dx, dy = _curve('dx', 'o'), _curve('dy', 't')
+        conf = _curve('conf', 's', QtCore.Qt.DashLine)
+        pi.addItem(dx)
+        pi.addItem(dy)
+        conf_vb.addItem(conf)
+        # Frames whose shift was withheld (confidence below threshold), drawn over conf.
+        rejected = pg.ScatterPlotItem(symbol='s', size=7, pen=None,
+                                      brush=pg.mkBrush(self._A2_SHIFT_COLORS['rejected']))
+        conf_vb.addItem(rejected)
+        legend.addItem(dx, 'dx')
+        legend.addItem(dy, 'dy')
+        legend.addItem(conf, 'confidence')
+        legend.addItem(rejected, 'not shifted')
+        self._a2_rejected_pts = rejected
+
+        # Confidence threshold (from a2_regConfThresholdEdit), drawn on the confidence axis.
+        self._a2_conf_threshold_line = pg.InfiniteLine(
+            angle=0, movable=False,
+            pen=pg.mkPen(self._A2_SHIFT_COLORS['rejected'], width=1, style=QtCore.Qt.DotLine))
+        self._a2_conf_threshold_line.hide()
+        conf_vb.addItem(self._a2_conf_threshold_line, ignoreBounds=True)
+        if hasattr(self.ui, 'a2_regConfThresholdEdit'):
+            self.ui.a2_regConfThresholdEdit.textChanged.connect(self._a2_update_conf_threshold_line)
+
+        # Marks the frame currently shown in a2_imageView.
+        self._a2_shift_cursor = pg.InfiniteLine(angle=90, movable=False,
+                                                pen=pg.mkPen((200, 200, 200, 120), width=1))
+        self._a2_shift_cursor.hide()
+        pi.addItem(self._a2_shift_cursor, ignoreBounds=True)
+
+        self._a2_shift_conf_vb = conf_vb
+        self._a2_shift_curves = (dx, dy, conf)
+        self._a2_shift_x = None
+        plot.scene().sigMouseClicked.connect(self._on_a2_shift_plot_clicked)
+
+    def _a2_update_shift_plot(self):
+        """Redraw the shift plot from sv.stack.shifts / shift_confidence (cleared if absent)."""
+        if getattr(self, '_a2_shift_curves', None) is None:
+            return
+        dx_c, dy_c, conf_c = self._a2_shift_curves
+        sv = self.ui.a2_stack_viewer
+        shifts = getattr(sv.stack, 'shifts', None) if sv.haveStack else None
+        if not shifts:
+            for c in self._a2_shift_curves:
+                c.setData([], [])
+            self._a2_rejected_pts.setData([], [])
+            self._a2_shift_x = None
+            self._a2_shift_cursor.hide()
+            self._a2_conf_threshold_line.hide()
+            return
+        # During a live alignment, shifts holds only the frames done so far.
+        s = np.asarray(shifts, dtype=float)
+        k = len(s)
+        n = len(sv.stack.processedFrames)
+        energies = np.asarray(sv.stack.energies if sv.stack.energies is not None else [], dtype=float)
+        x_all = energies if energies.size == n else np.arange(n, dtype=float)
+        x = x_all[:k]
+        self._a2_shift_x = x
+        dy_c.setData(x, s[:, 0])
+        dx_c.setData(x, s[:, 1])
+        conf = getattr(sv.stack, 'shift_confidence', None)
+        if conf is not None and np.isfinite(conf[:k]).any():
+            conf = np.asarray(conf[:k], dtype=float)
+            rejected = getattr(sv.stack, 'shift_rejected', None)
+            rejected = np.zeros(k, bool) if rejected is None else np.asarray(rejected[:k], bool)
+            conf_c.setData(x, conf)
+            self._a2_rejected_pts.setData(x[rejected], conf[rejected])
+            # Anchor at 0 with a >=10 sigma span so an all-noise stack (everything
+            # ~3-5 sigma) reads as uniformly low instead of being stretched to fill.
+            top = max(10., 1.1 * np.nanmax(conf), 1.1 * self._a2_conf_threshold())
+            self._a2_shift_conf_vb.setYRange(0, top, padding=0)
+        else:
+            conf_c.setData([], [])   # modes without a confidence (Affine/Rigid/Homographic)
+            self._a2_rejected_pts.setData([], [])
+        pi = self.ui.a2_regShiftPlot.getPlotItem()
+        pi.enableAutoRange(axis=pg.ViewBox.YAxis)
+        if n > 1:
+            pi.setXRange(x_all.min(), x_all.max())   # full span, so a live run fills in left to right
+        self._a2_update_conf_threshold_line()
+        self._a2_update_shift_cursor(self.ui.a2_imageView.currentIndex)
+
+    def _a2_conf_threshold(self):
+        """Confidence Threshold edit as a float (0 = keep every shift)."""
+        if not hasattr(self.ui, 'a2_regConfThresholdEdit'):
+            return 0.0
+        try:
+            return max(float(self.ui.a2_regConfThresholdEdit.text()), 0.0)
+        except ValueError:
+            return 0.0
+
+    def _a2_update_conf_threshold_line(self, *_):
+        if getattr(self, '_a2_shift_curves', None) is None:
+            return
+        thr = self._a2_conf_threshold()
+        self._a2_conf_threshold_line.setValue(thr)
+        self._a2_conf_threshold_line.setVisible(thr > 0 and self._a2_shift_x is not None)
+
+    def _a2_update_shift_cursor(self, index):
+        x = getattr(self, '_a2_shift_x', None)
+        if x is None or not 0 <= index < len(x):
+            if getattr(self, '_a2_shift_curves', None) is not None:
+                self._a2_shift_cursor.hide()
+            return
+        self._a2_shift_cursor.setValue(x[index])
+        self._a2_shift_cursor.show()
+
+    def _on_a2_shift_plot_clicked(self, event):
+        """Click on the shift plot → show the nearest frame in a2_imageView."""
+        x = self._a2_shift_x
+        if x is None:
+            return
+        vb = self.ui.a2_regShiftPlot.getPlotItem().vb
+        if not vb.sceneBoundingRect().contains(event.scenePos()):
+            return
+        xv = vb.mapSceneToView(event.scenePos()).x()
+        self.ui.a2_imageView.setCurrentIndex(int(np.argmin(np.abs(x - xv))))
 
     # ── Single source of truth for OD frames ─────────────────────────────────
 
@@ -257,8 +437,108 @@ class Analysis2Widget(QtWidgets.QWidget):
         if sv.haveStack:
             sv.stack.odFrames = value
 
+    # ── Dataset lifecycle ────────────────────────────────────────────────────
+    #
+    # sv.stack is the one dataset every tab reads: processedFrames (transmission)
+    # → OD from I0 → the stack's odCorrections (pre-edge subtraction, detrend),
+    # which the stack replays on every OD recompute.  PCA/NMF only read it and keep
+    # their results in stack.pcaResult / stack.nmfResult, stamped with the
+    # odRevision they were computed from.
+    #
+    #   stack_loaded    a new dataset (file, region, detector, reset, crop):
+    #                   _on_a2_stack_loaded resets the per-dataset UI state.
+    #   frames_changed  processedFrames changed in place (filter, undo):
+    #                   _a2_on_frames_changed rebuilds OD, keeps ROIs/I0.
+    #   _a2_dataset_updated()  call after anything that changes OD, to refresh the
+    #                   dataset summary, the undo button and the stale-result notes.
+
+    def _a2_rebuild_od(self):
+        """Re-derive OD from the current processedFrames after they changed.
+
+        I0 is re-measured from the user's I0 selection (ROI, else histogram mask)
+        when there is one, otherwise the stored I0 spectrum is reused.  The stack
+        replays odCorrections, so pre-edge subtraction/detrend survive.  No-op if OD
+        has never been computed for this dataset.
+        """
+        sv = self.ui.a2_stack_viewer
+        st = sv.stack
+        if not sv.haveStack or (st.odFrames is None and st.I0 is None):
+            return
+        try:
+            if any(e['type'] == 'I0' for e in self._a2_rois):
+                self._a2_compute_od()
+                return
+            mask = self._a2_i0_mask
+            if mask is not None and mask.shape == st.processedFrames.shape[1:] and mask.any():
+                self._a2_i0_hist_spectrum = st.processedFrames[:, mask].mean(axis=1)
+                self._a2_compute_od()
+                return
+            st.recomputeOD()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+    def _a2_on_frames_changed(self):
+        """processedFrames changed in place (filter, despike, undo): keep the dataset
+        consistent by rebuilding OD from them, and refresh the views.  ROIs and the
+        I0 selection are kept — this is the same dataset, not a new load."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            return
+        self._a2_rebuild_od()
+        if self._a2_histogram_mode and self._a2_i0_hist_region is not None:
+            self._a2_update_i0_histogram()
+        self._a2_refresh_image_view()
+        self._a2_update_roi_curves()
+        self._update_a2_scale_bar()
+        self._update_a2_info_panel(sv.ui.verticalSlider.value())
+        self._a2_dataset_updated()
+
+    def _a2_dataset_summary(self):
+        """One-line description of what the Main-tab data is, e.g.
+        'Optical density · pre-edge subtracted 280.0–284.0 eV'."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack:
+            return ""
+        if not self._a2_od_active():
+            return "Transmission"
+        labels = {'subtractPreEdge': 'pre-edge subtracted',
+                  'detrendPreEdge': 'detrended'}
+        parts = ["Optical density"]
+        for name, kw in sv.stack.odCorrections:
+            parts.append(f"{labels.get(name, name)} "
+                         f"{kw['energy_lo']:.1f}–{kw['energy_hi']:.1f} eV")
+        return " · ".join(parts)
+
+    def _a2_result_status(self, result, what):
+        """Status text for a PCA/NMF result: empty when current, a warning when the
+        OD it was computed from has since changed."""
+        sv = self.ui.a2_stack_viewer
+        if result is None or not sv.haveStack or result.revision == sv.stack.odRevision:
+            return ""
+        return (f"⚠ The optical density has changed since this {what} was "
+                f"calculated. Recalculate to update it.")
+
+    def _a2_dataset_updated(self):
+        """Refresh everything that describes the dataset (see the lifecycle note)."""
+        sv = self.ui.a2_stack_viewer
+        btn = getattr(self.ui, 'a2_undoODCorrectionButton', None)
+        if btn is not None:
+            btn.setEnabled(sv.haveStack and bool(sv.stack.odCorrections))
+        stack = sv.stack if sv.haveStack else None
+        for attr, result, what in (
+                ('a2_pcaStatusLabel', getattr(stack, 'pcaResult', None), 'PCA'),
+                ('a2_nmfStatusLabel', getattr(stack, 'nmfResult', None), 'NMF')):
+            label = getattr(self.ui, attr, None)
+            if label is not None:
+                text = self._a2_result_status(result, what)
+                label.setText(text)
+                label.setVisible(bool(text))
+
     def _on_a2_stack_loaded(self):
-        """Display the full stack in a2_imageView when a stack is loaded."""
+        """A new dataset was loaded (file, region, detector, reset, crop): reset the
+        per-dataset UI state and display it.  In-place changes to the current dataset
+        go through _a2_on_frames_changed instead."""
         if not hasattr(self.ui, 'a2_imageView'):
             return
         sv = self.ui.a2_stack_viewer
@@ -272,10 +552,9 @@ class Analysis2Widget(QtWidgets.QWidget):
                 self.ui.a2_selectI0FromHistogramCheckbox.blockSignals(True)
                 self.ui.a2_selectI0FromHistogramCheckbox.setChecked(False)
                 self.ui.a2_selectI0FromHistogramCheckbox.blockSignals(False)
-        # Sync OD checkbox with sv.stack.odFrames — do NOT clear sv.stack.odFrames here,
-        # because stack_loaded is also emitted after operations that just computed OD
-        # (e.g. autoProcess).  For a fresh file load sv.stack.odFrames is already None
-        # (reset() sets it to None), so the checkbox will be disabled correctly.
+        # Sync OD checkbox with sv.stack.odFrames — do NOT clear sv.stack.odFrames here:
+        # crop keeps the (cropped) OD.  For a fresh file load sv.stack.odFrames is
+        # already None (reset() sets it to None), so the checkbox is disabled correctly.
         has_od = sv.stack.odFrames is not None
         self._a2_i0_mask = None
         self._a2_update_mask_checkbox_state()
@@ -285,13 +564,11 @@ class Analysis2Widget(QtWidgets.QWidget):
             if not has_od:
                 self.ui.a2_odCheckbox.setChecked(False)
             self.ui.a2_odCheckbox.blockSignals(False)
-        # Reset clustering/decomposition combos only when results no longer exist.
-        # stack_loaded fires both on new file load AND after operations (applyPCA, align,
-        # etc.).  For a new load the stack's arrays are None; for a post-op signal they
-        # may still be valid and should not be cleared from the UI.
+        # Reset clustering/decomposition combos only when results no longer exist
+        # (a crop keeps them; stack.reset() clears them).
         stack = sv.stack
-        has_pca = getattr(stack, 'pcaImages', None) is not None
-        has_nmf = getattr(stack, 'nmfMaps', None) is not None
+        has_pca = getattr(stack, 'pcaResult', None) is not None
+        has_nmf = getattr(stack, 'nmfResult', None) is not None
         if hasattr(self.ui, 'a2_clusterImageCombo'):
             if not has_pca:
                 self.ui.a2_clusterImageCombo.setEnabled(False)
@@ -351,6 +628,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._on_a2_roi_changed()
         if hasattr(self.ui, 'a2_selectI0FromHistogramCheckbox'):
             self.ui.a2_selectI0FromHistogramCheckbox.setEnabled(True)
+        self._a2_update_shift_plot()
+        self._a2_dataset_updated()
 
     def _update_a2_info_panel(self, index=0):
         """Populate a2_metadataText with file metadata and the current energy line."""
@@ -419,6 +698,7 @@ class Analysis2Widget(QtWidgets.QWidget):
     def _on_a2_frame_changed(self, index, time):
         """Called when the a2_imageView slider moves to a new frame."""
         self._update_a2_info_panel(index)
+        self._a2_update_shift_cursor(index)
 
     def _on_a2_spectrum_mouse_moved(self, pos):
         """Hover on spectrum plot → seek imageView to the nearest energy frame."""
@@ -641,9 +921,11 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         entry = {'roi': roi, 'type': roi_type, 'color': color, 'curve': curve}
         self._a2_rois.append(entry)
-        roi.sigRegionChanged.connect(self._on_a2_roi_changed)
+        # Only the I0 ROI defines the dataset (via OD); Spectrum ROIs just read it.
+        handler = self._on_a2_i0_roi_changed if roi_type == 'I0' else self._on_a2_roi_changed
+        roi.sigRegionChanged.connect(handler)
         self._a2_update_od_checkbox_state()
-        self._on_a2_roi_changed()
+        handler()
 
     def _a2_clear_all_rois(self):
         """Remove every ROI from the image view and spectrum plot."""
@@ -692,6 +974,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_refresh_image_view()
         self.ui.a2_imageView.setCurrentIndex(new_idx)
         self._a2_update_roi_curves()
+        self._a2_dataset_updated()
         return {"energy": energy}
         self._a2_update_od_checkbox_state()
 
@@ -954,6 +1237,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
         self._a2_update_norm_button_state()
+        self._a2_dataset_updated()
         # Record only when turning OD on — turning it off is not a scripted action
         if od_on and sv.stack.I0 is not None:
             if hist_bounds is not None:
@@ -1015,19 +1299,22 @@ class Analysis2Widget(QtWidgets.QWidget):
             except Exception:
                 pass
 
-    def _on_a2_roi_changed(self):
-        """Recompute spectra for all ROIs using current display frames (raw or OD).
-        If OD is active and the I0 ROI moved, recompute OD first."""
+    def _on_a2_roi_changed(self, *_):
+        """Recompute spectra for all ROIs from the current display frames (raw or OD).
+        Never recomputes OD — only an I0 change does (_on_a2_i0_roi_changed)."""
+        self._a2_update_roi_curves()
+
+    def _on_a2_i0_roi_changed(self, *_):
+        """The I0 ROI was drawn or moved: if OD is on, rebuild it from the new I0
+        (the stack replays the pre-edge/detrend corrections), then redraw."""
         sv = self.ui.a2_stack_viewer
         if not sv.haveStack:
             return
-
-        # If OD is on, I0 ROI movement requires recomputing OD first
         if (hasattr(self.ui, 'a2_odCheckbox')
                 and self.ui.a2_odCheckbox.isChecked()):
             self._a2_compute_od()
             self._a2_refresh_image_view()
-
+            self._a2_dataset_updated()
         self._a2_update_roi_curves()
 
     # ── Analysis2 Registration tab ────────────────────────────────────────────
@@ -1068,45 +1355,51 @@ class Analysis2Widget(QtWidgets.QWidget):
             except ValueError:
                 pass
         reference_idx = self.ui.a2_imageView.currentIndex if align_method == 'reference' else 0
+        confidence_threshold = self._a2_conf_threshold()
 
         sv.progress_updated.emit(0)
         if use_od:
             sv.stack.alignODFrames(sobelFilter=sobel, mode=mode, autocrop=autocrop)
         elif use_custom:
-            sv.stack.alignFramesCustom(
-                mode=mode,
-                align_method=align_method,
-                reference_idx=reference_idx,
-                thresholded=thresholded,
-                threshold=threshold,
-                sobelFilter=sobel,
-                autocrop=autocrop,
-                progress_callback=lambda pct: sv.progress_updated.emit(pct),
-            )
-            has_i0 = (any(e['type'] == 'I0' for e in self._a2_rois)
-                      or self._a2_i0_hist_spectrum is not None)
-            if has_i0:
-                if self._a2_histogram_mode and self._a2_i0_hist_region is not None:
-                    self._a2_update_i0_mask_overlay()
-                else:
-                    self._a2_compute_od()
+            # Redraw the shift plot after every frame; disable Start meanwhile since
+            # processEvents() would otherwise let it be pressed again mid-run.
+            self.ui.a2_regStartButton.setEnabled(False)
+            try:
+                sv.stack.alignFramesCustom(
+                    mode=mode,
+                    align_method=align_method,
+                    reference_idx=reference_idx,
+                    thresholded=thresholded,
+                    threshold=threshold,
+                    sobelFilter=sobel,
+                    autocrop=autocrop,
+                    confidence_threshold=confidence_threshold,
+                    progress_callback=lambda pct: sv.progress_updated.emit(pct),
+                    frame_callback=self._a2_live_shift_update,
+                )
+            finally:
+                self.ui.a2_regStartButton.setEnabled(True)
         else:
             # Affine / Rigid / Homographic — use existing path (no new options apply)
             sv.stack.alignFrames(
                 mode=mode, sobelFilter=sobel, autocrop=autocrop,
                 progress_callback=lambda pct: sv.progress_updated.emit(pct),
             )
-            has_i0 = (any(e['type'] == 'I0' for e in self._a2_rois)
-                      or self._a2_i0_hist_spectrum is not None)
-            if has_i0:
-                self._a2_compute_od()
 
+        # Registered transmission → rebuild OD from it (corrections are replayed).
+        # Aligning the OD frames directly has nothing to rebuild from.
+        if not use_od:
+            if self._a2_histogram_mode and self._a2_i0_hist_region is not None:
+                self._a2_update_i0_histogram()
+            self._a2_rebuild_od()
         sv.progress_updated.emit(100)
         self._update_a2_scale_bar()
         energy_idx = sv.ui.verticalSlider.value()
         self._update_a2_info_panel(energy_idx)
         self._a2_refresh_image_view()
         self._on_a2_roi_changed()
+        self._a2_update_shift_plot()
+        self._a2_dataset_updated()
         if use_od:
             self._recorder.record("align_od_frames",
                                   mode=mode, sobel=sobel, autocrop=autocrop)
@@ -1114,13 +1407,23 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._recorder.record("align_frames_custom",
                                   mode=mode, align_method=align_method,
                                   reference_idx=reference_idx, thresholded=thresholded,
-                                  threshold=threshold, sobel=sobel, autocrop=autocrop)
+                                  threshold=threshold, sobel=sobel, autocrop=autocrop,
+                                  confidence_threshold=confidence_threshold)
         else:
             self._recorder.record("align_frames",
                                   mode=mode, sobel=sobel, autocrop=autocrop)
 
+    def _a2_live_shift_update(self):
+        """frame_callback for alignFramesCustom: show the frames registered so far."""
+        self._a2_update_shift_plot()
+        QtWidgets.QApplication.processEvents()
+
     def _on_a2_reg_undo(self):
-        self.ui.a2_stack_viewer.undoFilter()
+        sv = self.ui.a2_stack_viewer
+        if sv.haveStack:
+            sv.stack.shifts = None             # the plotted registration is being undone
+            sv.stack.shift_confidence = None
+        sv.undoFilter()
 
     # ── Analysis2 Filtering tab ───────────────────────────────────────────────
 
@@ -1232,12 +1535,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         if n < 2:
             return
         rgb = [1] * n + [0] * (3 - n)
-        # rgbMap always fits against stack.filteredImages; if PCA hasn't been run
-        # use the current display frames (OD or transmission) directly.
-        if sv.stack.filteredImages is None:
-            sv.stack.filteredImages = frames
-            sv.stack.nEnergies, sv.stack.nY, sv.stack.nX = frames.shape
-        sv.stack.rgbMap(spectra, rgb)
+        # Fit the frames on screen (OD or transmission) — never a PCA/NMF model.
+        sv.stack.rgbMap(spectra, rgb, frames=frames)
         if sv.stack.rgbImage is not None:
             self.ui.a2_imageView.setImage(
                 np.ascontiguousarray(sv.stack.rgbImage.transpose(1, 0, 2)))
@@ -1262,6 +1561,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         energy_idx = sv.ui.verticalSlider.value()
         if energy_idx > 0:
             self.ui.a2_imageView.setCurrentIndex(energy_idx)
+        self._a2_dataset_updated()
 
     # Auto-I0 fallback: when the user has not selected an I0, Auto Process picks
     # the brightest (highest-transmission → substrate) pixels of the mean frame,
@@ -1330,11 +1630,14 @@ class Analysis2Widget(QtWidgets.QWidget):
             threshold=threshold,
             sobelFilter=sobel,
             autocrop=autocrop,
+            confidence_threshold=self._a2_conf_threshold(),
             progress_callback=lambda pct: (
                 pb.setValue(20 + int(pct * 0.6)),
                 QtWidgets.QApplication.processEvents(),
             ),
+            frame_callback=self._a2_update_shift_plot,
         )
+        self._a2_update_shift_plot()
         pb.setValue(80)
         QtWidgets.QApplication.processEvents()
 
@@ -1450,6 +1753,7 @@ class Analysis2Widget(QtWidgets.QWidget):
             self.ui.a2_imageView.setImage(np.ascontiguousarray(rgb.transpose(1, 0, 2)))
 
         pb.setValue(100)
+        self._a2_dataset_updated()
 
     # ── Analysis2 Save ───────────────────────────────────────────────────────
 
@@ -1521,16 +1825,15 @@ class Analysis2Widget(QtWidgets.QWidget):
                             w.writerow([en] + [sp[j] for _, sp in s])
                 _try_save("roiSpectra.csv", _write_roi_spectra)
 
-        # ── PCA components ────────────────────────────────────────────────────
-        if stack.pcaImages is not None:
+        # ── PCA results (stack.pcaResult) ─────────────────────────────────────
+        pca = stack.pcaResult
+        if pca is not None:
             path = os.path.join(save_dir, "pcaComponents.tif")
             _try_save("pcaComponents.tif",
-                      lambda: tif_imsave(path, stack.pcaImages.astype('float32')))
+                      lambda p=path: tif_imsave(p, pca.pcaImages.astype('float32')))
 
-        # ── PCA eigenvalues ───────────────────────────────────────────────────
-        if hasattr(stack, 'eigenVals') and stack.eigenVals is not None:
             path = os.path.join(save_dir, "eigenvalues.csv")
-            def _write_eigenvals(p=path, ev=stack.eigenVals):
+            def _write_eigenvals(p=path, ev=pca.eigenVals):
                 with open(p, 'w', newline='') as f:
                     w = csv.writer(f)
                     w.writerow(["Component", "Eigenvalue"])
@@ -1538,16 +1841,16 @@ class Analysis2Widget(QtWidgets.QWidget):
                         w.writerow([i + 1, float(v)])
             _try_save("eigenvalues.csv", _write_eigenvals)
 
-        # ── NMF component maps and spectra ───────────────────────────────────
-        if hasattr(stack, 'nmfMaps') and stack.nmfMaps is not None:
+        # ── NMF component maps and spectra (stack.nmfResult) ─────────────────
+        nmf = stack.nmfResult
+        if nmf is not None:
             path = os.path.join(save_dir, "nmfMaps.tif")
             _try_save("nmfMaps.tif",
-                      lambda p=path, m=stack.nmfMaps: tif_imsave(p, m.astype('float32')))
+                      lambda p=path, m=nmf.maps: tif_imsave(p, m.astype('float32')))
 
-        if hasattr(stack, 'nmfComponents') and stack.nmfComponents is not None:
             path = os.path.join(save_dir, "nmfSpectra.csv")
             energies = stack.energies
-            comps = stack.nmfComponents
+            comps = nmf.components
             def _write_nmf_spectra(p=path, e=energies, c=comps):
                 with open(p, 'w', newline='') as f:
                     w = csv.writer(f)
@@ -1556,32 +1859,27 @@ class Analysis2Widget(QtWidgets.QWidget):
                         w.writerow([en] + [c[i][j] for i in range(len(c))])
             _try_save("nmfSpectra.csv", _write_nmf_spectra)
 
-        # ── Cluster label map ─────────────────────────────────────────────────
-        if hasattr(stack, 'clusters') and stack.clusters is not None:
-            path = os.path.join(save_dir, "clusterMap.tif")
-            _try_save("clusterMap.tif",
-                      lambda: tif_imsave(path, stack.clusters.astype('int32')))
+        # ── Cluster maps / spectra: PCA as clusterMap.*, NMF as nmfClusterMap.* ─
+        for prefix, res in (("cluster", pca), ("nmfCluster", nmf)):
+            if res is None:
+                continue
+            name = f"{prefix}Map.tif"
+            _try_save(name, lambda p=os.path.join(save_dir, name), c=res.clusters:
+                      tif_imsave(p, c.astype('int32')))
 
-        # ── Cluster spectra ───────────────────────────────────────────────────
-        if hasattr(stack, 'clusterSpectra') and stack.clusterSpectra:
-            path = os.path.join(save_dir, "clusterSpectra.csv")
-            energies = stack.energies
-            cs = stack.clusterSpectra
-            def _write_cluster_spectra(p=path, e=energies, c=cs):
+            name = f"{prefix}Spectra.csv"
+            def _write_cluster_spectra(p=os.path.join(save_dir, name),
+                                       e=stack.energies, c=res.clusterSpectra):
                 with open(p, 'w', newline='') as f:
                     w = csv.writer(f)
                     w.writerow(["Energy"] + [f"Cluster_{i+1}" for i in range(len(c))])
                     for j, en in enumerate(e):
                         w.writerow([en] + [c[i][j] for i in range(len(c))])
-            _try_save("clusterSpectra.csv", _write_cluster_spectra)
+            _try_save(name, _write_cluster_spectra)
 
-        # ── RGB cluster map ───────────────────────────────────────────────────
-        if hasattr(stack, 'clusters') and stack.clusters is not None:
-            path = os.path.join(save_dir, "rgbClusterMap.png")
-            def _write_rgb_cluster(p=path):
-                rgb = stack.rgbClusterMap()
-                PILImage.fromarray(rgb.astype('uint8')).save(p)
-            _try_save("rgbClusterMap.png", _write_rgb_cluster)
+            name = "rgbClusterMap.png" if prefix == "cluster" else "nmfRgbClusterMap.png"
+            _try_save(name, lambda p=os.path.join(save_dir, name), im=res.rgbClusterImage:
+                      PILImage.fromarray(im.astype('uint8')).save(p))
 
         # ── RGB component map (from Map button) ───────────────────────────────
         if stack.rgbImage is not None:
@@ -1826,13 +2124,13 @@ class Analysis2Widget(QtWidgets.QWidget):
             if stack.energies is not None and len(stack.energies) > 0:
                 e = stack.energies
                 lines.append(f"Energies: {len(e)}  ({e[0]:.2f} – {e[-1]:.2f} eV)")
-            if stack.odFrames is not None:
-                lines.append("OD: computed")
-            if hasattr(stack, 'clusters') and stack.clusters is not None:
-                n_clusters = int(stack.clusters.max()) + 1
-                lines.append(f"Clusters: {n_clusters}")
-            if stack.pcaImages is not None:
-                lines.append(f"PCA components: {stack.pcaImages.shape[0]}")
+            lines.append(f"Data: {self._a2_dataset_summary()}")
+            if stack.pcaResult is not None:
+                lines.append(f"PCA: {stack.pcaResult.nPC} components, "
+                             f"{len(stack.pcaResult.clusterSpectra)} clusters")
+            if stack.nmfResult is not None:
+                lines.append(f"NMF: {stack.nmfResult.n_components} components, "
+                             f"{len(stack.nmfResult.clusterSpectra)} clusters")
             # ROI summary
             spectrum_rois = [e for e in self._a2_rois if e['type'] == 'Spectrum']
             if spectrum_rois:
@@ -1953,8 +2251,8 @@ class Analysis2Widget(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "No Data", "Load a stack before logging.")
             return
         stack = sv.stack
-        if getattr(stack, 'rgbClusterImage', None) is None \
-                or not getattr(stack, 'clusterSpectra', None):
+        res = stack.pcaResult
+        if res is None:
             QtWidgets.QMessageBox.warning(
                 self, "Clustering Required",
                 "Calculate PCA and clustering before adding the cluster map to the log.")
@@ -1963,9 +2261,9 @@ class Analysis2Widget(QtWidgets.QWidget):
         if stack.energies is not None and len(stack.energies) > 0:
             e = stack.energies
             lines.append(f"Energies: {len(e)}  ({e[0]:.2f} – {e[-1]:.2f} eV)")
-        if getattr(stack, 'pcaImages', None) is not None:
-            lines.append(f"PCA components: {stack.pcaImages.shape[0]}")
-        lines.append(f"Clusters: {len(stack.clusterSpectra)}")
+        lines.append(f"Data: {self._a2_dataset_summary()}")
+        lines.append(f"PCA components: {res.nPC}")
+        lines.append(f"Clusters: {len(res.clusterSpectra)}")
         self._log_cluster_pair(
             image_combo=self.ui.a2_clusterImageCombo, image_text='Clusters',
             image_handler=self._on_a2_cluster_image_changed,
@@ -1980,8 +2278,8 @@ class Analysis2Widget(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "No Data", "Load a stack before logging.")
             return
         stack = sv.stack
-        if getattr(stack, 'nmfComponents', None) is None \
-                or not getattr(stack, 'clusterSpectra', None):
+        res = stack.nmfResult
+        if res is None or not res.clusterSpectra:
             QtWidgets.QMessageBox.warning(
                 self, "NNMF Required",
                 "Calculate NNMF (with clustering) before adding the cluster map to the log.")
@@ -1990,8 +2288,9 @@ class Analysis2Widget(QtWidgets.QWidget):
         if stack.energies is not None and len(stack.energies) > 0:
             e = stack.energies
             lines.append(f"Energies: {len(e)}  ({e[0]:.2f} – {e[-1]:.2f} eV)")
-        lines.append(f"NMF components: {len(stack.nmfComponents)}")
-        lines.append(f"Clusters: {len(stack.clusterSpectra)}")
+        lines.append(f"Data: {self._a2_dataset_summary()}")
+        lines.append(f"NMF components: {len(res.components)}")
+        lines.append(f"Clusters: {len(res.clusterSpectra)}")
         self._log_cluster_pair(
             image_combo=self.ui.a2_nmfDisplayCombo, image_text='Cluster Map',
             image_handler=self._on_a2_nmf_display_changed,
@@ -2012,11 +2311,6 @@ class Analysis2Widget(QtWidgets.QWidget):
                 "Calculate optical density before clustering."
             )
             return
-        # Ensure stack.odFrames is populated so applyPCA can use it.
-        # Apply inverse I0 mask if requested (zeros out the I0 region).
-        use_mask = (self.ui.a2_pcaMaskI0Checkbox.isChecked()
-                    and self._a2_i0_mask is not None)
-        sv.stack.odFrames = od * (~self._a2_i0_mask)[np.newaxis] if use_mask else od
         try:
             n_components = int(self.ui.a2_nComponentsEdit.text())
             n_clusters   = int(self.ui.a2_nClustersEdit.text())
@@ -2024,26 +2318,18 @@ class Analysis2Widget(QtWidgets.QWidget):
             return
         reduce_mass  = self.ui.a2_reduceMassCheckbox.isChecked()
         remove_pre   = self.ui.a2_removePreEdgeCheckbox.isChecked()
+        # PCA reads the shared OD dataset; the I0 mask (zeros out the I0 region) is
+        # applied to a copy, so the dataset the other tabs see is untouched.
+        use_mask = (self.ui.a2_pcaMaskI0Checkbox.isChecked()
+                    and self._a2_i0_mask is not None)
+        frames = od * (~self._a2_i0_mask)[np.newaxis] if use_mask else od
 
-        # applyPCA emits stack_loaded which wipes _a2_od_frames and disables the OD
-        # checkbox.  Save state now and restore it afterwards.
-        saved_od       = self._a2_od_frames
-        saved_i0_hist  = self._a2_i0_hist_spectrum
-        od_was_checked = (hasattr(self.ui, 'a2_odCheckbox')
-                          and self.ui.a2_odCheckbox.isChecked())
-
-        sv.applyPCA(n_components, n_clusters, reduce_mass, remove_pre)
-
-        # Restore OD state so the Main tab remains functional
-        self._a2_od_frames        = saved_od
-        self._a2_i0_hist_spectrum = saved_i0_hist
-        self._a2_update_od_checkbox_state()
-        if od_was_checked and hasattr(self.ui, 'a2_odCheckbox'):
-            self.ui.a2_odCheckbox.setChecked(True)
+        sv.applyPCA(n_components, n_clusters, reduce_mass, remove_pre, frames=frames)
 
         # Enable combos now that PCA results exist
         self.ui.a2_clusterImageCombo.setEnabled(True)
         self.ui.a2_clusterPlotCombo.setEnabled(True)
+        self._a2_dataset_updated()
         return {"n_components": n_components, "n_clusters": n_clusters}
 
     def _on_a2_cluster_image_changed(self, text):
@@ -2052,6 +2338,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         if not sv.haveStack:
             return
         stack = sv.stack
+        res = stack.pcaResult
         if text == 'Transmission':
             frames = stack.processedFrames
             self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
@@ -2060,23 +2347,21 @@ class Analysis2Widget(QtWidgets.QWidget):
                 return
             frames = stack.odFrames
             self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
+        elif res is None:
+            return
         elif text == 'Principal Components':
-            if stack.pcaImages is None:
-                return
-            frames = stack.pcaImages
+            frames = res.pcaImages
             self.ui.a2_imageView.setImage(np.ascontiguousarray(frames.transpose(0, 2, 1)))
         elif text == 'Clusters':
-            if not hasattr(stack, 'rgbClusterImage') or stack.rgbClusterImage is None:
-                return
             # RGB image: (ny, nx, 3) → transpose to (nx, ny, 3) for pyqtgraph
             self.ui.a2_imageView.setImage(np.ascontiguousarray(
-                stack.rgbClusterImage.transpose(1, 0, 2)))
+                res.rgbClusterImage.transpose(1, 0, 2)))
         elif text == 'RGB Map':
-            if stack.rgbImage is None:
+            if res.rgbImage is None:
                 return
             # rgbImage is (ny, nx, 3) → transpose to (nx, ny, 3) for pyqtgraph
             self.ui.a2_imageView.setImage(np.ascontiguousarray(
-                stack.rgbImage.transpose(1, 0, 2)))
+                res.rgbImage.transpose(1, 0, 2)))
 
     def _on_a2_cluster_plot_changed(self, text):
         """Switch the spectrum plot between ROI spectra, cluster spectra, and eigenvalues."""
@@ -2092,12 +2377,12 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         elif text == 'Cluster Spectra':
             self._a2_set_roi_curves_visible(False)
-            if not sv.haveStack or not sv.stack.clusterSpectra:
+            if not sv.haveStack or sv.stack.pcaResult is None:
                 return
             energies = sv.stack.energies
             pen_colors = sv.stack.penColors
             pi.addLegend(offset=(10, 10))
-            for i, spectrum in enumerate(sv.stack.clusterSpectra):
+            for i, spectrum in enumerate(sv.stack.pcaResult.clusterSpectra):
                 r, g, b = pen_colors[i % len(pen_colors)]
                 color = (int(r * 255), int(g * 255), int(b * 255))
                 curve = pi.plot(energies, spectrum,
@@ -2109,9 +2394,9 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         elif text == 'PCA Eigenvalues':
             self._a2_set_roi_curves_visible(False)
-            if not sv.haveStack or not hasattr(sv.stack, 'eigenVals') or sv.stack.eigenVals is None:
+            if not sv.haveStack or sv.stack.pcaResult is None:
                 return
-            eigen_vals = sv.stack.eigenVals
+            eigen_vals = sv.stack.pcaResult.eigenVals
             log_vals = np.log(eigen_vals[eigen_vals > 0])
             x = np.arange(1, len(log_vals) + 1)
             curve = pi.plot(x, log_vals,
@@ -2125,7 +2410,7 @@ class Analysis2Widget(QtWidgets.QWidget):
     def _on_a2_calc_rgb_map(self):
         """Parse target spectra indices and compute the RGB map."""
         sv = self.ui.a2_stack_viewer
-        if not sv.haveStack or not sv.stack.clusterSpectra:
+        if not sv.haveStack or sv.stack.pcaResult is None:
             QtWidgets.QMessageBox.warning(
                 self, "Clustering Required",
                 "Calculate PCA and clustering before computing the RGB map."
@@ -2142,9 +2427,6 @@ class Analysis2Widget(QtWidgets.QWidget):
                                           "At least 2 target spectra are required for an RGB map.")
             return
         sv.applyRGBMap(indices)
-        # applyRGBMap emits stack_loaded which disables the combos — re-enable them
-        self.ui.a2_clusterImageCombo.setEnabled(True)
-        self.ui.a2_clusterPlotCombo.setEnabled(True)
         # Switch display to RGB Map automatically
         if hasattr(self.ui, 'a2_clusterImageCombo'):
             idx = self.ui.a2_clusterImageCombo.findText('RGB Map')
@@ -2211,9 +2493,10 @@ class Analysis2Widget(QtWidgets.QWidget):
                                           "No energy frames fall within the pre-edge region.")
             return
         energy_lo, energy_hi = self._a2_pre_edge_region.getRegion()
-        sv.stack.subtractPreEdgeBackground(energy_lo, energy_hi)
+        sv.stack.subtractPreEdgeBackground(float(energy_lo), float(energy_hi))
         self._a2_refresh_image_view()
         self._a2_update_roi_curves()
+        self._a2_dataset_updated()
         return {"energy_lo": float(energy_lo), "energy_hi": float(energy_hi)}
 
     @records("detrend_pre_edge")
@@ -2231,10 +2514,22 @@ class Analysis2Widget(QtWidgets.QWidget):
                                           "No energy frames fall within the pre-edge region.")
             return
         energy_lo, energy_hi = self._a2_pre_edge_region.getRegion()
-        sv.stack.detrendPreEdge(energy_lo, energy_hi)
+        sv.stack.detrendPreEdge(float(energy_lo), float(energy_hi))
         self._a2_refresh_image_view()
         self._a2_update_roi_curves()
+        self._a2_dataset_updated()
         return {"energy_lo": float(energy_lo), "energy_hi": float(energy_hi)}
+
+    @records("undo_od_correction")
+    def _on_a2_undo_od_correction(self):
+        """Remove the most recent pre-edge subtraction / detrend from the OD."""
+        sv = self.ui.a2_stack_viewer
+        if not sv.haveStack or sv.stack.undoODCorrection() is None:
+            return
+        self._a2_refresh_image_view()
+        self._a2_update_roi_curves()
+        self._a2_dataset_updated()
+        return {}
 
     def _on_a2_reset(self):
         """Uncheck pre-edge selection then delegate to the stack viewer reset."""
@@ -2363,6 +2658,7 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._a2_compute_od()
             self._a2_refresh_image_view()
             self._on_a2_roi_changed()
+            self._a2_dataset_updated()
 
         # Blue mask overlay on the imageView
         mask_T = mask.T                                # (nx, ny) to match imageView transpose
@@ -2505,11 +2801,11 @@ class Analysis2Widget(QtWidgets.QWidget):
             pb.setValue(pct)
             QtWidgets.QApplication.processEvents()
 
-        # Apply inverse I0 mask if requested (zeros out the I0 region).
-        use_mask = (self.ui.a2_nmfMaskI0Checkbox.isChecked()
-                    and self._a2_i0_mask is not None)
-        if use_mask:
-            sv.stack.odFrames = sv.stack.odFrames * (~self._a2_i0_mask)[np.newaxis]
+        # Apply inverse I0 mask if requested (zeros out the I0 region) — to a copy,
+        # so the shared OD dataset is untouched.
+        frames = sv.stack.odFrames
+        if self.ui.a2_nmfMaskI0Checkbox.isChecked() and self._a2_i0_mask is not None:
+            frames = frames * (~self._a2_i0_mask)[np.newaxis]
 
         try:
             sv.stack.calcNMF(
@@ -2518,6 +2814,7 @@ class Analysis2Widget(QtWidgets.QWidget):
                 max_iter=max_iter,
                 init=init,
                 progress_callback=_progress,
+                frames=frames,
             )
         except Exception as exc:
             import traceback
@@ -2534,25 +2831,31 @@ class Analysis2Widget(QtWidgets.QWidget):
         self.ui.a2_nmfPlotCombo.setCurrentIndex(0)
         self._show_nmf_components()
         self._plot_nmf_component_spectra()
+        self._a2_dataset_updated()
         return {"n_components": n_components, "n_clusters": n_clusters,
                 "max_iter": max_iter, "init": init}
 
     def _show_nmf_components(self):
         """Display the NMF spatial weight maps in the image view."""
         sv = self.ui.a2_stack_viewer
-        maps = sv.stack.nmfMaps   # (n_components, nY, nX)
+        maps = sv.stack.nmfResult.maps   # (n_components, nY, nX)
         self.ui.a2_imageView.setImage(np.ascontiguousarray(maps.transpose(0, 2, 1)))
 
     def _show_nmf_cluster_map(self):
         """Display the kmeans cluster map derived from NMF weights."""
         sv = self.ui.a2_stack_viewer
-        cluster_img = sv.stack.rgbClusterMap()
+        cluster_img = sv.stack.nmfResult.rgbClusterImage
         self.ui.a2_imageView.setImage(np.ascontiguousarray(cluster_img.transpose(1, 0, 2)))
 
     def _show_nmf_rgb_map(self):
-        """Display first 3 NMF component maps composited as RGB."""
+        """Display the target-spectra RGB map if one was calculated, else the first 3
+        NMF component maps composited as RGB."""
         sv = self.ui.a2_stack_viewer
-        maps = sv.stack.nmfMaps   # (n_components, nY, nX)
+        if sv.stack.nmfResult.rgbImage is not None:
+            self.ui.a2_imageView.setImage(np.ascontiguousarray(
+                sv.stack.nmfResult.rgbImage.transpose(1, 0, 2)))
+            return
+        maps = sv.stack.nmfResult.maps   # (n_components, nY, nX)
         n = min(3, maps.shape[0])
         rgb = np.zeros((maps.shape[1], maps.shape[2], 3), dtype='uint8')
         for i in range(n):
@@ -2569,7 +2872,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_clear_cluster_curves()
         self._a2_set_roi_curves_visible(False)
         energies = sv.stack.energies
-        components = sv.stack.nmfComponents
+        components = sv.stack.nmfResult.components
         pi.addLegend(offset=(10, 10))
         for i, spec in enumerate(components):
             raw_color = sv.stack.penColors[i % len(sv.stack.penColors)]
@@ -2587,7 +2890,7 @@ class Analysis2Widget(QtWidgets.QWidget):
         self._a2_set_roi_curves_visible(False)
         energies = sv.stack.energies
         pi.addLegend(offset=(10, 10))
-        for i, spec in enumerate(sv.stack.clusterSpectra):
+        for i, spec in enumerate(sv.stack.nmfResult.clusterSpectra):
             raw_color = sv.stack.penColors[i % len(sv.stack.penColors)]
             color = tuple(int(c * 255) for c in raw_color)
             curve = pi.plot(energies, spec, pen=pg.mkPen(color, width=1.5), name=f"Cluster {i+1}")
@@ -2605,7 +2908,8 @@ class Analysis2Widget(QtWidgets.QWidget):
         Component Spectra mode: uses the NMF spatial weight maps directly as channels.
         """
         sv = self.ui.a2_stack_viewer
-        if not sv.haveStack or not hasattr(sv.stack, 'nmfComponents') or sv.stack.nmfComponents is None:
+        res = sv.stack.nmfResult if sv.haveStack else None
+        if res is None:
             QtWidgets.QMessageBox.warning(
                 self, "NMF Required", "Calculate NMF before computing the RGB map."
             )
@@ -2624,10 +2928,10 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         plot_mode = self.ui.a2_nmfPlotCombo.currentText()
 
-        if plot_mode == 'Cluster Spectra' and sv.stack.clusterSpectra:
+        if plot_mode == 'Cluster Spectra' and res.clusterSpectra:
             # Build list of selected cluster mean spectra and fit each pixel's OD
             # spectrum against them using NNLS.  Produces continuous coefficient maps.
-            cluster_spectra = sv.stack.clusterSpectra
+            cluster_spectra = res.clusterSpectra
             targets = []
             for idx in indices:
                 i = idx - 1   # 1-based → 0-based
@@ -2641,7 +2945,7 @@ class Analysis2Widget(QtWidgets.QWidget):
             raw_maps = sv.stack.targetSVDmaps   # (n_targets, nY, nX)
         else:
             # Component Spectra mode: index directly into NMF spatial weight maps
-            nmf_maps = sv.stack.nmfMaps   # (n_components, nY, nX)
+            nmf_maps = res.maps   # (n_components, nY, nX)
             selected = []
             for idx in indices:
                 i = idx - 1   # 1-based → 0-based
@@ -2660,6 +2964,7 @@ class Analysis2Widget(QtWidgets.QWidget):
                 rgb[:, :, ch] = (255 * ch_map / ch_max).astype('uint8')
 
         sv.stack.rgbImage = rgb
+        res.rgbImage = rgb
         self.ui.a2_imageView.setImage(np.ascontiguousarray(rgb.transpose(1, 0, 2)))
         # Switch display combo to RGB Map
         if hasattr(self.ui, 'a2_nmfDisplayCombo'):
@@ -2671,7 +2976,7 @@ class Analysis2Widget(QtWidgets.QWidget):
 
     def _on_a2_nmf_display_changed(self, text):
         sv = self.ui.a2_stack_viewer
-        if not sv.haveStack or not hasattr(sv.stack, 'nmfMaps') or sv.stack.nmfMaps is None:
+        if not sv.haveStack or sv.stack.nmfResult is None:
             return
         if text == 'NMF Components':
             self._show_nmf_components()
@@ -2682,7 +2987,7 @@ class Analysis2Widget(QtWidgets.QWidget):
 
     def _on_a2_nmf_plot_changed(self, text):
         sv = self.ui.a2_stack_viewer
-        if not sv.haveStack or not hasattr(sv.stack, 'nmfComponents') or sv.stack.nmfComponents is None:
+        if not sv.haveStack or sv.stack.nmfResult is None:
             return
         if text == 'Component Spectra':
             self._plot_nmf_component_spectra()

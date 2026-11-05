@@ -13,11 +13,57 @@ from scipy.cluster.vq import kmeans2
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN
 import ntpath, calendar, time
+from types import SimpleNamespace
 from skimage.io import imsave
 import scipy.misc
 import matplotlib.pyplot as plt
 from pystxmcontrol.utils.general import find_nearest
 from sklearn.decomposition import NMF
+
+
+def _masked_ncc(dst_image, src_image, dst_mask, src_mask):
+    """
+    Masked normalized cross-correlation surface (Padfield 2012) at integer shifts.
+    Same coarse computation as the 'manualtranslation' path of _registerImages; used
+    to score registrations from modes that don't build the surface themselves.
+    :return: (cc, valid, ovl) — NCC surface, shifts with enough overlap, overlap pixel counts
+    """
+    from scipy.fft import fft2 as sfft2, ifft2 as sifft2, next_fast_len
+    nh = next_fast_len(dst_image.shape[0] + src_image.shape[0] - 1)
+    nw = next_fast_len(dst_image.shape[1] + src_image.shape[1] - 1)
+    pad = lambda a: np.pad(a, [(0, nh - a.shape[0]), (0, nw - a.shape[1])])
+    dst_m, src_m = pad(dst_mask.astype(float)), pad(src_mask.astype(float))
+    dst_p, src_p = pad(dst_image) * dst_m, pad(src_image) * src_m
+    f1, f2 = sfft2(dst_p), sfft2(src_p).conj()
+    m1, m2 = sfft2(dst_m), sfft2(src_m).conj()
+    ovl = np.real(sifft2(m1 * m2))
+    c_f1_m2 = np.real(sifft2(f1 * m2))
+    c_f2_m1 = np.real(sifft2(f2 * m1))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        num = np.real(sifft2(f1 * f2)) - c_f1_m2 * c_f2_m1 / ovl
+        den1 = np.real(sifft2(sfft2(dst_p * dst_p) * m2)) - c_f1_m2 ** 2 / ovl
+        den2 = np.real(sifft2(sfft2(src_p * src_p).conj() * m1)) - c_f2_m1 ** 2 / ovl
+        cc = num / np.sqrt(np.clip(den1 * den2, 1e-30, None))
+    valid = ovl > ovl.max() * 0.5
+    return np.where(valid, cc, 0.), valid, ovl
+
+
+def _ncc_significance(cc, valid, overlap):
+    """
+    Registration confidence: height of the cross-correlation peak in units of the noise
+    floor, z = |NCC_peak| * sqrt(N), N = number of overlapping pixels at the peak.  For a
+    pair of frames that share no structure (e.g. fluorescence below the edge) the NCC at
+    each shift is ~N(0, 1/N), so the peak over the whole search is only a few sigma
+    (z ~ 4-5 for typical image sizes).  Frames with real shared structure sit far above
+    that and z grows with their signal-to-noise.
+    :return: float, NaN if the surface is degenerate
+    """
+    a = np.where(valid, np.abs(np.real(cc)), 0.)
+    if not np.isfinite(a).all() or not a.any():
+        return np.nan
+    idx = np.unravel_index(np.argmax(a), a.shape)
+    return float(a[idx] * np.sqrt(max(np.real(overlap[idx]), 0.)))
+
 
 class stack():
 
@@ -69,6 +115,19 @@ class stack():
         self.dataIsNormalized = False
         self.filteredImages = None
         self.rgbImage = None
+        self.shifts = None             # per-frame (dy, dx) from the last registration
+        self.shift_confidence = None   # per-frame NCC significance (sigma) of the last registration; NaN = reference
+        self.shift_rejected = None     # per-frame bool: shift withheld (confidence below threshold)
+        self.registration_confidence = np.nan  # NCC significance of the most recent _registerImages call
+        # OD is the single dataset every analysis reads.  odCorrections holds the post-OD
+        # corrections (pre-edge subtraction, detrend) in the order applied; _setOD replays
+        # them whenever OD is recomputed (I0 change, re-registration, filtering), so a
+        # recompute can never silently discard them.  odRevision bumps on every change to
+        # odFrames so analysis results can tell whether they are stale.
+        self.odCorrections = []
+        self.odRevision = 0
+        self.pcaResult = None          # SimpleNamespace snapshot of the last calcPCA (see calcPCA)
+        self.nmfResult = None          # SimpleNamespace snapshot of the last calcNMF (see calcNMF)
         #get some random colors for the clusters and spectra plots
         self.penColors = [(1,0,0),(0,1,0),(0,0,1),(1,1,0),(1,0,1),(0,1,1)]
         totalColors = len(self.penColors)
@@ -219,6 +278,9 @@ class stack():
         self.energies = np.delete(self.energies, idx)
         if self.odFrames is not None:
             self.odFrames = np.delete(self.odFrames, idx, axis=0)
+            self.odRevision += 1
+        if self.I0 is not None:
+            self.I0 = np.delete(self.I0, idx, axis=0)
         self.lastFrames = None
         self.shape = self.processedFrames.shape
 
@@ -236,6 +298,7 @@ class stack():
         self.processedFrames = self.processedFrames[:, row_slice, col_slice].copy()
         if self.odFrames is not None:
             self.odFrames = self.odFrames[:, row_slice, col_slice].copy()
+            self.odRevision += 1
         self.lastFrames = None
         self.shape = self.processedFrames.shape
 
@@ -273,6 +336,10 @@ class stack():
         self.processedFrames = np.array([im.processedFrame for im in self.rawFrames])
         self.odFrames = None
         self.I0 = None
+        self.odCorrections = []
+        self.pcaResult = None
+        self.nmfResult = None
+        self.odRevision += 1
 
     def update(self):
         """
@@ -319,16 +386,64 @@ class stack():
         self.dataIsNormalized = False
         self.preEdgeFrame = 0.
 
+    # ── OD dataset: raw OD + replayable corrections ─────────────────────────────
+
+    _OD_CORRECTIONS = {
+        'subtractPreEdge': '_subtractPreEdgeBackground',
+        'detrendPreEdge':  '_detrendPreEdge',
+    }
+
+    def _setOD(self, od):
+        """Install freshly computed (uncorrected) OD and replay odCorrections on it.
+
+        Every OD computation goes through here, so OD always reflects the current
+        processedFrames, the current I0 and every correction the user has applied.
+        """
+        self.odFrames = od
+        for name, kwargs in self.odCorrections:
+            getattr(self, self._OD_CORRECTIONS[name])(**kwargs)
+        self.odRevision += 1
+
+    def _addODCorrection(self, name, **kwargs):
+        if self.odFrames is None:
+            raise ValueError("No OD frames — compute OD before applying an OD correction.")
+        getattr(self, self._OD_CORRECTIONS[name])(**kwargs)
+        self.odCorrections.append((name, kwargs))
+        self.odRevision += 1
+
+    def recomputeOD(self):
+        """Rebuild OD from processedFrames and the stored I0, replaying odCorrections.
+
+        Use after processedFrames change (filtering, registration) when no I0 ROI is
+        available to re-measure I0 from.  No-op if I0 has never been set.
+        :return: odFrames, or None if there is no I0
+        """
+        if self.I0 is None or self.processedFrames is None:
+            return None
+        return self.computeODFromSpectrum(np.asarray(self.I0).reshape(-1))
+
+    def undoODCorrection(self):
+        """Remove the most recent OD correction and rebuild OD without it.
+        :return: (name, kwargs) of the removed correction, or None if there was none
+        """
+        if not self.odCorrections:
+            return None
+        removed = self.odCorrections.pop()
+        self.recomputeOD()
+        return removed
+
     def subtractPreEdgeBackground(self, energy_lo, energy_hi):
         """Subtract the mean OD frame over the pre-edge energy window from all OD frames.
 
         Averages odFrames over every frame whose energy falls in [energy_lo, energy_hi]
-        and subtracts that background image from every frame in the stack.
+        and subtracts that background image from every frame in the stack.  Recorded
+        in odCorrections, so it persists through later OD recomputes.
         :param energy_lo: float — lower bound of the pre-edge region (eV)
         :param energy_hi: float — upper bound of the pre-edge region (eV)
         """
-        if self.odFrames is None:
-            raise ValueError("No OD frames — compute OD before subtracting pre-edge.")
+        self._addODCorrection('subtractPreEdge', energy_lo=energy_lo, energy_hi=energy_hi)
+
+    def _subtractPreEdgeBackground(self, energy_lo, energy_hi):
         idxs = np.where((self.energies >= energy_lo) & (self.energies <= energy_hi))[0]
         if len(idxs) == 0:
             raise ValueError(f"No energy frames in range [{energy_lo}, {energy_hi}] eV.")
@@ -340,12 +455,14 @@ class stack():
 
         Fits a line to each pixel's OD spectrum over the pre-edge region and subtracts
         the slope-driven drift across the full stack.  The fit is anchored at energies[0]
-        so frame 0 is unchanged.
+        so frame 0 is unchanged.  Recorded in odCorrections, so it persists through
+        later OD recomputes.
         :param energy_lo: float — lower bound of the pre-edge region (eV)
         :param energy_hi: float — upper bound of the pre-edge region (eV)
         """
-        if self.odFrames is None:
-            raise ValueError("No OD frames — compute OD before detrending.")
+        self._addODCorrection('detrendPreEdge', energy_lo=energy_lo, energy_hi=energy_hi)
+
+    def _detrendPreEdge(self, energy_lo, energy_hi):
         idxs = np.where((self.energies >= energy_lo) & (self.energies <= energy_hi))[0]
         if len(idxs) == 0:
             raise ValueError(f"No energy frames in range [{energy_lo}, {energy_hi}] eV.")
@@ -545,11 +662,13 @@ class stack():
         self.lastFrames = self.processedFrames.copy()
         self.odFrames = self.registerFrameStack(self.odFrames, sobelFilter = sobelFilter, mode = mode, \
                                                          autocrop = autocrop)
+        self.odRevision += 1
 
     def alignFramesCustom(self, mode='translation', align_method='sequential',
                            reference_idx=0, thresholded=False, threshold=0.0,
                            sobelFilter=False, autocrop=True, mask_margin=0,
-                           progress_callback=None):
+                           confidence_threshold=0.0, progress_callback=None,
+                           frame_callback=None):
         """
         Align processedFrames with configurable reference-frame and threshold options.
 
@@ -564,7 +683,15 @@ class stack():
         :param mask_margin:   ('manualtranslation' only) erode the common-circle hard mask by
                               this many pixels.  0 = pure circle intersection (no data loss);
                               raise to 1-2 only if a thin soft-edge sliver survives rounding.
+        :param confidence_threshold: frames whose registration confidence (NCC significance,
+                              see _ncc_significance) is below this are left unshifted.  It
+                              only selects which measured shifts are applied; shifts and
+                              confidence are measured identically for any threshold.
+                              0 = apply every shift.
         :param progress_callback: callable(int pct)
+        :param frame_callback: callable() run after each frame; self.shifts,
+                              self.shift_confidence and self.shift_rejected hold the frames
+                              done so far, for live display.
         """
         self.lastFrames = self.processedFrames.copy()
         aligned = self.processedFrames.copy()
@@ -573,6 +700,10 @@ class stack():
         aligned_ref = self.processedFrames.copy()
         n = len(self.processedFrames)
         shift_list = []
+        confidence = np.full(n, np.nan)
+        rejected = np.zeros(n, dtype=bool)
+        # Published up front (and filled in place) so frame_callback can show progress.
+        self.shifts, self.shift_confidence, self.shift_rejected = shift_list, confidence, rejected
 
         ref_img = self.processedFrames[reference_idx] if align_method == 'reference' else None
 
@@ -588,6 +719,8 @@ class stack():
                 shift_list.append((0., 0.))
                 if progress_callback is not None:
                     progress_callback(int(1 / n * 100))
+                if frame_callback is not None:
+                    frame_callback()
                 continue
 
             if thresholded and mode == 'manualtranslation':
@@ -602,7 +735,12 @@ class stack():
                 aligned[i] = self._registerImages(dst, src, mode=mode,
                                                    threshold=thr, sobelFilter=sobelFilter)
 
-            # Build the reference frame for the next sequential step.
+            if not (align_method == 'reference' and i == reference_idx):
+                confidence[i] = self.registration_confidence
+
+            # Build the reference frame for the next sequential step from the *measured*
+            # shift, so the measurement (shifts and confidence) never depends on
+            # confidence_threshold — the threshold only decides what is applied below.
             # Use nearest-fill (manualtranslation) so the >0 mask doesn't shrink each step,
             # or roll (translation) to match what _registerImages actually stored in aligned[i].
             totshift_i = (self.warp_matrix[0, 2], self.warp_matrix[1, 2])
@@ -610,9 +748,19 @@ class stack():
                 aligned_ref[i] = np.roll(src, (round(totshift_i[0]), round(totshift_i[1])), axis=(0, 1))
             else:
                 aligned_ref[i] = ndimage.shift(src, totshift_i, mode='nearest')
+
+            # Low-confidence registration (e.g. fluorescence below the edge): leave the
+            # frame where it is rather than apply a shift fitted to noise.
+            if np.isfinite(confidence[i]) and confidence[i] < confidence_threshold:
+                rejected[i] = True
+                aligned[i] = src
+                self.warp_matrix = np.eye(2, 3, dtype=np.float32)
+                totshift_i = (0., 0.)
             shift_list.append(totshift_i)
             if progress_callback is not None:
                 progress_callback(int((i + 1) / n * 100))
+            if frame_callback is not None:
+                frame_callback()
 
         # Circular field-of-view hard mask ("Circular Image" / manualtranslation only).
         # The data circle is identical in every *unaligned* frame; only the sample inside it
@@ -658,6 +806,8 @@ class stack():
         self.shape = self.processedFrames.shape
         self.nEnergies, self.nY, self.nX = self.processedFrames.shape
         self.shifts = shift_list
+        self.shift_confidence = confidence
+        self.shift_rejected = rejected
         self.circularMask = circular_mask
 
     def _registerImages(self, dst_image, src_image, mode = 'translation', mask = False, threshold = 0., sobelFilter = False):
@@ -687,6 +837,8 @@ class stack():
                 #shifts = register_translation(dst_image, src_image, \
                 #                              reference_mask=dst_image > threshold, \
                 #                              moving_mask=src_image > threshold)
+            a, b = (sobel(dst_image), sobel(src_image)) if sobelFilter else (dst_image, src_image)
+            self.registration_confidence = _ncc_significance(*_masked_ncc(a, b, a > threshold, b > threshold))
             temp = src_image.min()
             #src_image = ndimage.interpolation.shift(src_image, shifts, mode = 'wrap')
             src_image = np.roll(src_image, (round(shifts[0]),round(shifts[1])),axis = (0,1))
@@ -699,6 +851,7 @@ class stack():
             src_vals,src_bins = np.histogram(src_image,bins = 50)
             src_thresh = src_image>dst_bins[7]
             shifts, c, d = register_translation(dst_thresh,src_thresh,upsample_factor = 100)
+            self.registration_confidence = np.nan
             src_image = ndimage.shift(src_image,shifts)
             self.warp_matrix = np.eye(2, 3, dtype=np.float32)
             self.warp_matrix[0,2],self.warp_matrix[1,2] = shifts
@@ -736,6 +889,8 @@ class stack():
             den2    = sifft2(f22 * m1) - c_f2_m1**2 / ovl
 
             roughcc = np.where(ovl > np.max(ovl) * 0.5, num / np.sqrt(den1 * den2), 0)
+
+            self.registration_confidence = _ncc_significance(roughcc, np.real(ovl) > np.real(ovl).max() * 0.5, np.real(ovl))
 
             roughshift = np.array(np.unravel_index(np.argmax(np.abs(roughcc)), shp))
             roughshift[roughshift > center] -= np.array(shp)[roughshift > center]
@@ -778,6 +933,7 @@ class stack():
             self.warp_matrix[0,2],self.warp_matrix[1,2] = totshift
             
         else:
+            self.registration_confidence = np.nan
             src_image = self._ecc_align(dst_image, src_image, sobel = sobelFilter, mode = mode)
         return src_image
 
@@ -794,6 +950,10 @@ class stack():
         """
         alignedFrames = frames.copy()
         shiftList = []
+        confList = []
+        self.shifts = None
+        self.shift_confidence = None
+        self.shift_rejected = None
 
         contrast = np.zeros((self.processedFrames.shape[0]))
         i = 0
@@ -818,6 +978,7 @@ class stack():
                                                         mask=mask, threshold=threshold, sobelFilter=sobelFilter)
                 shifts = self.warp_matrix[0,2],self.warp_matrix[1,2]
                 shiftList.append(shifts)
+                confList.append(np.nan if i == contrast_max_idx else self.registration_confidence)
                 if progress_callback is not None:
                     progress_callback(int((i + 1) / len(frames) * 100))
             shifts = np.array(shiftList)
@@ -827,11 +988,13 @@ class stack():
             if maxY == 0: maxY += 1
             if autocrop: alignedFrames = alignedFrames[:,minY:-maxY, minX:-maxX]
             self.shifts = shiftList
+            self.shift_confidence = np.array(confList)
         elif mode in ['thresholded','manualtranslation']:
             for i in range(0,len(frames)):
                 alignedFrames[i] = self._registerImages(frames[0],frames[i],sobelFilter = sobelFilter,mode = mode)
                 shifts = self.warp_matrix[0, 2], self.warp_matrix[1, 2]
                 shiftList.append(shifts)
+                confList.append(np.nan if i == 0 else self.registration_confidence)
                 if progress_callback is not None:
                     progress_callback(int((i + 1) / len(frames) * 100))
             shifts = np.array(shiftList)
@@ -841,6 +1004,7 @@ class stack():
             if maxY == 0: maxY += 1
             if autocrop: alignedFrames = alignedFrames[:,minY:-maxY, minX:-maxX]
             self.shifts = shiftList
+            self.shift_confidence = np.array(confList)
 
         else:
             frameMean = frames[0]
@@ -903,8 +1067,9 @@ class stack():
             self.I0 = np.reshape(self.I0, (len(self.I0),1,1))
         # if replaceZeros == 'one':
         #     self.processedFrames[self.processedFrames == 0.] = 1.
-        self.odFrames = -np.log(self.processedFrames / self.I0)
-        self.odFrames[np.isinf(self.odFrames)] = 0.
+        od = -np.log(self.processedFrames / self.I0)
+        od[np.isinf(od)] = 0.
+        self._setOD(od)
         self.gotOD = True
         self.preEdgeFrame = self.odFrames[0].copy()
 
@@ -923,7 +1088,7 @@ class stack():
         i0_safe = np.where(i0 > 0, i0, np.nan)
         with np.errstate(divide='ignore', invalid='ignore'):
             od = -np.log(self.processedFrames / i0_safe[:, np.newaxis, np.newaxis])
-        self.odFrames = np.where(np.isfinite(od), od, 0.0)
+        self._setOD(np.where(np.isfinite(od), od, 0.0))
         self.gotOD = True
         return self.odFrames
 
@@ -1207,7 +1372,7 @@ class stack():
         return src_image
 
 
-    def calcPCA(self, nPC = 4, pcaOffset = 0, nClusters = 4, clustering = 'kmeans'):
+    def calcPCA(self, nPC = 4, pcaOffset = 0, nClusters = 4, clustering = 'kmeans', frames = None):
         """
         This function calls pcaFilterImages which computes a representation of the odFrames using a
         reduced number of principal components (pca.inverse_transform(nPC)).  This is used to reduce noise.  It also generates pcaImages
@@ -1218,19 +1383,34 @@ class stack():
         :param pcaOffset: int.  0 or 1.  Set to 1 to ignore the first PC and reduce mass thickness effects
         :param nClusters: int.  Number of clusters to generate.  This fails for large numbers of clusters.
         :param clustering: string.  Clustering algorithm.  dbscan is not working yet.
+        :param frames: OD stack to analyse (e.g. a masked copy); defaults to odFrames.
+                       odFrames itself is never modified.
         :return:
+
+        The results are also snapshotted into self.pcaResult, which later PCA/NMF runs
+        don't overwrite (the flat attributes like clusterSpectra hold the latest run of
+        either).
         """
-        if self.odFrames is not None:
-            self.pcaFilterImages(nPC = nPC)
+        if frames is None:
+            frames = self.odFrames
+        if frames is not None:
+            self.pcaFilterImages(nPC = nPC, frames = frames)
             if clustering == 'kmeans':
-                self.kmeansClusters(nClusters = nClusters, pcaOffset = pcaOffset)
+                self.kmeansClusters(nClusters = nClusters, pcaOffset = pcaOffset, frames = frames)
             elif clustering == 'dbscan':
-                self.dbscanClusters(nClusters = nClusters, pcaOffset = pcaOffset)
+                self.dbscanClusters(nClusters = nClusters, pcaOffset = pcaOffset, frames = frames)
             self.nnls(self.filteredImages, self.clusterSpectra)
-            self.calcRFactor()
+            self.calcRFactor(frames = frames)
+            self.rgbClusterImage = self.rgbClusterMap()
+            self.pcaResult = SimpleNamespace(
+                revision = self.odRevision, nPC = nPC, nClusters = nClusters,
+                pcaImages = self.pcaImages, eigenVals = self.eigenVals,
+                filteredImages = self.filteredImages, clusters = self.clusters,
+                clusterSpectra = list(self.clusterSpectra),
+                rgbClusterImage = self.rgbClusterImage, rgbImage = None, rMap = self.rMap)
             
     def calcNMF(self, n_components=4, n_clusters=4, max_iter=500, init='nndsvda',
-                progress_callback=None):
+                progress_callback=None, frames=None):
         """
         Non-negative matrix factorisation of the OD stack.
 
@@ -1244,12 +1424,18 @@ class stack():
           filteredImages (n_components, nY, nX)    — alias for nmfMaps (for RGB map compat.)
           clusters       (nY, nX)                  — kmeans labels on W
           clusterSpectra list of (n_energies,)     — mean OD spectrum per cluster
+        and snapshotted into self.nmfResult, which later PCA/NMF runs don't overwrite.
+
+        :param frames: OD stack to analyse (e.g. a masked copy); defaults to odFrames.
+                       odFrames itself is never modified.
         """
-        self.nEnergies, self.nY, self.nX = self.odFrames.shape
+        if frames is None:
+            frames = self.odFrames
+        self.nEnergies, self.nY, self.nX = frames.shape
         self.nPixels = self.nY * self.nX
 
         # Reshape OD to (n_pixels, n_energies); clip negatives — NMF requires ≥ 0
-        p = np.reshape(np.transpose(self.odFrames, axes=(1, 2, 0)),
+        p = np.reshape(np.transpose(frames, axes=(1, 2, 0)),
                        (self.nPixels, self.nEnergies), order='F')
         p_nn = np.clip(p, 0, None)
 
@@ -1290,23 +1476,32 @@ class stack():
             mask = (self.clusters == i)
             cnorm = mask.sum()
             if cnorm > 0:
-                spec = (self.odFrames * mask).sum(axis=(1, 2)) / cnorm
+                spec = (frames * mask).sum(axis=(1, 2)) / cnorm
             else:
                 spec = np.zeros(self.nEnergies)
             spec[np.isnan(spec)] = 0.
             self.clusterSpectra.append(spec)
 
+        self.nmfResult = SimpleNamespace(
+            revision=self.odRevision, n_components=n_components, n_clusters=n_clusters,
+            maps=self.nmfMaps, components=self.nmfComponents,
+            filteredImages=self.filteredImages, clusters=self.clusters,
+            clusterSpectra=list(self.clusterSpectra),
+            rgbClusterImage=self.rgbClusterMap(), rgbImage=None)
+
         if progress_callback:
             progress_callback(100)
 
 
-    def kmeansClusters(self, nClusters = 3, pcaOffset = 0):
+    def kmeansClusters(self, nClusters = 3, pcaOffset = 0, frames = None):
         """
         Execute the kmeans2 clustering algorithm on the pcaImages.  pcaImages is dot(odFrames, eigenVectors)
         :param nClusters: int.  Number of clusters to generate.  Fails for large number of clusters.
         :param pcaOffset: int. 0 or 1.  Set to 1 to ignore the first PC and reduce mass thickness effects
         :return:
         """
+        if frames is None:
+            frames = self.odFrames
         if self.pcaImages is not None:
             self.clusters = np.zeros(self.nPixels)
             res, self.clusters = kmeans2(np.reshape(np.transpose(self.pcaImages, \
@@ -1315,17 +1510,19 @@ class stack():
             self.clusters = np.reshape(self.clusters, (self.nY, self.nX), order = 'F')
             self.clusterSpectra = []
             for i in range(nClusters):
-                thisClusterSpectrum = (self.odFrames * (self.clusters == i)).sum(axis = (1,2)) / (self.clusters == i).sum()
+                thisClusterSpectrum = (frames * (self.clusters == i)).sum(axis = (1,2)) / (self.clusters == i).sum()
                 thisClusterSpectrum[np.isnan(thisClusterSpectrum)] = 0.
                 self.clusterSpectra.append(thisClusterSpectrum)
 
-    def dbscanClusters(self, nClusters = 3, pcaOffset = 0):
+    def dbscanClusters(self, nClusters = 3, pcaOffset = 0, frames = None):
         """
         Execute the dbscan clustering algorithm on the pcaImages. pcaImages is dot(odFrames, eigenVectors)
         :param nClusters: int.  Number of clusters to generate.  Fails for large number of clusters.
         :param pcaOffset: int. 0 or 1.  Set to 1 to ignore the first PC and reduce mass thickness effects
         :return:
         """
+        if frames is None:
+            frames = self.odFrames
         if self.pcaImages is not None:
             X = np.reshape(np.transpose(self.pcaImages, axes = (1,2,0))[:,:,pcaOffset:nClusters + pcaOffset],(self.nPixels, \
                 nClusters), order = 'F')
@@ -1338,21 +1535,24 @@ class stack():
             self.clusterSpectra = []
             for i in range(nClusters):
                 cnorm = (self.clusters == i).sum()
-                thisClusterSpectrum = (self.odFrames * (self.clusters == i)).sum(axis = (1,2)) / cnorm
+                thisClusterSpectrum = (frames * (self.clusters == i)).sum(axis = (1,2)) / cnorm
                 self.clusterSpectra.append(thisClusterSpectrum)
 
-    def pcaFilterImages(self, nPC = 5):
+    def pcaFilterImages(self, nPC = 5, frames = None):
         """
         This uses the sklearn.decomposition.pca to compute eigenVectors and eigenVals from the odFrames.
         It then computes pcaImages which is dot(odFrames,eigenVectors) and pcaFilteredImages which
         is pca.inverse_transform(nPC).  filteredImages is a model of the data with noisy components
         removed.  pcaImages is a representation of all eigenVectors as (nEnergiesxMxN).
         :param nPC: int.  Number of components to use in pcaFilteredImages
+        :param frames: OD stack to decompose; defaults to odFrames
         :return:
         """
-        self.nEnergies, self.nY, self.nX = self.odFrames.shape
+        if frames is None:
+            frames = self.odFrames
+        self.nEnergies, self.nY, self.nX = frames.shape
         self.nPixels = self.nY * self.nX
-        p = np.reshape(np.transpose(self.odFrames, axes = (1,2,0)), (self.nPixels, self.nEnergies), order = 'F')
+        p = np.reshape(np.transpose(frames, axes = (1,2,0)), (self.nPixels, self.nEnergies), order = 'F')
         self.pca = PCA(n_components = self.nEnergies)
         self.pca.fit(np.dot(p.T,p.conjugate()))
         perm = np.argsort(-np.abs(self.pca.explained_variance_))
@@ -1365,39 +1565,45 @@ class stack():
         self.filteredImages = self.pca.inverse_transform(c_pca)
         self.filteredImages = np.transpose(np.reshape(self.filteredImages, (self.nY, self.nX, self.nEnergies), order = 'F'), axes = (2,0,1))
 
-    def calcRFactor(self, mode = 'pca'):
+    def calcRFactor(self, mode = 'pca', frames = None):
         """
         Calculates the R-factor of PCA fit.  This is dumb.  This should calculate the R-factor of the
         spectral fit calculated by rgbMap.
         :param mode: string
         :return:
         """
+        if frames is None:
+            frames = self.odFrames
         if mode == 'pca':
-            self.rMap = np.sqrt(((self.filteredImages - self.odFrames)**2).sum(axis = 0)/(self.odFrames**2).sum(axis = 0))
+            self.rMap = np.sqrt(((self.filteredImages - frames)**2).sum(axis = 0)/(frames**2).sum(axis = 0))
             self.rMap = self.rMap.clip(min = 0, max = 0.1)
         elif mode == 'svd':
             pass
 
-    def rgbMap(self, targetSpectra, rgb, mode = 'nnls'):
+    def rgbMap(self, targetSpectra, rgb, mode = 'nnls', frames = None):
         """
         Uses the selected fitting routine to calculate a linear combination fit of targetSpectra to the
         filteredImages.
         :param targetSpectra: list of 1D numpy arrays of (nEnerges,1)
         :param rgb: length three list. (1,1,0) for red and green for examle.
         :param mode: string.  Fitting routine to use.
+        :param frames: stack to fit; defaults to filteredImages
         :return:
         """
+        if frames is None:
+            frames = self.filteredImages
+        self.nEnergies, self.nY, self.nX = frames.shape
         nColors = sum(rgb)
         if len(targetSpectra) != nColors:
             return
         if nColors < 2:
             return
         if mode == 'svd':
-            self.linFitSpectra(self.filteredImages, targetSpectra)
+            self.linFitSpectra(frames, targetSpectra)
         elif mode == 'lstsq':
-            self.lstsqFit(self.filteredImages, targetSpectra)
+            self.lstsqFit(frames, targetSpectra)
         elif mode == 'nnls':
-            self.nnls(self.filteredImages, targetSpectra)
+            self.nnls(frames, targetSpectra)
         self.rgbImage = np.zeros((self.nY, self.nX, 3), dtype = 'uint8')
         svdMaps = self.targetSVDmaps.copy()
         svdMaps = 255. * svdMaps / svdMaps.max()
@@ -1414,16 +1620,19 @@ class stack():
                 self.rgbImage[:,:,0] = svdMaps[0]
                 self.rgbImage[:,:,1] = svdMaps[1]
 
-    def rgbClusterMap(self):
+    def rgbClusterMap(self, clusters = None):
         """
         Creates an RGB image of the cluster map.
+        :param clusters: 2D int label map; defaults to self.clusters
         :return:
         """
-        ny, nx = self.clusters.shape
-        nClusters = self.clusters.max() + 1
+        if clusters is None:
+            clusters = self.clusters
+        ny, nx = clusters.shape
+        nClusters = clusters.max() + 1
         rgbClusterImage = np.zeros((ny,nx,3))
         for i in range(nClusters):
-            rgbClusterImage += 255.* np.transpose(np.ones((3,ny,nx)) * (self.clusters == i).astype('float32'), \
+            rgbClusterImage += 255.* np.transpose(np.ones((3,ny,nx)) * (clusters == i).astype('float32'), \
                 axes = (1,2,0)) * self.penColors[i]
         return rgbClusterImage.astype('uint8')
 

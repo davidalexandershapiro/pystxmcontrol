@@ -367,8 +367,10 @@ class _DashboardAnalysisUI:
         self.a2_subtractPreEdgeButton.setEnabled(False)
         self.a2_detrendButton = _small_btn("Detrend")
         self.a2_detrendButton.setEnabled(False)
+        # Undoes the last pre-edge subtraction / detrend (wired by the base).
+        self.a2_undoODCorrectionButton = _small_btn("Undo")
         v.addWidget(_row(self.a2_preEdgeCheckbox, self.a2_subtractPreEdgeButton,
-                         self.a2_detrendButton))
+                         self.a2_detrendButton, self.a2_undoODCorrectionButton))
 
         v.addWidget(_hline())
 
@@ -426,8 +428,11 @@ class _DashboardAnalysisUI:
 
         self.a2_regThresholdCheckbox = QCheckBox("Thresholded")
         self.a2_regThresholdEdit = _edit("0", width=90)
+        # Frames registering below this confidence (sigma) are left unshifted.
+        self.a2_regConfThresholdEdit = _edit("0", width=90)
         v.addWidget(_row(self.a2_regThresholdCheckbox,
-                         _field("Threshold", self.a2_regThresholdEdit),
+                         _field("Intensity Threshold", self.a2_regThresholdEdit),
+                         _field("Confidence Threshold", self.a2_regConfThresholdEdit),
                          pad=True, valign=Qt.AlignBottom))
 
         self.a2_regSobelCheckbox = QCheckBox("Sobel Filter")
@@ -439,8 +444,14 @@ class _DashboardAnalysisUI:
         v.addWidget(_row(self.a2_regStartButton, self.a2_regUndoButton,
                          stretch_last=False))
 
+        # Per-frame shifts + registration confidence from the last Start
+        # (curves and twin axis are built by Analysis2Widget).
+        self.a2_regShiftPlot = PlotWidget()
+        self.a2_regShiftPlot.setMinimumHeight(220)
+        self.a2_regShiftPlot.setBackground(C["plot_ground"])
+        v.addWidget(self.a2_regShiftPlot, 1)
+
         # Progress reports through the shared footer bar (aliased in setupUi).
-        v.addStretch(1)
         return page
 
     def _tab_pca(self):
@@ -483,6 +494,10 @@ class _DashboardAnalysisUI:
         self.a2_calcRGBMapButton = _small_btn("RGB Map")
         v.addWidget(_row(_field("Target spectra", self.a2_targetSpectraEdit),
                          self.a2_calcRGBMapButton))
+        # Shown by the base when the OD changed after the last PCA.
+        self.a2_pcaStatusLabel = _mk_label("", font=sans_font(10), color=C["warn"])
+        self.a2_pcaStatusLabel.setWordWrap(True)
+        v.addWidget(self.a2_pcaStatusLabel)
         v.addStretch(1)
         return page
 
@@ -522,6 +537,10 @@ class _DashboardAnalysisUI:
         self.a2_nmfCalcRGBMapButton = _small_btn("RGB Map")
         v.addWidget(_row(_field("Target spectra", self.a2_nmfTargetSpectraEdit),
                          self.a2_nmfCalcRGBMapButton))
+        # Shown by the base when the OD changed after the last NMF.
+        self.a2_nmfStatusLabel = _mk_label("", font=sans_font(10), color=C["warn"])
+        self.a2_nmfStatusLabel.setWordWrap(True)
+        v.addWidget(self.a2_nmfStatusLabel)
 
         # Progress reports through the shared footer bar (aliased in setupUi).
         v.addStretch(1)
@@ -707,6 +726,10 @@ class AnalysisApp(Analysis2Widget):
         # on the dark ground.
         if hasattr(self, "_a2_spec_curve"):
             self._a2_spec_curve.setPen(pg.mkPen(C["text_2"], width=1))
+        shift_pi = self.ui.a2_regShiftPlot.getPlotItem()
+        for axis in ("left", "bottom", "right"):
+            shift_pi.getAxis(axis).setPen(axis_pen)
+            shift_pi.getAxis(axis).setTextPen(text_pen)
 
     # ── overrides for embed-time axis-order safety ───────────────────────────
     def _a2_update_i0_mask_overlay(self):
@@ -730,6 +753,10 @@ class AnalysisApp(Analysis2Widget):
         super()._on_a2_frame_changed(index, time)
         self._update_viewer_header(index)
 
+    def _a2_dataset_updated(self):
+        super()._a2_dataset_updated()
+        self._update_viewer_header()
+
     def _update_viewer_header(self, index=None):
         sv = self.ui.a2_stack_viewer
         if not getattr(sv, "haveStack", False):
@@ -742,7 +769,8 @@ class AnalysisApp(Analysis2Widget):
             fname = os.path.basename(sv.stack_file or getattr(sv.stack, "fileName", "") or "—")
             self.ui.a2_fnLabel.setText(fname)
             self.ui.a2_subLabel.setText(
-                f"Energy {idx + 1} of {n} · {energies[idx]:.2f} eV")
+                f"Energy {idx + 1} of {n} · {energies[idx]:.2f} eV"
+                f" · {self._a2_dataset_summary()}")
         except Exception:
             pass
 

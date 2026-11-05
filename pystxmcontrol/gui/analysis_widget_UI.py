@@ -952,7 +952,7 @@ class Ui_Analysis2Widget(object):
         self.a2_regAlignMethodCombo.setItemText(1, QCoreApplication.translate("Analysis2Widget", u"Reference Image", None))
 
         self.a2_regThresholdCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Thresholded", None))
-        self.a2_regThresholdLabel.setText(QCoreApplication.translate("Analysis2Widget", u"Threshold:", None))
+        self.a2_regThresholdLabel.setText(QCoreApplication.translate("Analysis2Widget", u"Intensity Threshold:", None))
         self.a2_regThresholdEdit.setText(QCoreApplication.translate("Analysis2Widget", u"0", None))
         self.a2_regSobelCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Sobel Filter", None))
         self.a2_regAutocropCheckbox.setText(QCoreApplication.translate("Analysis2Widget", u"Autocrop", None))

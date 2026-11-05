@@ -137,6 +137,9 @@ def _r_subtract_pre_edge(kw):
 def _r_detrend_pre_edge(kw):
     return [f"s.detrendPreEdge({kw.get('energy_lo', 0.):.4f}, {kw.get('energy_hi', 0.):.4f})"]
 
+def _r_undo_od_correction(kw):
+    return ["s.undoODCorrection()"]
+
 def _r_align_frames(kw):
     return [
         f"s.alignFrames(mode={kw.get('mode', 'manualtranslation')!r}, "
@@ -158,7 +161,8 @@ def _r_align_frames_custom(kw):
         f"thresholded={kw.get('thresholded', False)}, "
         f"threshold={kw.get('threshold', 0.0)}, "
         f"sobelFilter={kw.get('sobel', False)}, "
-        f"autocrop={kw.get('autocrop', True)})"
+        f"autocrop={kw.get('autocrop', True)}, "
+        f"confidence_threshold={kw.get('confidence_threshold', 0.0)})"
     ]
 
 def _r_median_filter(kw):
@@ -187,6 +191,7 @@ _RENDERERS = {
     "compute_od_histogram":  _r_compute_od_histogram,
     "subtract_pre_edge":   _r_subtract_pre_edge,
     "detrend_pre_edge":    _r_detrend_pre_edge,
+    "undo_od_correction":  _r_undo_od_correction,
     "align_frames":        _r_align_frames,
     "align_od_frames":     _r_align_od_frames,
     "align_frames_custom": _r_align_frames_custom,

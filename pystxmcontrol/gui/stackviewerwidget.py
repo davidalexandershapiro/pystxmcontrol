@@ -63,7 +63,8 @@ class scaleBar(pg.GraphicsObject):
 
 class stackViewerWidget(QtWidgets.QWidget):
 
-    stack_loaded = QtCore.Signal()        # emitted after a stack is fully loaded/updated
+    stack_loaded = QtCore.Signal()        # emitted when a new dataset is loaded (file, region, detector, reset)
+    frames_changed = QtCore.Signal()      # emitted when processedFrames of the current dataset change (filter/undo)
     progress_updated = QtCore.Signal(int) # emitted during alignment with percent 0-100
     auto_process_done = QtCore.Signal()   # emitted specifically after autoProcess (OD ready)
 
@@ -472,51 +473,65 @@ class stackViewerWidget(QtWidgets.QWidget):
         if self.haveStack:
             self.stack.update()
             self.stack.processedFrames = self.stack.processedFrames - value
-            self.stack_loaded.emit()
+            self.frames_changed.emit()
 
     def undoFilter(self):
         """Restore processedFrames from lastFrames via stack.undo()."""
         if self.haveStack:
             self.stack.undo()
-            self.stack_loaded.emit()
+            self.frames_changed.emit()
 
     def applyMedianFilter(self, size):
         """Apply median filter with given kernel size (saves undo state first)."""
         if self.haveStack:
             self.stack.medianFilter(size=size)
-            self.stack_loaded.emit()
+            self.frames_changed.emit()
 
     def applyDespike(self, kernel_size, n_sigma):
         """Apply despike with given kernel size and sigma threshold (saves undo state first)."""
         if self.haveStack:
             self.stack.despike(kernel_size=kernel_size, n_sigma=n_sigma)
-            self.stack_loaded.emit()
+            self.frames_changed.emit()
 
-    def applyPCA(self, n_components, n_clusters, reduce_mass_effects, remove_pre_edge):
-        """Run PCA and k-means clustering.  Optionally remove pre-edge background first."""
+    def applyPCA(self, n_components, n_clusters, reduce_mass_effects, remove_pre_edge,
+                 frames=None):
+        """Run PCA and k-means clustering on *frames* (default: the stack's OD).
+
+        Analysis only: the OD dataset is never modified, so this does not emit
+        stack_loaded.  remove_pre_edge subtracts a PCA-filtered pre-edge frame from the
+        PCA input only.
+        """
         if not self.haveStack:
             return
-        if self.stack.odFrames is None:
-            self.stack.calcOD()
+        if frames is None:
+            if self.stack.odFrames is None:
+                self.stack.calcOD()
+            frames = self.stack.odFrames
         pca_offset = 1 if reduce_mass_effects else 0
         if remove_pre_edge:
-            self.stack.removePreEdge()
-        self.stack.calcPCA(nPC=n_components, pcaOffset=pca_offset, nClusters=n_clusters)
-        self.stack.rgbClusterImage = self.stack.rgbClusterMap()
-        self.stack_loaded.emit()
+            # Same background as stack.removePreEdge(), applied to a copy.
+            self.stack.pcaFilterImages(nPC=5, frames=frames)
+            frames = frames - self.stack.filteredImages[0]
+        self.stack.calcPCA(nPC=n_components, pcaOffset=pca_offset, nClusters=n_clusters,
+                           frames=frames)
 
     def applyRGBMap(self, cluster_indices):
-        """Compute the RGB map from the selected cluster spectra (1-based indices)."""
-        if not self.haveStack or not self.stack.clusterSpectra:
+        """Compute the PCA RGB map from the selected PCA cluster spectra (1-based indices).
+
+        Fits the PCA-filtered images of the last PCA run, regardless of any NMF run
+        since; the result is stored on stack.pcaResult.rgbImage.
+        """
+        res = self.stack.pcaResult if self.haveStack else None
+        if res is None or not res.clusterSpectra:
             return
-        spectra = [self.stack.clusterSpectra[i - 1] for i in cluster_indices
-                   if 0 < i <= len(self.stack.clusterSpectra)]
+        spectra = [res.clusterSpectra[i - 1] for i in cluster_indices
+                   if 0 < i <= len(res.clusterSpectra)]
         n = len(spectra)
         if n < 2:
             return
         rgb = [1] * n + [0] * (3 - n)
-        self.stack.rgbMap(spectra, rgb)
-        self.stack_loaded.emit()
+        self.stack.rgbMap(spectra, rgb, frames=res.filteredImages)
+        res.rgbImage = self.stack.rgbImage
 
     def applyRegistration(self, mode, sobel_filter=False, autocrop=True):
         """Run frame registration with the given mode and options."""
