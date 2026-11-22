@@ -1146,22 +1146,33 @@ class Analysis2Widget(QtWidgets.QWidget):
 
         pyqtgraph's AxisItem recomputes its auto-SI-prefix tick scale from the axis's
         *current* range every time enableAutoSIPrefix() is called — even when disabling
-        it — because that recompute only checks the enable-ranges, not the flag itself.
-        Since OD values are typically < 1 and this label has no units, they fall inside
-        pyqtgraph's default no-units SI range (0, 1), so any later call re-enables an
-        effective x1000-ish tick rescale with no annotation in the label to reveal it
-        (that annotation IS gated by the flag, just not the rescale itself). Passing an
-        empty SI-prefix-enable-range makes "OD, no rescale" durable regardless of when or
-        how many times this gets called afterward.
+        it — and the tick values are multiplied by that scale whether the feature is on
+        or off.  Since OD values are typically < 1 and this label has no units, they can
+        land on a x1000-ish rescale with no annotation in the label to reveal it (the
+        annotation IS gated by the flag; the rescale is not).  So disabling is not
+        enough: the scale is pinned to 1 afterwards, and the label redrawn from that.
+        Nothing recomputes it while the feature is off — setRange() and showLabel() both
+        check the flag first — which makes "OD, no rescale" durable.
+
+        setSIPrefixEnableRanges() is a newer AxisItem API that expresses the same thing
+        directly; it is used when present (and the pin still applies either way) because
+        this must not raise on the pyqtgraph the rig has.  It used to be called
+        unguarded: the AttributeError left the Qt slot that calls this — Auto Process
+        finishing, or the OD checkbox toggling — part-done, so the image view kept
+        showing transmission while the checkbox and the spectrum plot said OD.
         """
         axis = pi.getAxis('left')
         if od:
-            pi.setLabel('left', 'Optical Density')
-            axis.setSIPrefixEnableRanges(())
+            if hasattr(axis, 'setSIPrefixEnableRanges'):
+                axis.setSIPrefixEnableRanges(())
             axis.enableAutoSIPrefix(False)
+            axis.autoSIPrefixScale = 1.0
+            axis.labelUnitPrefix = ''
+            pi.setLabel('left', 'Optical Density')
         else:
+            if hasattr(axis, 'setSIPrefixEnableRanges'):
+                axis.setSIPrefixEnableRanges(None)
             pi.setLabel('left', 'Counts')
-            axis.setSIPrefixEnableRanges(None)
             axis.enableAutoSIPrefix(True)
 
     def _a2_get_display_frames(self):
