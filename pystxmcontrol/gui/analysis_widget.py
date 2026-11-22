@@ -7,6 +7,7 @@ import numpy as np
 import qdarktheme
 
 from pystxmcontrol.gui.analysis_widget_UI import Ui_Analysis2Widget
+from pystxmcontrol.gui.stack_files import describe_stack
 from pystxmcontrol.utils.script_recorder import ScriptRecorder, records
 
 
@@ -692,6 +693,9 @@ class Analysis2Widget(QtWidgets.QWidget):
                 lines.append(f"X motor:       {m('x_motor')}")
             if m('y_motor'):
                 lines.append(f"Y motor:       {m('y_motor')}")
+        else:
+            # No NXstxm header (TIFF, HDR, CXI): describe the data itself instead.
+            lines += describe_stack(sv.stack)
 
         self.ui.a2_metadataText.setPlainText("\n".join(lines))
 
@@ -770,7 +774,10 @@ class Analysis2Widget(QtWidgets.QWidget):
             self._a2_scale_bar.hide()
             return
         dx = getattr(sv.stack, 'xpixelsize', None)
-        if not dx:
+        # A stack whose file recorded no pixel size (a bare TIFF) carries a placeholder
+        # so the analysis maths works; a bar drawn from it would be wrong by an unknown
+        # factor, which on an exported figure is worse than no bar.
+        if not dx or not getattr(sv.stack, 'pixelSizeKnown', True):
             self._a2_scale_bar.hide()
             return
         _, _, nx_pts = sv.stack.processedFrames.shape

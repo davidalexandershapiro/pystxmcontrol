@@ -4,6 +4,7 @@ from .stack_mainwindow import Ui_stackViewer
 from pystxmcontrol.utils.general import find_nearest
 from pystxmcontrol.utils.stack import stack
 from pystxmcontrol.utils.image import image
+from pystxmcontrol.gui.stack_files import STACK_FILE_FILTER, describe_stack
 from skimage.io import imsave
 import os
 import numpy as np
@@ -253,11 +254,15 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.clickPoint = False
 
     def getFileName(self):
-        self.stack_file = str(QtWidgets.QFileDialog.getOpenFileName(self, \
-            'Open File', '/')[0])
+        self.stack_file = str(QtWidgets.QFileDialog.getOpenFileName(
+            self, 'Open Stack', '', STACK_FILE_FILTER)[0])
         if self.stack_file != '':
-            try: self.receiveStack(self.stack_file)
-            except IOError:print("No Such File or Directory.")
+            try:
+                self.receiveStack(self.stack_file)
+            except (IOError, ValueError) as e:
+                # A TIFF with no energy list, a mismatched one, an unreadable file: say
+                # which file and why, rather than printing to a console nobody is reading.
+                QtWidgets.QMessageBox.warning(self, "Could not open stack", str(e))
 
     def mapROIspectra(self):
         if self.haveStack:
@@ -556,6 +561,11 @@ class stackViewerWidget(QtWidgets.QWidget):
             return
         nx = getattr(self.stack, 'nx', None)
         if nx is None:
+            # A stack with no NXstxm header (TIFF, HDR, CXI) still has a shape, an
+            # energy axis and a file name worth showing.
+            header = [f"File:          {os.path.basename(self.stack_file or '')}",
+                      "\u2500" * 44]
+            self.metadata_edit.setPlainText("\n".join(header + describe_stack(self.stack)))
             return
         meta = getattr(nx, 'meta', {})
 
@@ -613,10 +623,16 @@ class stackViewerWidget(QtWidgets.QWidget):
         self.ui.verticalSlider.setMaximum(len(self.stack.energies) - 1)
         self.ui.frameEnergy.setText("Energy = %s eV" %str(self.stack.energies[self.ui.verticalSlider.value()]))
         self.ui.fileName.setText(self.stack_file)
-        if ".hdr" in fileName:
-            self.nRegion = self.stack.hdr['nRegions']
-        elif ".stxm" in fileName:
-            self.nRegion = self.stack.nx.nRegions
+        # Region count comes from whichever header the stack loaded, not from the file
+        # extension: a format with no region concept (TIFF, CXI) is a single region.
+        nx = getattr(self.stack, 'nx', None)
+        hdr = getattr(self.stack, 'hdr', None)
+        if nx is not None:
+            self.nRegion = nx.nRegions
+        elif isinstance(hdr, dict):
+            self.nRegion = hdr.get('nRegions', 1)
+        else:
+            self.nRegion = 1
         self.updateMainImage()
         self.updateRegionCombo()
         self._populate_metadata()
@@ -719,9 +735,14 @@ class stackViewerWidget(QtWidgets.QWidget):
                 self.ui.mainImage.removeItem(self.scaleBar)
             if self.ui.toggleOD.isChecked(): color = 'w'
             else: color = 'k'
-            self.scaleBar = scaleBar((self.stack.processedFrames.shape[1::]), \
-                self.stack.scaleBarLength(), self.stack.xpixelsize, color)
-            if self.ui.scaleBox.isChecked(): self.ui.mainImage.addItem(self.scaleBar)
+            # No bar when the file recorded no pixel size: the stack carries a
+            # placeholder so the maths works, and a bar drawn from it would be wrong.
+            if getattr(self.stack, 'pixelSizeKnown', True):
+                self.scaleBar = scaleBar((self.stack.processedFrames.shape[1::]), \
+                    self.stack.scaleBarLength(), self.stack.xpixelsize, color)
+                if self.ui.scaleBox.isChecked(): self.ui.mainImage.addItem(self.scaleBar)
+            else:
+                self.scaleBar = None
             if self.ui.toggleOD.isChecked():
                 self.ui.mainImage.setImage(np.ascontiguousarray(self.stack.odFrames[self.ui.verticalSlider.value()].T))
             else:

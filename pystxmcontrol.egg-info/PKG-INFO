@@ -28,6 +28,7 @@ Requires-Dist: pylibftdi
 Requires-Dist: pyvisa-py
 Requires-Dist: scipy
 Requires-Dist: scikit-image
+Requires-Dist: tifffile
 Requires-Dist: pyqtdarktheme
 Requires-Dist: pyepics
 Requires-Dist: pyserial

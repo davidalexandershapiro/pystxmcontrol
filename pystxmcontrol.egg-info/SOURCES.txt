@@ -148,6 +148,7 @@ pystxmcontrol/gui/motor_panel.py
 pystxmcontrol/gui/regionDef_UI.py
 pystxmcontrol/gui/scanDef.py
 pystxmcontrol/gui/splash.py
+pystxmcontrol/gui/stack_files.py
 pystxmcontrol/gui/stack_mainwindow.py
 pystxmcontrol/gui/stackviewerwidget.py
 pystxmcontrol/gui/controllers/__init__.py
@@ -208,6 +209,7 @@ pystxmcontrol/utils/script_recorder.py
 pystxmcontrol/utils/stack.py
 pystxmcontrol/utils/test_sample.py
 pystxmcontrol/utils/thumbnail_cache.py
+pystxmcontrol/utils/tiff_stack.py
 pystxmcontrol/utils/writeNX.py
 pystxmcontrol/utils/data/material_A.csv
 pystxmcontrol/utils/data/material_B.csv
@@ -225,5 +227,6 @@ tests/test_scan_stats.py
 tests/test_scripter.py
 tests/test_server.py
 tests/test_staff_auth.py
+tests/test_tiff_stack.py
 tests/test_tilt_series.py
 tests/test_utilities.py

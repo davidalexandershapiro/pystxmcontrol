@@ -5,6 +5,7 @@ pylibftdi
 pyvisa-py
 scipy
 scikit-image
+tifffile
 pyqtdarktheme
 pyepics
 pyserial

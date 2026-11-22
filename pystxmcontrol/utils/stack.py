@@ -18,7 +18,12 @@ from skimage.io import imsave
 import scipy.misc
 import matplotlib.pyplot as plt
 from pystxmcontrol.utils.general import find_nearest
+from pystxmcontrol.utils.tiff_stack import is_tiff_stack, read_tiff_stack
 from sklearn.decomposition import NMF
+
+
+# Placeholder µm/px for a stack whose file records no pixel size; see openTIFF.
+_UNKNOWN_PIXEL_UM = 1.0
 
 
 def _masked_ncc(dst_image, src_image, dst_mask, src_mask):
@@ -142,6 +147,10 @@ class stack():
         self.normalizationChannels = ['PhotoDiode','LeftSlit']
         self.rMap = None
         self.nC = 1.6
+        # False when the file records no pixel size (a bare TIFF), so the GUI can leave
+        # the scale bar off rather than draw one from the placeholder below.
+        self.pixelSizeKnown = True
+        self.energyFile = None         # sidecar energy list, for formats that need one
         self.fileName = fileName
         if fileName != None:
             if '.hdr' in fileName:
@@ -154,6 +163,9 @@ class stack():
                 self.cxiFile = fileName
                 self.hdrFile = self.cxiFile.replace('.cxi','.hdr')
                 self.openCXI()
+            elif is_tiff_stack(fileName):
+                self.tiffFile = fileName
+                self.openTIFF()
 
     def scaleBarLength(self, pixels = True):
         """
@@ -623,6 +635,37 @@ class stack():
         for im in self.rawFrames:
             print(im.data.shape)
 
+    def openTIFF(self):
+        """
+        Load a multi-page TIFF and the sidecar text file of the same name holding one
+        photon energy per line — the MANTiS export format.  One region, one detector:
+        the pair carries frames and energies and nothing else.
+
+        Neither file need record a pixel size.  When none is found the frames are given
+        a 1 µm placeholder, because reset() and the registration/crop paths divide by
+        it, and pixelSizeKnown is cleared so the GUI shows no scale bar rather than a
+        wrong one.
+        :return:
+        """
+        data = read_tiff_stack(self.tiffFile)
+        self.pixelSizeKnown = data.pixel_size_um is not None
+        pixelsize = data.pixel_size_um if self.pixelSizeKnown else _UNKNOWN_PIXEL_UM
+        self.energyFile = data.energy_file
+        self.energies = data.energies
+        self.rawFrames = []
+        for i in range(len(data.energies)):
+            im = image(data = data.frames[i])
+            im.energy = data.energies[i]
+            im.xpixelsize = pixelsize
+            im.ypixelsize = pixelsize
+            im.nypixels, im.nxpixels = im.data.shape
+            self.rawFrames.append(im)
+        self.xpixelsize = im.xpixelsize
+        self.ypixelsize = im.ypixelsize
+        self.reset()
+        self.shape = self.processedFrames.shape
+        self.hdr = {'nRegions':1}
+
     def alignFrames(self, sobelFilter = False, mode = 'manualtranslation', mask = False, threshold = 0., autocrop = True, progress_callback=None):
         """
         This is the top level call for aligning processedFrames.  It applies a sobel filter by default prior
@@ -1068,7 +1111,11 @@ class stack():
         # if replaceZeros == 'one':
         #     self.processedFrames[self.processedFrames == 0.] = 1.
         od = -np.log(self.processedFrames / self.I0)
-        od[np.isinf(od)] = 0.
+        # NaN as well as inf: registration interpolates frames with near-zero pixels
+        # into slightly NEGATIVE ones, whose log is NaN, and a NaN survives into
+        # sklearn's PCA/NMF as a hard failure. computeODFromSpectrum already scrubs
+        # both; this is the same intent as the isinf line it replaces.
+        od[~np.isfinite(od)] = 0.
         self._setOD(od)
         self.gotOD = True
         self.preEdgeFrame = self.odFrames[0].copy()
