@@ -268,9 +268,12 @@ class MainWindowDashboard(QMainWindow):
     _HIGHLIGHT_FLASH_MS = 1600
     _scan_groups_lit = None           # group keys currently highlighted
 
-    # Supported scan drivers.  Other scan types (spiral, tomography) report
-    # "not yet supported" until their panels are wired.
-    _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_ptychography_image",
+    # Supported scan drivers.  Other scan types (tomography) report
+    # "not yet supported" until their panels are wired.  derived_spiral_image
+    # (mode continuousSpiral) uses the same region/energy definition and the
+    # same 2-D image data as linear_image, so it rides the Image path.
+    _SUPPORTED_SCAN_DRIVERS = {"linear_image", "derived_spiral_image",
+                               "derived_ptychography_image",
                                "linear_focus", "linear_spectrum",
                                "single_motor_scan", "double_motor_scan",
                                "XRF_double_motor_scan", "osa_focus_scan"}
@@ -2315,6 +2318,7 @@ class MainWindowDashboard(QMainWindow):
             sm.set('comment', 'preview' if preview else user_comment)
             sm.set('driver', driver)
             sm.set('mode', sc.get('mode', 'continuousLine'))
+            sm.set('spiral', sc.get('mode') == 'continuousSpiral')
             self._compile_loop_scan(sm, preview=preview)
             sm.set('daq_list', resolve_daq_list(getattr(client, 'daqConfig', {}), sc))
 
@@ -2605,9 +2609,12 @@ class MainWindowDashboard(QMainWindow):
             print(f"[dashboard] could not display last scan: {e}")
 
     # Only these drivers produce a plain 2-D raster that maps cleanly onto the
-    # Acquisition view's image + spatial/energy region fields.  Focus/line/spiral/
-    # ptychography files have other geometries and are refused by Load scan.
-    _LOADABLE_DRIVERS = ("linear_image", "double_motor_scan")
+    # Acquisition view's image + spatial/energy region fields (Image and Spiral
+    # Image share that geometry; Ptychography Image files carry an STXM image
+    # derived from the diffraction data, with the CCD frames kept separately).
+    # Focus/line files have other geometries and are refused by Load scan.
+    _LOADABLE_DRIVERS = ("linear_image", "derived_spiral_image",
+                         "derived_ptychography_image", "double_motor_scan")
 
     def _on_load_scan(self):
         """Load scan button: pick a ``.stxm`` file and, if its driver is loadable,
